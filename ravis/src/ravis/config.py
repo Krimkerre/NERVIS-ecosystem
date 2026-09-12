@@ -290,6 +290,17 @@ class Settings(BaseSettings):
     # nobody notices the outage outlived the cause. The half-open probe means
     # this is a *maximum* delay before recovery is retested, not a fixed wait.
     breaker_cooldown_seconds: float = 30.0
+    # How long a model that refused tools is kept away from requests that carry
+    # tools. Requests without tools keep using it the whole time.
+    #
+    # Half an hour, not the breaker's thirty seconds, because a refusal comes
+    # from the model's template or the endpoint serving it and does not heal the
+    # way an overload does. Long enough to cover a whole Clarvis task — up to 25
+    # requests — at the cost of one refused call; short enough that a model an
+    # operator reloads or fixes is back within the same sitting. Kept in memory
+    # like the breakers: a restart forgets it, and the worst that costs is one
+    # refusal, which now falls back to the next model anyway.
+    tool_refusal_suppression_seconds: float = 1800.0
     # §10's retry budget. Three attempts is the primary plus §10's two
     # fallbacks, so the chain length and the attempt ceiling agree rather than
     # one silently truncating the other.

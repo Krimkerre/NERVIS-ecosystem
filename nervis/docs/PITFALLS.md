@@ -409,6 +409,14 @@ Since this list was written, fourteen of them became automated:
   refused message, and one bad moment made a conversation unexportable for
   good. Listed in `tools/dashboard_gates.txt`, so the pre-commit hook and
   `check_clean_clone.sh` run it.
+- **`node tools/ravis_diagnostics_check.js`** renders RAVIS → Diagnostics against a
+  recorded `/api/v1/health` and fails unless every model RAVIS is resting from tool
+  requests gets a row — its name, that it still serves requests without tools,
+  RAVIS's reason and the minutes left — and unless nothing is drawn for an empty list
+  or for a RAVIS old enough not to send the field. It then presses Lift and requires
+  the request to go through NERVIS's proxy with the control header and the model id's
+  slashes intact, the rows to be redrawn from the list RAVIS answered with, and a 403
+  to say the admin key is the problem. Listed in `tools/dashboard_gates.txt`.
 - **`node tools/empty_world_check.js`** renders all 36 screens against services
   that are **up and hold nothing** — the fresh-install world, which is neither
   of the two the other checks cover. Six screens threw in it. **Runs in CI.**
@@ -491,6 +499,7 @@ node tools/injection_check.js                       # provider data cannot write
 node tools/picture_check.js                         # a drawn picture renders; nothing else does
 node tools/editor_check.js                          # no frame for an editor that is not there
 node tools/export_check.js                          # an export never writes half a conversation
+node tools/ravis_diagnostics_check.js               # a resting model gets a row, and Lift ends it
 node tools/routing_check.js                         # every screen is addressable
 node tools/outcome_check.js                         # a refusal is not an outage
 node tools/stream_check.js                          # the stream resumes and refuses correctly

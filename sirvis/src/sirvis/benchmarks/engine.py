@@ -399,7 +399,12 @@ async def run_experiment(
     an exception loses the diagnosis with the result.
     """
     sampler = probe or MemoryProbe()
-    telemetry = [sampler.sample(BASELINE)]
+    # Every memory and thermal reading in a run goes to a worker thread. Each is a
+    # blocking subprocess (`vm_stat`, `sysctl`, `osascript` for thermal state,
+    # with a ten-second timeout), and the queue runs benchmarks on the service's
+    # event loop — so on the loop, SIRVIS went quiet for every one of them. The
+    # reading itself is unchanged: a sample is stamped when it comes back.
+    telemetry = [await asyncio.to_thread(sampler.sample, BASELINE)]
     inventory = await _inventory(runtime)
     build = _resolve(inventory, spec.model_key)
     # **Attempted here and enforced after the load.** A cold machine has nothing
@@ -410,11 +415,19 @@ async def run_experiment(
     # answered yet. The real gate is in `_measure_model`, with the model
     # resident; this pass takes the answer when a warm runtime can already give
     # one, so the identity is right from the start of the record.
-    build["variant"] = _confirmed_variant(
-        runtime, build["variant"], spec.model_key, required=False
+    #
+    # On a worker thread, as at the gate after the load: confirming asks `lms
+    # ps`, a blocking subprocess, and the queue runs benchmarks on the service's
+    # event loop — so on the loop, every request to SIRVIS waited behind it.
+    build["variant"] = await asyncio.to_thread(
+        _confirmed_variant, runtime, build["variant"], spec.model_key, required=False
     )
 
-    machine = record_snapshot(database, snapshot or detect_system())
+    # Detection runs blocking probes (`sysctl`, `ioreg`, `pmset`), so it goes to
+    # a worker thread for the same reason, when no snapshot was handed in.
+    machine = record_snapshot(
+        database, snapshot if snapshot is not None else await asyncio.to_thread(detect_system)
+    )
     experiment_id = create_experiment(
         database, spec.as_dict(), suite_id=spec.suite_id,
         suite_version=spec.suite_version, environment_mode=spec.environment_mode,
@@ -653,7 +666,7 @@ async def _execute(
                 f"{spec.model_key} was already resident, so no load time was measured — "
                 "a warm acquire says nothing about how long this model takes to load",
             ))
-        outcome.telemetry.append(sampler.sample(AFTER_LOAD))
+        outcome.telemetry.append(await asyncio.to_thread(sampler.sample, AFTER_LOAD))
         directory.append_log(
             f"acquired {spec.model_key} (session {lease.session_id}, "
             f"{'warm' if was_warm else f'loaded in {load_seconds:.2f}s'})"
@@ -663,16 +676,17 @@ async def _execute(
         # format and quantization part of evidence identity, and this is the
         # first moment the runtime can say which build is answering. Raising
         # here rather than before the load costs one load on a machine that
-        # cannot confirm — and saves every run on a machine that can.
-        outcome.confirmed_variant = _confirmed_variant(
-            runtime, None, spec.model_key, required=True
+        # cannot confirm — and saves every run on a machine that can. On a worker
+        # thread, because `lms ps` blocks and this runs on the service's loop.
+        outcome.confirmed_variant = await asyncio.to_thread(
+            _confirmed_variant, runtime, None, spec.model_key, required=True
         )
 
         resident = await runtime.list_loaded_models()
         outcome.effective_configuration = _effective_configuration(spec, resident)
         outcome.warnings.extend(_configuration_warnings(spec, resident))
 
-        outcome.thermal_before = thermal()
+        outcome.thermal_before = await asyncio.to_thread(thermal)
         stopped = False
         for test in spec.tests:
             # **Between tests, not mid-inference.** A cancel that killed the
@@ -708,13 +722,13 @@ async def _execute(
         if spec.tool_trials and not stopped:
             await _run_tool_trials(spec, runtime, directory, outcome, should_stop)
     finally:
-        outcome.thermal_after = thermal()
-        outcome.telemetry.append(sampler.sample(POST_RUN))
+        outcome.thermal_after = await asyncio.to_thread(thermal)
+        outcome.telemetry.append(await asyncio.to_thread(sampler.sample, POST_RUN))
         # §11.2: unload if owned. `release` unloads only what nobody else holds,
         # which is the whole reason the manager exists — a model RAVIS is also
         # using stays where it is.
         await resources.release(lease.session_id)
-        outcome.telemetry.append(sampler.sample(POST_UNLOAD))
+        outcome.telemetry.append(await asyncio.to_thread(sampler.sample, POST_UNLOAD))
 
     if load_seconds is not None:
         outcome.repetitions.append(
@@ -885,7 +899,7 @@ async def _measure(
     time-to-first-token is what a *user* waits, and the connection and prompt
     processing are part of that wait whether or not they are the model's fault.
     """
-    outcome.telemetry.append(sampler.sample(BEFORE_GENERATION))
+    outcome.telemetry.append(await asyncio.to_thread(sampler.sample, BEFORE_GENERATION))
     started = clock()
     # **A ceiling on this one read.** The runtime's HTTP timeout bounds the gap
     # between chunks, so a stream that dribbles a token a second runs forever

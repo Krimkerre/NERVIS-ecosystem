@@ -149,7 +149,8 @@ DECLARED: dict[str, Capability] = {
     "ravis.management@1": Capability(
         version="1.0.0",
         state=DEGRADED,
-        reason="reads shipped at M18a; provider, credential and pool writes need "
+        reason="reads shipped at M18a; provider, credential and pool writes, and "
+        "lifting a tool-refusal suppression early, need "
         "an admin. credential, are audited to the hub and return their "
         "post-state, and a pool's membership write honours If-Match (M18b). "
         "Still degraded: §15.1's Idempotency-Key is not accepted, and its "
@@ -159,7 +160,8 @@ DECLARED: dict[str, Capability] = {
     "ravis.events@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
-        reason="route selected, refused and completed, published to NERVIS's hub "
+        reason="route selected, refused and completed, and a model suppressed "
+        "for tool requests after refusing tools, published to NERVIS's hub "
         "under the request's trace_id (M18b)",
     ),
     # Degraded rather than available: real and working, but scoped to one

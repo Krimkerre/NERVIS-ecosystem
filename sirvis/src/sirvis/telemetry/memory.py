@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 import re
 import subprocess
 import time
@@ -230,11 +231,44 @@ class MemoryWatcher:
         return min(known) if known else None
 
     async def _poll(self) -> None:
+        """Sample on a fixed schedule, each reading on a worker thread.
+
+        **Off the event loop, since 13 September 2026.** `vm_stat` is a blocking
+        subprocess, four times a second for as long as a generation runs, and on
+        the loop SIRVIS answered nothing while each one ran — the dashboard and
+        menu bar could see it go quiet mid-benchmark. The thread changes nothing
+        about the reading: `MemoryProbe.sample` still stamps `captured_at` when
+        the reading comes back, on whichever thread took it.
+
+        **A tick a slow reading overran is skipped, not queued.** Readings run
+        one at a time. When one takes longer than the interval, the next starts
+        at the first tick still ahead (`_next_tick`) rather than at once to catch
+        up, so a slow `vm_stat` yields fewer samples, never a burst of late ones
+        stamped close together.
+        """
+        loop = asyncio.get_running_loop()
+        due = loop.time()
         while True:
             # Sampled before the first sleep so a generation shorter than one
             # interval still produces a reading rather than an empty list.
-            self.samples.append(self._probe.sample(self._point, include_swap=False))
-            await asyncio.sleep(self._interval)
+            self.samples.append(
+                await asyncio.to_thread(self._probe.sample, self._point, include_swap=False)
+            )
+            due = _next_tick(due, self._interval, loop.time())
+            await asyncio.sleep(due - loop.time())
+
+
+def _next_tick(due: float, interval: float, now: float) -> float:
+    """The next tick of the schedule that is not already past at `now`.
+
+    Every tick a slow reading overran is skipped. Returning one in the past
+    would start the next reading at once, and the one after it, until the
+    schedule had caught up — a queue of late readings in all but name.
+    """
+    due += interval
+    if due < now:
+        due += math.ceil((now - due) / interval) * interval
+    return due
 
 
 def _vm_stat_pages(output: str) -> dict[str, int]:

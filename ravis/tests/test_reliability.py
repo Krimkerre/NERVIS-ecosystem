@@ -15,6 +15,7 @@ import json
 import httpx
 import pytest
 
+from ravis.core.capabilities import Capability
 from ravis.reliability import (
     AttemptChain,
     BreakerState,
@@ -26,6 +27,7 @@ from ravis.reliability import (
     classify_exception,
     classify_response,
 )
+from ravis.reliability.attempts import without_credentials
 
 
 class FakeClock:
@@ -700,3 +702,183 @@ def test_the_body_still_speaks_where_the_status_is_coarse() -> None:
     refusal = json.dumps({"error": {"message": "content_filter triggered"}}).encode()
 
     assert classify_response(400, refusal) is FailureClass.CONTENT_REFUSAL
+
+
+# ── Tool refusals: the next model answers, the refuser rests from tool requests ─
+
+
+def _tool_chain(health: HealthRegistry, carries_tools: bool) -> AttemptChain:
+    chain = AttemptChain(health=health, provider="upstream", from_pool=True,
+                         carries_tools=carries_tools)
+    chain.load("primary", ["second"])
+    return chain
+
+
+def test_a_tool_refusal_may_fall_back_but_opens_no_circuit() -> None:
+    """A model refusing tools is evidence about that model, so the next one is
+    tried. Still no circuit: a MODEL circuit has no capability in its key and
+    would take the model out of plain chat too (runbook §2.1)."""
+    clock = FakeClock()
+    health = HealthRegistry(failure_threshold=1, cooldown_seconds=60.0, clock=clock)
+
+    for _ in range(3):
+        health.record(FailureClass.TOOL_INCOMPATIBILITY, "model-a", "upstream", clock())
+
+    policy = FailureClass.TOOL_INCOMPATIBILITY.policy
+    assert (policy.retry_same_target, policy.may_fall_back, policy.scope) == (
+        False, True, HealthScope.NONE
+    )
+    assert health.allows(HealthScope.MODEL, "model-a")
+    assert health.of(HealthScope.MODEL, "model-a").failures_by_class == {
+        "tool_incompatibility": 3
+    }
+
+
+def test_a_tool_refusal_moves_on_and_keeps_the_refuser_from_tool_requests() -> None:
+    clock = FakeClock()
+    health = HealthRegistry(clock=clock)
+    chain = _tool_chain(health, carries_tools=True)
+
+    assert chain.next_target() == "primary"
+    chain.failed("primary", clock(), FailureClass.TOOL_INCOMPATIBILITY,
+                 "HTTP 400: this model does not support tools")
+
+    assert chain.next_target() == "second"
+    assert chain.suppressed == ["primary"]
+    assert set(health.suppressed(["primary", "second"], Capability.TOOLS)) == {"primary"}
+
+
+def test_a_chain_whose_request_carried_no_tools_arms_no_suppression() -> None:
+    """A refusal "about tools" on a request that sent none is a misreading of the
+    upstream's words. The fallback may still happen; the memory may not."""
+    clock = FakeClock()
+    health = HealthRegistry(clock=clock)
+    chain = _tool_chain(health, carries_tools=False)
+
+    assert chain.next_target() == "primary"
+    chain.failed("primary", clock(), FailureClass.TOOL_INCOMPATIBILITY,
+                 "HTTP 400: this model does not support tools")
+
+    assert chain.next_target() == "second"
+    assert chain.suppressed == []
+    assert health.suppressions() == []
+
+
+def test_a_suppression_lifts_after_its_window() -> None:
+    clock = FakeClock()
+    health = HealthRegistry(clock=clock, suppression_seconds=1800.0)
+    health.suppress("model-a", "upstream", Capability.TOOLS, "does not support tools")
+
+    clock.advance(1799.0)
+    assert set(health.suppressed(["model-a", "model-b"], Capability.TOOLS)) == {"model-a"}
+    clock.advance(1.0)
+    assert health.suppressed(["model-a"], Capability.TOOLS) == {}
+    assert health.suppressions() == []
+
+
+def test_a_tool_suppression_leaves_the_circuit_and_other_capabilities_alone() -> None:
+    health = HealthRegistry(clock=FakeClock())
+    health.suppress("model-a", "upstream", Capability.TOOLS, "does not support tools")
+
+    assert health.allows(HealthScope.MODEL, "model-a")
+    assert health.unavailable(["model-a"], "upstream") == {}
+    assert health.suppressed(["model-a"], Capability.VISION) == {}
+
+
+def test_asking_about_suppressions_creates_nothing() -> None:
+    """The query/command split `allows` keeps (runbook §14.2)."""
+    health = HealthRegistry(clock=FakeClock())
+
+    assert health.suppressed(["model-a"], Capability.TOOLS) == {}
+    assert health.suppression("model-a", Capability.TOOLS) is None
+    assert health.suppressions() == []
+    assert health.snapshot() == []
+
+
+def test_a_repeat_refusal_restarts_the_window_but_is_not_new() -> None:
+    clock = FakeClock()
+    health = HealthRegistry(clock=clock, suppression_seconds=1800.0)
+
+    assert health.suppress("model-a", "upstream", Capability.TOOLS, "first") is True
+    clock.advance(1000.0)
+    assert health.suppress("model-a", "upstream", Capability.TOOLS, "again") is False
+
+    held = health.suppression("model-a", Capability.TOOLS)
+    assert held is not None
+    assert (held["reason"], held["lifts_in_seconds"]) == ("again", 1800)
+
+
+def test_lifting_ends_a_suppression_and_says_whether_one_was_active() -> None:
+    health = HealthRegistry(clock=FakeClock())
+    health.suppress("model-a", "upstream", Capability.TOOLS, "does not support tools")
+
+    assert health.lift("model-a", Capability.TOOLS) is True
+    assert health.lift("model-a", Capability.TOOLS) is False
+    assert health.suppressed(["model-a"], Capability.TOOLS) == {}
+
+
+def test_the_explanation_says_what_was_refused_and_when_it_lifts() -> None:
+    clock = FakeClock()
+    health = HealthRegistry(clock=clock, suppression_seconds=1800.0)
+    health.suppress("model-a", "upstream", Capability.TOOLS, "HTTP 400: does not support tools")
+    clock.advance(125.0)
+
+    said = health.suppressed(["model-a"], Capability.TOOLS)["model-a"]
+
+    assert "HTTP 400: does not support tools" in said
+    assert "resume in 28 min" in said
+    assert "without tools still use it" in said
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Invalid schema for function 'lookup': 'parameters' must be an object",
+        "Invalid 'tools[0].function.name': string does not match pattern.",
+    ],
+)
+def test_a_malformed_tool_schema_is_an_invalid_request_not_a_tool_refusal(
+    message: str,
+) -> None:
+    """A request that is simply wrong fails the same way everywhere, and must not
+    cost a good model its place in tool routing for half an hour."""
+    body = json.dumps({"error": {"message": message}}).encode()
+
+    assert classify_response(400, body) is FailureClass.INVALID_REQUEST
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",
+        "sk-or-v1-" + "0123456789abcdef" * 4,
+        "sk-ant-api03-abcdefghijklmnop-QRSTUVWXYZ012345",
+        "AIzaSyA1234567890abcdefghijklmnopqrstu",
+        "gsk_abcdefghijklmnopqrstuvwxyz0123456789",
+        "0123456789abcdef" * 2,
+    ],
+)
+def test_an_attempt_detail_never_carries_a_credential(secret: str) -> None:
+    """The detail now carries the upstream's own sentence, and an upstream refusing
+    a key may quote it back. That text reaches the management API, the event hub
+    and the log, and none of those may receive a key."""
+    clock = FakeClock()
+    chain = _chain(clock)
+    chain.load("primary", [])
+    assert chain.next_target() == "primary"
+    chain.failed(
+        "primary", clock(), FailureClass.AUTHENTICATION,
+        f"HTTP 401: Incorrect API key provided: {secret}. Authorization: Bearer {secret}",
+    )
+
+    recorded = json.dumps(chain.summary()) + chain.exhausted_message()
+
+    assert secret not in recorded
+    assert "[redacted]" in recorded
+
+
+def test_redaction_leaves_a_long_model_name_readable() -> None:
+    """A detail usually names a model, and a model id can be as long as a key."""
+    detail = "HTTP 400: deepseek-r1-distill-llama-70b-instruct-gguf does not support tools"
+
+    assert without_credentials(detail) == detail

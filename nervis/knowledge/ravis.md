@@ -19,11 +19,22 @@ outvoted by a good score — the candidate is never in the running.
 
 **2. Health.** A model or provider whose circuit breaker is open is excluded
 with its reason. Model-scoped and provider-scoped are separate, so one dead
-model does not take its provider's other models with it.
+model does not take its provider's other models with it. Since 12 September
+2026 there is a third, narrower kind of rest: a model that refused a real tool
+call is skipped for requests that carry tools for 30 minutes, and keeps
+answering requests without tools — so Clarvis's chat still reaches it while its
+agent moves on. The request it refused goes to the pool's next tool-capable
+model. If every tool-capable model in a pool is resting, RAVIS answers "try
+again later" (503) rather than "this pool cannot use tools", because Clarvis
+would remember the second for the whole session. RAVIS → Diagnostics lists
+resting models, and an admin can lift one early.
 
 
-**3. Ranking, in this order.** Session affinity first — a conversation stays on
-one model for consistency and prompt caching. Then whether the request would pay
+**3. Ranking, in this order.** When the caller's privacy level is "prefer this
+machine" (`LOCAL_PREFERRED`), whether a model is local comes before everything
+else. Then, for Clarvis's one-token tool check only, whether a model answers
+without loading. Then session affinity — a conversation stays on one model for
+consistency and prompt caching. Then whether the request would pay
 a model load, when RAVIS has measured that this caller's sessions are short.
 Then reseller preference. Then cost, placement, the pool's declared preference,
 and reach. Size is consulted last and only for pools that declared a preference,

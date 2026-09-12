@@ -132,7 +132,17 @@ _POLICIES: dict[FailureClass, FailurePolicy] = {
     # The request itself is the problem. It will fail the same way everywhere,
     # and a fallback would only spend a second model's time to say so again.
     FailureClass.INVALID_REQUEST: FailurePolicy(False, False, HealthScope.NONE),
-    FailureClass.TOOL_INCOMPATIBILITY: FailurePolicy(False, False, HealthScope.NONE),
+    # A model refusing tools is a fact about that model, not about the request.
+    # It used to sit with INVALID_REQUEST above and stop the chain, but every
+    # candidate the router offers a tools-bearing request is tool-capable by
+    # construction, so the pool's next model very likely answers. Not retried
+    # against the same target — it would refuse again — and no circuit: a MODEL
+    # circuit has no capability in its key and would take the model out of
+    # plain chat too, which runbook §2.1 forbids. What stops the router
+    # re-picking the refuser on every request is a separate, time-boxed
+    # (model, tools) suppression — armed by `AttemptChain.failed`, applied at
+    # routing, and kept in `HealthRegistry` beside the breakers.
+    FailureClass.TOOL_INCOMPATIBILITY: FailurePolicy(False, True, HealthScope.NONE),
     # One model's objection to a parameter is evidence about that model only, so
     # another candidate is worth trying. Not retried against the same target —
     # it would object again — and no circuit: the same model serves requests

@@ -313,7 +313,26 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.7
+## NERVIS — 0.28.8
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The launcher can no longer stop something that is not the stack's.** It recognised RAVIS by the
+  word `ravis`, which every program run from RAVIS's environment carries, so a recycled process number
+  could have been signalled; each service is now recognised by its own serve command, and a record
+  with nothing to recognise it by is left alone. Old PID files still stop the running stack.
+- **Starting over a service that is running but not answering no longer orphans it.** The launcher
+  waits the usual start-up time, then names the service and its process, keeps it where `stop` can
+  reach it, and launches no second copy.
+- **SIRVIS gets twelve seconds to stop before it is forced**, since it now unloads its models on the
+  way out; the other services keep six.
+- The launcher's start and stop have automated tests for the first time.
+- **RAVIS → Diagnostics shows models resting from tool requests** — which model, RAVIS's reason, and
+  when tool requests resume — with a Lift button that ends a rest early once the cause is fixed. NERVIS
+  forwards the lift through a new control-token-protected route, with RAVIS's admin key; a model id
+  holding `..` or an empty part is refused before it is sent.
+
+### 0.28.7
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -800,7 +819,23 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.4
+## RAVIS — 0.23.5
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **When a model refuses to use tools, RAVIS hands the request to the pool's next tool-capable model
+  instead of failing.** The model that refused is skipped for requests carrying tools for 30 minutes
+  (`RAVIS_TOOL_REFUSAL_SUPPRESSION_SECONDS`) and keeps answering requests without tools, so a chat pool
+  still reaches it. If every tool-capable model in a pool is resting, RAVIS answers "try again later"
+  (503) rather than "this pool cannot use tools", which Clarvis would remember for the session.
+- **Resting models are visible and can be lifted.** `GET /api/v1/health` lists them under
+  `capability_suppressions` with the reason and when they return; `POST
+  /api/v1/health/suppressions/{model}/lift` ends a rest early (admin, audited). A new rest is published
+  as the event `ravis.capability.suppressed`.
+- **A failed attempt keeps the upstream's own reason** in the route decision after a fallback
+  succeeds, with anything shaped like a credential stripped from it.
+
+### 0.23.4
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
@@ -1005,7 +1040,20 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.2
+## SIRVIS — 0.19.3
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
+
+- **Stopping SIRVIS frees the memory its models were using.** When it stops it releases every session and
+  unloads every model it loaded — for the menu bar app, the dashboard, RAVIS or a benchmark — and leaves a
+  model loaded by hand in LM Studio alone. The whole stop fits inside the launcher's twelve-second wait:
+  one second for requests still running, six for the unloads, which run at once so one that hangs does not
+  hold up the rest, and three for events. Its log names each release and anything that may still be loaded.
+- **SIRVIS keeps answering while a model loads or a benchmark runs.** Loading a model, listing LM Studio's
+  models and the machine readings taken during a benchmark all held SIRVIS up for as long as they took, so
+  the dashboard and menu bar could show it down mid-load. They run off to the side now.
+
+### 0.19.2
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
 

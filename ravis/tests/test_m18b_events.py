@@ -303,3 +303,32 @@ def test_the_capability_says_it_publishes() -> None:
     # `wire_identifier` splits them, so the declared key and the wire id differ.
     states = {c["id"]: c["state"] for c in body["capabilities"]}
     assert states["ravis.events"] == "available"
+
+
+def test_a_new_suppression_is_published_once() -> None:
+    """One event when a model starts resting from tool requests — not one per
+    refusal, and not one per request routed around it afterwards."""
+    refusing = ScriptedUpstream(
+        TWO_CODERS,
+        refuse={"coder-a": (400, {"error": {"message": "this model does not support tools"}})},
+    )
+    client = a_client()
+    client.app.app.state.upstream_client = httpx.AsyncClient(  # type: ignore[attr-defined]
+        transport=refusing.transport()
+    )
+    tool = {"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}
+    with client:
+        for _ in range(2):
+            client.post(
+                "/v1/chat/completions",
+                json={"model": "ravis/clarvis-agent", "tools": [tool],
+                      "messages": [{"role": "user", "content": "hi"}]},
+                headers={"traceparent": f"00-{TRACE}-{'b' * 16}-01"},
+            )
+        events = [e for e in queued(client) if e["event_type"] == "ravis.capability.suppressed"]
+
+    assert refusing.served == ["coder-a", "coder-b", "coder-b"]
+    assert len(events) == 1
+    assert events[0]["severity"] == "warning"
+    assert events[0]["trace_id"] == TRACE
+    assert (events[0]["data"]["model"], events[0]["data"]["capability"]) == ("coder-a", "tools")

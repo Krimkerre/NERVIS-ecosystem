@@ -157,6 +157,45 @@ async def read_health(request: Request) -> dict[str, Any]:
         # missing key: nothing has been observed yet, which is different from
         # nothing being wrong (runbook §14.4).
         "targets": registry.snapshot(),
+        # Models kept away from requests that carry tools because they refused
+        # tools recently — and when each lifts. Empty for the same honest reason
+        # `targets` can be. A suppressed model still serves plain requests, so
+        # this is not a list of broken models and must not be read as one.
+        "capability_suppressions": registry.suppressions(),
+    }
+
+
+@router.post("/health/suppressions/{model:path}/lift")
+async def lift_suppression(model: str, request: Request) -> Any:
+    """End a tool-refusal suppression before its window runs out.
+
+    For the case the window cannot see: an operator has fixed the reason a model
+    refused tools — reloaded it with a template that supports them, say — and
+    does not want to wait half an hour for RAVIS to try it again. RAVIS has no
+    circuit reset to model this on; the nearest analogue is NERVIS's own
+    `POST /api/v1/supervision/{service}/circuit/clear`.
+
+    `{model:path}` because model ids carry slashes (`qwen/qwen3-1.7b`). Guarded
+    and audited exactly as `set_pool_members` is: it changes how every client's
+    requests are routed, which is configuration, not reading.
+
+    **Answers with the post-state rather than refusing a no-op.** Lifting a
+    model that is not suppressed leaves the state the caller asked for, so it is
+    a 200 with `was_suppressed: false`, and it is audited all the same — the
+    audit trail records what an operator did, not only what it changed.
+    """
+    refusal = _may_write(request)
+    if refusal is not None:
+        return _refused(request, refusal)
+    registry: HealthRegistry = request.app.state.health
+    lifted = registry.lift(model, Capability.TOOLS)
+    audit.record(request, audit.ACTION_SUPPRESSION_LIFTED, model=model,
+                 capability=Capability.TOOLS.value, was_suppressed=lifted)
+    return {
+        "model": model,
+        "capability": Capability.TOOLS.value,
+        "was_suppressed": lifted,
+        "capability_suppressions": registry.suppressions(),
     }
 
 

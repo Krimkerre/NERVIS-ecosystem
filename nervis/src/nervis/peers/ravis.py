@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Mapping
+from urllib.parse import quote
 
 import httpx
 
@@ -227,6 +228,24 @@ def relayable(path: str) -> bool:
         and "\\" not in path
         and all(segment not in ("", ".", "..") for segment in path.split("/"))
     )
+
+
+def suppression_lift_path(model: str) -> str | None:
+    """The RAVIS path that lifts one tool-refusal suppression, or None for a model id
+    NERVIS will not forward.
+
+    **The slashes stay.** Model ids carry them (`qwen/qwen3-1.7b`) and RAVIS routes the
+    id as a path, so the separators travel as they are and everything else that could
+    end the path early — a `?`, a `#`, a space — is percent-encoded. A segment that is
+    empty or climbs (`..`) is refused outright, by the rule `relayable` applies to reads,
+    because this path is spliced after RAVIS's base URL with NERVIS's admin credential
+    attached, and an id that climbed could aim that credential at a different write.
+    """
+    if not model or "\\" in model or any(
+        segment in ("", ".", "..") for segment in model.split("/")
+    ):
+        return None
+    return f"/api/v1/health/suppressions/{quote(model, safe='/:@')}/lift"
 
 
 async def relay_read(

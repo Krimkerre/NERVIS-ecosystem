@@ -27,11 +27,15 @@ class ExcludedCandidate:
 
     model: str
     reasons: list[str]
-    # Whether an open circuit was one of those reasons. Kept as a flag rather
-    # than left to be read back out of the prose, because the *status* of a
-    # no-route depends on it: a pool nothing satisfies is a configuration
-    # answer, while a pool whose candidates are all in cooldown is a temporary
-    # one, and a client that cannot tell them apart caches the wrong lesson.
+    # Whether a *temporary* exclusion was one of those reasons: an open circuit,
+    # or — for a request carrying tools — a suppression armed because this
+    # model refused tools recently. Both lift on their own, and both arrive
+    # through the router's `unavailable` map as a single reason per model, so
+    # the name stayed rather than churn every reader of it. Kept as a flag
+    # rather than left to be read back out of the prose, because the *status*
+    # of a no-route depends on it: a pool nothing satisfies is a configuration
+    # answer, while a pool whose candidates are all resting is a temporary one,
+    # and a client that cannot tell them apart caches the wrong lesson.
     circuit_open: bool = False
 
 
@@ -72,9 +76,15 @@ class RouteDecision:
         """Whether this no-route resolves itself once a cooldown expires.
 
         True only when candidates existed and *every* one of them was excluded
-        by an open circuit and nothing else. A candidate that also failed a
-        capability requirement would still be excluded with the circuits closed,
-        so the pool is not merely resting.
+        by a temporary exclusion and nothing else — an open circuit, or a
+        tool-refusal suppression on a request carrying tools. A candidate that
+        also failed a capability requirement would still be excluded once those
+        lift, so the pool is not merely resting.
+
+        The name predates suppressions and is kept because it crosses a service
+        boundary in `ravis.route.refused`. What decides a 503 over a 422 is that
+        both exclusions lift on their own; Clarvis's §8.7 probe caches a 4xx for
+        the session, so a resting pool must never answer with one.
         """
         return bool(self.excluded) and all(
             candidate.circuit_open and len(candidate.reasons) == 1

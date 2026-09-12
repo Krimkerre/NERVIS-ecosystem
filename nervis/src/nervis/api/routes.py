@@ -560,6 +560,36 @@ async def curate_ravis_pools(request: Request) -> Any:
     return JSONResponse(answered, status_code=status)
 
 
+@router.post(
+    "/ravis/health/suppressions/{model:path}/lift", dependencies=[Depends(require_control)]
+)
+async def lift_ravis_suppression(model: str, request: Request) -> Any:
+    """End a RAVIS tool-refusal suppression early, with NERVIS's admin credential.
+
+    The same hop as the writes above, for their reason: lifting decides which model
+    every client's tool requests may reach, so RAVIS asks for an admin credential, and
+    the browser must not hold one. RAVIS answers with the suppressions still active,
+    which the Diagnostics screen redraws from, so the body travels back untouched.
+
+    `{model:path}` because model ids carry slashes, and Starlette decodes the path
+    before matching — `suppression_lift_path` re-encodes what needs it and refuses an
+    id that would climb out of the lift path.
+    """
+    path = ravis_peer.suppression_lift_path(model)
+    if path is None:
+        return JSONResponse(
+            {"message": f"{model!r} is not a model id NERVIS will forward to RAVIS"},
+            status_code=400,
+        )
+    status, answered = await ravis_peer.configure(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        "POST", path,
+        request.app.state.settings.ravis_admin_credential,
+    )
+    return JSONResponse(answered, status_code=status)
+
+
 @router.get("/ravis/routes/for/{request_id}")
 async def read_decision_for(request_id: str, request: Request) -> dict[str, Any]:
     """The route decision behind one request (§7.1).

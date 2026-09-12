@@ -30,3 +30,4 @@ provenance
 files
 voice
 export
+ravis_diagnostics

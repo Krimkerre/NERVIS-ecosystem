@@ -131,6 +131,33 @@ class Lease:
         }
 
 
+@dataclass(frozen=True)
+class StopReport:
+    """What `release_on_stop` gave back when the service stopped, and what it could not.
+
+    A value rather than log lines, so the service decides how to say it and a
+    test can read it without capturing a log. Each field answers a question
+    somebody looking at LM Studio's list after a stop actually asks.
+    """
+
+    # Every session the stop ended, with its owner and models — so the log can
+    # say whose models went, and that stopping is why.
+    sessions: tuple[Lease, ...] = ()
+    # Unloaded, and the runtime confirmed it.
+    unloaded: tuple[str, ...] = ()
+    # Held through a session but loaded by somebody else: released and left
+    # exactly where it was, because unloading it is not this manager's to do (§9).
+    left_loaded: tuple[str, ...] = ()
+    # Loaded here and not confirmed gone — the unload failed, or the budget ran
+    # out before it answered. These may still be in memory, held by nobody.
+    not_unloaded: tuple[str, ...] = ()
+    # A load still under way when the budget ran out. It may land after the
+    # service has gone, which nothing left in this process can prevent.
+    still_loading: tuple[str, ...] = ()
+    # False when the budget ran out before everything above was settled.
+    finished: bool = True
+
+
 class ResourceManager:
     """Tracks what is loaded, who holds it, and when their claim lapses.
 
@@ -155,6 +182,10 @@ class ResourceManager:
         self._holdings: dict[str, Holding] = {}
         self._leases: dict[str, Lease] = {}
         self._loading: dict[str, asyncio.Task[tuple[LoadedModel, bool]]] = {}
+        # Models whose unload the runtime has not answered yet, each with an
+        # event set when it does. The holding is already gone; this is what an
+        # acquire arriving meanwhile waits on (`_holding_or_load`).
+        self._unloading: dict[str, asyncio.Event] = {}
         self._lock = asyncio.Lock()
 
     async def acquire(
@@ -270,6 +301,55 @@ class ResourceManager:
             return existed
         return True
 
+    async def release_on_stop(self, budget_seconds: float) -> StopReport:
+        """Release every session and unload every model this manager loaded.
+
+        For the service stopping. Until 12 September 2026 nothing did this: a
+        model loaded for the menu bar, the dashboard's Runtime screen, RAVIS or
+        a benchmark that was interrupted stayed in LM Studio after SIRVIS
+        stopped, held by nobody — and the next SIRVIS reported it as foreign,
+        loaded by something else, because as far as it could tell it was. The
+        owner's decision that day: stopping unloads what SIRVIS loaded, so
+        stopping the stack frees the memory.
+
+        **The ordinary path, not a second one.** Leases are dropped through
+        `_drop_references` and models go through `_unload_all`, exactly as
+        `_expire_stale` does for lapsed leases. So an adopted instance is still
+        never unloaded (§9: never unload a resource owned by another client;
+        §11.2: unload *if owned*), a failed unload still clears the
+        bookkeeping, and a benchmark whose own `release` arrives after this —
+        the queue is cancelled first, and a cancelled benchmark still runs its
+        `finally` — finds its session already ended and does nothing.
+
+        **Bookkeeping first, then the runtime, and only the runtime is timed.**
+        Every lease is dropped before anything waits, so whatever the runtime
+        does next, no client is left being told it holds a model. The unloads
+        and the wait for a load already under way run together and share
+        `budget_seconds`; a
+        runtime that never answers costs that and no more, and the report names
+        what was not confirmed instead of the stop hanging on it.
+        """
+        async with self._lock:
+            sessions, ours, adopted = self._drop_every_lease()
+            loading = dict(self._loading)
+        # All at once rather than one after another: one unload the runtime
+        # never answers must not stop the rest being tried inside the same
+        # budget. One job per model, so what one confirmed survives another
+        # running out of time. Adopted holdings are jobs too, for their
+        # bookkeeping; they ask the runtime nothing.
+        jobs = [asyncio.create_task(self._unload_all([key])) for key in [*adopted, *ours]]
+        jobs.append(asyncio.create_task(self._unload_landed(loading)))
+        unloaded, finished = await _settle(jobs, budget_seconds)
+        landed = {key for key, task in loading.items() if _landed_here(task)}
+        return StopReport(
+            sessions=sessions,
+            unloaded=tuple(unloaded),
+            left_loaded=tuple(adopted),
+            not_unloaded=tuple(sorted({*ours, *landed} - set(unloaded))),
+            still_loading=tuple(sorted(key for key, task in loading.items() if not task.done())),
+            finished=finished,
+        )
+
     def residency(self, *, reveal_owner: bool = False) -> dict[str, Any]:
         """What is held, by how many sessions, and what is leased.
 
@@ -317,7 +397,12 @@ class ResourceManager:
             resident = await self._runtime.list_loaded_models()
         except RuntimeUnavailableError:
             return []
-        return sorted(m.model_key for m in resident if m.model_key not in self._holdings)
+        # Nor a model mid-unload: its holding is already dropped, but it is this
+        # manager's, not something else's.
+        return sorted(
+            m.model_key for m in resident
+            if m.model_key not in self._holdings and m.model_key not in self._unloading
+        )
 
     # ── Internals ────────────────────────────────────────────────────────────
 
@@ -343,22 +428,42 @@ class ResourceManager:
         """
         unloaded = []
         for model_key in model_keys:
+            if await self._unload_one(model_key):
+                unloaded.append(model_key)
+        return unloaded
+
+    async def _unload_one(self, model_key: str) -> bool:
+        """Drop one unheld holding and, if this manager loaded it, unload it.
+
+        **The holding goes before the runtime is asked, and the model is marked
+        mid-unload until it answers.** It used to go afterwards, which was safe
+        only because `lms unload` blocked the event loop and nothing ran in
+        between. With the call on a worker thread, an acquire in that gap would
+        share a holding about to vanish; now it finds the mark and waits.
+
+        Re-checked under the lock, because the release that found this model
+        unheld let go of the lock before calling here. An acquire in between has
+        taken a reference, and the model stays.
+        """
+        async with self._lock:
             holding = self._holdings.get(model_key)
+            if model_key in self._unloading or (holding and holding.reference_count > 0):
+                return False
+            self._holdings.pop(model_key, None)
             if holding is not None and not holding.owned:
                 # Adopted, not loaded here. Dropping the bookkeeping is right;
                 # unloading is not ours to do (§11.2's "unload if owned").
-                async with self._lock:
-                    self._holdings.pop(model_key, None)
-                continue
-            try:
-                await self._runtime.unload(model_key)
-                unloaded.append(model_key)
-            except RuntimeUnavailableError:
-                pass
-            finally:
-                async with self._lock:
-                    self._holdings.pop(model_key, None)
-        return unloaded
+                return False
+            answered = self._unloading[model_key] = asyncio.Event()
+        try:
+            await self._runtime.unload(model_key)
+            return True
+        except RuntimeUnavailableError:
+            return False
+        finally:
+            async with self._lock:
+                self._unloading.pop(model_key, None)
+            answered.set()
 
     async def _expire_stale(self) -> list[str]:
         """Drop lapsed leases and unload what they were holding."""
@@ -371,6 +476,48 @@ class ResourceManager:
                 orphaned += self._drop_references(session_id, lease.model_keys)
         return await self._unload_all(orphaned)
 
+    def _drop_every_lease(self) -> tuple[tuple[Lease, ...], list[str], list[str]]:
+        """Take every lease and its references; split what was held by who loaded it.
+
+        Called with the lock held. Afterwards no holding has a reference — a
+        reference is only ever taken together with a lease — so every holding is
+        now unheld, and the split decides only whether unloading it is this
+        manager's business. All holdings rather than the ones `_drop_references`
+        reports at zero: the same set while that invariant holds, and on the
+        way out a stray record is better unloaded than trusted.
+        """
+        sessions = tuple(self._leases.values())
+        self._leases.clear()
+        for lease in sessions:
+            self._drop_references(lease.session_id, lease.model_keys)
+        ours = sorted(key for key, holding in self._holdings.items() if holding.owned)
+        adopted = sorted(key for key, holding in self._holdings.items() if not holding.owned)
+        return sessions, ours, adopted
+
+    async def _unload_landed(
+        self, loading: dict[str, asyncio.Task[tuple[LoadedModel, bool]]]
+    ) -> list[str]:
+        """Wait for loads already under way, and unload what lands with nobody to hold it.
+
+        The case is a benchmark stopped mid-load. Cancelling the queue cancels
+        the benchmark's `acquire`, but the load itself is shielded — so that an
+        abandoned request cannot cancel a load another caller wants — and
+        carries on. When it lands, the acquire that would have recorded a
+        holding is gone, and the result is a model loaded here and held by
+        nobody: the very thing stopping is meant to prevent.
+
+        Only called once the service has stopped taking requests and the queue
+        is cancelled, so nothing is left waiting to record these as holdings.
+        """
+        if not loading:
+            return []
+        await asyncio.wait(loading.values())
+        unloaded: list[str] = []
+        for model_key, task in loading.items():
+            if _landed_here(task) and model_key not in self._holdings:
+                unloaded += await self._unload_all([model_key])
+        return unloaded
+
     async def _ensure_loaded(
         self, model_key: str, configuration: dict[str, Any] | None, policy: ConflictPolicy
     ) -> tuple[LoadedModel, bool]:
@@ -380,17 +527,9 @@ class ResourceManager:
         the caller needs the effective configuration, and the manager needs to
         know at release time whether unloading is its business.
         """
-        async with self._lock:
-            existing = self._holdings.get(model_key)
-            if existing is not None:
-                return existing.loaded, existing.owned
-            in_flight = self._loading.get(model_key)
-            if in_flight is None:
-                self._make_room(policy)
-                in_flight = asyncio.create_task(
-                    self._acquire_instance(model_key, configuration)
-                )
-                self._loading[model_key] = in_flight
+        in_flight = await self._holding_or_load(model_key, configuration, policy)
+        if isinstance(in_flight, Holding):
+            return in_flight.loaded, in_flight.owned
 
         try:
             # Shielded so a caller that gives up — a cancelled request, a client
@@ -402,6 +541,64 @@ class ResourceManager:
             async with self._lock:
                 if self._loading.get(model_key) is in_flight and in_flight.done():
                     del self._loading[model_key]
+
+    async def _holding_or_load(
+        self, model_key: str, configuration: dict[str, Any] | None, policy: ConflictPolicy
+    ) -> Holding | asyncio.Task[tuple[LoadedModel, bool]]:
+        """The holding to share or the load to wait on — never a model mid-unload.
+
+        **The wait for an unload is new with `lms` leaving the event loop** (12
+        September 2026). While `lms unload` blocked the loop, nothing could run
+        between an unload starting and its holding being dropped. On a worker
+        thread something can: an acquire of the same model found the holding
+        still recorded, shared it, and got a lease on a model that vanished a
+        moment later — or, with the holding dropped first, found it still
+        resident and adopted it as somebody else's, never to be unloaded. So an
+        acquire waits for an unload of its own model, and for any unload whose
+        memory the ceiling is still counting, then looks again.
+        """
+        while True:
+            async with self._lock:
+                blocking = self._unload_in_the_way(model_key)
+                if blocking is None:
+                    return self._share_or_start(model_key, configuration, policy)
+            await blocking.wait()
+
+    def _unload_in_the_way(self, model_key: str) -> asyncio.Event | None:
+        """The unload this acquire has to wait for, if any. Called with the lock held.
+
+        Its own model's, always. Another model's only when this acquire would
+        start a load and the ceiling — counting memory an unload has not given
+        back yet — is full. Refusing there would turn a sub-second unload into a
+        "busy" the client could have waited out; loading anyway would put two
+        models in memory the ceiling says holds one.
+        """
+        if model_key in self._unloading:
+            return self._unloading[model_key]
+        if not self._unloading or model_key in self._holdings or model_key in self._loading:
+            return None
+        if len(self._holdings) + len(self._loading) + len(self._unloading) < self._max_loaded:
+            return None
+        return next(iter(self._unloading.values()))
+
+    def _share_or_start(
+        self, model_key: str, configuration: dict[str, Any] | None, policy: ConflictPolicy
+    ) -> Holding | asyncio.Task[tuple[LoadedModel, bool]]:
+        """The existing holding, the load already under way, or a new one. Lock held.
+
+        Registering the load inside the lock is what makes a second acquire of
+        the same cold model join it rather than start another: two concurrent
+        acquires of one key produce one `lms load`.
+        """
+        existing = self._holdings.get(model_key)
+        if existing is not None:
+            return existing
+        in_flight = self._loading.get(model_key)
+        if in_flight is None:
+            self._make_room(policy)
+            in_flight = asyncio.create_task(self._acquire_instance(model_key, configuration))
+            self._loading[model_key] = in_flight
+        return in_flight
 
     async def _acquire_instance(
         self, model_key: str, configuration: dict[str, Any] | None
@@ -483,3 +680,36 @@ class ResourceManager:
             + (f"; loading {loading}" if loading else "")
             + f"; policy={policy.value}"
         )
+
+
+def _landed_here(task: asyncio.Task[tuple[LoadedModel, bool]]) -> bool:
+    """Whether a load has finished with an instance this manager loaded itself.
+
+    A load that failed or was cancelled left nothing to unload, and one that
+    adopted an instance already resident left nothing that is ours to unload.
+    """
+    if not task.done() or task.cancelled() or task.exception() is not None:
+        return False
+    return task.result()[1]
+
+
+async def _settle(
+    jobs: list[asyncio.Task[list[str]]], budget_seconds: float
+) -> tuple[list[str], bool]:
+    """Give unload jobs the budget together: what they confirmed, and whether all finished.
+
+    A job still running when the budget ends is cancelled, then given the
+    moment it needs to put its bookkeeping straight. Cancelling stops the
+    waiting, not an `lms unload` already on its worker thread, which carries on
+    and finishes if it can. An unexpected error from a finished job is raised
+    here, so it reaches the caller's log rather than dying inside a task.
+    """
+    done, pending = await asyncio.wait(jobs, timeout=budget_seconds)
+    for job in pending:
+        job.cancel()
+    if pending:
+        await asyncio.wait(pending)
+    unloaded: list[str] = []
+    for job in done:
+        unloaded += job.result()
+    return unloaded, not pending

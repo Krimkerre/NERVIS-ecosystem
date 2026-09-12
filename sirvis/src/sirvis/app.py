@@ -34,7 +34,7 @@ from sirvis.core.machine import machine_identity
 from sirvis.downloads import serve_downloads
 from sirvis.ecosystem import BUILD_VERSION, sirvis_surface
 from sirvis.errors import SirvisError, to_response
-from sirvis.resources import ResourceManager
+from sirvis.resources import ResourceManager, StopReport
 from sirvis.runtimes import LMStudioAdapter
 from sirvis.storage import prepare_database, reconcile_interrupted
 from sirvis.worker import serve_queue
@@ -43,6 +43,51 @@ NextCall = Callable[[Request], Awaitable[Any]]
 
 # M11's outbound reads: a Hugging Face search, a download's status from LM Studio.
 HUB_TIMEOUT_SECONDS = 15.0
+
+# ── The stop, against the launcher's clock ───────────────────────────────────
+#
+# `tools/run.py stop` asks SIRVIS to stop, then forces a kill 12 seconds later
+# (its `GRACE_BEFORE_KILL`). Everything SIRVIS does on the way out has to fit
+# inside that, in this order, with at least a second to spare:
+#
+#     uvicorn's pause before it waits        0.1 s   fixed inside uvicorn
+#     requests still in flight               1   s   GRACEFUL_SHUTDOWN_SECONDS
+#     releasing and unloading models         6   s   STOP_BUDGET_SECONDS
+#     draining the event queue               3   s   EVENT_DRAIN_SECONDS
+#                                           ------
+#                                           10.1 s   of 12
+#
+# `tests/test_release_on_stop.py` holds that sum against the launcher's number.
+
+# **One second for requests in flight, because the long ones lose nothing by
+# being cut off.** uvicorn waited for them without limit, so a session open
+# waiting on a big load kept the release from starting at all until the
+# launcher's forced kill made it moot. Everything else SIRVIS answers finishes
+# well inside a second. A session open cancelled at the second does not strand
+# its model: the load is shielded and carries on, the release unloads it if it
+# lands inside the budget, and any lease the session already took is released
+# with every other. uvicorn takes whole seconds, so one is the least it offers.
+GRACEFUL_SHUTDOWN_SECONDS = 1
+
+# How long SIRVIS waits for LM Studio to unload what it loaded. Six rather than
+# the 2.5 it was while the launcher waited six, because the extra time buys
+# something: a load already under way when the stop arrives is unloaded if it
+# lands inside it, rather than left behind held by nobody.
+#
+# The budget bounds SIRVIS's *waiting*, not the unload. `lms unload` runs on a
+# worker thread (`LMStudioAdapter.unload`), so one that outlasts the budget is
+# not cut off halfway: the interpreter waits for that thread on exit. The CLI's
+# own timeout is 10 seconds and the unloads start by 1.1 s, so even an unload
+# LM Studio never answers lets the process end by about 11 — inside the twelve,
+# though not with the full second to spare. A *load* still running does not end
+# in time: its timeout is minutes, and the launcher's forced kill ends it.
+STOP_BUDGET_SECONDS = 6.0
+
+# The event drain's deadline, passed explicitly rather than left to the protocol
+# package's default, so the sum above is of numbers this file actually uses.
+EVENT_DRAIN_SECONDS = 3.0
+
+LOG = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings, runtime: LMStudioAdapter | None = None) -> FastAPI:
@@ -84,6 +129,10 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     The client is opened here rather than shared, because SIRVIS's only other
     outbound client belongs to the LM Studio adapter and borrowing it would tie
     a telemetry timeout to a model load.
+
+    **On the way out it also gives back every model SIRVIS loaded**
+    (`_release_models_on_stop`), since 12 September 2026 — until then a model
+    loaded through SIRVIS outlived it in LM Studio, held by nobody.
     """
     # M14's queue. Started before the event pump because a submitted benchmark
     # must run whether or not anybody is collecting telemetry — the queue is the
@@ -99,6 +148,11 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
         finally:
             worker.cancel()
             watcher.cancel()
+            # After the queue is cancelled, so a benchmark cannot take a model
+            # behind the release; its own `finally` then finds its session
+            # already ended and does nothing. Before the drain below, whose
+            # deadline shares the launcher's twelve seconds (`STOP_BUDGET_SECONDS`).
+            await _release_models_on_stop(api)
         return
     async with httpx.AsyncClient() as client:
         pump = asyncio.create_task(publisher.run(client))
@@ -107,11 +161,72 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
         finally:
             worker.cancel()
             watcher.cancel()
+            # Same place and reason as the branch above.
+            await _release_models_on_stop(api)
             pump.cancel()
             # Bounded, so a hub that stopped answering cannot hold a shutdown
             # open. The closing event of a benchmark is the one worth waiting a
             # moment for.
-            await publisher.drain(client)
+            await publisher.drain(client, deadline=EVENT_DRAIN_SECONDS)
+
+
+async def _release_models_on_stop(api: FastAPI) -> None:
+    """Give back every model SIRVIS loaded, and say in the log that stopping is why.
+
+    §9 makes SIRVIS the owner of every load and unload, and until 12 September
+    2026 it released nothing when it stopped. A model loaded for the menu bar,
+    the dashboard's Runtime screen, RAVIS or an interrupted benchmark stayed in
+    LM Studio held by nobody, and the next SIRVIS saw it as foreign. The
+    launcher covered the menu bar's own sessions and nobody else's
+    (`_release_menu_sessions` in `tools/run.py`). The owner's decision that day:
+    stopping unloads what SIRVIS loaded, so stopping the stack frees the memory.
+    A model SIRVIS did not load is still never unloaded.
+
+    Never raises. A failure here must not cost the event drain after it, nor
+    turn an ordinary stop into uvicorn's "application shutdown failed".
+    """
+    manager: ResourceManager = api.state.resources
+    try:
+        report = await manager.release_on_stop(STOP_BUDGET_SECONDS)
+    except Exception:  # noqa: BLE001 - nothing on the way out may raise
+        LOG.exception("could not release models while SIRVIS was stopping")
+        return
+    _log_stop_report(report)
+
+
+def _log_stop_report(report: StopReport) -> None:
+    """One line per fact somebody looking at LM Studio after a stop needs.
+
+    Every line names the reason. A release is otherwise indistinguishable in
+    the log from a client closing its own session, and the question after a
+    stop is always *who unloaded my model*. Warnings only for what may still be
+    in memory, because that is the line worth acting on.
+    """
+    for lease in report.sessions:
+        LOG.info(
+            "released session %s (owner %s; %s) because SIRVIS stopped",
+            lease.session_id, lease.owner, ", ".join(lease.model_keys),
+        )
+    if report.unloaded:
+        LOG.info("unloaded %s because SIRVIS stopped", ", ".join(report.unloaded))
+    if report.left_loaded:
+        LOG.info(
+            "left %s loaded when SIRVIS stopped: SIRVIS did not load it, so it is "
+            "not SIRVIS's to unload", ", ".join(report.left_loaded),
+        )
+    if report.not_unloaded:
+        LOG.warning(
+            "SIRVIS stopped without LM Studio confirming it unloaded %s (%s); it may "
+            "still be loaded, held by nobody",
+            ", ".join(report.not_unloaded),
+            f"no answer within {STOP_BUDGET_SECONDS:g}s" if not report.finished
+            else "the unload did not succeed",
+        )
+    if report.still_loading:
+        LOG.warning(
+            "a load of %s was still under way when SIRVIS stopped; it may finish "
+            "after SIRVIS has gone, held by nobody", ", ".join(report.still_loading),
+        )
 
 
 def _attach_shared_state(

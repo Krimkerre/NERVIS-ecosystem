@@ -310,12 +310,33 @@ def _named_for(url: str) -> dict[str, str]:
     return {"authorization": f"Bearer {token}"} if token else {}
 
 
+def _serve_marker(executable: str | Path) -> str:
+    """The fragment of a command line that only this service's own `serve` carries.
+
+    The program's file name followed by `serve`: `ravis serve`, `ollama serve`, or
+    `ravis.exe serve` on Windows. `stop` looks for it on a recorded PID's command line
+    before signalling, so it has to rule out every other process that could be handed
+    that number next — and the likeliest ones are not strangers.
+
+    **It used to be the bare name, which matched far more than its service.** Every
+    Python service runs from `ravis/.venv`, so `ravis` was on SIRVIS's and NERVIS's
+    command lines and on every `ravis/.venv/bin/python -m pytest` or `ruff` run from
+    there; `nervis` was on any command naming a path under `nervis/`; `ollama` was on
+    each model runner Ollama spawns. A recycled PID held by any of them would have been
+    confirmed as ours and stopped. `serve` is part of it because the same programs run
+    one-off commands too (`nervis doctor`). Found 12 September 2026 by reading `ps` for
+    a running stack.
+    """
+    return f"{Path(executable).name} serve"
+
+
 def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
     """(name, command, marker, env, health url) for each service we own.
 
-    `marker` is a distinctive fragment of the command line, used by `stop` to
-    confirm a recorded PID is still the process we started rather than whatever
-    the OS handed that number to next.
+    `marker` is a fragment of the command line that only this service's own serve
+    command carries (`_serve_marker`). `stop` uses it to confirm a recorded PID is
+    still the process we started rather than whatever the OS handed that number to
+    next, and `start` to tell a service that is still booting from a stale record.
     """
     dashboard_origin = f"http://127.0.0.1:{NERVIS_PORT}"
 
@@ -458,17 +479,17 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         # configuration check still runs — that is what refuses a non-loopback
         # bind without TLS, and skipping it would make this the one path that
         # bypasses the gate.
-        ("SIRVIS", [str(venv_bin("sirvis")), "serve"], "sirvis",
+        ("SIRVIS", [str(venv_bin("sirvis")), "serve"], _serve_marker(venv_bin("sirvis")),
          _with_results(env_for("SIRVIS", SIRVIS_PORT)),
          f"http://127.0.0.1:{SIRVIS_PORT}/v1/status"),
-        ("RAVIS", [str(venv_bin("ravis")), "serve"], "ravis",
+        ("RAVIS", [str(venv_bin("ravis")), "serve"], _serve_marker(venv_bin("ravis")),
          env_for("RAVIS", RAVIS_PORT), f"http://127.0.0.1:{RAVIS_PORT}/v1/models"),
         # NERVIS's own service since M0, replacing the `http.server` that stood
         # in for it. Same port, same URL, same dashboard file — what changes is
         # that the thing serving it now has a database, an identity and an
         # `/ecosystem/*` surface, which is what makes settings and conversations
         # able to outlive a browser profile.
-        ("NERVIS", [str(venv_bin("nervis")), "serve"], "nervis",
+        ("NERVIS", [str(venv_bin("nervis")), "serve"], _serve_marker(venv_bin("nervis")),
          env_for("NERVIS", NERVIS_PORT),
          f"http://127.0.0.1:{NERVIS_PORT}/api/v1/health"),
     ] + _ollama() + _code_server()
@@ -509,6 +530,12 @@ def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         # bought nothing anyway: `_alive` is handed a PID this launcher recorded,
         # so the marker only has to rule out PID *reuse*, never somebody else's
         # code-server.
+        #
+        # The one marker `_serve_marker` does not build: after the re-exec there is
+        # no `serve` argument left to find. Measured 12 September 2026 on a standalone
+        # 4.135.0: `~/.local/lib/code-server-4.135.0/lib/node ~/.local/lib/code-server-4.135.0`.
+        # It is on no other service's command line and on nothing run from
+        # `ravis/.venv`; `test_launcher_lifecycle.py` checks that against this table.
         "code-server",
         environment,
         f"http://127.0.0.1:{port}/healthz",
@@ -532,7 +559,7 @@ def _ollama() -> list[tuple[str, list[str], str, dict[str, str], str]]:
     return [(
         "Ollama",
         [binary, "serve"],
-        "ollama",
+        _serve_marker(binary),
         {**os.environ, "OLLAMA_CONTEXT_LENGTH": str(OLLAMA_CONTEXT)},
         f"http://127.0.0.1:{OLLAMA_PORT}/",
     )]
@@ -939,6 +966,11 @@ def _alive(pid: int, marker: str) -> bool:
     number that now belongs to something else must not be killed because a file
     on disk says it was ours.
     """
+    # **No marker confirms nothing.** An empty string is contained in every command
+    # line, so a record without one — hand-edited, or written by anything but
+    # `start` — would otherwise vouch for whatever process holds that PID now.
+    if not marker:
+        return False
     if WINDOWS:
         found = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
@@ -959,7 +991,9 @@ def _alive(pid: int, marker: str) -> bool:
             # no longer exists does: treat it as not-alive rather than either
             # killing an unrelated process or crashing `stop` mid-loop.
             return False
-        return marker in listed.stdout
+        # Windows quotes a program path containing a space, which puts a `"` between
+        # `ravis.exe` and `serve` and would hide the marker (`_serve_marker`).
+        return marker in listed.stdout.replace('"', "")
     try:
         os.kill(pid, 0)
     except OSError:
@@ -978,6 +1012,34 @@ def _recorded() -> dict[str, dict[str, object]]:
     except (OSError, ValueError):
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+def _pid_and_marker(record: object, current: str | None) -> tuple[int, str]:
+    """The PID a PID-file record names, and the marker to confirm that process with.
+
+    **Today's marker, not the recorded one**, whenever the record has a marker at all
+    and the service is still in `_services()`. A PID file outlives the launcher that
+    wrote it, and one written before 12 September 2026 carries the old bare-name
+    markers (`ravis`, `nervis`) that matched far more than their own service
+    (`_serve_marker`). Confirming against those would keep that weakness alive for as
+    long as an old file survives. Confirming against today's lets the first `stop`
+    after upgrading still stop what the old `start` launched — the command is the same,
+    so its command line carries the new marker as well — while a recycled PID that
+    only the old marker matched is left alone.
+
+    A record with no marker is not upgraded. Every version of `start` wrote one, so a
+    record without it came from somewhere nobody can vouch for, and `_alive` confirms
+    nothing with an empty marker. A service no longer in the table (its program has
+    left PATH) is confirmed against what was recorded, since that is all there is.
+    """
+    if not isinstance(record, dict):
+        return 0, ""
+    raw_pid = record.get("pid", 0)
+    pid = raw_pid if isinstance(raw_pid, int) else 0
+    recorded = record.get("marker")
+    if not isinstance(recorded, str) or not recorded:
+        return pid, ""
+    return pid, current or recorded
 
 
 #: Network shares to mount before the stack starts, as URLs macOS understands:
@@ -1054,6 +1116,56 @@ def mount_share(url: str) -> str:
     return "" if os.path.ismount(where) else f"{url} did not mount"
 
 
+def _launch(running: dict[str, bool], recorded: dict[str, dict[str, object]]) -> dict[str, int]:
+    """Launch each service not answering, unless its recorded process is still ours.
+
+    Adds each launch to `recorded`, and returns the services left to finish booting on
+    their own: name to the PID already recorded for it.
+
+    **Not answering is not the same as not running.** A service can be alive and still
+    booting — started a moment earlier by another `start`, from the other launcher or the
+    menu bar app, which writes the PID file before it waits. Before 12 September 2026
+    this launched a second copy on top of it and overwrote its record: whichever copy
+    lost the race for the port exited, and when the loser was the new one, the process
+    still serving was named nowhere `stop` could find it. So a recorded PID that is alive
+    and still carries its service's marker is left to boot. It gets the same wait as a
+    fresh launch, and its record stays.
+    """
+    waiting: dict[str, int] = {}
+    for name, command, marker, env, _ in _services():
+        if running.get(name):
+            print(f"  {name} already running")
+            continue
+        pid = _still_ours(recorded.get(name), marker)
+        if pid:
+            waiting[name] = pid
+            print(f"  {name} already started (pid {pid}) and not answering yet; waiting for it")
+            continue
+        pid = _spawn_detached(command, env, RUN / f"{name.lower()}.log")
+        recorded[name] = {"pid": pid, "marker": marker}
+        print(f"  {name} started (pid {pid})")
+    return waiting
+
+
+def _still_ours(record: object, current_marker: str) -> int:
+    """The PID a record names, if that process is alive and still carries its marker; else 0."""
+    pid, marker = _pid_and_marker(record, current_marker)
+    return pid if pid and _alive(pid, marker) else 0
+
+
+def _readiness(name: str, answering: bool, booting_pid: int) -> str:
+    """`start`'s verdict on one service once its wait is over, in words somebody can act on."""
+    if answering:
+        return "ready"
+    if booting_pid:
+        # Not killed: it may be moments from answering, and a service killed mid-boot is
+        # the half-written journal `_ask_then_force` exists to avoid. Not doubled either
+        # (`_launch`). What is left is to name the process and say what clears it.
+        return (f"NOT ready — {name} (process {booting_pid}) is running but not answering."
+                " Stop the stack, then start it again.")
+    return f"NOT ready — see .run/{name.lower()}.log"
+
+
 def start() -> int:
     ensure_venv()
     for url in dict.fromkeys([*FILE_MOUNTS, configured_share()]):
@@ -1075,13 +1187,7 @@ def start() -> int:
 
     print("Starting (detached — closing this window will not stop them)…")
     recorded = _recorded()
-    for name, command, marker, env, _ in _services():
-        if running.get(name):
-            print(f"  {name} already running")
-            continue
-        pid = _spawn_detached(command, env, RUN / f"{name.lower()}.log")
-        recorded[name] = {"pid": pid, "marker": marker}
-        print(f"  {name} started (pid {pid})")
+    booting = _launch(running, recorded)
     RUN.mkdir(parents=True, exist_ok=True)
     with PIDFILE.open("w", encoding="utf-8") as handle:
         json.dump(recorded, handle, indent=2, sort_keys=True)
@@ -1094,7 +1200,7 @@ def start() -> int:
             time.sleep(0.4)
         answering = responds(url)
         ready = ready and answering
-        print(f"  {name:<11} {'ready' if answering else 'NOT ready — see .run/' + name.lower() + '.log'}")
+        print(f"  {name:<11} {_readiness(name, answering, booting.get(name, 0))}")
 
     # After RAVIS answers, because storing a credential is a request to it. Both
     # halves already hold the same string — this is the half RAVIS keeps.
@@ -1152,41 +1258,67 @@ def start() -> int:
     return 0 if ready else 1
 
 
+#: Seconds `stop` waits between asking a service to stop and forcing it; six unless named.
+#:
+#: **SIRVIS waits twelve.** Since 12 September 2026 its shutdown releases every session and
+#: unloads every model it loaded: up to 2.5 s unloading and up to 3 s draining events, and an
+#: `lms unload` that hangs holds it until that CLI's own 10 s timeout. Forced at six, a stop
+#: mid-unload could leave a model loaded in LM Studio and held by nobody — the state that
+#: shutdown exists to prevent. The others do no such work on the way down, and a longer wait
+#: for them would only delay forcing one that is stuck.
+GRACE_BEFORE_KILL = {"SIRVIS": 12.0}
+DEFAULT_GRACE_BEFORE_KILL = 6.0
+
+
+def _ask_then_force(name: str, pid: int, marker: str) -> None:
+    """Ask one confirmed service to stop, and force it only if it outlives its wait.
+
+    Ask first. A service killed outright can leave a half-written SQLite journal, and
+    SIRVIS a model half-unloaded (`GRACE_BEFORE_KILL`).
+
+    Every check during the wait confirms the marker again, so the forced kill can only
+    reach the process that was asked, never one that inherited its number meanwhile.
+    """
+    if WINDOWS:
+        subprocess.run(["taskkill", "/PID", str(pid), "/T"], capture_output=True, check=False)
+    else:
+        os.kill(pid, 15)
+    deadline = time.monotonic() + GRACE_BEFORE_KILL.get(name, DEFAULT_GRACE_BEFORE_KILL)
+    while time.monotonic() < deadline and _alive(pid, marker):
+        time.sleep(0.2)
+    if _alive(pid, marker):
+        print(f"  {name} did not stop; forcing")
+        if WINDOWS:
+            subprocess.run(["taskkill", "/F", "/PID", str(pid), "/T"],
+                           capture_output=True, check=False)
+        else:
+            os.kill(pid, 9)
+
+
 def stop() -> int:
     recorded = _recorded()
     if not recorded:
         print("Nothing recorded as running.")
         return 0
     print("Stopping…")
-    # The menu bar app's models first, while SIRVIS can still be asked to unload them.
+    # Read once: its markers confirm each record below, and its health URLs are asked at the end.
+    services = _services()
+    markers = {name: marker for name, _, marker, _, _ in services}
+    # The menu bar app's models first, while SIRVIS can still be asked to unload them. A
+    # current SIRVIS would unload them on its way down anyway; `_release_menu_sessions`
+    # says why this stays.
     if responds(f"http://127.0.0.1:{SIRVIS_PORT}/ecosystem/health", 1.0):
         _release_menu_sessions()
     for name, record in sorted(recorded.items()):
-        raw_pid = record.get("pid", 0)
-        pid = raw_pid if isinstance(raw_pid, int) else 0
-        marker = str(record.get("marker", ""))
+        pid, marker = _pid_and_marker(record, markers.get(name))
+        if not marker:
+            print(f"  {name} is recorded without a marker, so it cannot be confirmed as ours;"
+                  " left alone")
+            continue
         if not pid or not _alive(pid, marker):
             print(f"  {name} was not running")
             continue
-        # Ask first. A service killed outright can leave a half-written SQLite
-        # journal. This used to add that SIRVIS releases its model leases on
-        # shutdown; it does not — its lifespan stops the queue, the download
-        # watcher and the event pump and nothing else — which is why the menu bar
-        # app's sessions are released above, before anything stops.
-        if WINDOWS:
-            subprocess.run(["taskkill", "/PID", str(pid), "/T"], capture_output=True, check=False)
-        else:
-            os.kill(pid, 15)
-        deadline = time.monotonic() + 6.0
-        while time.monotonic() < deadline and _alive(pid, marker):
-            time.sleep(0.2)
-        if _alive(pid, marker):
-            print(f"  {name} did not stop; forcing")
-            if WINDOWS:
-                subprocess.run(["taskkill", "/F", "/PID", str(pid), "/T"],
-                               capture_output=True, check=False)
-            else:
-                os.kill(pid, 9)
+        _ask_then_force(name, pid, marker)
         print(f"  {name} stopped")
     PIDFILE.unlink(missing_ok=True)
 
@@ -1197,7 +1329,7 @@ def stop() -> int:
     # line, and in the second case this printed "Stopped." over a service still
     # holding its port. Observed, not imagined: it is what a stub code-server did
     # the first time this path ran.
-    still = [name for name, _, _, _, url in _services() if responds(url, 1.0)]
+    still = [name for name, _, _, _, url in services if responds(url, 1.0)]
     if still:
         print("\nStill answering after stop: " + ", ".join(still))
         print("  Something is holding those ports that this launcher did not start,")
@@ -1528,10 +1660,17 @@ def renew_models() -> dict[str, object]:
 def _release_menu_sessions() -> None:
     """Unload what the menu bar app loaded, before the stack stops.
 
-    SIRVIS releases nothing when it shuts down, so a model loaded from the menu would
-    otherwise stay in LM Studio after the stack stopped, held by nobody. The owner
-    chose "until I unload it or quit", so the launcher releases the menu's sessions
-    first — its own, and never another client's.
+    The owner chose that a model loaded from the menu stays loaded "until I unload it or
+    quit", so the launcher releases the menu's sessions first — its own, never another
+    client's.
+
+    **SIRVIS now does this itself on the way down.** Until 12 September 2026 it released
+    nothing when it stopped, and a model loaded from the menu stayed in LM Studio after the
+    stack had gone, held by nobody; its shutdown now releases every session and unloads
+    every model it loaded. This stays anyway, for three reasons: it is harmless, since a
+    session released here is one fewer for SIRVIS to unload inside its wait; it clears the
+    menu's own record (`MENU_SESSIONS`), which SIRVIS knows nothing about; and it covers a
+    SIRVIS older than that change, which still releases nothing.
     """
     for key in list(_menu_sessions()):
         result = unload_model(key)

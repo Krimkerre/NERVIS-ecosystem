@@ -13167,6 +13167,57 @@ function upstreamRow(rhealth){
  return `<span class="chip">answering</span> <span class="mono dim">${escapeHtml(ms!=null?Math.round(ms)+' ms':'')}</span>`;
 }
 
+/* Models RAVIS is resting from tool requests, one row each (RAVIS §10, since
+   12 September 2026). A model that refused tools is skipped for requests that carry
+   tools until its window ends, and still serves requests without them, so the row
+   says both halves: a model listed here is resting, not broken.
+
+   Drawn in the shape of the unavailable-capability rows above it, inside a slot of
+   its own so Lift can redraw just these rows from the list RAVIS answers with.
+   Nothing at all for an empty list, and nothing when the field is absent, which is
+   what a RAVIS from before suppressions sends: this page cannot tell "nothing is
+   resting" from "this RAVIS cannot say", so it says neither. */
+function suppressionRows(rhealth){
+ const resting=Array.isArray(rhealth&&rhealth.capability_suppressions)?rhealth.capability_suppressions:[];
+ return resting.map(s=>`<div class="trace-step"><b>${escapeHtml(s.model)}</b><span style="opacity:.75">resting from tool requests, still used without tools · ${escapeHtml(s.reason||'RAVIS gave no reason')} · tool requests resume ${escapeHtml(resumesIn(s.lifts_in_seconds))} <button class="btn" onclick="liftSuppression('${jsAttr(s.model)}')" title="let tool requests reach this model again now, instead of waiting out the window">Lift</button></span></div>`).join('');
+}
+
+/* Minutes, rounded up, because "resume in 0 min" during the last half minute reads
+   as already lifted. A figure RAVIS did not send is not invented. */
+function resumesIn(seconds){
+ return typeof seconds==='number'&&isFinite(seconds)
+  ?`in ${Math.max(1,Math.ceil(seconds/60))} min`:'at a time RAVIS did not give';
+}
+
+/* Lift one suppression before its window ends. Through NERVIS, which holds RAVIS's
+   admin credential, exactly as the other RAVIS writes on this page travel (pool
+   members, curation, provider switches, keys) and with the same control header.
+   The model id keeps its slashes, because NERVIS and RAVIS both route it as a path;
+   each segment is encoded, so an odd character cannot end the path early. On
+   success the rows are redrawn from the list RAVIS answered with, not from the list
+   this screen last read. */
+async function liftSuppression(model){
+ const path=String(model).split('/').map(encodeURIComponent).join('/');
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/ravis/health/suppressions/'+path+'/lift',
+    {method:'POST',headers:control_headers(),body:'{}'});
+  if(!r.ok){alert(await liftRefusal(r));return}
+  const slot=document.getElementById('ravis-suppressions');
+  if(slot)slot.innerHTML=suppressionRows(await r.json());
+ }catch(e){alert('RAVIS is not reachable.')}
+}
+
+/* A 403 said plainly, because the fix is a credential and not a retry: NERVIS holds
+   no admin key for RAVIS, or this page's control token went stale when NERVIS
+   restarted. Whatever the refusal itself said is kept beside it. */
+async function liftRefusal(r){
+ const said=await r.json().catch(()=>({}));
+ const words=said.message||(said.error&&said.error.message)||'';
+ return r.status===403
+  ?`Lifting needs RAVIS's admin key, and this request did not carry one RAVIS accepts. ${words}`.trim()
+  :(words||'RAVIS refused: HTTP '+r.status);
+}
+
 function ravisHealthCard(rhealth,rdiag){
  if(!rhealth)return '';
  const identity=(rdiag&&rdiag.identity)||null;
@@ -13176,6 +13227,7 @@ function ravisHealthCard(rhealth,rdiag){
    <div class="trace-step"><b>models visible</b><span class="mono">${escapeHtml(rhealth.models_known)}</span></div>
    ${identity?`<div class="trace-step"><b>build</b><span class="mono">${escapeHtml(dash(identity.build_version))} · protocol ${escapeHtml(dash(identity.protocol_version))}</span></div>`:''}
    ${((rdiag&&rdiag.unavailable)||[]).map(c=>`<div class="trace-step"><b>${escapeHtml(c.id)}</b><span style="opacity:.75">${escapeHtml(c.reason||'')}</span></div>`).join('')}
+   <div id="ravis-suppressions">${suppressionRows(rhealth)}</div>
    <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so the ten checks below are a sample of the suite's shape rather than a run of it — the suite itself runs <b>seventeen</b>, and this card said sixteen while listing ten. Run the command to see a real result — it is the §8.9 release gate and passes today.</small>`,'ravis')}</div>`;
 }
 

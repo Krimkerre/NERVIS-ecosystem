@@ -20,12 +20,18 @@ from ravis.reliability.failures import (
     classify_response,
     error_body,
 )
-from ravis.reliability.health import BreakerState, HealthRegistry, TargetHealth
+from ravis.reliability.health import (
+    BreakerState,
+    CapabilitySuppression,
+    HealthRegistry,
+    TargetHealth,
+)
 
 __all__ = [
     "Attempt",
     "AttemptChain",
     "BreakerState",
+    "CapabilitySuppression",
     "FailureClass",
     "HealthRegistry",
     "HealthScope",

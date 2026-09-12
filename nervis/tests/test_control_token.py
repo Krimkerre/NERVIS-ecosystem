@@ -3,8 +3,9 @@
 **The gate §16 item 4 closed, re-opened one hop up.** RAVIS stopped treating a
 loopback bind as authorization: every management mutation there needs an admin
 credential, and anonymous or ordinary inference callers get 403. NERVIS holds
-that credential and proxies six of those mutations — provider enable, model
-filters, pool members, pool curation, and credential write and delete — so until
+that credential and proxies seven of those mutations — provider enable, model
+filters, pool members, pool curation, credential write and delete, and lifting a
+tool-refusal suppression — so until
 this, anything that could reach `127.0.0.1:8790` could change RAVIS's
 configuration without holding anything at all. The credential was moved out of
 the browser's reach and the decision to *use* it was left ungated.
@@ -32,7 +33,7 @@ from fastapi.testclient import TestClient
 from nervis.app import create_app
 from nervis.config import Settings
 
-# The six proxies, as (method, path, body). Written out rather than derived from
+# The proxies, as (method, path, body). Written out rather than derived from
 # the router: a route that stops being gated should fail this list, and a list
 # built from the code under test agrees with it by construction.
 MUTATIONS = (
@@ -45,6 +46,9 @@ MUTATIONS = (
     ("POST", "/api/v1/ravis/pools/curate", {}),
     ("PUT", "/api/v1/ravis/credentials/openai", {"secret": "not-a-real-secret"}),
     ("DELETE", "/api/v1/ravis/credentials/openai", None),
+    # A model id with its slash left in, which is how the Diagnostics screen sends
+    # it: the route takes the id as a path, and the slash is part of the id.
+    ("POST", "/api/v1/ravis/health/suppressions/qwen/qwen3-1.7b/lift", None),
 )
 
 

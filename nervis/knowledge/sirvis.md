@@ -131,6 +131,21 @@ It does not load a model because somebody asked a question. Loading is leases
 and the queue, owned in one place, because two things loading models at once on
 one machine is how a benchmark measures swap instead of a model.
 
+When it stops, it lets go of what it loaded (since 12 September 2026). Every
+session is released and every model SIRVIS loaded — for the menu bar app, RAVIS,
+the dashboard or a benchmark — is unloaded, so stopping the stack frees that
+memory. A model somebody loaded in LM Studio by hand is left alone. If LM Studio
+does not answer, SIRVIS waits at most six seconds for the unloads and its log
+names what may still be loaded; the whole stop fits inside the twelve seconds
+the launcher gives it. Before this, a stop left those models loaded and held by
+nobody, and after a restart SIRVIS saw them as somebody else's.
+
+It also keeps answering while it works. Loading a model and reading the
+machine during a benchmark used to hold SIRVIS up for as long as they took, so
+it looked down on the dashboard and in the menu bar in the middle of a load or a
+run. Since 12 September 2026 that work happens off to the side and SIRVIS keeps
+answering.
+
 It does not report a score without its conditions, and it does not average a
 counted metric — tool-call rates are counted rather than averaged, so they carry
 no median and a reader asking for one is told that rather than given throughput.

@@ -114,7 +114,7 @@ def test_the_caller_s_trace_is_used_when_there_is_one() -> None:
 
 
 def test_every_mutation_is_audited() -> None:
-    """All five, because an audit trail with a gap in it is one nobody can rely
+    """All of them, because an audit trail with a gap in it is one nobody can rely
     on — and the gap is always the endpoint somebody forgot."""
     with a_client() as client:
         client.put("/api/v1/providers/credentials/openai", json={"secret": "s"})
@@ -123,12 +123,15 @@ def test_every_mutation_is_audited() -> None:
                    json={"include": ["a*"], "exclude": []})
         client.delete("/api/v1/providers/credentials/openai")
         client.put("/api/v1/pools/auto/members", json={"models": []})
+        # Audited even when nothing was suppressed: the trail records what an
+        # operator did, not only what it changed.
+        client.post("/api/v1/health/suppressions/coder-a/lift")
         kinds = {e["event_type"] for e in audits(client)}
 
     assert kinds == {
         "ravis.credential.set", "ravis.provider.enabled_changed",
         "ravis.provider.model_filter_changed", "ravis.credential.forgotten",
-        "ravis.pool.members_changed",
+        "ravis.pool.members_changed", "ravis.capability.suppression_lifted",
     }
 
 

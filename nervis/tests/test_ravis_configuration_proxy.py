@@ -49,6 +49,7 @@ async def test_the_admin_credential_is_presented_on_every_configuration_write() 
         ("PUT", "/api/v1/providers/openai/models", {"allow": []}),
         ("PUT", "/api/v1/pools/chat/members", {"models": []}),
         ("POST", "/api/v1/pools/curate", None),
+        ("POST", "/api/v1/health/suppressions/qwen/qwen3-1.7b/lift", None),
     ]
     for method, path, body in writes:
         status, _ = await ravis_peer.configure(
@@ -56,7 +57,7 @@ async def test_the_admin_credential_is_presented_on_every_configuration_write() 
         )
         assert status == 200
 
-    assert len(seen) == 4
+    assert len(seen) == len(writes)
     for _, path, authorization in seen:
         assert authorization == "Bearer admin.secret", path
 
@@ -166,3 +167,20 @@ async def test_a_refusal_upstream_travels_verbatim() -> None:
 
     assert status == 403
     assert "admin credential" in body["error"]["message"]
+
+
+def test_a_lift_path_keeps_the_model_id_s_slashes_and_refuses_one_that_climbs() -> None:
+    """The one proxied write whose path carries free text from a model catalogue.
+
+    Slashes are part of an id (`qwen/qwen3-1.7b`) and travel as separators; a `?` or
+    a space would otherwise end the path early. An id that climbs is refused rather
+    than cleaned, because NERVIS's admin credential rides on this request.
+    """
+    lift = ravis_peer.suppression_lift_path
+    assert lift("qwen/qwen3-1.7b") == "/api/v1/health/suppressions/qwen/qwen3-1.7b/lift"
+    assert lift("qwen3:8b") == "/api/v1/health/suppressions/qwen3:8b/lift"
+    assert lift("lab/odd model?v=2") == (
+        "/api/v1/health/suppressions/lab/odd%20model%3Fv%3D2/lift"
+    )
+    for climbing in ("", "../providers/credentials/openai", "a//b", "a/./b", "a\\b"):
+        assert lift(climbing) is None, climbing

@@ -18,11 +18,13 @@ from typing import Any, AsyncIterator, Iterator
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from tests.test_reliability import FakeClock
 
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai.chat import UPSTREAM_PROVIDER, _Call, _relay
 from ravis.app import create_app
 from ravis.config import Settings
+from ravis.core.capabilities import Capability
 from ravis.reliability import AttemptChain, FailureClass, HealthRegistry, HealthScope
 from ravis.routing.explain import RouteDecision
 
@@ -1158,3 +1160,222 @@ def test_openai_is_sent_max_completion_tokens_and_others_what_was_sent() -> None
 
         sent = upstream.bodies[-1] if upstream.bodies else {}
         assert sent.get(kept) == 64 and dropped not in sent, (base_url, sent)
+
+
+# ── A model that refuses tools: the next one answers, the refuser rests ───────
+#
+# The owner's decision, 12 September 2026. A tool refusal used to stop the chain
+# with the pool's other tool-capable models untried. Now the next model answers,
+# and the refuser is kept away from requests carrying tools for half an hour,
+# while requests without tools keep using it.
+
+TOOL_REFUSAL = {"error": {"message": "this model does not support tools"}}
+LOOKUP = {"type": "function",
+          "function": {"name": "lookup", "parameters": {"type": "object", "properties": {}}}}
+# Clarvis's §8.7 probe as it actually sends it: one tool, room for one token.
+PROBE = {
+    "model": AGENT_POOL,
+    "messages": [{"role": "user", "content": "ping"}],
+    "tools": [{"type": "function", "function": {"name": "noop", "parameters": {"type": "object"}}}],
+    "max_tokens": 1,
+}
+
+
+def _with_tools(**extra: Any) -> dict[str, Any]:
+    """A real tool request — not a probe, so ranking treats it as work."""
+    return {"model": AGENT_POOL, "messages": [{"role": "user", "content": "hi"}],
+            "tools": [LOOKUP], **extra}
+
+
+def _state(client: TestClient) -> Any:
+    return client.app.app.state  # type: ignore[attr-defined]
+
+
+def _latest_decision(client: TestClient) -> dict[str, Any]:
+    items: list[dict[str, Any]] = client.get("/api/v1/route-decisions?limit=1").json()["items"]
+    return items[0]
+
+
+def test_a_model_that_refuses_tools_is_fallen_back_from() -> None:
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL)})
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json=_with_tools())
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert response.status_code == 200
+
+
+def test_a_pre_stream_tool_refusal_falls_back_while_streaming() -> None:
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL)})
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json=_with_tools(stream=True)
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert received == b"".join(FRAMES)
+
+
+def test_a_tool_refusal_in_the_first_frame_switches_before_the_client_sees_it() -> None:
+    """LM Studio's way of refusing: a 200 whose body is the error."""
+    upstream = ScriptedUpstream(TWO_CODERS, answers={"coder-a": TOOL_REFUSAL})
+    with _app_with(upstream) as client, client.stream(
+        "POST", "/v1/chat/completions", json=_with_tools(stream=True)
+    ) as response:
+        received = b"".join(response.iter_bytes())
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert b"does not support tools" not in received
+    assert received == b"".join(FRAMES)
+
+
+def test_a_refusing_model_is_skipped_for_tool_requests_until_the_window_ends() -> None:
+    """The half that makes the fallback safe to allow. Without it the router
+    re-picks the refuser on every request, and each of Clarvis's per-turn
+    requests becomes a silent double upstream call."""
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL)})
+    clock = FakeClock()
+    with _app_with(upstream, tool_refusal_suppression_seconds=1800.0) as client:
+        _state(client).health.clock = clock
+        client.post("/v1/chat/completions", json=_with_tools())
+        upstream.served.clear()
+
+        clock.advance(1799.0)
+        client.post("/v1/chat/completions", json=_with_tools())
+        during = list(upstream.served)
+        upstream.served.clear()
+
+        clock.advance(1.0)
+        client.post("/v1/chat/completions", json=_with_tools())
+        after = list(upstream.served)
+
+    assert during == ["coder-b"]
+    assert after == ["coder-a", "coder-b"]
+
+
+def test_a_refusing_model_still_serves_requests_without_tools() -> None:
+    """Runbook §2.1: a model that fails tools stays eligible for chat."""
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL)})
+    with _app_with(upstream) as client:
+        client.post("/v1/chat/completions", json=_with_tools())
+        upstream.refuse.clear()
+        upstream.served.clear()
+        response = client.post("/v1/chat/completions", json={
+            "model": AGENT_POOL, "messages": [{"role": "user", "content": "hi"}],
+        })
+
+    assert upstream.served == ["coder-a"]
+    assert response.status_code == 200
+
+
+def test_the_route_explanation_names_the_suppression_and_when_it_lifts() -> None:
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL)})
+    with _app_with(upstream) as client:
+        client.post("/v1/chat/completions", json=_with_tools())
+        client.post("/v1/chat/completions", json=_with_tools())
+        latest = _latest_decision(client)
+
+    reasons = {entry["model"]: entry["reasons"] for entry in latest["excluded"]}
+    assert latest["selected"] == "coder-b"
+    assert len(reasons["coder-a"]) == 1
+    assert "does not support tools" in reasons["coder-a"][0]
+    assert "resume in 30 min" in reasons["coder-a"][0]
+
+
+def test_a_pool_whose_tool_models_are_all_suppressed_answers_503_not_422() -> None:
+    """§8.7: a resting pool must not look incapable. Clarvis's probe caches a 4xx
+    for the whole session as "this pool cannot call tools" and never remembers a
+    5xx, so a pool whose tool models are all resting answers the way a pool whose
+    circuits are all open already does."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL), "coder-b": (400, TOOL_REFUSAL)}
+    )
+    with _app_with(upstream) as client:
+        client.post("/v1/chat/completions", json=_with_tools())
+        upstream.served.clear()
+        response = client.post("/v1/chat/completions", json=PROBE)
+
+    assert upstream.served == []
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "no_route"
+    assert "resume in" in json.dumps(response.json())
+
+
+def test_a_probe_every_candidate_refuses_answers_503_with_the_upstreams_words() -> None:
+    """The request that armed the suppressions answers as the next ones will, so
+    one pool state never yields a 4xx once and a 503 after."""
+    upstream = ScriptedUpstream(
+        TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL), "coder-b": (400, TOOL_REFUSAL)}
+    )
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json=PROBE)
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert response.status_code == 503
+    assert "does not support tools" in response.text
+
+
+def test_a_directly_named_model_that_refuses_tools_still_says_so() -> None:
+    """Not a pool, so not resting: the named model's refusal is the answer."""
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL)})
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json=_with_tools(model="coder-a"))
+
+    assert upstream.served == ["coder-a"]
+    assert response.status_code == 400
+
+
+def test_a_model_with_an_open_circuit_and_a_suppression_still_reads_as_resting() -> None:
+    """Two temporary reasons on one model must arrive as one sentence, or the
+    no-route counts two reasons, stops reading as resting, and answers 422."""
+    upstream = ScriptedUpstream(TWO_CODERS)
+    with _app_with(upstream, breaker_failure_threshold=1) as client:
+        health = _state(client).health
+        health.record(FailureClass.MODEL_UNAVAILABLE, "coder-a", UPSTREAM_PROVIDER, health.clock())
+        for model in ("coder-a", "coder-b"):
+            health.suppress(model, UPSTREAM_PROVIDER, Capability.TOOLS, "does not support tools")
+        response = client.post("/v1/chat/completions", json=_with_tools())
+        latest = _latest_decision(client)
+
+    reasons = {entry["model"]: entry["reasons"] for entry in latest["excluded"]}
+    assert upstream.served == []
+    assert response.status_code == 503
+    assert len(reasons["coder-a"]) == 1
+    assert "circuit open" in reasons["coder-a"][0]
+    assert "refused tools" in reasons["coder-a"][0]
+
+
+def test_a_tool_refusal_on_a_request_without_tools_suppresses_nothing() -> None:
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL)})
+    with _app_with(upstream) as client:
+        response = client.post("/v1/chat/completions", json={
+            "model": AGENT_POOL, "messages": [{"role": "user", "content": "hi"}],
+        })
+        suppressions = _state(client).health.suppressions()
+
+    assert upstream.served == ["coder-a", "coder-b"]
+    assert response.status_code == 200
+    assert suppressions == []
+
+
+def test_a_refused_attempt_keeps_the_upstreams_reason_after_a_fallback_succeeds() -> None:
+    upstream = ScriptedUpstream(TWO_CODERS, refuse={"coder-a": (400, TOOL_REFUSAL)})
+    with _app_with(upstream) as client:
+        client.post("/v1/chat/completions", json=_with_tools())
+        attempts = _latest_decision(client)["execution"]["attempts"]
+
+    assert [attempt["outcome"] for attempt in attempts] == ["tool_incompatibility", "succeeded"]
+    assert attempts[0]["detail"] == "HTTP 400: this model does not support tools"
+
+
+def test_a_directly_named_model_is_not_filtered_by_a_suppression() -> None:
+    """§5.3: an explicit request outranks what RAVIS has inferred about a model."""
+    upstream = ScriptedUpstream(TWO_CODERS)
+    with _app_with(upstream) as client:
+        _state(client).health.suppress(
+            "coder-a", UPSTREAM_PROVIDER, Capability.TOOLS, "does not support tools"
+        )
+        response = client.post("/v1/chat/completions", json=_with_tools(model="coder-a"))
+
+    assert upstream.served == ["coder-a"]
+    assert response.status_code == 200

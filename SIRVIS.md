@@ -507,6 +507,22 @@ Returns session ID, runtime instances, roles, lease and state.
 **Leases** recover from crashed clients and prevent permanently stranded models. Conservative
 defaults; renewal allowed.
 
+**When SIRVIS stops it releases every session and unloads what it loaded** (12 Sep), through the
+same path an expired lease takes, so a model it adopted rather than loaded is never unloaded. The
+stop is bounded end to end to fit the launcher's 12-second wait before a forced kill: one second for
+requests still in flight (a load cut off there carries on, and is unloaded if it lands in time), six
+for releasing and unloading — all at once, so one hung unload does not hold up the rest — and three
+for draining events, 10.1 seconds at worst. A runtime that does not answer costs only that budget;
+the log names each release "because SIRVIS stopped" and anything that may still be loaded. Sessions
+are held in memory only, so without this a stop left every client's model loaded and held by nobody.
+
+**No `lms` call and no machine reading runs on the event loop** (12 Sep). `lms load` and `lms ls`
+blocked it for as long as they took, so while a model loaded SIRVIS answered nothing — health checks
+timed out and the dashboard and menu bar showed it down — and benchmark sampling (memory four times
+a second, a thermal read with a ten-second timeout) did the same for the length of a run. They run
+on worker threads now; a reading is still stamped when it comes back, and a reading that overruns its
+quarter-second tick skips the ticks it missed rather than queueing them.
+
 **Load conflict policies:** `wait` (default), `reject`, `preempt`. **Preemption is never
 implicit.**
 

@@ -5,6 +5,7 @@ from sirvis.resources.manager import (
     Lease,
     ResourceExhaustedError,
     ResourceManager,
+    StopReport,
 )
 
-__all__ = ["ConflictPolicy", "Lease", "ResourceExhaustedError", "ResourceManager"]
+__all__ = ["ConflictPolicy", "Lease", "ResourceExhaustedError", "ResourceManager", "StopReport"]

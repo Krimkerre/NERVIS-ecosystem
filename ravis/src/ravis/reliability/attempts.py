@@ -20,12 +20,54 @@ and there is no code path by which the chain could insist otherwise.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from ravis.core.capabilities import Capability
 from ravis.observations import Observations
 from ravis.reliability.failures import FailureClass, HealthScope
 from ravis.reliability.health import HealthRegistry
+
+# Anything credential-shaped in a failure's words, and what replaces it.
+#
+# **Why an attempt's detail needs this at all.** It carries the upstream's own
+# error sentence, and that text spreads: into the route decision the management
+# API serves, into the `ravis.request.completed` and `ravis.capability.suppressed`
+# events NERVIS stores, into the exhaustion log line, and into a tool-refusal
+# suppression's reason on `/api/v1/health`. An upstream answering a bad key is
+# free to quote it back — OpenAI masks the middle, nothing obliges anyone else
+# to — and the protocol's `redact_deep` only blanks values by *key name*, so a
+# key inside a sentence would pass straight through it.
+#
+# The shapes follow NERVIS's log redaction (`nervis/src/nervis/logs.py`), with
+# two deliberate differences. The long-run rule leaves out `-` and `.`, because
+# a detail often names a model and `deepseek-r1-distill-llama-70b-instruct` is
+# 43 characters of exactly that; a key made only of word characters — hex,
+# base64 without padding, OpenRouter's 64-hex tail — is still caught. And the
+# vendor prefixes a hosted provider actually issues are named, since those keys
+# do contain hyphens.
+_CREDENTIAL_SHAPES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}"), r"\1 [redacted]"),
+    (re.compile(r"\b(?:sk|xai)-[A-Za-z0-9._-]{8,}"), "[redacted]"),
+    (re.compile(r"\bAIza[0-9A-Za-z_-]{20,}"), "[redacted]"),
+    (re.compile(r"\b(?:gsk|hf|ghp|github_pat)_[A-Za-z0-9_]{16,}"), "[redacted]"),
+    (re.compile(r"\b[A-Za-z0-9_]{32,}={0,2}"), "[redacted]"),
+    (re.compile(r"(?i)\b(api[-_]?key|token|secret|password)([\"'\s:=]+)[^\s\"',}]{6,}"),
+     r"\1\2[redacted]"),
+)
+
+
+def without_credentials(text: str) -> str:
+    """`text` with every credential-shaped run replaced by `[redacted]`.
+
+    Applied where an attempt is recorded, which is the one place every path's
+    failure text passes through — transparent and translated, streamed or not —
+    so no caller has to remember to do it (runbook §9: redact at the producer).
+    """
+    for pattern, replacement in _CREDENTIAL_SHAPES:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 @dataclass(frozen=True)
@@ -138,8 +180,18 @@ class AttemptChain:
     # because the first one's provider had a credential problem is the opposite
     # of what was asked for.
     from_pool: bool = False
+    # Whether the request carries tools. A tool refusal only arms the
+    # (model, tools) suppression when it does: a refusal "about tools" on a
+    # request that sent none is a misreading of the upstream's words, and
+    # acting on it would take a good model out of tool routing for half an
+    # hour. The fallback still happens either way — it is the *memory* that
+    # needs the proof.
+    carries_tools: bool = False
 
     _queue: list[str] = field(default_factory=list, init=False)
+    # Models this chain newly suppressed for tools, in order, so the closing
+    # event funnel can publish each one once rather than once per refusal.
+    _suppressed: list[str] = field(default_factory=list, init=False)
     _retry: str | None = field(default=None, init=False)
     # Targets that have already had their one same-target retry. Without this
     # the retry re-arms on every failure of the same class, and a target that
@@ -243,6 +295,9 @@ class AttemptChain:
         failure class cannot change behaviour by being handled inconsistently in
         two places.
         """
+        # Stripped before it is kept anywhere: this text reaches the management
+        # API, the event hub, the exhaustion log line and a suppression's reason.
+        detail = without_credentials(detail)
         self.health.record(failure_class, target, self.provider_for(target), started_at)
         # Measured on failure too: "refused after 30 s" and "refused instantly"
         # are different faults, and the timing is the only thing that separates
@@ -253,6 +308,7 @@ class AttemptChain:
             elapsed_ms=(self.health.clock() - started_at) * 1000,
         ))
         self._last_class = failure_class
+        self._suppress_if_tools_refused(target, failure_class, detail)
         # At most one same-target retry, ever. The policy says this class of
         # failure proves the request never arrived, which justifies a second
         # attempt — not an unbounded series of them. A target that has had its
@@ -261,6 +317,21 @@ class AttemptChain:
         if failure_class.policy.retry_same_target and target not in self._retried:
             self._retried.add(target)
             self._retry = target
+
+    def _suppress_if_tools_refused(self, target: str, failure_class: FailureClass,
+                                   detail: str) -> None:
+        """Keep a model that refused tools away from tool requests for a while.
+
+        This is what makes the fallback safe to allow. Without it no circuit
+        opens (the class is scoped NONE, correctly), the router re-picks the
+        same refusing primary on every request, and each of Clarvis's per-turn
+        requests becomes a silent double upstream call (STATUS.md recorded that
+        flipping the fallback alone makes things worse, for exactly this).
+        """
+        if failure_class is not FailureClass.TOOL_INCOMPATIBILITY or not self.carries_tools:
+            return
+        if self.health.suppress(target, self.provider_for(target), Capability.TOOLS, detail):
+            self._suppressed.append(target)
 
     def cancelled(self, target: str) -> None:
         """The client went away (§10: cancellation is not a retry).
@@ -296,6 +367,11 @@ class AttemptChain:
         return list(self._attempts)
 
     @property
+    def suppressed(self) -> list[str]:
+        """Models this request newly kept away from tool requests, in order."""
+        return list(self._suppressed)
+
+    @property
     def last_class(self) -> FailureClass:
         """The class the chain ended on, for the error the client receives."""
         return self._last_class or FailureClass.UNKNOWN
@@ -309,6 +385,9 @@ class AttemptChain:
             "attempts": [attempt.as_dict() for attempt in self._attempts],
             "stopped_because": self._stopped,
             "budget_unenforced": self.budget.unenforced,
+            # Which refusals this request turned into a suppression, so a route
+            # decision read later says why the next tool request skipped them.
+            "suppressed": list(self._suppressed),
         }
 
     def _providers_touched(self) -> str:

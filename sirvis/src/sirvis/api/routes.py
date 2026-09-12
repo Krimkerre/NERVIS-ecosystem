@@ -184,7 +184,12 @@ async def read_system(request: Request) -> dict[str, Any]:
     work actually ran under rather than a single row overwritten in place.
     """
     database = request.app.state.database
-    return record_snapshot(database, detect_system()) | {
+    # On a worker thread. Detection is a run of blocking probes — `sysctl`,
+    # `ioreg`, `pmset`, `sw_vers` among them, each with its own timeout — and on
+    # the event loop every other request, health checks included, queued behind
+    # them for as long as they took.
+    snapshot = await asyncio.to_thread(detect_system)
+    return record_snapshot(database, snapshot) | {
         "snapshot_revision": SNAPSHOT_REVISION
     }
 

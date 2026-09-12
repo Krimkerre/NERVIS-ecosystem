@@ -42,7 +42,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ravis.api.management.decisions import RecordedDecision
 from ravis.api.openai.serialize import DONE, completion, frame_for, opening_frame
 from ravis.content import check_image_count
-from ravis.core.capabilities import ModelCapabilities
+from ravis.core.capabilities import Capability, ModelCapabilities
 from ravis.core.pools import POOL_PREFIX, POOLS_BY_ID, direct_provider, is_pool_id
 from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent, Usage
@@ -852,6 +852,12 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     # Vendors this machine can buy from at the source, resolved once: the
     # refusal path and the ranking path must agree about what is direct.
     direct = await _direct_providers(request)
+    # Normalised once and kept: the engine reads its requirements, the
+    # tool-refusal suppression below applies only when it carries tools, and
+    # the attempt chain needs the same answer to decide whether a refusal may
+    # arm one. Three readers of one fact should not each re-derive it.
+    normalized = normalize(body, payload)
+    request.state.carries_tools = normalized.carries_tools
     decision = engine.select(
         payload.get("model") or "",
         candidates,
@@ -861,7 +867,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # The request's own hard requirements (§9.5): a request carrying tools
         # or images demands a model that can handle them, whatever the pool's
         # static invariants say.
-        request=normalize(body, payload),
+        request=normalized,
         # Providers whose catalogue this engine cannot see. Their own model
         # list is the authority, so a direct address to one is not checked
         # against the local upstream's — see `_direct`.
@@ -889,8 +895,10 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         explore=_exploration(payload),
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
-        # again by another request that pays another timeout to learn it.
-        unavailable=health.unavailable(list(candidates), _provider_of(request)),
+        # again by another request that pays another timeout to learn it — and,
+        # for a request carrying tools, so are models that refused tools
+        # recently. See `_unavailable_for`.
+        unavailable=_unavailable_for(request, health, list(candidates), normalized),
         # §9.6's policy, resolved from the identity and what the request
         # declared. Computed here rather than in the engine because deciding
         # whether a model is forbidden needs its provider and whether that
@@ -928,6 +936,34 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     request.state.decision_id = recorded.decision_id
     request.state.recorded_decision = recorded
     return decision
+
+
+def _unavailable_for(
+    request: Request, health: HealthRegistry, models: list[str], normalized: NormalizedRequest
+) -> dict[str, str]:
+    """The models this request must not be routed to right now, each with why.
+
+    Open circuits always. For a request carrying tools, also the models that
+    refused tools recently — and only then, which is the whole of how a model
+    that cannot do tools today keeps serving plain chat (runbook §2.1): a
+    request without tools never asks about the suppression at all.
+
+    **One reason per model, joined, never two.** Both kinds of exclusion lift
+    on their own, and the router marks anything arriving here as resting; a
+    no-route then answers 503 only when every excluded candidate carries exactly
+    one reason (`RouteDecision.blocked_only_by_circuits`). A model with an open
+    circuit *and* a suppression listed as two reasons would turn a resting pool
+    into a 422 — the status Clarvis's §8.7 probe caches for the session.
+
+    Passed in as `unavailable` rather than as a new engine argument, so the
+    engine stays a pure function of what it is handed and needs no change.
+    """
+    blocked = health.unavailable(models, _provider_of(request))
+    if not normalized.carries_tools:
+        return blocked
+    for model, reason in health.suppressed(models, Capability.TOOLS).items():
+        blocked[model] = f"{blocked[model]}; {reason}" if model in blocked else reason
+    return blocked
 
 
 def _session_id(request: Request) -> str:
@@ -1101,8 +1137,41 @@ def _finished_writer(
                 ),
             },
         )
+        _emit_suppressions(request, chain)
 
     return note
+
+
+def _emit_suppressions(request: Request, chain: AttemptChain) -> None:
+    """Publish each tool-refusal suppression this request armed — once each.
+
+    Through the closing funnel above, so no exit path can miss one, and once
+    per *new* suppression rather than once per refusal: `HealthRegistry.suppress`
+    reports whether it was new, and the chain keeps only those. The event is
+    the diagnostic the fallback would otherwise swallow — once the next model
+    answers, nothing else says that a model refused tools and is now resting.
+
+    Identifiers, the upstream's words (already stripped of anything
+    credential-shaped) and seconds. Never a prompt, never a body.
+    """
+    for model in chain.suppressed:
+        held = chain.health.suppression(model, Capability.TOOLS)
+        if held is None:
+            continue
+        logger.warning(
+            "model suppressed for tool requests",
+            extra={"detail": f"{model}: {held['reason']}"},
+        )
+        _events(request).emit(
+            "ravis.capability.suppressed",
+            trace_id=getattr(request.state, "trace_id", ""),
+            severity="warning",
+            data={
+                "decision_id": getattr(request.state, "decision_id", ""),
+                "request_id": getattr(request.state, "request_id", ""),
+                **held,
+            },
+        )
 
 
 def _usage_writer(
@@ -1424,6 +1493,9 @@ def _chain_for(request: Request, decision: RouteDecision) -> AttemptChain:
         budget=request.app.state.retry_budget,
         observations=getattr(request.app.state, "observations", None),
         from_pool=decision.pool_id is not None,
+        # Set by `_route` from the normalised request. Only a request that
+        # actually carried tools may arm a tool-refusal suppression.
+        carries_tools=bool(getattr(request.state, "carries_tools", False)),
     )
     chain.load(decision.selected or "", decision.fallbacks)
     return chain
@@ -1582,8 +1654,14 @@ async def _forward_and_return(call: _Call) -> Response:
             call.finish()
             return _passthrough(upstream_response)
         last = upstream_response
+        # The upstream's own sentence, not just its status. Once a fallback
+        # succeeds, this attempt record is the only place the refusal survives —
+        # it used to say `HTTP 400` and nothing about why, which is what
+        # `_refuse` already fixed on the streaming path. `AttemptChain.failed`
+        # strips anything credential-shaped before keeping it.
         call.chain.failed(
-            model, started, failure_class, f"HTTP {upstream_response.status_code}"
+            model, started, failure_class,
+            f"HTTP {upstream_response.status_code}: {_message_of(upstream_response.content)}",
         )
     call.finish()
     _log_exhaustion(call.chain)
@@ -1601,9 +1679,22 @@ def _exhausted_response(
     not an answer, and passing the status through would leave the record and the
     response contradicting each other. The upstream's own words are kept; only
     the status it chose is overruled.
+
+    **A pool whose chain ended on a tool refusal is resting, not incapable.**
+    Each refusal armed a suppression that lifts on its own, so every request
+    after this one gets a 503 no-route until it does — and this request answers
+    the same way rather than forwarding the last 4xx, so one pool state never
+    produces two statuses. It matters because Clarvis's §8.7 probe caches any
+    4xx for the whole session as "this pool cannot call tools" and never
+    remembers a 5xx. The retry budget can also end the chain with a capable
+    model still untried, and a 4xx would then be the pool appearing incapable
+    when it is not — the one outcome §8.7 names. A directly named model is not
+    a pool: its refusal is the answer to what was asked, and goes through as is.
     """
     if last is None:
         return _chain_exhausted(call.chain)
+    if call.chain.from_pool and call.chain.last_class is FailureClass.TOOL_INCOMPATIBILITY:
+        return _overruled(last, 503)
     # The same substitution the streaming path makes, and for the same reason:
     # an upstream describing its own state is not an answer to "why did this
     # model not work". Only when every attempt has failed, so no working route
@@ -1613,9 +1704,14 @@ def _exhausted_response(
         return Response(content=explained, status_code=404, media_type="application/json")
     if not misleading:
         return _passthrough(last)
+    return _overruled(last, 502)
+
+
+def _overruled(last: httpx.Response, status: int) -> Response:
+    """The upstream's own words, under a status RAVIS has decided on instead."""
     return Response(
         content=last.content,
-        status_code=502,
+        status_code=status,
         headers=_forwardable_response_headers(last),
         media_type=last.headers.get("content-type"),
     )
@@ -1832,8 +1928,11 @@ def _commit_or_refuse(call: _Call, model: str, started: float, chunk: bytes) -> 
     if refusal is None:
         call.chain.succeeded(model, started, ttft=call.chain.now() - started)
         return
+    # The error's own words beside the status, for the reason the non-streaming
+    # path keeps them: after a fallback succeeds, this record is the only place
+    # the refusal is explained, and it becomes a suppression's reason.
     call.chain.failed(model, started, classify_error_body(refusal),
-                      "HTTP 200 carrying an error")
+                      f"HTTP 200 carrying an error: {_message_of(refusal)}")
     raise _TryNext(refusal)
 
 

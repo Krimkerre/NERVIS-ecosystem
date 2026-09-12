@@ -253,7 +253,11 @@ async def run_multi_experiment(
     """
     sampler = probe or MemoryProbe()
     inventory = await _inventory(runtime)
-    machine = record_snapshot(database, snapshot or detect_system())
+    # Detection runs blocking probes (`sysctl`, `ioreg`, `pmset`); on a worker
+    # thread so the service's loop keeps answering while it does.
+    machine = record_snapshot(
+        database, snapshot if snapshot is not None else await asyncio.to_thread(detect_system)
+    )
 
     experiment_id = create_experiment(
         database, spec.as_dict(),
@@ -276,7 +280,7 @@ async def run_multi_experiment(
         experiment_id=experiment_id, run_id=run_id, state=RunState.RUNNING,
         detail="preparing", results_path=str(directory.path),
         load_order=[member.role for member in spec.per_role],
-        telemetry=[sampler.sample(BASELINE)],
+        telemetry=[await _sampled(sampler, BASELINE)],
     )
 
     try:
@@ -352,6 +356,16 @@ def _thermal_warnings(outcome: MultiModelOutcome) -> list[ScopedWarning]:
     )]
 
 
+async def _sampled(sampler: MemoryProbe, point: str) -> MemorySample:
+    """One labelled memory reading, on a worker thread.
+
+    `vm_stat` and `sysctl` are blocking subprocesses, and this engine runs on the
+    service's event loop, so on the loop SIRVIS went quiet for every reading. The
+    reading is unchanged: a sample is stamped when it comes back.
+    """
+    return await asyncio.to_thread(sampler.sample, point)
+
+
 async def _execute(
     spec: MultiModelSpec,
     runtime: GenerationRuntime,
@@ -373,10 +387,12 @@ async def _execute(
     # agent's alone throughput came back 68, 58, 58 across three runs of one
     # pair while its concurrent figure held at 44.6, 45.7, 45.3, and nothing in
     # the record could say whether the machine was warmer for the last two.
-    outcome.thermal["baseline"] = thermal()
+    # On a worker thread for `_sampled`'s reason: thermal state is an `osascript`
+    # call with a ten-second timeout, and this runs on the service's event loop.
+    outcome.thermal["baseline"] = await asyncio.to_thread(thermal)
     for member in spec.per_role:
         await _measure_alone(member, spec, runtime, resources, sampler, directory, outcome, clock)
-    outcome.thermal[MODE_ALONE] = thermal()
+    outcome.thermal[MODE_ALONE] = await asyncio.to_thread(thermal)
 
     lease = await _load_together(spec, resources, sampler, directory, outcome)
     if lease is None:
@@ -393,11 +409,11 @@ async def _execute(
     try:
         for mode in spec.modes:
             await _run_mode(mode, spec, runtime, sampler, directory, outcome, clock)
-            outcome.thermal[mode] = thermal()
+            outcome.thermal[mode] = await asyncio.to_thread(thermal)
     finally:
-        outcome.telemetry.append(sampler.sample(POST_RUN))
+        outcome.telemetry.append(await _sampled(sampler, POST_RUN))
         await resources.release(lease.session_id)
-        outcome.telemetry.append(sampler.sample(POST_UNLOAD))
+        outcome.telemetry.append(await _sampled(sampler, POST_UNLOAD))
 
 
 async def _measure_alone(
@@ -421,7 +437,7 @@ async def _measure_alone(
         owner=OWNER, model_key=member.model_key, configuration=dict(member.load)
     )
     outcome.load_seconds[member.role] = clock() - started
-    outcome.telemetry.append(sampler.sample(AFTER_LOAD_ROLE.format(role=member.role)))
+    outcome.telemetry.append(await _sampled(sampler, AFTER_LOAD_ROLE.format(role=member.role)))
     directory.append_log(f"alone: {member.role} ({member.model_key})")
     try:
         await _measure_role(member, spec, MODE_ALONE, runtime, sampler, directory, outcome, clock)
@@ -431,9 +447,9 @@ async def _measure_alone(
         # had no peak sample of its own — only the modes did — so swap could be
         # read while two models were resident and not while one was. The one
         # comparison §10.1 turns on was the one that could not be made.
-        outcome.telemetry.append(sampler.sample(PEAK_FOR_MODE.format(mode=MODE_ALONE)))
+        outcome.telemetry.append(await _sampled(sampler, PEAK_FOR_MODE.format(mode=MODE_ALONE)))
         await resources.release(lease.session_id)
-        outcome.telemetry.append(sampler.sample(f"post_unload:{member.role}"))
+        outcome.telemetry.append(await _sampled(sampler, f"post_unload:{member.role}"))
 
 
 async def _load_together(
@@ -465,7 +481,9 @@ async def _load_together(
                 session_id=lease.session_id if lease else None,
             )
             # §11.8: for Runtime Sets, record after every model load.
-            outcome.telemetry.append(sampler.sample(AFTER_LOAD_ROLE.format(role=member.role)))
+            outcome.telemetry.append(
+                await _sampled(sampler, AFTER_LOAD_ROLE.format(role=member.role))
+            )
             directory.append_log(f"co-resident: added {member.role} ({member.model_key})")
     except (ResourceExhaustedError, RuntimeUnavailableError, RuntimeUnreachableError) as failure:
         if lease is not None:
@@ -481,7 +499,7 @@ async def _load_together(
         ))
         directory.append_log(f"co-residency failed: {failure}")
         return None
-    outcome.telemetry.append(sampler.sample(AFTER_LOAD))
+    outcome.telemetry.append(await _sampled(sampler, AFTER_LOAD))
     return lease
 
 
@@ -505,7 +523,7 @@ async def _run_mode(
             await _measure_role(
                 member, spec, MODE_SEQUENTIAL, runtime, sampler, directory, outcome, clock
             )
-    outcome.telemetry.append(sampler.sample(PEAK_FOR_MODE.format(mode=mode)))
+    outcome.telemetry.append(await _sampled(sampler, PEAK_FOR_MODE.format(mode=mode)))
 
 
 async def _run_alternating(

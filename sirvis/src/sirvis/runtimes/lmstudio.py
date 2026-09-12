@@ -23,6 +23,7 @@ exist because of this; M2 only has to make it visible.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import subprocess
@@ -271,10 +272,17 @@ class LMStudioAdapter:
         if not isinstance(entries, list):
             raise RuntimeUnavailableError("model list was not a list")
         published = [entry for entry in entries if isinstance(entry, dict)]
-        builds = self._local_builds()
+        # Both CLI listings on worker threads, and at the same time. Each is a
+        # blocking `lms ls` with a five-second timeout, and this listing sits
+        # under residency, every acquire and every load's confirmation — so on
+        # the event loop the pair stalled all of SIRVIS for as long as the CLI
+        # took to start and answer, twice.
+        builds, sizes = await asyncio.gather(
+            asyncio.to_thread(self._local_builds), asyncio.to_thread(self._local_sizes)
+        )
         return [
             {**entry, "runtime_key": RUNTIME_KEY}
-            for entry in add_unpublished(with_sizes(published, builds, self._local_sizes()), builds)
+            for entry in add_unpublished(with_sizes(published, builds, sizes), builds)
         ]
 
     def confirm_variant(self, model_key: str) -> LoadedVariant | None:
@@ -416,7 +424,15 @@ class LMStudioAdapter:
         # A non-zero exit here is the runtime answering and failing to load
         # this build — which is not the same fact as the runtime being absent,
         # and not the same thing to do about it.
-        self._run_lms(arguments, timeout=LOAD_TIMEOUT_SECONDS, refused=RuntimeLoadFailedError)
+        #
+        # **On a worker thread**, for `unload`'s reason and with more at stake:
+        # a load can take minutes, and on the event loop SIRVIS answered nothing
+        # for all of them — health checks timed out, and the dashboard and menu
+        # bar showed the service down until the model arrived. The arguments
+        # were checked above, on the loop, so a refused value never reaches it.
+        await asyncio.to_thread(
+            self._run_lms, arguments, timeout=LOAD_TIMEOUT_SECONDS, refused=RuntimeLoadFailedError
+        )
 
         resident = {model.model_key: model for model in await self.list_loaded_models()}
         actual = resident.get(model_key)
@@ -436,14 +452,28 @@ class LMStudioAdapter:
         anybody else is using the thing. Until M8, this is the primitive that
         manager will drive, and it is why the method takes a model rather than
         deciding for itself what ought to go.
+
+        **On a worker thread**, since 12 September 2026. `lms unload` is a
+        blocking subprocess, and run on the event loop it froze the whole
+        service for as long as the CLI took — up to the full timeout against a
+        runtime that had stopped answering. That made any bound on an unload a
+        comment rather than a fact: SIRVIS's stop gives its unloads a budget
+        (`STOP_BUDGET_SECONDS` in `app.py`), and a timer cannot fire on a loop
+        that is not running. The thread changes who waits, not what runs — the
+        same `_run_lms`, the same timeout — so a caller that stops waiting does
+        not cut an unload off halfway. The key is still checked here, on the
+        loop, so a refused one never reaches the thread at all.
         """
-        self._run_lms(
-            ["unload", _as_lms_argument(model_key, "model_key")], timeout=PROBE_TIMEOUT_SECONDS
-        )
+        argument = _as_lms_argument(model_key, "model_key")
+        await asyncio.to_thread(self._run_lms, ["unload", argument], timeout=PROBE_TIMEOUT_SECONDS)
 
     async def unload_all(self) -> None:
-        """Unload everything. Only ever an operator's explicit choice."""
-        self._run_lms(["unload", "--all"], timeout=PROBE_TIMEOUT_SECONDS)
+        """Unload everything. Only ever an operator's explicit choice.
+
+        On a worker thread, like every `lms` call here, so it cannot stall the
+        service while the CLI runs.
+        """
+        await asyncio.to_thread(self._run_lms, ["unload", "--all"], timeout=PROBE_TIMEOUT_SECONDS)
 
     # ── Plumbing ─────────────────────────────────────────────────────────────
 

@@ -414,6 +414,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     api.state.health = HealthRegistry(
         failure_threshold=settings.breaker_failure_threshold,
         cooldown_seconds=settings.breaker_cooldown_seconds,
+        # The (model, tools) suppression a tool refusal arms. In memory for the
+        # same reason as the breakers above; see `HealthRegistry.suppress`.
+        suppression_seconds=settings.tool_refusal_suppression_seconds,
     )
     api.state.retry_budget = RetryBudget(
         max_attempts=settings.retry_max_attempts,

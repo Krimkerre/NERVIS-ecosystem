@@ -907,6 +907,10 @@ and correlation IDs. Explanations distinguish facts, estimates, unknowns, constr
 preferences, and redact credentials, internal URLs, prompt content and sensitive
 machine/workspace identifiers.
 
+A candidate resting after a tool refusal (§10) is listed among the excluded with the upstream's
+reason and the minutes until tool requests resume — a temporary exclusion, like an open circuit,
+and only on requests that carry tools.
+
 **A no-route decision is first-class and explainable.**
 
 **Determinism gate:** fixed candidates, evidence, policy and time inputs produce the same
@@ -984,6 +988,16 @@ still satisfy the original hard constraints **and the pool capability invariants
 unavailable, local OOM, invalid request, authentication, tool incompatibility, context
 overflow, content refusal — and, added on 11 September 2026, unsupported parameter: a request
 one model cannot take as written, which may fall back to the next candidate.
+
+**A tool refusal falls back, and rests the model from tool requests only** (12 Sep). Tool support
+is a property of the model, and every candidate in the chain is tool-capable by construction, so
+the next one very likely works. A refusal on a request that carried tools skips the refusing model
+for requests carrying tools for a configurable window (`RAVIS_TOOL_REFUSAL_SUPPRESSION_SECONDS`,
+default 30 minutes); it stays eligible for requests without tools, so a chat pool keeps it
+(`ECOSYSTEM_RUNBOOK.md` §2.1). No circuit opens and no health scope widens. A pool whose
+tool-capable candidates are all resting answers 503, never 422, because a client caches a 4xx on its
+capability probe for the session (§8.7). A directly named model is neither filtered nor overruled.
+Kept in memory, like the breakers.
 
 **Retry budget:** max attempts, max total latency, max total monetary cost.
 
@@ -1242,6 +1256,12 @@ answer 404 on the running RAVIS. Seven reads exist that the list does not name:
 `/api/v1/pools/{pool_key}/members`, `/api/v1/providers/credentials`,
 `/api/v1/providers/{name}/models` and `/api/v1/providers/{name}/catalogue`, defined in
 `ravis/src/ravis/api/management/routes.py` and `credentials.py`.
+
+Since 12 September 2026 `/api/v1/health` also carries `capability_suppressions` — each model
+resting from tool requests after a refusal (§10), with its provider, capability, the upstream's
+reason, the window and `lifts_in_seconds` — and one write ends a rest early:
+`POST /api/v1/health/suppressions/{model}/lift`, admin-only and audited as
+`ravis.capability.suppression_lifted`. A new rest is published as `ravis.capability.suppressed`.
 
 List responses use `{items, next_cursor, snapshot_revision}`. Provider and model results are
 redacted and capability-evidenced.

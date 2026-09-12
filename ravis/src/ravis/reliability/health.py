@@ -24,12 +24,14 @@ would break that assumption, which is exactly why it is written down.
 
 from __future__ import annotations
 
+import math
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
+from ravis.core.capabilities import Capability
 from ravis.reliability.failures import FailureClass, HealthScope
 
 # How many recent latencies to keep per target. Enough to average out one slow
@@ -251,6 +253,77 @@ class TargetHealth:
         }
 
 
+#: How long a capability suppression lasts when the caller names no figure.
+#: `Settings.tool_refusal_suppression_seconds` says why half an hour.
+SUPPRESSION_SECONDS = 1800.0
+
+
+@dataclass(frozen=True)
+class CapabilitySuppression:
+    """One model kept away from requests that need one capability, for a while.
+
+    **A scope the breaker does not have, on purpose.** A circuit is keyed on
+    `(scope, target)` with no capability in it, so opening a MODEL circuit
+    because a model refused tools would also take it out of every plain chat
+    request — and runbook §2.1 requires a tool-failing model to stay eligible
+    for a chat pool. This is the missing `(model, capability)` scope: the model
+    is skipped for requests that need the capability, and for nothing else.
+
+    **Time-boxed rather than permanent**, because a refusal can stop being true
+    without RAVIS hearing about it: an operator reloads the model with a
+    template that supports tools, or a hosted endpoint that lacked tool support
+    comes back. Durable knowledge about what a model cannot do has its own home
+    in capability trials and configuration; this only says "not for now".
+
+    Frozen: a repeat refusal replaces the record rather than editing it, so a
+    reader holding one never sees it change underneath them.
+    """
+
+    model: str
+    # Which upstream served the refusal, for the person reading the health
+    # endpoint. Not part of the key — see `HealthRegistry.suppress`.
+    provider: str
+    capability: Capability
+    # The upstream's own words, already stripped of anything credential-shaped
+    # by `AttemptChain.failed`, so an explanation says *why* and not just *that*.
+    reason: str
+    since: float
+    until: float
+
+    def active_at(self, now: float) -> bool:
+        """Whether this suppression still applies. Worked out on read, like
+        `TargetHealth.state`, so nothing has to notice the window closing."""
+        return now < self.until
+
+    def remaining(self, now: float) -> float:
+        return max(0.0, self.until - now)
+
+    def describe(self, now: float) -> str:
+        """The route explanation's sentence: what happened, and when it ends.
+
+        Relative time rather than a clock time, because the registry's clock is
+        monotonic — the same choice `TargetHealth.refusal` makes — and a reader
+        who wants a wall time has one to add it to.
+        """
+        minutes = max(1, math.ceil(self.remaining(now) / 60))
+        name = self.capability.value
+        return (
+            f"refused {name} ({self.reason}); requests with {name} resume in "
+            f"{minutes} min, and requests without {name} still use it"
+        )
+
+    def as_dict(self, now: float) -> dict[str, Any]:
+        """The `/api/v1/health` shape: identifiers, the reason, and seconds."""
+        return {
+            "model": self.model,
+            "provider": self.provider,
+            "capability": self.capability.value,
+            "reason": self.reason,
+            "window_seconds": round(self.until - self.since),
+            "lifts_in_seconds": round(self.remaining(now)),
+        }
+
+
 class HealthRegistry:
     """Every target RAVIS has spoken to, keyed by scope and name.
 
@@ -268,10 +341,21 @@ class HealthRegistry:
         failure_threshold: int = 3,
         cooldown_seconds: float = 30.0,
         clock: Callable[[], float] = time.monotonic,
+        suppression_seconds: float = SUPPRESSION_SECONDS,
     ) -> None:
         self._targets: dict[tuple[HealthScope, str], TargetHealth] = {}
         self._failure_threshold = failure_threshold
         self._cooldown_seconds = cooldown_seconds
+        # (model, capability) suppressions, beside the breakers rather than in a
+        # store of their own — this module's founding reason: two structures
+        # about one target drift. Same clock, same in-memory lifetime, and the
+        # same query/command split as `allows` and `of`.
+        #
+        # Keyed on the model id alone, as MODEL circuits are, not on the
+        # provider: routing identifies a candidate by its model id, so a key the
+        # router cannot ask with would be a suppression nothing ever consults.
+        self._suppressions: dict[tuple[str, Capability], CapabilitySuppression] = {}
+        self._suppression_seconds = suppression_seconds
         # Public, because it is the *only* clock anything in this layer may
         # read. An attempt's start and its end must be measured against one
         # clock or the elapsed time is meaningless, and the cheapest way to
@@ -377,6 +461,65 @@ class HealthRegistry:
         """Every target's current state, for diagnostics and the CLI."""
         return [health.as_dict() for _, health in sorted(self._targets.items(),
                                                          key=lambda item: item[0][1])]
+
+    def suppress(self, model: str, provider: str, capability: Capability,
+                 reason: str) -> bool:
+        """Keep `model` away from requests needing `capability`; True if newly so.
+
+        The only command on suppressions. A repeat refusal while one is still
+        active restarts the window from now — the newest refusal is the best
+        evidence — but it is not *new*, so the caller publishes one event per
+        suppression rather than one per refusal. Expired records are dropped
+        here, in the command, so the queries below never change what they
+        report on (runbook §14.2).
+        """
+        now = self.clock()
+        self._suppressions = {
+            key: held for key, held in self._suppressions.items() if held.active_at(now)
+        }
+        fresh = (model, capability) not in self._suppressions
+        self._suppressions[(model, capability)] = CapabilitySuppression(
+            model=model, provider=provider, capability=capability, reason=reason,
+            since=now, until=now + self._suppression_seconds,
+        )
+        return fresh
+
+    def suppressed(self, models: Iterable[str], capability: Capability) -> dict[str, str]:
+        """Which of `models` are kept away from `capability` now, each with why.
+
+        The shape `unavailable` returns, for its reason: the reason has to reach
+        the route explanation (§9.7), and "refused tools" is only useful with
+        the upstream's words and the time left attached.
+        """
+        now = self.clock()
+        found: dict[str, str] = {}
+        for model in models:
+            held = self._suppressions.get((model, capability))
+            if held is not None and held.active_at(now):
+                found[model] = held.describe(now)
+        return found
+
+    def suppression(self, model: str, capability: Capability) -> dict[str, Any] | None:
+        """One active suppression in its `/api/v1/health` shape, or None."""
+        now = self.clock()
+        held = self._suppressions.get((model, capability))
+        return held.as_dict(now) if held is not None and held.active_at(now) else None
+
+    def suppressions(self) -> list[dict[str, Any]]:
+        """Every active suppression, ordered by model, for `/api/v1/health`."""
+        now = self.clock()
+        ordered = sorted(self._suppressions.items(),
+                         key=lambda item: (item[0][0], item[0][1].value))
+        return [held.as_dict(now) for _, held in ordered if held.active_at(now)]
+
+    def lift(self, model: str, capability: Capability) -> bool:
+        """End a suppression early; True when one was still active.
+
+        An operator's undo, for when the reason a model refused has been fixed
+        and waiting out the window would only delay finding that out.
+        """
+        held = self._suppressions.pop((model, capability), None)
+        return held is not None and held.active_at(self.clock())
 
 
 def _mean(samples: deque[float]) -> float | None:

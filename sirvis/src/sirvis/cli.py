@@ -33,7 +33,7 @@ import httpx
 import uvicorn
 from ecosystem_protocol import EventPublisher, configure_logging
 
-from sirvis.app import create_app
+from sirvis.app import GRACEFUL_SHUTDOWN_SECONDS, create_app
 from sirvis.config import ConfigurationReport, Settings, inspect_configuration
 from sirvis.core.machine import machine_identity
 from sirvis.storage import Database, prepare_database
@@ -684,7 +684,14 @@ def _run_serve(settings: Settings) -> int:
         _print_findings(report)
         print("\nrefusing to serve: fix the fatal findings above", file=sys.stderr)
         return EXIT_FATAL_CONFIGURATION
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_config=None)
+    # Bounded, so a request still in flight cannot keep SIRVIS's release of its
+    # models from running before the launcher's forced kill. uvicorn waited for
+    # such requests without limit; the arithmetic is above
+    # `GRACEFUL_SHUTDOWN_SECONDS` in `app.py`.
+    uvicorn.run(
+        create_app(settings), host=settings.host, port=settings.port, log_config=None,
+        timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
+    )
     return EXIT_OK
 
 

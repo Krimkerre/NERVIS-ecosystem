@@ -38,6 +38,8 @@ ACTION_CREDENTIAL_FORGOTTEN = "ravis.credential.forgotten"
 ACTION_PROVIDER_ENABLED = "ravis.provider.enabled_changed"
 ACTION_PROVIDER_MODELS = "ravis.provider.model_filter_changed"
 ACTION_POOL_MEMBERS = "ravis.pool.members_changed"
+# An operator ending a tool-refusal suppression before its window ran out.
+ACTION_SUPPRESSION_LIFTED = "ravis.capability.suppression_lifted"
 
 
 def record(request: Request, action: str, **facts: Any) -> None:

@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2986 tests, no network, no live service
+.venv/bin/pytest                      # part of 3060 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 512 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1217 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 534 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1234 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2986 passing across the four, conformance `PASS`.
+Expected: all clean, 3060 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -213,7 +213,7 @@ carries an as-built note saying what exists and what does not.
 | 12 | **Specified for RAVIS and not built** | Five management reads and three writes (§15.1); the command line's providers, models, profiles, routes, usage, sirvis status and test (§15.4); most of its events, and per-stage spans (§15.2); per-step routing timings (§9.8); budgets per day, week, application and provider (§14); route decisions that survive a restart, and the SIRVIS model reference (§17) |
 | 13 | **Specified for NERVIS and not built** | Most of the command line, and a doctor that checks its peers (§17); notifications for a finished benchmark, a budget threshold, a spike in route failures, memory pressure, swap and a Clarvis approval — the notification centre exists and little posts to it (§18); a route decision that can be linked to, and screens that update in place (§25.2, partial); benchmark progress streamed rather than polled, which needs SIRVIS to publish progress first (M5b) |
 | 14 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
-| 15 | **Defects recorded below and never closed** | Closed on 12 September, each under its own entry and in the dated section *The recorded defects, fixed*: a tool probe landing on a model that is not loaded (§8.7); LM Studio's advertised context window; the credential write's repeated catalogue refresh; Hand over through the proxy; the half export — and, found on the way, `LOCAL_PREFERRED` sitting behind five ranking terms. Still open: a tool refusal fails the request instead of trying another model; SIRVIS M22b's reasoning share was never confirmed on real data; SIRVIS releases no lease when it shuts down, so a model a client loaded stays in LM Studio held by nobody — the launcher now releases the menu bar app's own first, and nothing does it for other clients; the launcher's own start and stop have no automated tests; and the menu bar app was once found not running, with the stack and a model it held still up, no crash report and no log entry, cause unknown — the app's log now keeps its history and records how each run ends, so a repeat will say whether it quit |
+| 15 | **Defects recorded below and never closed** | Closed on 12 September, each under its own entry and in the dated section *The recorded defects, fixed*: a tool probe landing on a model that is not loaded (§8.7); LM Studio's advertised context window; the credential write's repeated catalogue refresh; Hand over through the proxy; the half export — and, found on the way, `LOCAL_PREFERRED` sitting behind five ranking terms. Also closed that day: a tool refusal now tries the pool's next model; SIRVIS releases and unloads what it loaded when it stops; and the launcher's start and stop have automated tests, which found and fixed three holes of their own. Still open: SIRVIS M22b's reasoning share was never confirmed on real data; the Anthropic and Google adapters never fall back for any failure; and the menu bar app was once found not running, with the stack and a model it held still up, no crash report and no log entry, cause unknown — the app's log now keeps its history and records how each run ends, so a repeat will say whether it quit |
 | 16 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run on every commit that touches the dashboard only in a clone where `git config core.hooksPath tools/githooks` has been run |
 
 ### After that — deferred on purpose, or waiting on the owner
@@ -6146,6 +6146,44 @@ Closed for LM Studio on 12 September too — see the next item.*
   What it needs is a **(model, capability)-scoped, time-boxed suppression**,
   which is a scope the registry does not have. The pressure for it is §8.7
   rather than §10 — §10 names the class once and assigns it no rule at all.
+  *Built on 12 September, as that analysis asked; the owner chose fallback.*
+  `TOOL_INCOMPATIBILITY` may now fall back (still no retry, no health scope). A
+  refusal on a request that carried tools arms a time-boxed (model, tools)
+  suppression held beside the breakers in `HealthRegistry` —
+  `RAVIS_TOOL_REFUSAL_SUPPRESSION_SECONDS`, default 1800, because a refusal comes
+  from the model's template or endpoint and does not heal in thirty seconds the
+  way an overload does, and thirty minutes covers a whole Clarvis task at the cost
+  of one wasted call. Expiry is worked out when read, and asking creates nothing.
+  Routing drops a suppressed model from tool-bearing requests only, by merging it
+  into `unavailable` (`_unavailable_for` in `api/openai/chat.py`), so the engine is
+  unchanged and `ravis/clarvis-chat` keeps it; the explanation names the refusal
+  and the minutes left. **A pool whose tool models are all resting answers 503,
+  never 422** — before routing, and on the request whose chain ran out on a
+  refusal — because Clarvis's probe caches any 4xx as "no tools" for the session
+  and never remembers a 5xx; retrying the last suppressed model instead would pass
+  its 4xx straight to Clarvis, which is the poisoning, and would make suppression
+  do nothing in a one-model pool. A directly named model is neither filtered nor
+  overruled (§5.3). The upstream's own diagnostic is no longer swallowed: attempt
+  details keep its sentence, stripped of credential-shaped text in
+  `AttemptChain.failed`, which every path passes through. A new rest is published
+  as `ravis.capability.suppressed`; NERVIS stores it without error and raises no
+  notification. `GET /api/v1/health` lists `capability_suppressions`, and `POST
+  /api/v1/health/suppressions/{model}/lift` ends one early (admin, audited).
+  RAVIS → Diagnostics draws a row per resting model — the reason, and when tool
+  requests resume — with a Lift button; NERVIS relays only reads generically, so
+  the lift is one more control-token-protected route (`lift_ravis_suppression`)
+  sent with NERVIS's admin credential, and `suppression_lift_path` refuses a model
+  id holding `..` or an empty part because that credential travels with it. Gate:
+  `nervis/tools/ravis_diagnostics_check.js`, which fails three ways with the rows
+  removed. A suppression is not created for a refusal on a request without tools —
+  that is a misread. Twenty-nine new tests across `ravis/tests/test_fallback.py`,
+  `ravis/tests/test_reliability.py`, `ravis/tests/test_m18b_events.py` and
+  `ravis/tests/test_management_api.py`, each key one failing with its
+  piece reverted. **Still open:** the Anthropic and Google adapters never fall back
+  for any failure, though a refusal there does arm the suppression; a streamed
+  request whose every model refuses still gets a 200 carrying an error frame, since
+  only a non-streamed request — which is what the probe sends — can be given the
+  503; and redaction is by pattern, so an unusual key format could pass.
 - **§8.7's literal instruction is still not followed: RAVIS routes tool probes
   to cold candidates.** The poisoning it caused is fixed from both ends (below),
   but §8.7 does not say "answer the probe carefully" — it says *do not route a
@@ -19063,8 +19101,12 @@ loaded qwen3-1.7b from the menu: the menu recorded one session; SIRVIS held `qwe
 itself, under one active one-hour lease owned by the dashboard's token, with nothing loaded outside it;
 LM Studio had exactly that model loaded, 1.7 GB at an 8,192-token context; the menu ticked it; and memory
 in use read 61%. Clicking it again emptied the menu's record, left SIRVIS holding nothing and LM Studio
-with nothing loaded, took the tick away, and memory in use fell to 55%. Not yet watched: a lease renewal,
-the first of which comes ten minutes after a load.
+with nothing loaded, took the tick away, and memory in use fell to 55%. ~~Not yet watched: a lease renewal,
+the first of which comes ten minutes after a load.~~ **Renewal watched later that evening.** With
+qwen3-1.7b loaded from the menu again and the app restarted at 21:03:39Z, the app's first renewal answered
+`{"ok": true, "renewed": 1}` at 21:13Z with SIRVIS's lease still active, and at 22:06:19Z — past the
+one-hour lease — SIRVIS still held the model under that same session, the app having logged six renewals.
+The app ran unbroken throughout; the only "ended without quitting" line in its log was that 21:03 swap.
 
 SIRVIS 0.19.1 → 0.19.2, NERVIS 0.28.1 → 0.28.2.
 
@@ -19208,6 +19250,40 @@ instead of going hosted.
 RAVIS 0.23.3 → 0.23.4. Checked on a snapshot holding only these files over HEAD: ruff and mypy clean, and
 1195 tests pass — forty-seven new, and one removed that pinned the advertised window.
 
+**RAVIS — a tool refusal tries the pool's next model.** The owner's choice, built as the recorded analysis
+asked — a (model, tools) suppression rather than a flipped policy — and recorded under *A tool refusal still
+fails the request instead of trying the next model*. RAVIS 0.23.4 → 0.23.5. Checked on a snapshot holding
+only these files over HEAD: ruff and mypy clean, and 1230 tests pass, thirty-five more.
+
+**The launcher — tests at last, and three holes they found.** Recorded under *Starting the thing*. The
+tests hold the properties that section describes against a faked machine, and writing them showed that
+the PID-reuse guard it describes was weaker than described: `ravis` was a marker every process in
+`ravis/.venv` carried. Fixed with the two others — a marker-less record matched anything, and `start`
+could orphan a process that was alive and not answering. SIRVIS's wait before a forced kill went from 6 to
+12 seconds for its new shutdown. NERVIS 0.28.7 → 0.28.8, since the launcher ships with NERVIS's menu bar
+app; the same version carries the Diagnostics row for resting models and the lift route it uses.
+Checked on a snapshot holding only these files over HEAD: ruff and mypy clean, and 1234 tests pass,
+seventeen more — thirteen for the launcher, four for the lift route.
+
+**SIRVIS — it releases what it loaded when it stops, and never blocks while it works.** The owner chose
+that a stop unloads every model SIRVIS loaded, for any client. Its shutdown now ends every session first,
+so no client is still told it holds something, then unloads through the path an expired lease takes, so
+a model it adopted rather than loaded is left alone (`release_on_stop` in `resources/manager.py`). Making
+that bounded found the larger defect underneath: `lms load`, `lms unload` and `lms ls` ran as blocking
+subprocesses on the event loop, so no timer could fire during one, and **while a model loaded SIRVIS
+answered nothing** — health checks, residency, the dashboard. Benchmark sampling did the same for a whole
+run: memory four times a second and a thermal read with a ten-second timeout. Every one of those now runs
+on a worker thread. Moving unloads off the loop opened a race — an acquire arriving mid-unload could share
+a model about to vanish — which now waits for the unload and loads again. The stop is bounded end to end
+against the launcher's 12-second wait: uvicorn's graceful wait, which had no limit and would have let a
+long load request run SIRVIS into the forced kill with nothing released, is one second; the release six,
+with unloads concurrent so a hung one does not hold up the rest; the event drain three — 10.1 s at worst, a
+sum a test reads against the launcher's own constant. Still open: a load started over HTTP and cut off at
+the one-second mark finishes and is unloaded only if it lands within the six; there is no
+`runtime.session.released` event (§15 names one), so the log is the record; and concurrent unloads and
+overlapping loads have not been tried against a real LM Studio. SIRVIS 0.19.2 → 0.19.3. Checked on a
+snapshot holding only these files over HEAD: ruff and mypy clean, and 534 tests pass, twenty-two more.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
@@ -19249,10 +19325,37 @@ routing" and "no runtime is running" are the same symptom with different fixes.
 Ollama and code-server are the later exceptions: the launcher starts each when it is
 installed.
 
-**No automated tests.** The launcher spawns detached processes and signals them;
+~~**No automated tests.** The launcher spawns detached processes and signals them;
 the verification was done live and is described above — start, status,
 idempotent re-start, stop, no strays, and the PID-reuse guard. Recorded as a gap
-rather than implied to be covered.
+rather than implied to be covered.~~
+
+**Automated since 12 September 2026, in part.** `nervis/tests/test_launcher_lifecycle.py`
+checks the launcher against a faked machine — process table, signals, `ps`, clock and
+health probes all replaced — so no test touches a real process or port. It holds the
+PID-reuse guard; asking with TERM first and forcing only what outlives the wait, 12 s
+for SIRVIS (whose shutdown now unloads its models) and 6 s for the rest; "Still
+answering after stop" with a non-zero exit rather than "Stopped." over a live service;
+releasing the menu bar app's sessions before anything is signalled, and not asking a
+SIRVIS that is not answering; and `start` deciding by health in both directions.
+
+**Writing the tests found three holes, fixed the same day.** The markers were bare
+names, and every process run from `ravis/.venv` — SIRVIS, NERVIS, a pytest run — carried
+`ravis`, so a recycled RAVIS PID held by any of them would have been signalled and then
+killed; each marker is now the program plus `serve` (`ravis serve`, and so on), checked
+by a test against the real service table, with code-server the exception because after
+it restarts itself its command line carries no `serve`. A record with no marker matched
+any live process; it is now never signalled. And `start` overwrote the record of a
+process that was alive and not answering and launched a second copy, orphaning the
+first where `stop` could not reach it; it now waits the normal start-up time for it,
+and if it stays silent names the service and process ("RAVIS (process 700) is running
+but not answering. Stop the stack, then start it again."), keeps the record and exits
+1. Old PID files are checked against today's markers, so the first `stop` after
+upgrading still reaches the running stack. Each test was shown to fail with its guard
+broken in a scratch copy — 21 broken copies, each caught. The menu bar app shows such a
+start only as "Not answering: RAVIS"; the sentence naming the process is in
+`.run/menubar.log`. Still checked only by hand: that the services really detach, the
+Windows branch, and a live start and stop.
 
 ## Map of the repository
 

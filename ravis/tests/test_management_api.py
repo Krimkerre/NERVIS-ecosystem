@@ -16,6 +16,7 @@ from tests.test_transparent_proxy import _app_with
 
 from ravis.app import create_app
 from ravis.config import Settings
+from ravis.core.capabilities import Capability
 from ravis.cost import CostState, UsageRecord
 from ravis.credentials import CredentialStore
 from ravis.policy import ApplicationPolicies, PrivacyLevel, RoutingPolicy
@@ -77,12 +78,13 @@ def test_a_read_endpoint_does_not_accept_a_write() -> None:
             assert client.post(path, json={}).status_code == 405, path
 
 
-def test_every_write_this_surface_serves_is_one_of_the_six_it_declares() -> None:
+def test_every_write_this_surface_serves_is_one_it_declares() -> None:
     """The mutation surface, asserted rather than described.
 
-    RAVIS serves five writes: two on a provider credential, one on a provider's
-    enabled flag, one on its model filter, and one on a pool's membership. Each
-    is deliberate; what is not acceptable is a sixth appearing without anybody
+    RAVIS serves seven writes: two on a provider credential, one on a provider's
+    enabled flag, one on its model filter, one on a pool's membership, one
+    curating every pool, and one lifting a tool-refusal suppression. Each is
+    deliberate; what is not acceptable is another appearing without anybody
     noticing, which is exactly what happened to the fifth -- it shipped while
     the module said "Reads only. No endpoint here mutates", and without the
     authorization that sentence implied.
@@ -111,6 +113,10 @@ def test_every_write_this_surface_serves_is_one_of_the_six_it_declares() -> None
         # pool, applied to every pool at once. It stores nothing a per-pool PUT
         # could not, and its undo is the same endpoint with `{"clear": true}`.
         "POST /api/v1/pools/curate",
+        # Added deliberately, 12 September 2026: ends a tool-refusal suppression
+        # before its half hour is up. Guarded and audited like the pool write;
+        # it changes routing state held in memory and nothing on disk.
+        "POST /api/v1/health/suppressions/{model}/lift",
     }, "a write appeared or vanished on the management surface"
 
 
@@ -516,3 +522,66 @@ def test_a_decision_pushed_out_by_the_bound_reads_as_aged_out() -> None:
     assert oldest, "no decision was recorded to push out"
     assert gone.status_code == 404
     assert "age out" in gone.json()["error"]["message"]
+
+
+# ── Tool-refusal suppressions: visible on /health, and liftable early ───────
+
+
+def test_health_lists_an_active_suppression_until_it_lifts() -> None:
+    """The field the Diagnostics screen reads. A suppressed model still serves
+    requests without tools, so this lists resting models, not broken ones."""
+    now = [1000.0]
+    client = _client()
+    with client:
+        health = client.app.app.state.health  # type: ignore[attr-defined]
+        health.clock = lambda: now[0]
+        health.suppress("qwen/qwen3-1.7b", "lmstudio", Capability.TOOLS,
+                        "HTTP 400: this model does not support tools")
+        during = client.get("/api/v1/health").json()["capability_suppressions"]
+        now[0] += 1800.0
+        after = client.get("/api/v1/health").json()["capability_suppressions"]
+
+    assert during == [{
+        "model": "qwen/qwen3-1.7b",
+        "provider": "lmstudio",
+        "capability": "tools",
+        "reason": "HTTP 400: this model does not support tools",
+        "window_seconds": 1800,
+        "lifts_in_seconds": 1800,
+    }]
+    assert after == []
+
+
+def test_lifting_a_suppression_ends_it_and_returns_the_post_state() -> None:
+    """A model id with a slash in it, because most local ids have one."""
+    client = _client()
+    with client:
+        health = client.app.app.state.health  # type: ignore[attr-defined]
+        health.suppress("qwen/qwen3-1.7b", "lmstudio", Capability.TOOLS,
+                        "does not support tools")
+        lifted = client.post("/api/v1/health/suppressions/qwen/qwen3-1.7b/lift")
+        again = client.post("/api/v1/health/suppressions/qwen/qwen3-1.7b/lift")
+
+    assert lifted.status_code == 200
+    assert lifted.json() == {
+        "model": "qwen/qwen3-1.7b",
+        "capability": "tools",
+        "was_suppressed": True,
+        "capability_suppressions": [],
+    }
+    assert again.status_code == 200
+    assert again.json()["was_suppressed"] is False
+
+
+def test_lifting_a_suppression_needs_an_admin_credential() -> None:
+    """It changes how every client's tool requests are routed, so it is guarded
+    like the pool write: being able to call the gateway does not grant it."""
+    client, _ = _app_with(RecordingUpstream())
+    with client:
+        health = client.app.app.state.health  # type: ignore[attr-defined]
+        health.suppress("coder", "upstream", Capability.TOOLS, "does not support tools")
+        refused = client.post("/api/v1/health/suppressions/coder/lift")
+        still = [held["model"] for held in health.suppressions()]
+
+    assert refused.status_code == 403
+    assert still == ["coder"]
