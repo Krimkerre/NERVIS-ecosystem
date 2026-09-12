@@ -18309,17 +18309,34 @@ catalogue being unavailable: Hugging Face answers a model it does not have with
 401 "Invalid username or password". Fixed in df83f66 and confirmed live as
 MODEL_NOT_FOUND.
 
-Not verified live: a real download from start to finish, which puts a file on
-disk and waits on the operator's go-ahead. The job's life — LM Studio starting
-it, progress across reads, completion, an already-downloaded model and a job
-LM Studio has forgotten — is covered by tests against a recorded LM Studio.
+A real download, with the operator's go-ahead: unsloth/SmolLM2-135M-Instruct-GGUF
+at Q4_K_M, started through NERVIS's command the way the Discover button starts
+one. SIRVIS handed it to LM Studio within two seconds and tracked it from queued
+through progress, at up to 3.4 MB/s, to completed: 105,454,144 bytes in 31
+seconds, and LM Studio listed the file at once.
+
+It found a bug. Discover still marked that version not installed, and asking for
+it again queued a second download, which LM Studio answered as already
+downloaded, so nothing transferred twice. SIRVIS read installed models from
+`lms ls --variants`, which lists only models installed through LM Studio's own
+catalogue — 7 entries against 19 in `lms ls` — so it missed every model
+downloaded by link, the only kind M11 makes. The tests had supplied the installed
+set themselves. Fixed in 2fd3f70 by reading both listings, and confirmed live
+after a restart: SmolLM3 3B at Q4_K_M, downloaded by link, and Qwen3.5 9B MLX,
+installed from LM Studio's catalogue, both read installed, and a search for
+"smollm3" marks only the copy on disk.
+
+The test file was then moved to the Trash, together with the folder the download
+had created, and LM Studio dropped it from its list. The two job rows, completed
+and already present, stay on the Downloads screen as the record of the test.
 
 Checked: ruff and mypy clean in SIRVIS and NERVIS, both full suites pass, the
 page's script parses. New SIRVIS tests cover variants per quantization with
 split files counted together, MLX folders, a merged search, the disk check,
 admin scope and confirmation, refusing what does not fit, LM Studio carrying a
 download across reads, already-present and forgotten jobs, installed variants,
-gated models, both capabilities, and a hidden model as not found; new NERVIS
+gated models, both capabilities, a hidden model as not found, and installed
+paths read from both of LM Studio's listings; new NERVIS
 tests cover the admin credential and a disk warning reaching the page.
 
 ## Starting the thing
