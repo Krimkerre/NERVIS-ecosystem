@@ -12,9 +12,10 @@ never does.
 So RAVIS tries: one small request per model, carrying one tool the model is required to
 call. A call is recorded as SUPPORTED and a provider refusing tools as UNSUPPORTED;
 anything else — a timeout, a rate limit, a rejected key — establishes nothing and is
-tried again hours later. §13.3 names this provenance OBSERVED_BY_RAVIS: better evidence
-than a catalogue flag, weaker than SIRVIS's controlled measurement, and below an
-operator's own declaration, which still wins.
+tried again hours later. A provider that refuses to force the choice gets the tool merely
+offered, where only a call concludes anything. §13.3 names this provenance
+OBSERVED_BY_RAVIS: better evidence than a catalogue flag, weaker than SIRVIS's controlled
+measurement, and below an operator's own declaration, which still wins.
 
 **Bounded on every side.** Hosted models only, never a local runtime — a trial there
 would load a model, which RAVIS never does on its own account. Only models a
@@ -81,15 +82,21 @@ TRIAL_TIMEOUT_SECONDS = 30.0
 DAY_SECONDS = 86400.0
 
 
-def trial_payload(model: str) -> dict[str, Any]:
-    """The request a trial sends: one tool, which the model is required to call."""
+def trial_payload(model: str, *, forced: bool = True) -> dict[str, Any]:
+    """The request a trial sends: one tool, which the model is required to call.
+
+    `forced=False` only offers it, for a provider that refuses to force the choice. Found
+    live on Claude Fable 5.1: 'tool_choice: type "tool" and "any" are not supported for this
+    model'.
+    """
     return {
         "model": model,
         "messages": [{"role": "user", "content": TRIAL_PROMPT}],
         "tools": [TRIAL_TOOL],
-        # Required rather than left to the model. Anthropic's translation renders it as
-        # `any`, Gemini's as `ANY`, and OpenAI-compatible providers take it as written.
-        "tool_choice": "required",
+        # Required rather than left to the model where the provider allows it. Anthropic's
+        # translation renders it as `any`, Gemini's as `ANY`, and OpenAI-compatible providers
+        # take it as written.
+        "tool_choice": "required" if forced else "auto",
         "max_tokens": 64,
         "stream": False,
     }
@@ -108,10 +115,17 @@ class TrialOutcome:
     retry_soon: bool = False
 
 
-def outcome_from_calls(calls: int) -> TrialOutcome:
-    """A model required to call a tool either did, or answered without it."""
+def outcome_from_calls(calls: int, *, forced: bool = True) -> TrialOutcome:
+    """A model required to call a tool either did, or answered without it.
+
+    Merely offered the tool, a model that answers in words has chosen not to call it, which
+    says nothing about whether it could.
+    """
     if calls > 0:
-        return TrialOutcome(CapabilityState.SUPPORTED, "called the tool RAVIS required it to call")
+        how = "RAVIS required it to call" if forced else "it was offered"
+        return TrialOutcome(CapabilityState.SUPPORTED, f"called the tool {how}")
+    if not forced:
+        return TrialOutcome(None, "answered without the tool it was offered; forcing was refused")
     return TrialOutcome(
         CapabilityState.UNSUPPORTED, "answered without calling the tool RAVIS required it to call"
     )
@@ -144,6 +158,15 @@ TRANSIENT_FAILURES = frozenset(
         FailureClass.UNKNOWN,
     }
 )
+
+
+def refuses_forcing(message: str) -> bool:
+    """Whether a provider refused the forced choice of a tool, rather than tools themselves.
+
+    Anthropic: 'tool_choice: type "tool" and "any" are not supported for this model'.
+    OpenRouter: "No endpoints found that support the provided 'tool_choice' value".
+    """
+    return "tool_choice" in message
 
 
 def stored_state(outcome: TrialOutcome) -> str:
@@ -308,23 +331,27 @@ def choose_trials(
     return chosen
 
 
-async def try_translated(adapter: Any, model: str) -> tuple[TrialOutcome, Usage | None]:
+async def try_translated(
+    adapter: Any, model: str, *, forced: bool = True
+) -> tuple[TrialOutcome, Usage | None]:
     """One trial through a translated provider's own adapter (Anthropic, Google)."""
-    payload = trial_payload(model)
+    payload = trial_payload(model, forced=forced)
     request = normalize(json.dumps(payload).encode(), payload)
     request.requested_model = model
     try:
         response = await adapter.complete(request)
     except Exception as failure:  # noqa: BLE001 - a trial reports what happened, whatever it was
+        if forced and refuses_forcing(str(failure)):
+            return await try_translated(adapter, model, forced=False)
         return outcome_from_failure(failure_class_of(failure), str(failure)), None
-    return outcome_from_calls(len(response.tool_calls)), response.usage
+    return outcome_from_calls(len(response.tool_calls), forced=forced), response.usage
 
 
 async def try_transparent(
-    client: httpx.AsyncClient, url: str, key: str, model: str
+    client: httpx.AsyncClient, url: str, key: str, model: str, *, forced: bool = True
 ) -> tuple[TrialOutcome, Usage | None]:
     """One trial against an OpenAI-compatible upstream, with that upstream's own key."""
-    payload = trial_payload(model)
+    payload = trial_payload(model, forced=forced)
     if httpx.URL(url).host == "api.openai.com":
         # OpenAI's current models refuse `max_tokens`; the same rename as chat.py's
         # `_for_openai`, applied to a body RAVIS writes rather than one it forwards.
@@ -340,6 +367,8 @@ async def try_transparent(
         return outcome_from_failure(classify_exception(failure), str(failure)), None
     failed = classify_response(response.status_code, response.content)
     if failed is not None:
+        if forced and refuses_forcing(response.text):
+            return await try_transparent(client, url, key, model, forced=False)
         return outcome_from_failure(failed, response.text), None
     try:
         body = response.json()
@@ -352,9 +381,8 @@ async def try_transparent(
     # Imported here: the chat module imports half the package, this one is imported by it.
     from ravis.api.openai.chat import _usage_in_body
 
-    return outcome_from_calls(len(calls) if isinstance(calls, list) else 0), _usage_in_body(
-        response.content
-    )
+    called = len(calls) if isinstance(calls, list) else 0
+    return outcome_from_calls(called, forced=forced), _usage_in_body(response.content)
 
 
 def note_trial_spend(

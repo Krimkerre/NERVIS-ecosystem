@@ -155,6 +155,8 @@ def test_the_makers_own_copies_are_tried_before_an_aggregators_listings() -> Non
 def test_only_a_call_or_a_refusal_of_tools_concludes_anything() -> None:
     assert outcome_from_calls(1).state is CapabilityState.SUPPORTED
     assert outcome_from_calls(0).state is CapabilityState.UNSUPPORTED
+    assert outcome_from_calls(1, forced=False).state is CapabilityState.SUPPORTED
+    assert outcome_from_calls(0, forced=False).state is None, "free to answer in words"
     refused = outcome_from_failure(FailureClass.TOOL_INCOMPATIBILITY, "does not support tools")
     assert refused.state is CapabilityState.UNSUPPORTED
     assert outcome_from_failure(FailureClass.RATE_LIMIT, "slow down").state is None
@@ -206,6 +208,53 @@ def test_a_translated_provider_is_tried_through_its_own_adapter() -> None:
     assert outcome.state is CapabilityState.SUPPORTED
     assert adapter.asked == [("claude-opus-5", "required")]
     assert refused.state is CapabilityState.UNSUPPORTED
+
+
+def test_a_provider_that_will_not_force_the_choice_is_offered_the_tool_instead() -> None:
+    """Found live: Anthropic refuses a forced tool choice for Claude Fable 5.1."""
+
+    class Unforced:
+        def __init__(self) -> None:
+            self.choices: list[Any] = []
+
+        async def complete(self, request: Any) -> NormalizedResponse:
+            self.choices.append(request.tool_choice)
+            if request.tool_choice == "required":
+                error = RuntimeError(
+                    'anthropic 400: tool_choice: type "tool" and "any" are not supported'
+                    " for this model."
+                )
+                error.status = 400  # type: ignore[attr-defined]
+                raise error
+            return NormalizedResponse(
+                tool_calls=[ToolCall(index=0, name="report_ready", arguments="{}")]
+            )
+
+    adapter = Unforced()
+    outcome, _usage = asyncio.run(try_translated(adapter, "claude-fable-5-1"))
+
+    assert outcome.state is CapabilityState.SUPPORTED
+    assert adapter.choices == ["required", "auto"]
+
+
+def test_a_forced_choice_refused_over_http_is_asked_again_and_words_prove_nothing() -> None:
+    choices: list[Any] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        choices.append(json.loads(request.content)["tool_choice"])
+        if choices[-1] == "required":
+            message = "No endpoints found that support the provided 'tool_choice' value."
+            return httpx.Response(404, json={"error": {"message": message}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ready"}}]})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(answer))
+    outcome, _usage = asyncio.run(
+        try_transparent(client, "https://router.test/api/v1/chat/completions", "k", "some/model")
+    )
+
+    assert choices == ["required", "auto"]
+    assert outcome.state is None
+    assert not outcome.retry_soon
 
 
 def test_an_openai_compatible_provider_is_tried_over_http_with_its_own_field_names() -> None:

@@ -419,13 +419,18 @@ default.
 2026.** Anthropic, OpenAI and Google publish no tool support in their
 catalogues, so their models bought directly sat at unknown and every pool that
 requires tools refused them — Clarvis's builds went to a smaller model until
-the operator declared Claude Sonnet 5 and Haiku by hand. RAVIS now sends such a
-model one small request carrying one tool it must call. A call counts as tool
-support, a provider refusing tools counts as none, and anything else — a
-timeout, a rate limit — counts as nothing and is tried again hours later. It is
-bounded: hosted models only, never a local one, only models a tool-requiring
-pool would otherwise admit, three per pass and forty a day, each result kept a
-month, and every trial on the spend screen. The result ranks above a
+the operator declared Claude Sonnet 5 and Haiku by hand. OpenRouter leaves a
+model at unknown too when its list of accepted settings does not mention tools.
+RAVIS now sends such a model one small request carrying one tool it must call,
+or merely offers the tool when the provider will not let it insist.
+A call counts as tool support, a provider refusing tools counts as none, a
+passing hiccup — a timeout, a rate limit — counts as nothing and is tried again
+hours later, and a refusal for some other reason, such as a model that does not
+chat at all, counts as nothing for a month. The makers' own copies are tried
+before an aggregator's listings. It is bounded: hosted models only, never a
+local one, only models a tool-requiring pool would otherwise admit, three per
+pass and forty a day, each result kept a month, and every trial a provider
+answered on the spend screen. The result ranks above a
 catalogue's word and below SIRVIS's measurements and the operator's own
 declarations. The capability_trials setting switches it off.
 

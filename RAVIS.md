@@ -1060,7 +1060,8 @@ and fall back to configured evidence or unknown values. **Never fabricate a benc
 **OBSERVED_BY_RAVIS is RAVIS's own trial of a hosted model** (added 12 September 2026). Hosted
 providers that publish no tool support — Anthropic, OpenAI and Google — leave their models UNKNOWN, as
 does OpenRouter when a model's parameter list is silent about tools, and SIRVIS cannot measure an API.
-RAVIS sends such a model one request carrying one tool it is required to call: a call records SUPPORTED,
+RAVIS sends such a model one request carrying one tool it is required to call, or only offered where the
+provider refuses to force the choice: a call records SUPPORTED,
 a provider refusing tools records UNSUPPORTED, a transient failure records nothing and is retried hours
 later, and a refusal for any other reason records nothing for thirty days. The makers' own copies are
 tried before an aggregator's listings. Hosted models only, only models a tool-requiring pool would

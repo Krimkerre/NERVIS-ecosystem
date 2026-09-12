@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2869 tests, no network, no live service
+.venv/bin/pytest                      # part of 2884 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1203 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2869 passing across the four, conformance `PASS`.
+Expected: all clean, 2884 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -18073,6 +18073,62 @@ dated-name fallback, filling only unpriced candidates, and the cheapest direct
 Sonnet winning once priced. Live after a restart: a request routed to
 claude-haiku-4-5-20251001 recorded a cost of $0.000565, estimated from the
 operator's price, where it had been unpriced.
+
+## RAVIS finds out for itself which hosted models can call tools — 2026-09-12
+
+Anthropic, OpenAI and Google publish no tool support, and OpenRouter leaves a
+model unmarked when its list of accepted settings is silent about tools. Any
+pool that requires tools refused those models, and Clarvis's builds reached
+Claude Sonnet 5 only because the operator declared it by hand. RAVIS now tries
+such a model itself: one small request carrying one tool it must call. A call
+records tool support at a new provenance, OBSERVED, ranked above a catalogue's
+word and below SIRVIS's measurements and the operator's declarations; a provider
+refusing tools records none; a passing failure is retried six hours later; a
+refusal for any other reason waits the month a result is kept. Hosted models
+only, never a local runtime; only models a tool-requiring pool would otherwise
+admit; three per pass and forty a day; every trial a provider answered on the
+spend screen. RAVIS_CAPABILITY_TRIALS=false switches it off.
+
+The first two live passes found four faults, each fixed before this entry:
+
+- The first pass went alphabetically and spent itself on three OpenRouter
+  listings while every direct Claude and GPT model waited. The makers' own
+  copies now go first.
+- OpenRouter refuses tools with "No endpoints found that support tool use", sent
+  as a 404, which read as a missing model. Trials stored it as an unrelated
+  refusal, and on a live request it opened that model's circuit for every
+  request, tools or not. It is now a tool refusal — so a tools request that gets
+  this answer no longer falls back to another model, like every other tool
+  refusal.
+- Refusals showed on the spend screen as charges of unknown size. They are not
+  billed and are no longer recorded.
+- Anthropic will not force a tool choice on Claude Fable 5.1 ('tool_choice: type
+  "tool" and "any" are not supported for this model'). A provider that refuses
+  forcing now gets the tool offered instead, where a call proves support and an
+  answer in words proves nothing.
+
+Live, after restarts at 11:19 and 11:29: Claude Opus 4.5, 4.6 and 4.7 and Claude
+Fable 5, all bought directly, called the tool and are now tool-capable on RAVIS's
+own trial. The three Opus trials cost $0.0127 together, estimated from the
+operator's prices. Fable 5's cost is not known: the price book has no Fable rate,
+and the spend screen keeps usage in memory, so the restart cleared that record.
+Four OpenRouter listings (aion-labs, anthracite-org, baidu, bytedance) and
+Claude Fable 5.1 were tried under the earlier rules and stored as refusals that
+claim nothing; they are tried again when their month is up, on 12 October.
+
+Blast radius, checked on the live pool: Opus 4.5 to 4.7 and Fable 5 are now
+members of ravis/clarvis-agent, but that pool prefers the Sonnet family and keeps
+Opus and Fable last, so Clarvis builds stay on Claude Sonnet 5. If the pool ever
+falls through to Opus, 4.5 to 4.7 share one price and the oldest wins the tie.
+
+Not verified live: the unforced second attempt. Fable 5.1 is not due for a
+month, and no other model tried so far has refused a forced choice.
+
+Checked: ruff and mypy clean; RAVIS's full suite and NERVIS's suite pass. New
+tests cover which provenance wins, how long each kind of result is kept or
+retried, which models are chosen and in what order, trials through a translated
+adapter and through an OpenAI-compatible upstream, OpenRouter's 404 read as a
+tool refusal, and a refused forced choice asked again unforced on both paths.
 
 ## Starting the thing
 
