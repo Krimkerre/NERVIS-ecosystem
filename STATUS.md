@@ -18112,9 +18112,9 @@ Fable 5, all bought directly, called the tool and are now tool-capable on RAVIS'
 own trial. The three Opus trials cost $0.0127 together, estimated from the
 operator's prices. Fable 5's trial was priced the same way, but the spend screen
 keeps usage in memory and the restart cleared that record.
-Four OpenRouter listings (aion-labs, anthracite-org, baidu, bytedance) and
-Claude Fable 5.1 were tried under the earlier rules and stored as refusals that
-claim nothing; they are tried again when their month is up, on 12 October.
+Four OpenRouter listings (aion-labs, anthracite-org, baidu, bytedance) were tried
+under the earlier rules and stored as refusals that claim nothing; they are tried
+again when their month is up, on 12 October.
 
 Blast radius, checked on the live pool: Opus 4.5 to 4.7 and Fable 5 are now
 members of ravis/clarvis-agent, but that pool prefers the Sonnet family and keeps
@@ -18132,8 +18132,12 @@ DeepSeek models are not tried: their catalogues also leave structured output
 unknown, which the build pool requires, so a tool trial alone could not admit
 them.
 
-Not verified live: the unforced second attempt. Fable 5.1 is not due for a
-month, and no other model tried so far has refused a forced choice.
+The unforced second attempt, verified live. Claude Fable 5.1's earlier refusal
+was marked stale by hand, its row kept and its date cleared, so the next pass
+would try it again. At 11:50 it called the tool once offered and is now
+tool-capable. It joins the build pool behind every Sonnet. The price book has no
+Fable 5.1 rate, so that trial's cost shows as unknown, as would any request
+Fable 5.1 serves.
 
 Checked: ruff and mypy clean; RAVIS's full suite and NERVIS's suite pass. New
 tests cover which provenance wins, how long each kind of result is kept or
