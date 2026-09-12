@@ -1049,3 +1049,17 @@ Import checks every key against the same list export uses, in both
 directions, so a hand-edited or unfamiliar file cannot write to anything
 outside it. Whatever is skipped is named, with why, rather than dropped
 quietly.
+
+## The menu bar app
+
+On a Mac, NERVIS can be started from a menu bar app instead of the start and stop scripts. It is
+built once with `nervis/packaging/macos/build_app.sh` and opened from
+`nervis/packaging/macos/build/NERVIS.app`. Opening it starts the stack. Its menu shows how many
+notifications are unread, a way to open the dashboard, whether SIRVIS, RAVIS, NERVIS, code-server,
+LM Studio and Ollama are running, CPU, GPU and memory use, and **Quit NERVIS and stop the stack**.
+
+The NERVIS mark in the menu bar has a pupil that is solid while the whole stack is running, faint
+when part of it is not, and blinks while there are unread notifications; reading them on the
+Notifications screen stops the blink within about ten seconds. The app holds no code of its own,
+so it never needs rebuilding after an update — only moving the project folder means building it
+again.

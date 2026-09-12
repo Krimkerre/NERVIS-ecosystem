@@ -271,9 +271,11 @@ case "$(uname -s)" in
     NODE_GUARD=(node --permission --allow-fs-read="*")
     ;;
 esac
-for gate in render complexity shaping empty_world liveness injection picture editor routing \
-            outcome stream preserve attachment background handler learned notification plan \
-            proposal supervision capability provenance files voice; do
+# The list lives in nervis/tools/dashboard_gates.txt, which the pre-commit hook
+# (tools/githooks/pre-commit) reads too, so this gate and the every-commit one
+# cannot drift apart. A `for` over the file's words rather than `while read`,
+# because a gate that reads stdin would otherwise swallow the rest of the list.
+for gate in $(grep -Ev '^[[:space:]]*(#|$)' nervis-eco/nervis/tools/dashboard_gates.txt); do
   step "dashboard $gate" nervis-eco/nervis "${NODE_GUARD[@]}" "tools/${gate}_check.js"
 done
 # **Held out of the loop above, and for the opposite reason of the two at the

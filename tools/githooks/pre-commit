@@ -1,0 +1,81 @@
+#!/bin/bash
+# The dashboard's checks, on every commit that changes the dashboard.
+#
+# **Why a hook.** The page checks — nervis/tools/check.py and the node gates listed
+# in nervis/tools/dashboard_gates.txt — used to run only inside
+# tools/check_clean_clone.sh, which is slow and was not being run. On 12 September
+# 2026 five of them had been failing for up to three days, behind commits whose own
+# checks (ruff, mypy, pytest, "the page parses") had all passed. The owner asked for
+# them to run automatically on every change; a commit is the moment every change
+# here passes through, so this is where they run.
+#
+# **What it checks is what is being committed**, not the working tree. The staged
+# snapshot is exported to a scratch directory and checked there: more than one
+# session works in this checkout, and a check run against files another session is
+# still editing would pass or fail on work that is not in the commit.
+#
+# It runs only when a commit touches the dashboard, its checks, chat's knowledge
+# notes or this hook; any other commit goes straight through. About thirty seconds
+# when it runs.
+#
+# Enabled once per clone:   git config core.hooksPath tools/githooks
+# Skipping it with `git commit --no-verify` is the owner's call, not a session's.
+set -uo pipefail
+
+changed="$(git diff --cached --name-only)"
+if ! printf '%s\n' "$changed" | grep -Eq '^(nervis/(index\.html|tools/|knowledge/|package(-lock)?\.json)|tools/(knowledge_check\.py|githooks/))'; then
+  exit 0
+fi
+
+root="$(git rev-parse --show-toplevel)" || exit 1
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/nervis-dashboard-checks.XXXXXX")" || exit 1
+# The scratch directory is this hook's own, made on the line above; removing it on
+# the way out is tidying up after itself. The Clarvis link inside it is removed as a
+# link — `rm` does not follow it into the real repository.
+trap 'rm -rf -- "$scratch"' EXIT
+snapshot="$scratch/$(basename "$root")"
+mkdir "$snapshot" || exit 1
+# GIT_INDEX_FILE is honoured here, so `git commit --only <paths>` exports exactly
+# the index that commit is about to record.
+git checkout-index --all --prefix="$snapshot/" || exit 1
+if [ -d "$root/nervis/node_modules" ]; then
+  ln -s "$root/nervis/node_modules" "$snapshot/nervis/node_modules"
+fi
+# The knowledge check reads Clarvis's own sources from the repository beside this
+# one (`ROOT.parent / "clarvis"` in tools/knowledge_check.py), so the copy is given
+# the same neighbour. Without it every Clarvis endpoint chat names reads as unserved.
+if [ -d "$root/../clarvis" ]; then
+  ln -s "$(cd "$root/../clarvis" && pwd)" "$scratch/clarvis"
+fi
+
+echo "The dashboard changed, so its checks run on what is being committed (about 30 s)…"
+failed=()
+passed=0
+check() {
+  local name="$1"
+  shift
+  if "$@" >"$scratch/last-check.log" 2>&1; then
+    passed=$((passed + 1))
+  else
+    printf '  ✗ %s\n' "$name"
+    # The end, because every check here prints its verdict last.
+    tail -n 20 "$scratch/last-check.log" | sed 's/^/      /'
+    failed+=("$name")
+  fi
+}
+
+cd "$snapshot/nervis" || exit 1
+check "page checks (tools/check.py)" python3 tools/check.py
+for gate in $(grep -Ev '^[[:space:]]*(#|$)' tools/dashboard_gates.txt); do
+  check "dashboard $gate" node "tools/${gate}_check.js"
+done
+check "dashboard sandbox" node tools/sandbox_check.js
+cd "$snapshot" || exit 1
+check "knowledge files" python3 tools/knowledge_check.py
+
+if [ "${#failed[@]}" -gt 0 ]; then
+  printf '\nCommit stopped: %d of %d dashboard checks failed.\n' "${#failed[@]}" "$((passed + ${#failed[@]}))"
+  echo "Fix them, or ask the owner before committing with --no-verify."
+  exit 1
+fi
+echo "All $passed dashboard checks passed."

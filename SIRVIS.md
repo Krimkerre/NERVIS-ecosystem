@@ -1429,7 +1429,7 @@ mapping is in §21.2.
 | **M19** | Format comparison | Family comparison, GGUF vs MLX, variant grouping, comparable-build download and benchmark | — |
 | **M20** | Advanced analytics | Pareto, regression, historical comparison, validity warnings, combination prediction | Predictions labelled `ESTIMATED` |
 | **M21** AUTOMATED VERIFIED | Ecosystem events and tracing | Shared event envelope, trace propagation, NERVIS subscription | A benchmark job trace is visible externally; tracing failure does not block benchmark execution |
-| **M22** | Packaging | `SIRVIS.app` | Launches the service, opens the UI, shuts down cleanly, leaves no orphan process. **Un-ticked 3 Sep**: no `.app` bundle, packaging script or build config exists anywhere in the repo — `tools/run.py` is a dev-mode launcher for all three services together, never attributed to this milestone. Flagged as a suspect tick once already (1 Sep, alongside M12/M22b) but never resolved then; an audit confirmed it is genuinely unbuilt, not merely unverified |
+| **M22** | Packaging | `SIRVIS.app` | Launches the service, opens the UI, shuts down cleanly, leaves no orphan process. **Un-ticked 3 Sep**: no `.app` bundle, packaging script or build config exists anywhere in the repo — `tools/run.py` is a dev-mode launcher for all three services together, never attributed to this milestone. Flagged as a suspect tick once already (1 Sep, alongside M12/M22b) but never resolved then; an audit confirmed it is genuinely unbuilt, not merely unverified **Superseded 12 September 2026, by the owner's decision:** one menu bar app, NERVIS M19 (`nervis/packaging/macos`), starts the whole stack from the repository, so no separate `SIRVIS.app` will be built. |
 
 ## 21.1 First vertical slice
 

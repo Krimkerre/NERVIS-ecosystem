@@ -38,3 +38,8 @@ workspace/
 
 # Personal keepsakes — kept on this machine, never pushed.
 keepsakes/
+
+# The menu bar app, built on this machine from nervis/packaging/macos/build_app.sh.
+# It holds this repository's absolute path, so a committed copy would point at
+# somebody else's disk.
+nervis/packaging/macos/build/

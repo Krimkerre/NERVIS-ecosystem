@@ -84,3 +84,14 @@ There is one prototype in this repository — `nervis/` — and it owns its docu
 its tooling outright. The mock-only reference snapshot was moved to
 `~/Documents/coding/nervis-template/` rather than kept beside it, because a second copy in
 the tree is exactly what this rule exists to prevent, however defensible the reason.
+
+## Commits run the dashboard's checks
+
+A commit that touches `nervis/index.html`, `nervis/tools/`, `nervis/knowledge/` or the hook
+itself runs `nervis/tools/check.py`, every node gate named in `nervis/tools/dashboard_gates.txt`,
+the sandbox gate and the knowledge check — against exactly what is being committed — and stops
+the commit if one fails (`tools/githooks/pre-commit`, about thirty seconds). Switch it on once per
+clone with `git config core.hooksPath tools/githooks`; add a new gate by adding its name to that
+list, which the clean-clone gate reads too. These checks used to run only in the clean-clone gate,
+and five of them failed unnoticed for days. Do not skip the hook with `--no-verify` unless the
+owner says so.

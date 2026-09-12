@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2932 tests, no network, no live service
+.venv/bin/pytest                      # part of 2933 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 511 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1211 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1212 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2932 passing across the four, conformance `PASS`.
+Expected: all clean, 2933 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -201,7 +201,7 @@ carries an as-built note saying what exists and what does not.
 |---|---|---|
 | 1 | **Stage 10 — whole-ecosystem hardening** | The load test ran on 12 September (`tools/load_test.py`). Still to do: the four-hour long-running test (`tools/soak_test.py` — built, never run its full length, and started by the owner, overnight); rollback and recovery rehearsed as one sequence; upgrade, downgrade and backup suites; runbook §8's scenarios 13 to 16 scored; the four unchecked items in runbook §15; and a frozen release candidate — the repository has no tags yet. Its milestones are rows 3 to 5 |
 | 2 | **Stage 9 — the Code tab's exit, as written** | Re-grade the code-server matrix on the Clarvis that ships, through NERVIS's own proxy, including Bridge teardown when a browser tab closes. Needs a real browser session. NERVIS's proxy capability stays degraded until its Firefox, Safari and https rows are graded |
-| 3 | **App bundles — NERVIS M19, SIRVIS M22, RAVIS M24** | None built; only NERVIS's icon exists. Whether they are still wanted now that the launcher starts everything is the owner's call, and signing one for another machine would probably need a paid Apple Developer ID |
+| 3 | **The menu bar app's last live checks (NERVIS M19)** | Built on 12 September as one app for the whole stack, replacing the planned SIRVIS.app and RAVIS.app. Not yet seen live: its Open dashboard and Quit clicks, and a quit of the real stack with the build that fixed the hang on quit. It is not installed into Applications and does not open at login |
 | 4 | **RAVIS M20 — concurrency awareness** | Nothing counts active requests, queue depth or provider congestion, or reads rate limits; only memory pressure reaches routing. Throughput above about a hundred callers was never profiled, and RAVIS meets its 5 ms routing budget only narrowly |
 | 5 | **Clarvis's release regression (E-C7)** | Rollback to the previous package was verified live. The comparison with RAVIS and the Bridge switched off, upgrade and recovery were not, and the release bar in Clarvis's own plan still has open boxes |
 | 6 | **A Clarvis → RAVIS → provider trace, seen whole** | The last clause of NERVIS M17 and of Clarvis E-C4, and the reason NERVIS's diagnostics capability reads degraded. Needs one agent turn in a real editor window. Clarvis sends RAVIS only a trace header and a session id — not the request and workspace ids `CLARVIS.md` §6.5 asks for — and its Anthropic adapter sends neither |
@@ -215,7 +215,7 @@ carries an as-built note saying what exists and what does not.
 | 14 | **Specified for NERVIS and not built** | Most of the command line, and a doctor that checks its peers (§17); notifications for a finished benchmark, a budget threshold, a spike in route failures, memory pressure, swap and a Clarvis approval — the notification centre exists and little posts to it (§18); a route decision that can be linked to, and screens that update in place (§25.2, partial); benchmark progress streamed rather than polled, which needs SIRVIS to publish progress first (M5b) |
 | 15 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
 | 16 | **Defects recorded below and never closed** | Nothing found on 12 September closes these: a tool refusal fails the request instead of trying another model; a tool probe can land on a model that is not loaded (§8.7); RAVIS reads LM Studio's advertised context window rather than the one it loaded; every credential write refreshes the catalogue, with no cooldown; with the proxy on, Hand over does not open the task's folder in the Code tab; exporting a conversation stored before it had a remote id saves half of it; SIRVIS M22b's reasoning share was never confirmed on real data; the launcher has no automated tests |
-| 17 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run only inside the slow clean-clone gate, which is how five of them failed unnoticed for up to three days before 12 September |
+| 17 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run on every commit that touches the dashboard only in a clone where `git config core.hooksPath tools/githooks` has been run |
 
 ### After that — deferred on purpose, or waiting on the owner
 
@@ -18833,6 +18833,72 @@ read as corrected; the Benchmarks screen describes the queue; and Discover, sear
 1.7B with their sizes, room left and a runs-here chip. Nothing was downloaded. Chat reads
 its notes from disk when NERVIS starts, so the restart is what put the corrected ones in
 front of it.
+
+## A menu bar app for the stack, and the dashboard's checks on every commit — 2026-09-12
+
+Two requests that followed the sweep above.
+
+**The dashboard's checks run on every commit that touches the dashboard.**
+`tools/githooks/pre-commit`, switched on with `git config core.hooksPath tools/githooks`, exports
+exactly what is being committed to a scratch directory — `git commit --only` included, since the
+export honours its temporary index — and runs `nervis/tools/check.py`, every gate named in
+`nervis/tools/dashboard_gates.txt`, the sandbox gate and the knowledge check there, stopping the
+commit if any fails. It checks that snapshot rather than the working tree because more than one
+session works in this checkout. The gate list moved into that file, and
+`tools/check_clean_clone.sh` reads the same one, so the two cannot drift apart. The owner offered
+being asked after each change instead; running them automatically was simpler and cannot be
+forgotten.
+
+Checked by running the hook against a scratch index three ways: the change as it stood passed all
+27 checks in 28 seconds; the same with a literal `undefined` added to the page was stopped by
+the page check; and a commit touching only `.gitignore` went straight through. Its first run failed
+the knowledge check, which reads Clarvis's sources from the repository beside this one and found
+none beside the scratch copy; the hook now gives the copy the same neighbour.
+
+**NERVIS.app, a menu bar app, instead of an app per service.** NERVIS M19 is rescoped to it, and
+SIRVIS M22 and RAVIS M24 are superseded. `nervis/packaging/macos/build_app.sh` compiles
+`NERVISMenu.swift` into `nervis/packaging/macos/build/NERVIS.app`, which git ignores because it
+holds this repository's absolute path. The app carries no service code: it runs `tools/run.py`, and
+a new `tools/run.py status --json` answers everything it shows — each service with its group, the
+dashboard's address, a few figures from NERVIS's machine reading and its unread notification count —
+so what the stack is stays known in one file.
+
+It has no Dock icon. The menu bar mark is drawn in code from the logo's proportions as a template
+image, so it is white on a dark menu bar. Its pupil is solid while the stack answers, faint when
+part of it does not, and goes out for a quarter of a second in every second and a half while NERVIS
+has unread notifications. The menu lists the stack's state, the unread notifications (opening the
+Notifications screen), Open NERVIS dashboard, each service and LM Studio and Ollama, CPU and GPU use
+measured by the app itself — the kernel's tick counters, and the graphics driver's own utilization
+figure — memory as a percentage with swap, disk and heat from NERVIS's reading, and Quit NERVIS and
+stop the stack. An app opened from Finder inherits a bare PATH, with no pyenv python3, Homebrew
+ollama or code-server on it, so the app asks the login shell for the PATH once, with a fallback list.
+
+**Found live: quitting could hang for ever.** The first live test told the app to quit with SIGTERM.
+It stopped all five services and then never exited: the quit waited for the stop's completion on the
+main dispatch queue while the quit itself was running inside a main-queue block, so the completion
+could never run. A sample of the stuck process showed exactly that nesting. Completions now go
+through the main run loop, which serves them during the quit's wait, and SIGTERM hands the quit to
+the run loop rather than starting it inside its handler. Verified against a stand-in launcher script in the
+scratchpad: the fixed build quit 2.1 seconds after SIGTERM (its stand-in stop takes two), and 6.8
+seconds after a SIGTERM that arrived mid-start, having waited for the start and then stopped; the
+build before the fix, rebuilt from the same source with the change reversed, was still running 15
+seconds after being told to quit.
+
+Seen live on this machine: the app started a stopped stack in 10 seconds; opened with the stack
+already up, it started nothing; its quit (before the fix) stopped all five services and left no
+service process behind; replacing it with a newer build while the stack ran did not touch the stack;
+and its menu, printed by `NERVIS --print-menu` from a real status answer, showed every service
+running, 1 unread notification, CPU 18%, GPU 100% and memory 63%. GPU read 100% on most one-second
+samples while Firefox's graphics process was the busiest thing on the machine — it is the driver's
+figure, and Activity Monitor's GPU History is the place to compare it. **Not seen live:** clicking
+Open dashboard and Quit in the real menu, and a quit of the real stack with the fixed build. The app
+is not installed into Applications and does not open at login; both are the owner's call.
+
+NERVIS 0.27.1 → 0.28.0.
+
+Checked: ruff and mypy clean in NERVIS; its suite passes, 1212 tests with the new one for
+`status --json`; the plan, status, release and knowledge checks pass; and this commit went through
+the new hook, which ran the dashboard's checks on it.
 
 ## Starting the thing
 

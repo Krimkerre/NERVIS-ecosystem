@@ -313,7 +313,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.27.1
+## NERVIS — 0.28.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **A menu bar app starts and stops the stack (M19).** `nervis/packaging/macos/build_app.sh`
+  builds `NERVIS.app`. Opened, it starts the stack; its menu shows unread notifications, each
+  service and LM Studio and Ollama, CPU, GPU and memory use, a way to open the dashboard, and a
+  Quit that stops the stack. It carries no service code — it runs `tools/run.py` — so updates never
+  need a rebuild, and it replaces the separate SIRVIS.app and RAVIS.app that were planned. Its icon
+  is the NERVIS mark: the pupil is solid while the stack answers, faint when part of it does not,
+  and blinks while notifications are unread.
+- **`tools/run.py status --json`** gives the same answers as `status`, as JSON, together with
+  NERVIS's machine figures and unread notification count. It is what the menu bar app reads.
+
+### 0.27.1
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

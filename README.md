@@ -70,6 +70,12 @@ six launchers are three lines calling `tools/run.py`, which also takes
 python3 tools/run.py status
 ```
 
+**On a Mac there is also a menu bar app.** `nervis/packaging/macos/build_app.sh` builds
+`NERVIS.app` into `nervis/packaging/macos/build/`. Open it and it starts the stack, shows what is
+running and how busy the Mac is, opens the dashboard, and stops everything when it quits. It
+carries no service code — it runs `tools/run.py` — so it never needs rebuilding after an update;
+`OPERATOR_RUNBOOK.md` describes its menu.
+
 **It does not start LM Studio or Clarvis.** Those are separate applications
 with their own lifecycles, and §9 puts model loading behind SIRVIS's Resource
 Manager rather than a launcher. Their state is reported instead, because

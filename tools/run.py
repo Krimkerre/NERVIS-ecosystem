@@ -56,6 +56,7 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1220,7 +1221,90 @@ def status(quiet: bool = False) -> dict[str, bool]:
     return answers
 
 
+#: The machine figures the menu bar app shows, out of everything NERVIS samples.
+SYSTEM_FIGURES = (
+    "memory_total_bytes", "memory_available_bytes", "swap_used_bytes", "disk_free_bytes",
+    "load_average", "cpu_count", "thermal_state",
+)
+
+
+def status_report() -> dict[str, object]:
+    """What `status --json` prints: every service and its group, the dashboard, the machine.
+
+    **The menu bar app reads this and nothing else** (nervis/packaging/macos), so
+    what the stack is — which services, on which ports, and how each is asked
+    whether it is up — stays known in one place, this file. `group` is what the
+    menu sorts by: "stack" for what this launcher starts, "runtime" for LM Studio
+    and Ollama, "editor" for Clarvis.
+
+    Probed in parallel. One at a time, a stack that is down costs a second per
+    service, and the menu asks every time it is opened.
+    """
+    probes = [
+        (name, url, "runtime" if name == "Ollama" else "stack")
+        for name, _, _, _, url in _services()
+    ] + [
+        (name, url, "runtime" if name == "LM Studio" else "editor") for name, url in EXTERNAL
+    ]
+    with ThreadPoolExecutor(max_workers=len(probes)) as pool:
+        answers = list(pool.map(lambda probe: responds(probe[1], 1.0), probes))
+    services = [
+        {"name": name, "group": group, "answering": answering}
+        for (name, _, group), answering in zip(probes, answers)
+    ]
+    nervis_up = any(service["name"] == "NERVIS" and service["answering"] for service in services)
+    unread = _unread_notifications() if nervis_up else None
+    return {
+        "services": services,
+        "dashboard": DASHBOARD,
+        "system": _system_reading() if nervis_up else None,
+        "notifications": None if unread is None else {"unread": unread, "screen": NOTIFICATIONS},
+    }
+
+
+#: The dashboard's notification centre, addressed the way its router reads a hash.
+NOTIFICATIONS = f"{DASHBOARD}#/nervis/Notifications"
+
+
+def _from_nervis(path: str) -> object:
+    """One JSON read from NERVIS, or None when it does not answer with one."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{NERVIS_PORT}{path}", timeout=2.0) as reply:
+            return json.load(reply)
+    except Exception:  # noqa: BLE001 - any failure means "nothing to show", never a crash
+        return None
+
+
+def _system_reading() -> dict[str, object] | None:
+    """The handful of machine figures the menu shows, from NERVIS's own reading.
+
+    NERVIS already samples the machine for its dashboard, so this asks it rather
+    than measuring a second time. None when the read fails — the menu then leaves
+    the figures out, which is truer than showing zeros.
+    """
+    reading = _from_nervis("/api/v1/system")
+    if not isinstance(reading, dict):
+        return None
+    return {figure: reading.get(figure) for figure in SYSTEM_FIGURES}
+
+
+def _unread_notifications() -> int | None:
+    """How many notes NERVIS's notification centre holds unread, or None if unknown.
+
+    The centre is where every app's notices arrive — a service going down or coming
+    back, background work finishing — and the menu bar icon blinks while this is
+    above zero. NERVIS keeps the count on the listing so that a badge and its list
+    cannot disagree, so one unread item is asked for and only the count is kept.
+    """
+    listing = _from_nervis("/api/v1/notifications?unread=1&limit=1")
+    unread = listing.get("unread") if isinstance(listing, dict) else None
+    return unread if isinstance(unread, int) else None
+
+
 def _run_status() -> int:
+    if "--json" in sys.argv[2:]:
+        print(json.dumps(status_report()))
+        return 0
     status()
     return 0
 
@@ -1230,6 +1314,6 @@ COMMANDS = {"start": start, "stop": stop, "status": _run_status}
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "start"
     if action not in COMMANDS:
-        print(f"usage: {Path(__file__).name} [start|stop|status]", file=sys.stderr)
+        print(f"usage: {Path(__file__).name} [start|stop|status [--json]]", file=sys.stderr)
         raise SystemExit(2)
     raise SystemExit(COMMANDS[action]())

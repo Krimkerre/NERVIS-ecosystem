@@ -31,6 +31,20 @@ the dashboard reports their state rather than controlling it. "Nothing is routin
 runtime is running" look identical on the dashboard and have different fixes — check which one
 it actually is before touching anything.
 
+**On a Mac, the menu bar app does the same with a click.** Build it once with
+`nervis/packaging/macos/build_app.sh` and open `nervis/packaging/macos/build/NERVIS.app`. It has
+no window and no Dock icon. The NERVIS mark appears in the menu bar and the stack starts; its
+menu shows the number of unread notifications when there are any, **Open NERVIS dashboard**,
+each service and LM Studio and Ollama as running or not, CPU, GPU and memory use, and **Quit
+NERVIS and stop the stack**. The pupil in the mark is solid while the whole stack answers, faint
+when part of it does not, and blinks while NERVIS has unread notifications. GPU use is the figure
+the graphics driver publishes; Activity Monitor's GPU History is the place to compare it.
+
+It runs `tools/run.py` and holds no code of its own, so an update needs a restart and never a
+rebuild — only moving the repository does, because the app records where the repository is when
+it is built. Its log is `.run/menubar.log`. Opening a second copy does nothing, and quitting it
+stops the stack first however the quit arrives, an ordinary `kill` included.
+
 ---
 
 ## Reading health

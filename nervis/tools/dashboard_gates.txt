@@ -1,0 +1,31 @@
+# The dashboard's node gates that need no live service, one per line, each the
+# name of nervis/tools/<name>_check.js.
+#
+# Read by tools/check_clean_clone.sh and by the pre-commit hook in tools/githooks,
+# so the slow gate and the every-commit gate run the same list: add a gate here and
+# both pick it up. sandbox_check.js is deliberately not listed — both run it on its
+# own, for the reason check_clean_clone.sh gives.
+render
+complexity
+shaping
+empty_world
+liveness
+injection
+picture
+editor
+routing
+outcome
+stream
+preserve
+attachment
+background
+handler
+learned
+notification
+plan
+proposal
+supervision
+capability
+provenance
+files
+voice
