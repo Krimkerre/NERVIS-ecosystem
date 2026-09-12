@@ -313,7 +313,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.25.1
+## NERVIS — 0.26.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Discover sorts, filters by what runs here, and shows a top ten.** A sort menu offers most
+  downloaded in the last 30 days or of all time, most liked, trending, recently updated, newest and
+  smallest first. *Runs on this Mac* keeps models whose usual build fits in three quarters of this
+  Mac's memory, marked *fits* or *too large* with the estimate on hover. *Top 10* shows the ten
+  most popular in the chosen order. The column beside each model shows the figure the list is
+  ordered by, and a note under the list says when an order or the filter works from a sample of
+  Hugging Face rather than all of it.
+
+### 0.25.1
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -833,7 +845,27 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.17.0
+## SIRVIS — 0.18.0
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
+
+- **Search in seven orders.** `GET /api/v1/catalog` takes `sort`: `downloads` (Hugging Face's own
+  count, which covers the last thirty days), `downloads_all_time`, `likes`, `trending`, `updated`,
+  `created` and `smallest`. Hugging Face sorts by five of them. It refuses `downloadsAllTime`
+  (HTTP 400, measured 12 September 2026) and has no size to sort by, so for those two SIRVIS reads
+  the 200 most downloaded matches and orders them itself — under all time, a model nobody
+  downloads any more does not appear.
+- **What runs on this machine.** Every row now carries the model's parameter count, an estimated
+  size for its usual build — Q4_K_M for GGUF, the precision in its name for MLX — and whether that
+  fits in three quarters of this machine's memory. `fits=true` keeps only those, reading a wider
+  page first, and says how many it hid as too large and how many had no size to judge. The
+  estimate comes with the search itself, so it costs no extra call; the real file sizes are still
+  read per model. The parameter count is checked against the size in the repository's name, and
+  the name wins when the two disagree tenfold: a GGUF split into shards reports only its first
+  shard, which made a 27B model sort as a 1.6 MB download that fits anything.
+- **A top ten** is `limit=10` with an empty search, in any of the orders.
+
+### 0.17.0
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
 

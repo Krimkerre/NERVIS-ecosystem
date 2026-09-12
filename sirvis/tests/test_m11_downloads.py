@@ -153,7 +153,7 @@ def test_a_search_merges_both_formats_most_downloaded_first_and_marks_what_is_in
     client = httpx.AsyncClient(transport=httpx.MockTransport(answer), base_url="https://hf.test")
     installed = frozenset({f"{GGUF_REPO}/Tiny-Q4_K_M.gguf"})
 
-    found = asyncio.run(catalog.search(client, "tiny", "any", 10, installed))
+    found = asyncio.run(catalog.search(client, "tiny", "any", 10, installed))["items"]
 
     assert [(row["repo_id"], row["format"], row["installed"]) for row in found] == [
         (MLX_REPO, "mlx", False), (GGUF_REPO, "gguf", True),
@@ -386,3 +386,143 @@ def test_installed_paths_come_from_both_of_the_clis_listings(
     assert paths is not None
     assert {"lmstudio-community/Qwen3.5-9B-MLX-4bit", SMOLLM2} <= paths
     assert variants.installed_paths("/somewhere/lms") is None, "nobody to ask is not nothing"
+
+
+# ── Ordering, and what fits this machine ─────────────────────────────────────
+
+
+def hub_search(
+    rows: dict[str, list[dict[str, Any]]], seen: list[httpx.Request] | None = None
+) -> httpx.AsyncClient:
+    """Hugging Face's search, answering each format's rows and keeping what was asked."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request)
+        return httpx.Response(200, json=rows.get(request.url.params["filter"], []))
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(answer), base_url="https://hf.test")
+
+
+def test_a_search_asks_hugging_face_for_the_order_and_every_field_a_row_shows() -> None:
+    seen: list[httpx.Request] = []
+
+    asyncio.run(catalog.search(hub_search({}, seen), "qwen", "gguf", 10, frozenset(), sort="likes"))
+
+    [request] = seen
+    assert (request.url.params["sort"], request.url.params["limit"]) == ("likes", "10")
+    assert set(request.url.params.get_list("expand[]")) == set(catalog.EXPANDED)
+
+
+def test_all_time_downloads_rank_a_wider_page_because_hugging_face_cannot_sort_by_them() -> None:
+    """Measured 12 September 2026: `sort=downloadsAllTime` answers HTTP 400."""
+    seen: list[httpx.Request] = []
+    rows = {"gguf": [
+        {"id": "a/recent", "downloads": 900, "downloadsAllTime": 1_000},
+        {"id": "b/classic", "downloads": 100, "downloadsAllTime": 50_000},
+        {"id": "c/uncounted", "downloads": 500},
+    ]}
+
+    found = asyncio.run(catalog.search(
+        hub_search(rows, seen), "", "gguf", 2, frozenset(), sort="downloads_all_time",
+    ))
+
+    assert (seen[0].url.params["sort"], seen[0].url.params["limit"]) == (
+        "downloads", str(catalog.LOCAL_PAGE),
+    )
+    assert [row["repo_id"] for row in found["items"]] == ["b/classic", "a/recent"]
+
+
+def test_what_fits_is_estimated_from_the_parameter_count_and_what_is_hidden_is_counted() -> None:
+    memory = 24 * GIB
+    rows = {"gguf": [
+        {"id": "a/small-GGUF", "downloads": 3, "gguf": {"total": 8_000_000_000}},
+        {"id": "b/huge-GGUF", "downloads": 2, "gguf": {"total": 70_000_000_000}},
+        {"id": "c/nameless-GGUF", "downloads": 1},
+    ]}
+
+    found = asyncio.run(catalog.search(
+        hub_search(rows), "", "gguf", 10, frozenset(), memory_bytes=memory, fits_only=True,
+    ))
+
+    [row] = found["items"]
+    assert (row["repo_id"], row["fits"]) == ("a/small-GGUF", True)
+    assert row["estimated_bytes"] == int(8_000_000_000 * catalog.GGUF_BYTES_PER_PARAMETER)
+    assert (found["fits_filter"], found["hidden_too_large"], found["hidden_unknown_size"]) == (
+        "applied", 1, 1,
+    ), "a model with no parameter count is hidden as unknown, not passed as fitting"
+    assert found["fit_budget_bytes"] == int(memory * catalog.FIT_SHARE)
+
+
+def test_an_mlx_estimate_reads_the_precision_from_the_repository_name() -> None:
+    rows = {"mlx": [
+        {"id": "a/Model-bf16", "safetensors": {"total": 8_000_000_000}},
+        {"id": "a/Model", "safetensors": {"total": 8_000_000_000}},
+        {"id": "a/Model-4bit", "safetensors": {"total": 8_000_000_000}},
+    ]}
+
+    found = asyncio.run(catalog.search(
+        hub_search(rows), "", "mlx", 10, frozenset(), sort="smallest",
+    ))
+
+    assert [(row["repo_id"], row["estimated_bytes"]) for row in found["items"]] == [
+        ("a/Model-4bit", int(8_000_000_000 * 4 / 8 * catalog.MLX_OVERHEAD)),
+        ("a/Model-bf16", int(8_000_000_000 * 16 / 8 * catalog.MLX_OVERHEAD)),
+        ("a/Model", None),
+    ], "smallest first, and a name that states no precision has no estimate and sorts last"
+
+
+def test_without_the_machines_memory_the_fit_filter_hides_nothing_and_says_so() -> None:
+    rows = {"gguf": [{"id": "a/small-GGUF", "gguf": {"total": 1_000}}]}
+
+    found = asyncio.run(catalog.search(
+        hub_search(rows), "", "gguf", 10, frozenset(), fits_only=True,
+    ))
+
+    assert found["fits_filter"] == "unavailable"
+    assert [row["fits"] for row in found["items"]] == [None]
+
+
+def test_the_catalog_route_orders_filters_and_refuses_an_order_it_does_not_know(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app, _token = an_api(monkeypatch)
+    app.state.machine_memory_bytes = 24 * GIB
+    app.state.hub_client = hub_search({"gguf": [
+        {"id": "a/small-GGUF", "likes": 1, "gguf": {"total": 8_000_000_000}},
+        {"id": "b/huge-GGUF", "likes": 9, "gguf": {"total": 70_000_000_000}},
+    ]})
+
+    unknown = client.get("/api/v1/catalog", params={"sort": "loudest"})
+    fitting = client.get(
+        "/api/v1/catalog", params={"format": "gguf", "sort": "likes", "fits": "true"}
+    ).json()
+
+    assert unknown.json()["error"]["code"] == "UNSUPPORTED_PARAMETER"
+    assert [row["repo_id"] for row in fitting["items"]] == ["a/small-GGUF"]
+    assert (fitting["sort"], fitting["memory_bytes"], fitting["hidden_too_large"]) == (
+        "likes", 24 * GIB, 1,
+    )
+
+
+def test_a_count_that_disagrees_with_the_name_by_tenfold_is_replaced_by_the_name() -> None:
+    """Measured 12 September 2026: a 27B model split into shards counted 2.67 million
+    parameters — its first shard — and ranked as a 1.6 MB download that fits anything."""
+    rows = {"gguf": [
+        {"id": "a/Model-27B-GGUF-shards", "gguf": {"total": 2_670_000}},
+        {"id": "b/Model-30B-A3B-GGUF", "downloads": 1},
+        {"id": "c/Model-8B-GGUF", "gguf": {"total": 8_190_000_000}},
+        {"id": "d/Model-4bit-GGUF"},
+    ]}
+
+    found = asyncio.run(catalog.search(hub_search(rows), "", "gguf", 10, frozenset()))
+
+    by_repo = {
+        row["repo_id"]: (row["parameters"], row["parameters_source"]) for row in found["items"]
+    }
+    assert by_repo["a/Model-27B-GGUF-shards"] == (27_000_000_000, "name")
+    assert by_repo["b/Model-30B-A3B-GGUF"] == (30_000_000_000, "name"), (
+        "no count, so the name's size — the total, not the active experts"
+    )
+    assert by_repo["c/Model-8B-GGUF"] == (8_190_000_000, "count"), "a count near the name is kept"
+    assert by_repo["d/Model-4bit-GGUF"] == (None, None), "`4bit` is a precision, not a size"

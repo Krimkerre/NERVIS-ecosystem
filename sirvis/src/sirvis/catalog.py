@@ -30,6 +30,44 @@ from sirvis.errors import CatalogUnavailableError, InvalidConfigurationError, Mo
 FORMATS = ("gguf", "mlx")
 MAX_RESULTS = 50
 
+# Every order a search can take, and what Hugging Face calls it. `None` is an order
+# Hugging Face will not sort by, so SIRVIS orders a wider page itself: measured on
+# 12 September 2026, `sort=downloadsAllTime` answers HTTP 400, and size is not a
+# field Hugging Face sorts on at all. `downloads` is Hugging Face's own count, which
+# covers the last thirty days.
+SORTS: dict[str, str | None] = {
+    "downloads": "downloads",
+    "downloads_all_time": None,
+    "likes": "likes",
+    "trending": "trendingScore",
+    "updated": "lastModified",
+    "created": "createdAt",
+    "smallest": None,
+}
+_SORT_FIELDS = {
+    "downloads": "downloads", "downloads_all_time": "downloads_all_time", "likes": "likes",
+    "trending": "trending", "updated": "updated_at", "created": "created_at",
+}
+# The wider page an order SIRVIS sorts itself reads first. So "most downloaded, all
+# time" is the two hundred most downloaded matches of the last thirty days, ranked by
+# their all-time count: a model nobody downloads any more is not among them.
+LOCAL_PAGE = 200
+# The fields a search row needs. Asking for any replaces Hugging Face's default set,
+# so every one is named — the parameter counts included, which is what lets a search
+# say what fits without reading every model's file list.
+EXPANDED = (
+    "downloads", "downloadsAllTime", "likes", "trendingScore", "lastModified",
+    "createdAt", "pipeline_tag", "tags", "gated", "gguf", "safetensors",
+)
+# "Runs on this machine": the model's usual build fits in this share of its memory,
+# leaving the rest for the context, the runtime and everything else that is open.
+FIT_SHARE = 0.75
+# A GGUF model's usual build is Q4_K_M, about 4.85 bits a weight.
+GGUF_BYTES_PER_PARAMETER = 0.61
+# An MLX build weighs its bits per weight, plus the scales and the parts it leaves
+# unquantized.
+MLX_OVERHEAD = 1.1
+
 # `owner/name`, as Hugging Face names a repository. Anything else is refused before
 # it reaches a URL, so a further path segment or a query string cannot ride in on one.
 _REPO_ID = re.compile(r"^[A-Za-z0-9][\w.-]*/[\w.-]+$")
@@ -41,6 +79,13 @@ _GGUF_QUANT = re.compile(
 )
 # An MLX repository's precision, as its name carries it: `…-4bit`, `…-8bit`, `…-bf16`.
 _MLX_QUANT = re.compile(r"(?i)(\d+bit|bf16|fp16)$")
+# A size a repository states in its name: `27B`, `0.6B`, `135M`. Not preceded by a letter or
+# digit, so a mixture of experts' active count (`A3B`) is not read as its size, and not
+# followed by one, so `4bit` is not four billion.
+_NAMED_SIZE = re.compile(r"(?i)(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)([BM])(?![A-Za-z0-9])")
+# How far Hugging Face's parameter count may stray from the size in the name before the
+# name is believed instead.
+NAME_DISAGREEMENT = 10
 
 
 def checked_repo_id(repo_id: str) -> str:
@@ -59,41 +104,137 @@ async def search(
     format_: str,
     limit: int,
     installed: frozenset[str],
-) -> list[dict[str, Any]]:
-    """Repositories matching `query`, most downloaded first, in one format or both.
+    *,
+    sort: str = "downloads",
+    memory_bytes: int | None = None,
+    fits_only: bool = False,
+) -> dict[str, Any]:
+    """Repositories matching `query`, in the chosen order, in one format or both.
 
-    Hugging Face filters on one tag per request, so "both" is two searches merged.
+    Hugging Face filters on one tag per request, so "both" is two searches merged and
+    ordered again here. An order Hugging Face cannot sort by, and the filter for what
+    fits this machine, read a wider page first, so a filtered list still has `limit`
+    rows when the page holds that many.
     """
     formats = FORMATS if format_ == "any" else (format_,)
+    remote = SORTS[sort]
+    page = LOCAL_PAGE if remote is None or fits_only else limit
+    budget = int(memory_bytes * FIT_SHARE) if memory_bytes else None
     found: list[dict[str, Any]] = []
     for each in formats:
-        answered = await _get(client, "/api/models", {
-            "search": query, "filter": each, "sort": "downloads",
-            "direction": "-1", "limit": str(limit),
-        })
+        answered = await _get(client, "/api/models", (
+            ("search", query), ("filter", each), ("sort", remote or "downloads"),
+            ("direction", "-1"), ("limit", str(page)),
+            *(("expand[]", field) for field in EXPANDED),
+        ))
         for item in answered if isinstance(answered, list) else []:
             if isinstance(item, dict) and _REPO_ID.match(str(item.get("id") or "")):
-                found.append(_summary(item, each, installed))
-    found.sort(key=lambda entry: -(entry["downloads"] or 0))
-    return found[:limit]
+                found.append(_summary(item, each, installed, budget))
+    filtering = fits_only and budget is not None
+    too_large = sum(1 for entry in found if entry["fits"] is False) if filtering else 0
+    unknown = sum(1 for entry in found if entry["fits"] is None) if filtering else 0
+    if filtering:
+        found = [entry for entry in found if entry["fits"]]
+    return {
+        "items": _ordered(found, sort)[:limit],
+        "fit_budget_bytes": budget,
+        "fits_filter": "applied" if filtering else "unavailable" if fits_only else "off",
+        "hidden_too_large": too_large,
+        "hidden_unknown_size": unknown,
+    }
 
 
-def _summary(item: dict[str, Any], format_: str, installed: frozenset[str]) -> dict[str, Any]:
+def _ordered(found: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
+    """Most first for every order but size; a row without the figure goes last."""
+    if sort == "smallest":
+        return sorted(found, key=lambda entry: (
+            entry["estimated_bytes"] is None, entry["estimated_bytes"] or 0,
+        ))
+    key = _SORT_FIELDS[sort]
+    present = [entry for entry in found if entry[key] not in (None, "")]
+    absent = [entry for entry in found if entry[key] in (None, "")]
+    return sorted(present, key=lambda entry: entry[key], reverse=True) + absent
+
+
+def _summary(
+    item: dict[str, Any], format_: str, installed: frozenset[str], budget: int | None
+) -> dict[str, Any]:
     repo_id = str(item["id"])
     author, name = repo_id.split("/", 1)
+    parameters, source, estimated = _estimate(item, format_, repo_id)
     return {
         "repo_id": repo_id,
         "author": author,
         "name": name,
         "format": format_,
         "downloads": _int(item.get("downloads")),
+        "downloads_all_time": _int(item.get("downloadsAllTime")),
         "likes": _int(item.get("likes")),
+        "trending": _int(item.get("trendingScore")),
         "pipeline_tag": str(item.get("pipeline_tag") or ""),
         "created_at": str(item.get("createdAt") or ""),
+        "updated_at": str(item.get("lastModified") or ""),
+        "gated": bool(item.get("gated")),
+        "parameters": parameters,
+        "parameters_source": source,
+        "estimated_bytes": estimated,
+        # `None` when either side is unknown: no size to judge, or no memory to judge by.
+        "fits": None if estimated is None or budget is None else estimated <= budget,
         "installed": any(
             path == repo_id or path.startswith(repo_id + "/") for path in installed
         ),
     }
+
+
+def _estimate(
+    item: dict[str, Any], format_: str, repo_id: str
+) -> tuple[int | None, str | None, int | None]:
+    """A model's parameter count, where it came from, and roughly what its usual build weighs.
+
+    From the count rather than the file list: a search returns the count for every
+    row in one call, while real sizes cost a call per model. A GGUF repository holds
+    many quantizations, so it is weighed at the usual one; an MLX repository is one
+    precision, read from its name. Without a count, or with an MLX name that states
+    no precision, there is nothing to estimate and the answer is unknown.
+    """
+    raw = item.get("gguf" if format_ == "gguf" else "safetensors")
+    parameters, source = _parameters(_int(raw.get("total")) if isinstance(raw, dict) else None,
+                                     repo_id)
+    if parameters is None:
+        return None, None, None
+    if format_ == "gguf":
+        return parameters, source, int(parameters * GGUF_BYTES_PER_PARAMETER)
+    matched = _MLX_QUANT.search(repo_id)
+    precision = matched.group(1).lower() if matched else ""
+    bits: int | None = None
+    if precision in ("bf16", "fp16"):
+        bits = 16
+    elif precision.endswith("bit"):
+        bits = int(precision[:-3])
+    if bits is None:
+        return parameters, source, None
+    return parameters, source, int(parameters * bits / 8 * MLX_OVERHEAD)
+
+
+def _parameters(counted: int | None, repo_id: str) -> tuple[int | None, str | None]:
+    """Hugging Face's parameter count, checked against the size the repository names.
+
+    The count is read from a repository's metadata, and for a GGUF split into shards it
+    describes only the first shard: measured on 12 September 2026, a 27B model's shards
+    counted 2.67 million parameters and ranked as a 1.6 MB download that fits anything.
+    So when the count is missing, or strays more than `NAME_DISAGREEMENT` times from the
+    size in the name, the name is believed. With neither, the size is unknown.
+    """
+    sizes = [
+        float(number) * (1e9 if unit.upper() == "B" else 1e6)
+        for number, unit in _NAMED_SIZE.findall(repo_id.split("/", 1)[-1])
+    ]
+    named = int(max(sizes)) if sizes else None
+    if counted is None:
+        return (named, "name") if named else (None, None)
+    if named and not named / NAME_DISAGREEMENT <= counted <= named * NAME_DISAGREEMENT:
+        return named, "name"
+    return counted, "count"
 
 
 async def model(
@@ -177,7 +318,10 @@ def _mlx_variants(
     }]
 
 
-async def _get(client: httpx.AsyncClient, path: str, params: dict[str, str]) -> Any:
+async def _get(
+    client: httpx.AsyncClient, path: str,
+    params: dict[str, str] | tuple[tuple[str, str], ...],
+) -> Any:
     """One read of Hugging Face, with its failures named rather than raised raw."""
     try:
         answered = await client.get(path, params=params)

@@ -371,24 +371,57 @@ async def search_catalog(
     q: str = "",
     format_: str = Query("any", alias="format"),
     limit: int = 20,
+    sort: str = "downloads",
+    fits: bool = False,
 ) -> dict[str, Any]:
-    """Models this machine could download, most downloaded first (§8, M11).
+    """Models this machine could download, in the order asked for (§8, M11).
 
     Searched on Hugging Face, which LM Studio downloads from and which publishes the
     search LM Studio does not; see `catalog.py`. A read like every other read here,
     open to a peer: it changes nothing, and the free space travels with it so a
-    screen can say what would fit.
+    screen can say what would fit on disk. `fits=true` keeps only models whose usual
+    build fits in `catalog.FIT_SHARE` of this machine's memory, and says how many it
+    hid and why.
     """
     if format_ not in ("any", *catalog.FORMATS):
         raise UnsupportedParameterError(
             "format is `gguf`, `mlx` or `any`", parameter="format", value=format_
         )
-    items = await catalog.search(
+    if sort not in catalog.SORTS:
+        raise UnsupportedParameterError(
+            "sort is one of " + ", ".join(f"`{name}`" for name in catalog.SORTS),
+            parameter="sort", value=sort,
+        )
+    memory = await _machine_memory(request)
+    found = await catalog.search(
         request.app.state.hub_client, q.strip(), format_,
         max(1, min(limit, catalog.MAX_RESULTS)), await _installed(request),
+        sort=sort, memory_bytes=memory, fits_only=fits,
     )
     free = downloads.free_bytes(request.app.state.settings.lmstudio_models_path)
-    return _listing(items) | {"source": "huggingface", "disk_free_bytes": free}
+    return _listing(found.pop("items")) | found | {
+        "source": "huggingface", "disk_free_bytes": free, "sort": sort, "memory_bytes": memory,
+    }
+
+
+async def _machine_memory(request: Request) -> int | None:
+    """This machine's memory, for weighing a model against it.
+
+    Read from the latest machine snapshot, detected once when there is none, and then
+    kept: memory is the one field of a snapshot that does not change while SIRVIS
+    runs, and detecting runs several processes that a search should not wait on.
+    """
+    held = getattr(request.app.state, "machine_memory_bytes", None)
+    if held:
+        return int(held)
+    database = request.app.state.database
+    snapshot = latest_snapshot(database, machine_identity(database)) or {}
+    memory = snapshot.get("unified_memory_bytes")
+    if not (isinstance(memory, int) and memory > 0):
+        memory = (await asyncio.to_thread(detect_system)).unified_memory_bytes
+    if memory:
+        request.app.state.machine_memory_bytes = memory
+    return memory if isinstance(memory, int) else None
 
 
 @router.get("/catalog/{repo_id:path}")

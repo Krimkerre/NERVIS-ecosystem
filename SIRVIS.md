@@ -421,8 +421,24 @@ is recorded `already_present` without asking LM Studio. A download that does not
 one that would leave under 20 GB free or use more than half of what is free is refused with its
 warnings until the request carries `confirm: true`. A gated model is shown and not offered.
 **There is no pause or cancel**: LM Studio publishes neither, so `paused` appears only when LM
-Studio reports it and nothing sets `cancelled`. Not built: parameter-size, architecture and
-licence filters, and the CLI's `sirvis models search/download`.
+Studio reports it and nothing sets `cancelled`. Not built: architecture and licence filters, and
+the CLI's `sirvis models search/download`.
+
+**Ordering and fit, added 12 September 2026 (0.18.0).** `GET /api/v1/catalog` takes `sort` —
+`downloads` (Hugging Face's own count, which covers the last thirty days), `downloads_all_time`,
+`likes`, `trending`, `updated`, `created`, `smallest` — and `fits`. Hugging Face sorts by five of
+them; it refuses `sort=downloadsAllTime` with HTTP 400 and has no size to sort on, so for those
+two SIRVIS reads the 200 most downloaded matches and orders them itself, which means all time
+leaves out a model nobody downloads any more. Every row carries its parameter count and an
+estimated size for its usual build — Q4_K_M, about 0.61 bytes a weight, for GGUF; the precision in
+the repository name plus a tenth for MLX — taken from the search itself rather than a file list
+per model. The parameter count is Hugging Face's, checked against the size the repository names
+(`27B`, `135M`): when the count is missing or strays more than tenfold from the name, the name's
+size is used and the row says so — a GGUF split into shards reports only its first shard, and on
+12 September 2026 a 27B model counted 2.67 million parameters and sorted first as a 1.6 MB
+download. `fits=true` keeps rows whose estimate fits in three quarters of this machine's memory,
+read from its latest snapshot, and reports how many it hid as too large and how many had no count
+to judge. A top ten is `limit=10` with an empty search.
 
 ---
 

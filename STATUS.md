@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2920 tests, no network, no live service
+.venv/bin/pytest                      # part of 2927 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 499 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 506 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1211 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2920 passing across the four, conformance `PASS`.
+Expected: all clean, 2927 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -18553,6 +18553,53 @@ than comfortably inside it, and the next run may land either side of 5 ms.
 
 Checked: ruff and mypy clean, 1148 RAVIS tests pass (six new), release note
 written. All four slowdowns the load test found are fixed.
+
+## Discover sorts, filters by what runs here, and shows a top ten — 2026-09-12
+
+Asked for after M11 shipped: more ways to sort, a toggle for models this Mac can
+run, and a way to see the ten most popular. SIRVIS 0.18.0 and NERVIS 0.26.0.
+
+SIRVIS's catalogue search takes `sort` and `fits`. Seven orders: most downloaded
+in the last 30 days (Hugging Face's own count), most downloaded of all time, most
+liked, trending, recently updated, newest, and smallest first. Hugging Face sorts by
+five of them. It answers `sort=downloadsAllTime` with HTTP 400 and has no size to
+sort on, so for those two SIRVIS reads the 200 most downloaded matches and orders
+them itself; the page says so, because under all time a model nobody downloads any
+more does not appear.
+
+Every row now carries a parameter count and an estimated size for its usual build
+— Q4_K_M for GGUF, the precision in the name for MLX — from the search itself, so
+it costs no extra call. *Runs on this Mac* keeps rows whose estimate fits in three
+quarters of this Mac's memory (18 GiB of 24) and says how many it hid as too large
+and how many had no size to judge. *Top 10* is ten rows with the search box empty,
+in whichever order is chosen. On the page, the column beside each model shows the
+figure the list is ordered by, and a fits or too-large chip carries the estimate.
+
+The first live check found a wrong answer before it shipped. Smallest first opened
+with a 27B model as a 1.6 MB download that fits anything: for a GGUF split into
+shards, Hugging Face's parameter count describes only the first shard, 2.67 million.
+The count is now checked against the size the repository names (`27B`, `135M`, the
+largest in the name, so `30B-A3B` reads as 30B), and the name wins when the two
+disagree tenfold or the count is missing; each row says which it used.
+
+Live, after restarting (SIRVIS reports 0.18.0, NERVIS 0.26.0):
+
+- All seven orders returned ten rows in the right order for "qwen"; the top ten by
+  30-day downloads opens with Qwen3 Coder 30B at 12.9 million, estimated 18.6 GB.
+- Smallest first now opens with 0.5–0.6B models at about 0.2 GiB, and the shard
+  repository no longer leads.
+- *Runs on this Mac* on "qwen" kept ten rows, the largest 17.5 GiB against 18.0,
+  and hid 87 as too large and 50 with no size to judge — 59 before the name check,
+  which sized two of the ten kept rows.
+- An unknown order is refused with UNSUPPORTED_PARAMETER, and NERVIS serves the
+  new controls.
+
+Not built: architecture and licence filters. The estimate is an estimate; the
+Sizes button still reads each model's real files before anything downloads.
+
+Checked: ruff and mypy clean, 506 SIRVIS tests pass (seven new) and 1211 NERVIS,
+the page's script parses, release notes written. The long-running test is not
+running; it waits to be started overnight.
 
 ## Starting the thing
 

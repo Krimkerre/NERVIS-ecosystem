@@ -539,6 +539,10 @@ button-only operation `sirvis.download.start` on `/api/v1/commands/run`: NERVIS 
 with its `admin`-scoped SIRVIS credential, which this page never holds, and a disk-warning refusal
 comes back with SIRVIS's warnings so the page can ask again with `confirm`. No chat phrase proposes
 a download, and there is no cancel, because LM Studio, which carries the transfer, publishes none.
+Since 0.26.0 Discover sends `sort` and `fits` too: a sort menu with SIRVIS's seven orders, a *Runs
+on this Mac* toggle, and *Top 10*, which asks for ten rows with the box empty. The column beside
+each model shows the figure the list is ordered by, and a note under the list says when an order
+or the filter worked from a sample of Hugging Face rather than all of it.
 
 Views must preserve `MEASURED`, `ESTIMATED`, `UNKNOWN` (and treat `PARTIALLY_MEASURED` as at
 most estimated), plus timestamps, staleness, method, sample count, units and evidence links.
