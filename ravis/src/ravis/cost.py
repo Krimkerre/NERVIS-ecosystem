@@ -24,6 +24,7 @@ count something that is only ever written once.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
@@ -204,6 +205,35 @@ class UsageRecord:
         }
 
 
+# A trailing release date on a model id, as Anthropic dates its builds: `-20251001`.
+_DATED_SUFFIX = re.compile(r"-\d{8}$")
+
+
+def price_from_book(candidates: Mapping[str, Any], book: PriceBook | None) -> None:
+    """Give each unpriced candidate the price the book holds for it, for ranking.
+
+    **Only where nothing was published.** A catalogue's own price stays as it is; this
+    fills the gap for the providers that publish no pricing at all — Anthropic, OpenAI
+    and Google, whose rates live in the operator's prices.json. Found on 12 September
+    2026: the book already held Anthropic's rates for the spend screen and ranking never
+    read them, so every direct Claude build tied as unpriced, and the tie fell to
+    alphabetical order — the oldest build first.
+
+    Writing onto the records is safe because they are rebuilt on every routing pass.
+    """
+    if book is None:
+        return
+    for model, known in candidates.items():
+        if known.price_per_million is not None:
+            continue
+        price = book.price_of(model)
+        if price is None:
+            continue
+        known.price_per_million = price.input_per_million + price.output_per_million
+        if known.price is None:
+            known.price = price
+
+
 class PriceBook:
     """Every price RAVIS currently believes, by model.
 
@@ -261,7 +291,19 @@ class PriceBook:
             self._prices[model] = price
 
     def price_of(self, model: str) -> Price | None:
-        return self._prices.get(model)
+        """The price RAVIS believes for a model, under its own id or its undated one.
+
+        **A dated build falls back to the undated name.** Anthropic's catalogue names a
+        build `claude-haiku-4-5-20251001`, and an operator writes its price the way the
+        vendor's pricing page names it, `claude-haiku-4-5`. Found on 12 September 2026,
+        when ranking began to read these prices: every dated build would otherwise have
+        stayed unpriced, on the spend screen as much as in ranking.
+        """
+        found = self._prices.get(model)
+        if found is not None:
+            return found
+        undated = _DATED_SUFFIX.sub("", model)
+        return self._prices.get(undated) if undated != model else None
 
     def known(self) -> int:
         return len(self._prices)

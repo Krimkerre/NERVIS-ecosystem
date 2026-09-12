@@ -769,3 +769,21 @@ def test_the_maker_still_comes_first_once_its_own_copy_can_serve() -> None:
 
     assert decision.selected == "claude-sonnet-5"
     assert "anthropic/claude-sonnet-5" in decision.fallbacks, "the reseller stays reachable"
+
+
+def test_the_cheapest_direct_build_of_a_family_wins_once_it_is_priced() -> None:
+    """With the operator's prices ranked on, Claude Sonnet 5 at $2/$10 comes ahead of
+    Sonnet 4.6 and 4.5 at $3/$15, instead of the oldest winning an alphabetical tie."""
+    candidates = {}
+    for name, price in (
+        ("claude-sonnet-4-5-20250929", 18.0), ("claude-sonnet-4-6", 18.0), ("claude-sonnet-5", 12.0)
+    ):
+        known = _model(name, tools=True, context=1_000_000)
+        known.price_per_million = price
+        candidates[name] = known
+
+    decision = RoutingEngine().select(
+        "ravis/clarvis-agent", candidates, remote_models=frozenset(candidates)
+    )
+
+    assert decision.selected == "claude-sonnet-5"

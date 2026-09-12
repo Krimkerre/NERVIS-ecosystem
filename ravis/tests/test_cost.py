@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from ravis.core.capabilities import ModelCapabilities
 from ravis.core.responses import Usage
 from ravis.cost import (
     PER_MILLION,
@@ -35,6 +36,7 @@ from ravis.cost import (
     budget_from,
     estimate,
     load_prices,
+    price_from_book,
 )
 
 
@@ -749,3 +751,37 @@ def test_the_last_usage_frame_wins_when_a_provider_reports_growing_counts() -> N
 
     assert first is not None and last is not None
     assert last.output_tokens == 48, "the final reading is the whole call"
+
+
+def test_a_dated_build_finds_the_price_written_under_its_undated_name() -> None:
+    """Anthropic's catalogue says `claude-haiku-4-5-20251001`; the operator's prices.json,
+    like the vendor's own pricing page, says `claude-haiku-4-5`. Found 12 September 2026."""
+    book = PriceBook()
+    book.state("claude-haiku-4-5", A_PRICE)
+
+    assert book.price_of("claude-haiku-4-5-20251001") is A_PRICE
+    assert book.price_of("claude-haiku-4-5") is A_PRICE
+    assert book.price_of("claude-haiku-4-6-20251001") is None
+    assert book.price_of("claude-2025") is None, "four digits are not a release date"
+
+
+def test_an_unpriced_candidate_ranks_on_the_price_the_book_holds() -> None:
+    """Anthropic publishes no prices, so direct Claude builds tied as unpriced and the tie
+    fell to alphabetical order. The operator's rates were in the book all along."""
+    operator = Price(
+        input_per_million=2.0, output_per_million=10.0, source="operator", captured_at=1.0
+    )
+    book = PriceBook()
+    book.state("claude-sonnet-5", operator)
+    book.state("anthropic/claude-sonnet-5", Price(input_per_million=1.0, output_per_million=1.0))
+    direct = ModelCapabilities(model_id="claude-sonnet-5")
+    published = ModelCapabilities(model_id="anthropic/claude-sonnet-5", price_per_million=12.0)
+    unknown = ModelCapabilities(model_id="claude-mystery-1")
+
+    price_from_book({known.model_id: known for known in (direct, published, unknown)}, book)
+
+    assert direct.price_per_million == 12.0
+    assert direct.price is operator
+    assert published.price_per_million == 12.0, "a published price is left as it is"
+    assert unknown.price_per_million is None, "no price stays no price, never zero"
+    price_from_book({"claude-sonnet-5": ModelCapabilities(model_id="claude-sonnet-5")}, None)

@@ -46,7 +46,7 @@ from ravis.api.management.credentials import _may_write, _refused
 from ravis.api.management.decisions import DecisionLog
 from ravis.core.capabilities import Capability
 from ravis.core.pools import DEFAULT_POOLS, POOL_PREFIX, POOLS_BY_ID, size_tier
-from ravis.cost import PriceBook, UsageLedger, band_for
+from ravis.cost import PriceBook, UsageLedger, band_for, price_from_book
 from ravis.credentials import CredentialStore
 from ravis.errors import NotFoundError
 from ravis.evidence import EvidenceStore
@@ -103,10 +103,14 @@ async def _candidates(request: Request) -> dict[str, Any]:
         )
         for model, known in translated.items():
             candidates.setdefault(model, known)
+        # The same prices routing ranks on, so these screens agree with it.
+        price_from_book(candidates, getattr(request.app.state, "prices", None))
         return candidates
     adapter = request.app.state.adapter
     registry = request.app.state.model_registry
-    return await candidates_with_evidence(adapter, registry.model_ids(), evidence)
+    candidates = await candidates_with_evidence(adapter, registry.model_ids(), evidence)
+    price_from_book(candidates, getattr(request.app.state, "prices", None))
+    return candidates
 
 
 @router.get("/health")
@@ -852,6 +856,9 @@ async def _pool_candidates(request: Request) -> tuple[dict[str, Any], frozenset[
     translated, owners = await translated_candidates(translating, evidence)
     for model, known in translated.items():
         candidates.setdefault(model, known)
+    # The prices routing ranks on, so pool membership under a price ceiling and the
+    # members screen agree with the route that is actually taken.
+    price_from_book(candidates, getattr(request.app.state, "prices", None))
     return candidates, remote_models(transparents) | frozenset(owners)
 
 

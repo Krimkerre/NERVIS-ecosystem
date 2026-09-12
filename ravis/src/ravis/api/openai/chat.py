@@ -46,7 +46,15 @@ from ravis.core.capabilities import ModelCapabilities
 from ravis.core.pools import POOL_PREFIX, POOLS_BY_ID, direct_provider, is_pool_id
 from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent, Usage
-from ravis.cost import BudgetBand, PriceBook, UsageLedger, UsageRecord, band_for, estimate
+from ravis.cost import (
+    BudgetBand,
+    PriceBook,
+    UsageLedger,
+    UsageRecord,
+    band_for,
+    estimate,
+    price_from_book,
+)
 from ravis.evidence import EvidenceStore  # noqa: F401 - state typing
 from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.policy import (
@@ -821,6 +829,10 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     # anywhere else would mean reading the catalogue a second time to learn
     # something the first read already knew.
     _harvest_prices(request, candidates)
+    # And the gaps the catalogue left, from the same book: operator-stated rates for the
+    # providers that publish none, so a direct build ranks on its price rather than on
+    # its name. See `price_from_book`.
+    price_from_book(candidates, getattr(request.app.state, "prices", None))
     remote = remote_models(transparents) | frozenset(
         getattr(request.state, "translated_owners", {})
     )
