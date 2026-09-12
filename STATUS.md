@@ -18032,8 +18032,9 @@ Checked: Clarvis's check passes, 1375 tests with types and lint; three probes
 each fail the new tests (a sibling folder sharing the prefix counting as inside,
 the first containing repository winning over the deepest, and the first repository
 returned as before). 0.15.4 is installed in code-server and VS Code and both
-installed bundles match the package built from its commit. Not seen live: the
-greeting in nervis-tasks after a reload.
+installed bundles match the package built from its commit. Seen live the same
+morning: reloaded with nervis-tasks open, the greeting no longer names the pomodoro
+project's branch.
 
 ## Starting the thing
 
