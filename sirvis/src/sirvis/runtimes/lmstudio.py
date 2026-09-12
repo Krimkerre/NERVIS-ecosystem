@@ -49,6 +49,7 @@ from sirvis.runtimes.variants import (
     installed_variants,
     loaded_variants,
 )
+from sirvis.runtimes.variants import installed_paths as cli_installed_paths
 
 RUNTIME_KEY = "lmstudio"
 
@@ -471,13 +472,16 @@ class LMStudioAdapter:
             return None
         return shutil.which("lms")
 
-    def installed_builds(self) -> list[InstalledVariant] | None:
-        """Every build installed on this machine, or `None` when nobody can be asked.
+    def installed_paths(self) -> frozenset[str] | None:
+        """Where every model on this machine came from, or `None` when nobody can be asked.
 
         Public for M11's discovery, which marks a search result as already installed.
-        The same local-only rule as `_local_builds`, because it is that.
+        Local-only, for the reason `_local_builds` gives: the CLI describes this disk.
         """
-        return self._local_builds()
+        if not _is_local(self.base_url):
+            return None
+        binary = self._resolve_lms()
+        return cli_installed_paths(binary) if binary else None
 
     def _local_builds(self) -> list[InstalledVariant] | None:
         """Installed builds from the CLI — but only for a runtime on this machine.

@@ -126,11 +126,6 @@ class InstalledVariant:
     max_context: int | None
     size_bytes: int | None
     model_type: str
-    path: str = ""
-    """Where it sits under LM Studio's models folder, as the Hugging Face repository
-    it came from: `lmstudio-community/granite-4.0-h-tiny-GGUF/…Q4_K_M.gguf` for a GGUF
-    file, `mlx-community/Phi-4-mini-instruct-4bit` for an MLX folder. What lets a
-    search result say it is already installed (M11). Empty when the CLI gave none."""
 
 
 def installed_variants(binary: str | None = None) -> list[InstalledVariant] | None:
@@ -191,11 +186,45 @@ def _read_installed(row: object) -> InstalledVariant | None:
         # domain, whichever reader produced the record.
         model_type="vlm" if row.get("vision") and row.get("type") == "llm"
         else str(row.get("type") or "llm"),
-        # A build LM Studio fetched through its own catalogue is indexed as
-        # `qwen/qwen3.5-9b@lmstudio-community/Qwen3.5-9B-MLX-4bit`; one fetched by
-        # link as the repository path alone. The repository is after the `@` either way.
-        path=str(row.get("indexedModelIdentifier") or row.get("path") or "").split("@", 1)[-1],
     )
+
+
+def installed_paths(binary: str | None = None) -> frozenset[str] | None:
+    """Where every installed model came from, per both of the CLI's listings (M11).
+
+    **Both, because neither lists them all.** `lms ls --variants --json` names the
+    builds of models installed through LM Studio's own catalogue and leaves out every
+    model downloaded by link: measured on 12 September 2026, it listed 7 builds while
+    `lms ls --json` listed 19, among them the SmolLM2 file SIRVIS had just downloaded.
+    Discovery marked that file not installed, and asking again queued a second
+    download. The plain listing names link downloads but not the builds inside a
+    catalogue group, so the answer is the union of the two.
+
+    A path is the Hugging Face repository a model came from: `owner/repo/file.gguf`
+    for a GGUF file, `owner/repo` for an MLX folder. LM Studio indexes a catalogue
+    build as `qwen/qwen3.5-9b@lmstudio-community/Qwen3.5-9B-MLX-4bit`, so the
+    repository is what follows the `@`. `None` when neither listing could be read.
+    """
+    grouped = _run(binary, ["ls", "--variants", "--json"])
+    plain = _run(binary, ["ls", "--json"])
+    if grouped is None and plain is None:
+        return None
+    paths: set[str] = set()
+    for row in [*(grouped or []), *(plain or [])]:
+        if not isinstance(row, dict):
+            continue
+        nested = row.get("variants")
+        # In the variants listing a group carries its builds as objects; in the plain
+        # listing `variants` is a list of names, and the row describes itself.
+        entries = (
+            nested if isinstance(nested, list) and nested and isinstance(nested[0], dict)
+            else [row]
+        )
+        for entry in entries:
+            identifier = str(entry.get("indexedModelIdentifier") or entry.get("path") or "")
+            if identifier:
+                paths.add(identifier.split("@", 1)[-1])
+    return frozenset(paths)
 
 
 def _int(value: object) -> int | None:

@@ -351,7 +351,7 @@ async def _installed(request: Request) -> frozenset[str]:
     The CLI is a subprocess, so it is asked off the event loop.
     """
     adapter: LMStudioAdapter = request.app.state.lmstudio
-    return catalog.installed_paths(await asyncio.to_thread(adapter.installed_builds))
+    return await asyncio.to_thread(adapter.installed_paths) or frozenset()
 
 
 def _disk(request: Request, needed_bytes: int | None) -> downloads.DiskCheck:

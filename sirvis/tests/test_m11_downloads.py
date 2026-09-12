@@ -26,8 +26,7 @@ from sirvis.api.security import Scope, mint_token
 from sirvis.app import create_app
 from sirvis.config import Settings
 from sirvis.ecosystem import DECLARED
-from sirvis.runtimes import LMStudioAdapter
-from sirvis.runtimes.variants import InstalledVariant
+from sirvis.runtimes import LMStudioAdapter, variants
 
 GIB = 1024**3
 
@@ -90,7 +89,7 @@ def an_api(
     monkeypatch: pytest.MonkeyPatch,
     *,
     free: int = 400 * GIB,
-    installed: list[InstalledVariant] | None = None,
+    installed: frozenset[str] | None = None,
     lmstudio: FakeLMStudio | None = None,
 ) -> tuple[TestClient, Any, str]:
     """An app whose Hugging Face, LM Studio, disk and installed builds are all stated.
@@ -109,20 +108,12 @@ def an_api(
     if lmstudio is not None:
         app.state.download_client = lmstudio.client()
     monkeypatch.setattr(downloads, "free_bytes", lambda _path: free)
-    monkeypatch.setattr(LMStudioAdapter, "installed_builds", lambda _self: installed)
+    monkeypatch.setattr(LMStudioAdapter, "installed_paths", lambda _self: installed)
     return TestClient(app), app, mint_token(app.state.database, "operator", {Scope.ADMIN})
 
 
 def as_operator(token: str) -> dict[str, str]:
     return {"authorization": f"Bearer {token}"}
-
-
-def build(path: str) -> InstalledVariant:
-    return InstalledVariant(
-        model_key="tiny", family="tiny", runtime_format="gguf", quantization="Q4_K_M",
-        publisher="lmstudio-community", architecture="llama", max_context=None,
-        size_bytes=None, model_type="llm", path=path,
-    )
 
 
 # ── Discover ────────────────────────────────────────────────────────────────
@@ -303,7 +294,7 @@ def test_a_variant_already_installed_is_recorded_without_asking_lmstudio(
 ) -> None:
     lmstudio = FakeLMStudio({"job_id": "never", "status": "downloading"})
     client, app, token = an_api(
-        monkeypatch, installed=[build(f"{GGUF_REPO}/Tiny-Q4_K_M.gguf")], lmstudio=lmstudio
+        monkeypatch, installed=frozenset({f"{GGUF_REPO}/Tiny-Q4_K_M.gguf"}), lmstudio=lmstudio
     )
 
     download = client.post(
@@ -365,3 +356,33 @@ def test_a_model_hugging_face_will_not_show_is_not_found_rather_than_an_outage(
     answer = client.get("/api/v1/catalog/someone/misspelled-GGUF")
 
     assert answer.json()["error"]["code"] == "MODEL_NOT_FOUND"
+
+
+SMOLLM2 = "unsloth/SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct-Q4_K_M.gguf"
+
+
+def test_installed_paths_come_from_both_of_the_clis_listings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Found live on 12 September 2026: the variants listing leaves out every model
+    downloaded by link, so a file SIRVIS had just downloaded read as not installed
+    and asking again queued a second download. The row shapes are the CLI's own."""
+    grouped = [{"modelKey": "qwen/qwen3.5-9b", "variants": [{
+        "modelKey": "qwen/qwen3.5-9b@4bit", "path": "qwen/qwen3.5-9b",
+        "indexedModelIdentifier": "qwen/qwen3.5-9b@lmstudio-community/Qwen3.5-9B-MLX-4bit",
+    }]}]
+    plain = [{
+        "modelKey": "smollm2-135m-instruct", "variants": ["smollm2-135m-instruct"],
+        "path": SMOLLM2, "indexedModelIdentifier": SMOLLM2,
+    }]
+
+    def listing(_binary: str | None, arguments: list[str]) -> list[object]:
+        return grouped if "--variants" in arguments else plain
+
+    monkeypatch.setattr(variants, "_run", listing)
+    paths = variants.installed_paths("/somewhere/lms")
+    monkeypatch.setattr(variants, "_run", lambda _binary, _arguments: None)
+
+    assert paths is not None
+    assert {"lmstudio-community/Qwen3.5-9B-MLX-4bit", SMOLLM2} <= paths
+    assert variants.installed_paths("/somewhere/lms") is None, "nobody to ask is not nothing"

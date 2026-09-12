@@ -21,13 +21,11 @@ Face's own shape before it is placed into a URL.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
 from typing import Any
 
 import httpx
 
 from sirvis.errors import CatalogUnavailableError, InvalidConfigurationError, ModelNotFoundError
-from sirvis.runtimes.variants import InstalledVariant
 
 FORMATS = ("gguf", "mlx")
 MAX_RESULTS = 50
@@ -53,11 +51,6 @@ def checked_repo_id(repo_id: str) -> str:
             repo_id=repo_id,
         )
     return repo_id
-
-
-def installed_paths(builds: Iterable[InstalledVariant] | None) -> frozenset[str]:
-    """Where each installed build came from: `owner/repo/file.gguf` or `owner/repo`."""
-    return frozenset(build.path for build in builds or () if build.path)
 
 
 async def search(
