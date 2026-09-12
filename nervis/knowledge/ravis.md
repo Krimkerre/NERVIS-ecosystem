@@ -461,12 +461,14 @@ reported them; a record says which.
 **RAVIS adds more delay than its target, measured on 12 September 2026.** A load
 test found that with one caller RAVIS adds about 16 ms to each request, against a
 target of 5 ms, and that it stops keeping up at roughly 100 to 180 requests a
-second. Three causes were measured, none fixed yet: it runs a system command to
-read free memory on every request; it asks a hosted provider for its model list
+second. Three causes were measured. One is fixed: a caller that presents a key
+used to wait about 46 ms while RAVIS checked each stored client and admin key in
+the keychain, holding up everyone else's requests meanwhile; since RAVIS 0.23.1 it
+remembers those keys and renews them in the background, so a request with a key is
+as fast as one without. Two are not fixed yet: it runs a system command to read
+free memory on every request, and it asks a hosted provider for its model list
 again on every request whenever that provider's last answer failed (a missing or
-refused key, an outage, no network); and a caller that presents a key waits about
-46 ms while RAVIS checks each stored client and admin key in the keychain, holding
-up everyone else's requests while it does. It stays correct under load: 5,180
+refused key, an outage, no network). It stays correct under load: 5,180
 requests at up to 200 at once all got their own answers.
 
 **Embeddings are also degraded, and narrowly so on purpose.** `POST

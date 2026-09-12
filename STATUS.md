@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2907 tests, no network, no live service
+.venv/bin/pytest                      # part of 2914 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1211 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2907 passing across the four, conformance `PASS`.
+Expected: all clean, 2914 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -18455,6 +18455,45 @@ lookup is the next fix, and this read is where it should show.
 
 Checked: ruff and mypy clean, 1211 NERVIS tests pass (one new), release note
 written.
+
+## RAVIS no longer looks keys up on every request — 2026-09-12
+
+The second of the load test's four slowdowns. Identifying a caller resolves every
+stored `client.` and `admin.` credential; all nine of this machine's credentials
+are in the keychain, and each lookup was a `security` process run inside the
+event loop — 46 ms on every request that presented a key, while every other
+request waited. RAVIS 0.23.1's credential store keeps each lookup for sixty
+seconds, drops it the moment RAVIS itself stores or removes that credential, and
+renews every known credential in a worker thread every thirty seconds, starting
+at startup, so a request only reads. A key changed outside RAVIS — in Keychain
+Access, or by editing the file — is noticed within a minute.
+
+Seven new tests cover a hundred reads costing one lookup, changes through RAVIS
+seen at once, a change made outside RAVIS seen once its minute is up, the renewal
+and the startup warm-up, a slow renewal unable to put an old value back over a new
+one, and the renewal running off the event loop. Each was checked by breaking the
+code on purpose: with nothing reused three fail, with the guard against a late
+renewal removed one fails, and with the renewal moved onto the loop one fails.
+
+Live, after reinstalling and restarting (RAVIS reports 0.23.1):
+
+- One at a time, the model list took 15.1 ms with a key and 15.2 ms without
+  (before: 59.7 against 13.4).
+- Five callers at once: 73.8 ms keyless alone, 74.6 ms with keyed requests mixed
+  in (before: 64 against 157). What remains is the model list's own work, which
+  queues.
+- NERVIS's relayed spend read, which presents NERVIS's key: 2.9 ms one at a time
+  (was 45.2), 27.2 ms with ten at once (was 275), 439 ms with fifty (was 929).
+
+With relayed reads answering quickly, NERVIS now does more at once — 0.96 of a
+core at ten and fifty callers, against 0.55 before — and the tail of its other
+reads moved: health with ten at once took 13.2 ms at the median and 100 ms at P95,
+against 4.2 and 12.3 after the first fix. Recorded rather than explained; nothing
+in NERVIS changed.
+
+Checked: ruff and mypy clean, 1142 RAVIS tests pass (seven new), release note
+written. Two RAVIS slowdowns remain: `vm_stat` on every routed request, and failed
+vendor listings asked for again on every request.
 
 ## Starting the thing
 

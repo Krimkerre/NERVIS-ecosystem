@@ -914,9 +914,12 @@ an outage or no network is asked again on every routed request — 165 ms of a 1
 the internet reachable, 2.85 ms against a closed port. And `read_memory` runs `vm_stat` as a
 subprocess on every routed request, 6–8 ms, blocking the loop. Outside routing, the same suite
 found the live RAVIS spending 46 ms more on a request that presents a key (59.7 against 13.4 ms):
-every client and admin credential is in the keychain, and identifying a caller runs `security`
+every client and admin credential was in the keychain, and identifying a caller ran `security`
 for each of them on every request, inside the loop — anonymous requests mixed with named ones
-went from 64 to 157 ms at five callers. None of the three is fixed yet.
+went from 64 to 157 ms at five callers. **Fixed in 0.23.1:** the credential store keeps a lookup
+for sixty seconds and a worker thread renews it every thirty, so a keyed read now takes 15.1 ms
+against 15.2 ms without a key, mixing the two changes nothing at five callers, and NERVIS's
+relayed reads went from 45 ms to 2.9 ms one at a time. The two routing lookups are not fixed yet.
 
 **A context window is what the runtime serves, not what the architecture allows.** Ollama
 publishes the architecture's maximum at `/api/show` and loads the model at its own default;

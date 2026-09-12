@@ -7,11 +7,15 @@ guarantee that holds for `repr` but not for `%` formatting is not a guarantee.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+from types import SimpleNamespace
 
 import pytest
 
 from ravis.credentials import (
+    CACHE_SECONDS,
     KEYRING_SWITCH,
     CredentialSource,
     CredentialStatus,
@@ -620,3 +624,151 @@ def test_the_switch_stops_deletions_too(
         "the switch was off and the keyring item was removed anyway"
     )
     assert keyring.cleared == []
+
+
+# ── Looked up once, not on every request ─────────────────────────────────────
+#
+# Identifying a caller resolves every `client.` and `admin.` credential, and on
+# this machine each one lived in the Keychain: a `security` process per name on
+# every request carrying a key, measured at 46 ms and spent inside the event
+# loop (RAVIS.md §9.8). These pin the cache that replaced it, and the three ways
+# a cache like it goes wrong: serving a value RAVIS itself just changed, never
+# noticing a change made elsewhere, and a slow lookup undoing a fast write.
+
+
+class _Clock:
+    """A clock that moves only when a test moves it."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _counting(keyring: _FakeKeyring) -> list[str]:
+    """Record every keyring lookup. Call before `_with_keyring` installs it."""
+    looked_up: list[str] = []
+    real = keyring.run
+
+    def run(command, **kwargs):  # type: ignore[no-untyped-def]
+        if command[1] == "lookup":
+            looked_up.append(command[command.index("account") + 1])
+        return real(command, **kwargs)
+
+    keyring.run = run  # type: ignore[method-assign]
+    return looked_up
+
+
+def test_a_keychain_credential_is_looked_up_once_and_then_reused(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keyring = _FakeKeyring()
+    looked_up = _counting(keyring)
+    _with_keyring(monkeypatch, keyring)
+    _file_store(tmp_path, keychain=True).store("client.nervis", VALUE)
+    looked_up.clear()
+
+    # A second store over the same keyring is RAVIS after a restart.
+    store = _file_store(tmp_path, keychain=True, clock=_Clock())
+    for _ in range(100):
+        assert store.resolve("client.nervis").reveal() == VALUE
+
+    assert looked_up == ["client.nervis"], "a hundred requests must cost one lookup"
+
+
+def test_a_change_made_through_ravis_is_seen_at_once(tmp_path) -> None:
+    """The Credentials screen writes through `store()` and `forget()`, and a key
+    typed there must work on the very next request, cache or no cache."""
+    store = _file_store(tmp_path, clock=_Clock())
+    assert not store.resolve("anthropic")
+
+    store.store("anthropic", VALUE)
+    assert store.resolve("anthropic").reveal() == VALUE
+
+    store.forget("anthropic")
+    assert not store.resolve("anthropic")
+
+
+def test_a_change_made_outside_ravis_is_seen_once_the_cache_expires(tmp_path) -> None:
+    clock = _Clock()
+    store = _file_store(tmp_path, clock=clock)
+    store.store("anthropic", "the-old-key")
+    assert store.resolve("anthropic").reveal() == "the-old-key"
+
+    (tmp_path / "credentials.json").write_text(json.dumps({"anthropic": VALUE}))
+    assert store.resolve("anthropic").reveal() == "the-old-key", "reused within its lifetime"
+
+    clock.now += CACHE_SECONDS
+    assert store.resolve("anthropic").reveal() == VALUE
+
+
+def test_refresh_looks_a_credential_up_again_before_it_expires(tmp_path) -> None:
+    store = _file_store(tmp_path, clock=_Clock())
+    store.store("anthropic", "the-old-key")
+    store.resolve("anthropic")
+    (tmp_path / "credentials.json").write_text(json.dumps({"anthropic": VALUE}))
+
+    store.refresh()
+
+    assert store.resolve("anthropic").reveal() == VALUE
+
+
+def test_refresh_warms_every_stored_name_so_a_request_never_looks_up(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keyring = _FakeKeyring()
+    looked_up = _counting(keyring)
+    _with_keyring(monkeypatch, keyring)
+    writer = _file_store(tmp_path, keychain=True)
+    writer.store("client.nervis", VALUE)
+    writer.store("admin.launcher", "another-secret-0123456789")
+    store = _file_store(tmp_path, keychain=True, clock=_Clock())
+
+    store.refresh()
+    looked_up.clear()
+
+    assert store.resolve("client.nervis").reveal() == VALUE
+    assert store.resolve("admin.launcher")
+    assert looked_up == []
+
+
+def test_a_lookup_that_started_before_a_change_cannot_put_the_old_value_back(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refresh reads in a worker thread while a request may be storing a new
+    key. If the refresh read the old value first and finishes last, it must not
+    overwrite what the write left behind."""
+    store = _file_store(tmp_path, clock=_Clock())
+    store.store("anthropic", "the-old-key")
+    started_with = store._generation.get("anthropic", 0)  # a refresh begins its lookup
+
+    store.store("anthropic", VALUE)  # RAVIS changes the key meanwhile
+    monkeypatch.setattr(
+        store, "_uncached", lambda *_: Secret("the-old-key", CredentialSource.FILE)
+    )
+    store._look_up(("anthropic", ""), started_with)  # the refresh finishes, late
+
+    assert store.resolve("anthropic").reveal() == VALUE
+
+
+async def test_the_app_renews_credentials_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ravis import app as app_module
+
+    renewed_on_loop_thread: list[bool] = []
+
+    class Store:
+        def refresh(self) -> None:
+            renewed_on_loop_thread.append(threading.current_thread() is loop_thread)
+
+    loop_thread = threading.current_thread()
+    monkeypatch.setattr(app_module, "REFRESH_SECONDS", 0.01)
+    api = SimpleNamespace(state=SimpleNamespace(credentials=Store()))
+    task = asyncio.create_task(app_module._refresh_credentials_periodically(api))  # type: ignore[arg-type]
+    await asyncio.sleep(0.1)
+    task.cancel()
+
+    assert len(renewed_on_loop_thread) >= 2, "renewed at startup and again on the timer"
+    assert not any(renewed_on_loop_thread), "a Keychain lookup must never run on the loop"

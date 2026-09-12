@@ -674,7 +674,22 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.0
+## RAVIS — 0.23.1
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **A caller that presents a key no longer holds everyone else up.** Identifying a caller
+  resolves every stored `client.` and `admin.` credential, and each one kept in the Keychain was
+  a `security` process — on every request, inside the event loop. `tools/load_test.py` measured
+  it on 12 September 2026: 59.7 ms for a keyed read against 13.4 ms without a key, and anonymous
+  requests mixed with keyed ones went from 64 to 157 ms at five callers. The store now keeps what
+  it looked up for sixty seconds and renews it in a worker thread every thirty, so a request only
+  reads. A key written or removed through RAVIS is seen at once; one changed outside RAVIS, in
+  Keychain Access or by editing the file, within a minute. Measured live after the fix: 15.1 ms
+  for a keyed read against 15.2 ms without a key, and NERVIS's relayed reads down from 45 ms to
+  2.9 ms.
+
+### 0.23.0
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

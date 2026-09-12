@@ -55,6 +55,9 @@ import shutil
 import stat
 import subprocess
 import sys
+import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -81,6 +84,23 @@ KEYRING_SWITCH = "RAVIS_CREDENTIAL_KEYRING"
 # A lookup must not be able to hang startup. The Keychain can prompt when a
 # item's ACL demands it, and a prompt on a headless box waits forever.
 LOOKUP_TIMEOUT_SECONDS = 5.0
+
+# How long a looked-up credential is reused before it is looked up again.
+#
+# **Every request used to look every client credential up.** Identifying a
+# caller walks each stored `client.` and `admin.` name and resolves it, and a
+# resolve that ends in the Keychain is a `security` process: measured on
+# 12 September 2026 at 46 ms per request carrying a key, spent inside the event
+# loop, so every other request waited too (RAVIS.md §9.8). A change made through
+# RAVIS — `store()` or `forget()` — is seen at once regardless; this bounds only
+# how long a change made *outside* RAVIS, in Keychain Access or by editing the
+# file, takes to be noticed.
+CACHE_SECONDS = 60.0
+
+# How often the app looks every cached credential up again in a worker thread,
+# so a request finds a fresh entry instead of paying for the lookup. Half the
+# cache lifetime, so an entry in use is renewed before it can expire.
+REFRESH_SECONDS = CACHE_SECONDS / 2
 
 
 class CredentialSource(str, Enum):
@@ -244,8 +264,21 @@ class CredentialStore:
         keychain: bool = True,
         keychain_path: str | None = None,
         file: CredentialFile | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        cache_seconds: float = CACHE_SECONDS,
     ) -> None:
         self._service = service
+        self._clock = clock
+        self._cache_seconds = cache_seconds
+        # (name, environment variable) → when it was looked up and what was found,
+        # absences included: a provider nobody holds a key for is asked about on
+        # every hosted call, and "not there" costs as much to learn as a value.
+        self._cache: dict[tuple[str, str], tuple[float, Secret]] = {}
+        # Bumped when RAVIS itself changes a credential, so a lookup that started
+        # before the change cannot put the old value back after it.
+        self._generation: dict[str, int] = {}
+        # The refresher looks up in a worker thread while requests read on the loop.
+        self._lock = threading.Lock()
         self._allow_environment = allow_environment
         self._environment = environment if environment is not None else dict(os.environ)
         self._keychain = keychain
@@ -274,7 +307,45 @@ class CredentialStore:
         Absence is a `Secret` with an empty value rather than `None` so that a
         caller cannot skip the type by testing for `None` and then formatting
         the result of the other branch. `bool(secret)` answers "is it set".
+
+        **Reused for `CACHE_SECONDS`**, and renewed by `refresh()` before then —
+        see `CACHE_SECONDS` for what each request used to pay. `store()` and
+        `forget()` drop the entry, so RAVIS's own changes are seen at once.
         """
+        key = (name, env_var or "")
+        with self._lock:
+            held = self._cache.get(key)
+            generation = self._generation.get(name, 0)
+        if held is not None and self._clock() - held[0] < self._cache_seconds:
+            return held[1]
+        return self._look_up(key, generation)
+
+    def refresh(self) -> None:
+        """Look every known and every cached credential up again, now.
+
+        Meant for a worker thread on a timer (`app.py`), so a request finds a
+        fresh entry instead of running `security` itself. Names come from
+        `names()` as well as from the cache, so even the first request carrying
+        a key after startup finds its lookup already done.
+        """
+        known = self.names()
+        with self._lock:
+            keys = set(self._cache) | {(name, "") for name in known}
+            generations = {key: self._generation.get(key[0], 0) for key in keys}
+        for key in keys:
+            self._look_up(key, generations[key])
+
+    def _look_up(self, key: tuple[str, str], generation: int) -> Secret:
+        """Resolve without the cache, and remember it unless RAVIS changed it meanwhile."""
+        name, env_var = key
+        found = self._uncached(name, env_var or None)
+        with self._lock:
+            if self._generation.get(name, 0) == generation:
+                self._cache[key] = (self._clock(), found)
+        return found
+
+    def _uncached(self, name: str, env_var: str | None) -> Secret:
+        """File, then keyring, then environment — the order `resolve()` documents."""
         stored = self._file.read().get(name)
         if stored:
             return Secret(stored, CredentialSource.FILE)
@@ -286,6 +357,13 @@ class CredentialStore:
             if value:
                 return Secret(value, CredentialSource.ENVIRONMENT)
         return Secret("", CredentialSource.ABSENT)
+
+    def _invalidate(self, name: str) -> None:
+        """Drop what was looked up for `name`, because RAVIS has just changed it."""
+        with self._lock:
+            self._generation[name] = self._generation.get(name, 0) + 1
+            for key in [key for key in self._cache if key[0] == name]:
+                del self._cache[key]
 
     def names(self, prefix: str = "") -> list[str]:
         """Stored credential names, optionally filtered by prefix.
@@ -376,10 +454,12 @@ class CredentialStore:
             if values.pop(name, None) is not None:
                 self._file.write(values)
             self._index_write([*self._indexed(), name])
+            self._invalidate(name)
             return self.status(name)
         values = self._file.read()
         values[name] = secret
         self._file.write(values)
+        self._invalidate(name)
         return self.status(name)
 
     def forget(self, name: str) -> CredentialStatus:
@@ -400,6 +480,7 @@ class CredentialStore:
         if name in indexed:
             self._index_write([held for held in indexed if held != name])
         self._from_keyring_forget(name)
+        self._invalidate(name)
         return self.status(name)
 
     def known(self) -> list[str]:

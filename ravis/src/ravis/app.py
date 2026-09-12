@@ -53,7 +53,7 @@ from ravis.cost import (
     budget_from,
     load_prices,
 )
-from ravis.credentials import CredentialStore, credential_for
+from ravis.credentials import REFRESH_SECONDS, CredentialStore, credential_for
 from ravis.ecosystem import ravis_surface
 from ravis.errors import RavisError, to_response
 from ravis.evidence import EvidenceStore
@@ -140,6 +140,9 @@ def _lifespan(settings: Settings) -> Any:
         )
         recorder = asyncio.create_task(_flush_observations_periodically(api))
         trials = asyncio.create_task(run_trials_periodically(api, settings))
+        # Keychain lookups renewed in a worker thread, so a request that presents
+        # a key finds its credential already looked up.
+        credential_refresher = asyncio.create_task(_refresh_credentials_periodically(api))
         # Runbook Stage 7. Borrows the upstream client rather than opening a
         # pool of its own, and is cancelled like the others — a publisher that
         # outlived the app would hold the process open on a queue nobody reads.
@@ -153,6 +156,7 @@ def _lifespan(settings: Settings) -> Any:
             evidence_refresher.cancel()
             recorder.cancel()
             trials.cancel()
+            credential_refresher.cancel()
             publisher.cancel()
             # Bounded, on the way out. The last thing RAVIS publishes about a
             # request is the event that closes its span, and a fire-and-forget
@@ -188,6 +192,22 @@ async def _flush_observations_periodically(api: FastAPI) -> None:
         await asyncio.sleep(OBSERVATION_FLUSH_SECONDS)
         api.state.observations.prune(await _offered_models(api))
         api.state.observations.flush()
+
+
+async def _refresh_credentials_periodically(api: FastAPI) -> None:
+    """Look every stored credential up again in a worker thread, on a timer.
+
+    Identifying a caller resolves each `client.` and `admin.` credential, and a
+    Keychain lookup is a `security` process: 46 ms per request carrying a key,
+    spent in the event loop so that every other request waited too, until the
+    store began keeping what it found (RAVIS.md §9.8). The store reuses a lookup
+    for `CACHE_SECONDS`; this renews it before then, so a request only reads.
+    The first pass runs at startup, which makes the first keyed request fast
+    as well. Cancellation at shutdown is the normal end, so it is not caught.
+    """
+    while True:
+        await asyncio.to_thread(api.state.credentials.refresh)
+        await asyncio.sleep(REFRESH_SECONDS)
 
 
 async def _offered_models(api: FastAPI) -> set[str]:
