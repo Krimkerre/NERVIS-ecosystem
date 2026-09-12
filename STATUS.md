@@ -18110,8 +18110,8 @@ The first two live passes found four faults, each fixed before this entry:
 Live, after restarts at 11:19 and 11:29: Claude Opus 4.5, 4.6 and 4.7 and Claude
 Fable 5, all bought directly, called the tool and are now tool-capable on RAVIS's
 own trial. The three Opus trials cost $0.0127 together, estimated from the
-operator's prices. Fable 5's cost is not known: the price book has no Fable rate,
-and the spend screen keeps usage in memory, so the restart cleared that record.
+operator's prices. Fable 5's trial was priced the same way, but the spend screen
+keeps usage in memory and the restart cleared that record.
 Four OpenRouter listings (aion-labs, anthracite-org, baidu, bytedance) and
 Claude Fable 5.1 were tried under the earlier rules and stored as refusals that
 claim nothing; they are tried again when their month is up, on 12 October.
