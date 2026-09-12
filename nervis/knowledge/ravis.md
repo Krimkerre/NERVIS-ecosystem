@@ -88,8 +88,10 @@ Claude Sonnet first. Now a resold copy only drops behind its maker when one of
 the maker's own copies passed the same checks. On the same day the operator
 declared Claude Sonnet 5 tool-capable, in the operator-capabilities file the
 launcher gives RAVIS, so Clarvis's builds go to Sonnet 5 bought directly from
-Anthropic. That declaration is the operator's word, recorded at configured
-provenance, not a measurement.
+Anthropic. The next morning Claude Haiku 4.5 was declared the same way, so
+Clarvis's chat, which also sends tools, goes to Haiku bought directly rather
+than to Gemini 2.5 Flash Lite. Both declarations are the operator's word,
+recorded at configured provenance, not measurements.
 
 **A slow chatbot is a bad chatbot, so chat now weighs speed — last.** Until
 9 September 2026 the conversational pool ignored measured response times

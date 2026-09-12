@@ -1,9 +1,12 @@
 {
-  "_source": "Declared by the operator, the owner of this machine, on 11 September 2026. Not measured.",
+  "_source": "Declared by the operator, the owner of this machine, on 11 and 12 September 2026. Not measured.",
   "_provenance": "RAVIS records every entry here at CONFIGURED provenance. Measured evidence from SIRVIS outranks it, and should replace an entry once it exists.",
-  "_why": "Anthropic's model catalogue publishes no tool support, so every Claude model bought directly stayed UNKNOWN for tools and failed closed in ravis/clarvis-agent, which requires tools. Every Clarvis agent session from 5 to 11 September went to qwen/qwen3-coder-30b-a3b-instruct as a result. Claude models accept tool definitions through the Messages API, and RAVIS's Anthropic translation carries tool calls both ways (src/ravis/providers/anthropic_wire.py). The operator chose Claude Sonnet 5, bought directly from Anthropic, for Clarvis's builds.",
-  "_scope": "Only claude-sonnet-5. Declaring every Sonnet build would tie them on the pool's preference, and with no published price the tie falls to alphabetical order, which picks the oldest. Other Claude builds stay UNKNOWN until someone declares or measures them.",
+  "_why": "Anthropic's model catalogue publishes no tool support, so every Claude model bought directly stayed UNKNOWN for tools and failed closed in ravis/clarvis-agent, which requires tools. Every Clarvis agent session from 5 to 11 September went to qwen/qwen3-coder-30b-a3b-instruct as a result. Claude models accept tool definitions through the Messages API, and RAVIS's Anthropic translation carries tool calls both ways (src/ravis/providers/anthropic_wire.py). The operator chose Claude Sonnet 5, bought directly from Anthropic, for Clarvis's builds. On 12 September the operator also chose Claude Haiku 4.5, bought directly, for Clarvis's chat: its requests carry tools too, and the first one sent as the named caller clarvis went to gemini-2.5-flash-lite because Anthropic's own Haiku had no tool claim.",
+  "_scope": "Only claude-sonnet-5 and claude-haiku-4-5-20251001. Declaring every build of a family would tie them on a pool's preference, and with no published price for Anthropic's own models the tie falls to alphabetical order, which picks the oldest. Other Claude builds stay UNKNOWN until someone declares or measures them.",
   "claude-sonnet-5": {
+    "tools": "SUPPORTED"
+  },
+  "claude-haiku-4-5-20251001": {
     "tools": "SUPPORTED"
   }
 }
