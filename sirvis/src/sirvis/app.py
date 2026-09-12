@@ -60,7 +60,7 @@ def create_app(settings: Settings, runtime: LMStudioAdapter | None = None) -> Fa
     moment at which a live adapter exists to be left behind.
     """
     api = FastAPI(
-        title="SIRVIS", version="0.0.1", docs_url=None, redoc_url=None,
+        title="SIRVIS", version=BUILD_VERSION, docs_url=None, redoc_url=None,
         lifespan=_lifespan,
     )
     _attach_shared_state(api, settings, runtime)

@@ -23,10 +23,11 @@ bigger than the proof.
 So a cell now names the outcomes it *establishes* and states, in `residual`,
 what is handled and unproved. COVERED means "these outcomes are proved and the
 rest are named", never "nothing is left" — and the summary prints coverage per
-outcome, which is the number that says whether §16's acceptance sentence can be
-signed. Reading it today: truthfulness is well covered and bounded queues are
-covered once, which is a fact about the matrix that no count of verdicts could
-have shown.
+outcome, which is the number that says whether §15's degradation item ("The
+failure/degradation matrix passes with no unsafe failover") can be signed.
+Reading it on 12 September 2026: all nineteen cells say COVERED, truthfulness
+holds under 16 of the 19 conditions, and bounded queues under 6, the fewest of
+the six — a fact about the matrix that no count of verdicts could have shown.
 
 **What the ratchet holds.** `WITHOUT_LIVE_EVIDENCE` is the number of cells whose
 evidence is only unit-level — a helper asserted rather than a service observed.

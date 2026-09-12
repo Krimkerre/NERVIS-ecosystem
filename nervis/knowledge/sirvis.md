@@ -44,9 +44,11 @@ would need a Hugging Face login to fetch it.
 
 Discover can sort by most downloaded in the last 30 days or of all time, most
 liked, trending, recently updated, newest, or smallest first, and **Top 10**
-shows the ten most popular in whichever order is chosen. Hugging Face itself only
-ranks by recent downloads, so "all time" and "smallest first" rank the 200 most
-downloaded matches rather than every model. **Runs on this Mac** keeps models
+shows the ten most popular in whichever order is chosen. Hugging Face can sort by
+downloads in the last 30 days, likes, trending, last update and creation date,
+but not by all-time downloads or by size. So for "all time" and "smallest first"
+SIRVIS reads the 200 most downloaded matches and puts them in order itself, which
+means a model nobody downloads any more can be missing from "all time". **Runs on this Mac** keeps models
 whose usual version fits in three quarters of this Mac's memory. That is an
 estimate from the model's parameter count, at 4-bit for GGUF and at the precision
 in the name for MLX; the Sizes button shows the real files. When Hugging Face's

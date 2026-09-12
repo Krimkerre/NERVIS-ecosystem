@@ -88,7 +88,7 @@ DECLARED: dict[str, Capability] = {
     "ravis.providers.native@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
-        reason="a translated adapter ships: Anthropic (M4)",
+        reason="translated adapters ship: Anthropic (M4) and Google Gemini (M7)",
     ),
     # §9.7 explanations are recorded per decision and served at
     # /api/v1/route-decisions, including the excluded candidates and why.
@@ -112,9 +112,10 @@ DECLARED: dict[str, Capability] = {
         version="1.0.0",
         state=AVAILABLE,
         reason="pools route, are queryable, and carry a revision a consumer can pin",
-        # 14, counted rather than remembered — the constant said 13 while
-        # fourteen pools were being served, which is the kind of number that
-        # only ever gets checked when somebody is already confused.
+        # Counted rather than remembered — the constant once said 13 while
+        # fourteen pools were being served, and this comment then said 14 while
+        # eighteen were: the kind of number that only ever gets checked when
+        # somebody is already confused.
         constraints={"pools": len(DEFAULT_POOLS), "versioned": True},
     ),
     # §4.1's advertise-when for this one is "session isolation tests pass", and
@@ -138,19 +139,22 @@ DECLARED: dict[str, Capability] = {
         reason="usage records and estimated cost from published prices; "
         "never billed, and unpriced calls are counted rather than assumed free",
     ),
-    # Degraded, and the reason had to be corrected: it said the surface was
-    # read-only long after `PUT /pools/{pool_key}/members` shipped and began
-    # persisting a narrowing to disk. A peer reading this was told it could not
-    # change anything by a service that would have accepted the change.
+    # Degraded, and the reason has had to be corrected twice. First it said the
+    # surface was read-only long after `PUT /pools/{pool_key}/members` began
+    # persisting a narrowing to disk. Then it went on naming `_may_write` as
+    # inert on a loopback bind after that bypass was closed — STATUS.md even
+    # recorded the sentence as fixed — so a peer was told about a hole that no
+    # longer existed while the gaps that do exist went unnamed. A reason is a
+    # claim about the code beside it; when the code moves, so must the sentence.
     "ravis.management@1": Capability(
         version="1.0.0",
         state=DEGRADED,
-        reason="reads shipped at M18a, plus pool membership and provider "
-        "configuration writes, each audited to the hub and returning its "
-        "post-state (M18b). Still degraded for one reason: §15.1 asks a "
-        "mutation to be *separately* authorized, and `_may_write` is inert on "
-        "a loopback bind and distinguishes only anonymous from authenticated "
-        "elsewhere — the same authorization as ordinary inference",
+        reason="reads shipped at M18a; provider, credential and pool writes need "
+        "an admin. credential, are audited to the hub and return their "
+        "post-state, and a pool's membership write honours If-Match (M18b). "
+        "Still degraded: §15.1's Idempotency-Key is not accepted, and its "
+        "profile-activation, evidence-refresh and route-test writes and its "
+        "diagnostics, settings, runtime-state and SIRVIS reads are not built",
     ),
     "ravis.events@1": Capability(
         version="1.0.0",

@@ -687,10 +687,15 @@ history.
 
 ## Known limits, as of this writing
 
-Several capabilities are honestly **degraded** rather than available: the
-dashboard and its SIRVIS views depend on surfaces the other services have not
-all shipped, and the analysis surface is not built yet. Others are
-**unavailable** outright, and each says why rather than merely being off.
+Several capabilities are honestly **degraded** rather than available, and each
+says why. **The analysis surface is built**: Diagnostics can gather a trace, show
+exactly what would be sent, and ask a model to explain it. It reads degraded only
+because a whole trace running Clarvis → RAVIS → provider has never been seen — a
+chat turn involves NERVIS and RAVIS, and the Clarvis leg needs an agent run in an
+editor window. The SIRVIS views read degraded because a benchmark run is checked
+on repeatedly rather than streamed while it happens. Others are **unavailable**
+outright, and each says why rather than merely being off. (Corrected 12 September
+2026; this paragraph used to say the analysis surface was not built.)
 
 **Read the live capability, not this paragraph.** A note like this one goes
 stale the moment something ships — this said "supervision of a registered
@@ -713,8 +718,11 @@ configured with an executable NERVIS may start. Those are different answers to
 
 ## The Notifications tab
 
-Where NERVIS keeps what it wanted to tell you. Service state changes land here
-today; finished tasks and questions arrive with later milestones.
+Where NERVIS keeps what it wanted to tell you. Two things file notes today: a
+service changing state, and unattended work when somebody has switched it on — a
+note when a service has stayed unreachable or degraded for a while, and a
+once-a-day digest of what the event hub recorded. **Nothing files a note when a
+task finishes**; that kind of note does not exist yet.
 
 Each note says what happened, why you are being told, how severe it is and when
 it landed. Unread notes show a count in the badge at the top-right of the frame,
@@ -724,8 +732,10 @@ Traces is exactly the case the tab exists for.
 A note is written by NERVIS itself, on the same loop that watches the other
 services, rather than by the page. That is why muting the voice, closing the
 tab or being on another screen loses the spoken announcement and never the
-written one. Dismissing happens one note at a time; there is deliberately no
-way to clear them all at once.
+written one. **Mark all read** marks every note listed on the screen as read —
+exactly those, one request per note, so a note that lands after the click is not
+swept up. Ticking notes lets you mark read or dismiss just the ones ticked. There
+is no button that dismisses everything at once.
 
 **A peer answering for the first time "has connected"; one that recovered "is
 back to healthy".** They are different events and the sentence says which. Until
@@ -790,12 +800,14 @@ have worked. Every attempt is recorded, refusals included.
 ## Watching Clarvis in the editor
 
 Clarvis is the coding assistant that lives inside a VS Code window. When one of
-those windows is turned on to talk to NERVIS, the CLARVIS tab gains a
-**Diagnostics** screen showing what that window is doing.
+those windows is turned on to talk to NERVIS, **NERVIS → Diagnostics → clarvis
+in the editor** shows what that window is doing. It is not on the CLARVIS tab,
+because that tab is the editor itself.
 
 It shows the window's state — idle, chatting, running an agent, waiting for an
-approval — the current agent run with its step count, the tasks Clarvis has
-started and finished, and the events it sent. Each editor window is listed
+approval — the current agent run with its step count, and the events it sent.
+There is a place for the tasks Clarvis has started and finished, but **it stays
+empty**: Clarvis sends no task events, so NERVIS has nothing to list there. Each editor window is listed
 separately and picked from a row of tabs.
 
 **NERVIS watches; it does not drive.** This matters most for approvals. When
@@ -912,9 +924,10 @@ say there is no source rather than guess at one.
 
 ## Asking a model to read the diagnostics
 
-**Diagnostics → Run diagnostics** gathers what NERVIS knows about a problem —
-the trace being looked at, the errors around it, and each service's state — and
-can send it to a model for a written explanation.
+**Analyze trace…**, at the top of NERVIS → Diagnostics, gathers what NERVIS
+knows about a problem — the trace being looked at, the errors around it, and each
+service's state — and can send it to a model for a written explanation. The
+**Run diagnostics** button on the Overview opens the same thing.
 
 **Nothing is sent until it is shown.** The packet is built and displayed first,
 including the exact wording wrapped around it, and sending is a separate button.

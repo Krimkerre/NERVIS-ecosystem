@@ -336,22 +336,22 @@ Only `GET`, `HEAD` and `OPTIONS` are permitted cross-origin, because every
 
 ## What is wired, and what is deliberately not
 
-`API.ravis.requests()` reads `GET /api/v1/route-decisions` for real. Everything
-else is still a mock, and two of them are mocks *on purpose* rather than for
-lack of time:
+**Corrected 12 September 2026: most of `API.ravis` reads RAVIS for real now.**
+`providers()`, `sessions()`, `policies()`, `usage()`, `models()` and `pools()`
+each read their RAVIS endpoint, `decisions()` reads `GET /api/v1/route-decisions`,
+and `requests()` goes through NERVIS, which negotiates the capability first. Each
+one falls back to an empty mock shape when RAVIS does not answer, so the page
+still renders with nothing running. The same holds across the other tabs: most
+screens read a live service first and fall back to a mock.
 
-- **`models()` must not be wired until SIRVIS exists.** The screens are built on
-  three separate tool fields — `advertised`, `measured`, `effective` — because
-  on this machine the runtime's flag and the benchmark disagree about four
-  builds in both directions. RAVIS's real endpoint publishes one state and one
-  provenance, because that is all RAVIS holds. Wiring it would collapse exactly
-  the distinction `docs/PITFALLS.md` §5 says never to reconcile at the source:
-  the disagreement *is* the data.
-- **`pools()` therefore cannot be wired either**, because the Pools screen counts
-  membership against `models()`. Half-wiring it would put a live count beside a
-  mock one on the same card, which is the failure mode that section is about.
-- `providers()` and `usage()` have real endpoints whose shapes differ enough to
-  need adapters; neither is blocked, just unwritten.
+This section used to say the opposite — that everything except `requests()` was
+a mock, and that `models()` and `pools()` must not be wired until SIRVIS existed,
+because the screens keep three separate tool fields (`advertised`, `measured`,
+`effective`) while RAVIS publishes one state and one provenance. Both are wired,
+and the distinction survived the wiring: `models()` fills `advertised` only when
+RAVIS's provenance says the flag was advertised, and leaves `measured` empty,
+because a measurement is SIRVIS's to publish and `docs/PITFALLS.md` §5 says never
+to reconcile that disagreement at the source.
 
 The route-decision rows render `—` for path and TTFT. That is not a gap in the
 wiring: RAVIS does not publish an execution path (only Path A is built, and
@@ -362,7 +362,7 @@ time-to-first-token is per *target* on `/api/v1/health`, not per decision.
 
 ## What the live reads actually return
 
-`ravis/` is built through M18a and M12, so several `API.ravis` methods have a
+RAVIS's management reads (M18a) and writes (M18b) are built, so most `API.ravis` methods have a
 real endpoint behind them now. Two shape notes before swapping a body:
 
 - **List responses are `{items, next_cursor, snapshot_revision}`** — the mocks

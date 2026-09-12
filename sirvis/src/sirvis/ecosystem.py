@@ -88,11 +88,12 @@ DECLARED: dict[str, Capability] = {
         state=AVAILABLE,
         reason="lease, renew and release through the one owner of load/unload, M8",
     ),
-    # Benchmarks run, but they run synchronously through the engine. §4.1 means
-    # something narrower by "jobs": submit, poll, cancel. Declaring this
-    # available because benchmarking works would be §4.1's exact prohibition —
-    # advertising an operation that has not passed conformance because a
-    # neighbouring one has.
+    # Available since M14 shipped the queue. Until then benchmarks ran only
+    # synchronously through the engine, and §4.1 means something narrower by
+    # "jobs": submit, poll, cancel. Declaring it because benchmarking worked
+    # would have been §4.1's exact prohibition — advertising an operation on the
+    # strength of a neighbouring one. (This comment went on arguing that case
+    # for two weeks after the queue, on 29 August 2026, made it moot.)
     "sirvis.benchmarks.jobs@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
@@ -118,7 +119,8 @@ DECLARED: dict[str, Capability] = {
         version="1.0.0",
         state=AVAILABLE,
         reason="a benchmark run publishes started and completed or failed under a "
-        "trace of its own, and a recommendation under the caller's (M21)",
+        "trace of its own, a recommendation under the caller's (M21), and a "
+        "download its start and its end (M11)",
     ),
     # M11. §4.1's table gained both rows when they shipped, on 12 September 2026,
     # so these are its names rather than new ones invented here.

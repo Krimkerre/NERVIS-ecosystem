@@ -313,7 +313,27 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.27.0
+## NERVIS — 0.27.1
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The Benchmarks screen stops saying SIRVIS has no queue.** Whenever SIRVIS answered, the
+  screen's subtitle read "There is no queue yet — §11.10's job machinery is unbuilt, so nothing
+  is ever pending". SIRVIS's queue shipped on 29 August, and the same screen's New benchmark
+  button submits to it. The subtitle now describes the queue, and says there is none only for a
+  SIRVIS too old to have one.
+- **Discover's all-time note stops misdescribing Hugging Face.** It said Hugging Face "only ranks
+  by the last 30 days"; Hugging Face also ranks by likes, trending, last update and creation date.
+  What it cannot rank by is all-time downloads or size, which is why those two orders re-rank
+  a sample of 200. The note now says that.
+- **Four disabled-button explanations stop describing RAVIS and SIRVIS as they were.** Hovering a
+  disabled control could say RAVIS management is read-only or that benchmarks run only from the
+  command line; both stopped being true weeks ago.
+- **The Clarvis visibility capability no longer promises a task list.** Clarvis publishes no
+  task events, so that list stays empty, and the capability's reason now says so.
+- **Refusing a non-loopback address points at runbook §9**, not the retired §16.
+
+### 0.27.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -696,7 +716,26 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.2
+## RAVIS — 0.23.3
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **RAVIS stops reporting a security gap it closed on 4 September.** The published reason on
+  `ravis.management@1` said configuration writes were not separately authorized on a loopback
+  bind. That gap was closed on 4 September, and anything that read RAVIS's capabilities kept
+  being told otherwise for eight days. The reason now names what is actually missing:
+  `Idempotency-Key`, three of §15.1's writes and four of its reads. The capability stays
+  degraded.
+- **The native-provider capability names both translated adapters**, Anthropic and Google
+  Gemini, instead of Anthropic alone.
+- **`ravis preflight clarvis` no longer says nothing probes.** When a pool doesn't resolve, the
+  fix it suggests is to declare the models' capabilities or have SIRVIS measure them. It used to
+  say "nothing probes yet (§8.7, M13)", which stopped being true when M13 shipped.
+- **Refusing a non-loopback address points at a section that exists.** The refusal said "see
+  ECOSYSTEM_RUNBOOK.md §16 item 2", a section that was retired; it now points at §9, which
+  records that remote access with TLS and authentication is not built and has no owner.
+
+### 0.23.2
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
@@ -855,7 +894,20 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.0
+## SIRVIS — 0.19.1
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
+
+- **The API document names the build that serves it.** `/openapi.json` reported version 0.0.1
+  for the whole life of the service. `/ecosystem/version` read the package's version, but the
+  API document was given a fixed version of its own. It now reads the package too, and a test
+  holds the two together.
+- **The events capability mentions downloads.** Downloads have published their start and end
+  since M11, and the capability's reason now says so.
+- **Refusing a non-loopback address points at a section that exists** — runbook §9, not the
+  retired §16.
+
+### 0.19.0
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
 

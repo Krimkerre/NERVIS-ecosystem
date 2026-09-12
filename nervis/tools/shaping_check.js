@@ -85,8 +85,12 @@ function withoutTheClock(message) {
 function replayChat(exported) {
   const replayed = {};
   for (const stream of CHAT_STREAMS) {
+    /* The same fields `streamReply` starts with. `thinking` and `profile` joined the
+       page's accumulator on 9 September 2026 and not this one, so a reasoning-only
+       stream replayed as "undefined......" and the check failed on its own fixture
+       for three days while the page itself was right. */
     const acc = { reply: "", requestId: "req_1", served: "", conversationId: "",
-                  reasoning: 0, failed: "", aborted: false };
+                  thinking: "", profile: "", reasoning: 0, failed: "", aborted: false };
     for (const item of stream.frames) exported.absorbFrame(item, acc, null);
     replayed[stream.name] = { acc, message: withoutTheClock(exported.replyMessage(acc)) };
   }

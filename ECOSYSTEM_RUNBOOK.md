@@ -112,8 +112,9 @@ model eligible for a chat pool.
 
 **Two repositories.** Clarvis is one: different language, different runtime, shipped as a
 `.vsix` on its own cadence, and `clarvis/plan.md` is normative for it in a way no document here
-is. SIRVIS, RAVIS and NERVIS share the second, alongside the protocol package, these documents
-and the template.
+is. SIRVIS, RAVIS and NERVIS share the second, alongside the protocol package and these
+documents. The template used to live here too; its mock-only snapshot now sits outside this
+repository, at `~/Documents/coding/nervis-template/` (`README.md`).
 
 The property that matters is **independent buildability, not repository count**, and the second
 repository preserves it explicitly: separate packages, separate entry points, separate
@@ -585,6 +586,51 @@ teardown, both direct and proxied. Unsupported combinations are blocked in the U
 Acceptance, degradation, security, load, long-running, upgrade, downgrade, backup, rollback
 and recovery suites. Freeze a release candidate only after evidence is attached.
 
+**After Stage 10, the product documents schedule a Stage 11 — "an assistant that grows".**
+This runbook never defined it; `NERVIS.md` §21.1 does, as NERVIS M21 → M25 in that order, with
+`RAVIS.md` §20.1 placing M28 (`ravis/free-api`) beside it and `CLARVIS.md` §8.1 leaving E-C8, the
+coding handoff, unscheduled until after it. `STATUS.md` records it closed on 1 September 2026,
+with NERVIS M25. Its exit criteria are `NERVIS.md`'s, not this section's.
+
+**Where the stages stand, 12 September 2026.** Each exit above, read as written rather than as
+it was reported at the time, with the `STATUS.md` passage that records it:
+
+- **Stage 0 — no record of its sign-off.** `STATUS.md` counts it complete ("Stages 0, 1, 2, 3
+  and 4 are complete"), but nothing records the owners signing off each app document, which is
+  one of its three exit conditions.
+- **Stages 1, 2 and 4 — exits met.** Stage 1 when NERVIS M0 gave the third service its MEP
+  surface; Stage 2 on 24 August with RAVIS M10 ("M10 is complete. Stage 2 is complete with
+  it."); Stage 4 with SIRVIS M7's evidence rules and M15's recommendations.
+- **Stage 3 — recorded met, with one clause observed only later.** The run against its exit
+  criteria found them holding and named that both pools resolved to the same model that day, so
+  "chat and agent resolve to different models independently" was not seen as two different
+  models then. It was on 11 and 12 September 2026, when a request to `ravis/clarvis-agent` was
+  answered by claude-sonnet-5 and one to `ravis/clarvis-chat` by claude-haiku-4-5. Fallback is proved by `ravis conformance clarvis` against a
+  failing primary, not by a live failure.
+- **Stages 5, 6, 7 and 8 — exits met.** Stage 5 when a SIRVIS result changed a RAVIS preference,
+  and later all five criteria; Stage 6 criterion by criterion, with `NERVIS.md` §25's
+  render-layer rebuild; Stage 7 against a collector killed mid-run; Stage 8 on 30 August, by a
+  real-host standalone test and a four-window registry snapshot.
+- **Stage 9 — exit not met as written.** `STATUS.md` called it met on 30 August. Its second
+  clause holds: unsupported combinations are blocked in the UI, with NERVIS grading
+  code-server's version `available`, `degraded` or `unavailable`. Its first does not. The list
+  ends in teardown, and Bridge teardown under code-server is still `NOT_TESTED` in
+  `clarvis/docs/code-server-matrix.md`. It asks for "both direct and proxied", and the proxied
+  axis was graded through a throwaway spike proxy rather than NERVIS's own, which shipped on
+  9 September and has not been graded against the matrix. And the matrix graded Clarvis 0.0.1,
+  while 0.15.4 ships.
+- **Stage 10 — open.** `STATUS.md` called it closed on §8's twelve-scenario acceptance list
+  alone; the stage names ten suites and a frozen release candidate. The load suite ran on
+  12 September (`tools/load_test.py`; the latest full run recorded passed five of six checks,
+  missing §9.8's overhead budget by under a millisecond). The long-running suite
+  (`tools/soak_test.py`) is built and has never run its length: the two runs recorded in
+  `.run/soak/`, both 12 September, lasted three and five minutes. Rollback and recovery have
+  never been rehearsed as one sequence. No release candidate is frozen — the repository has no
+  tags. Four of §15's items are unchecked: code-server coverage, pairwise and E2E, the
+  degradation matrix, and the rehearsals. And the milestones the product documents map to this
+  stage carry no completion state: NERVIS M19 (`NERVIS.app`), RAVIS M20 (concurrency
+  awareness), SIRVIS M22 (`SIRVIS.app`) and Clarvis E-C7 (release regression).
+
 ---
 
 ## 7. Test-double rules
@@ -704,8 +750,16 @@ and stopped together, and what a trace looks like when it crosses a machine.
   services**, because the rule this line used to state was satisfiable without being true:
   the TLS paths were validated at startup and never passed to the listener, so a bind that
   named a certificate and a key served cleartext. Remote returns as an explicit deployment
-  choice carrying TLS *and* authentication once §16 item 2 has built and proven it — the
+  choice carrying TLS *and* authentication once it has been built and proven — the
   requirement is unchanged, its enforcement is now honest about not existing yet.
+  **As built, 12 September 2026: remote access with TLS and authentication is not built, and
+  nothing owns building it.** This line used to hand it to "§16 item 2", and that list is gone
+  — §15.1 records the item closing as loopback-only containment, not as remote access. No
+  milestone in `NERVIS.md`, `RAVIS.md` or `SIRVIS.md` carries it, and §8.9's two-machine sketch
+  lists certificate handling as open. What exists is the refusal: SIRVIS, RAVIS and NERVIS each
+  refuse to start on a non-loopback bind (`_check_remote_exposure` in each service's
+  `config.py`), whose message pointed at the retired "§16 item 2" until 12 September and now
+  points here.
 - Authenticate service-control operations separately from read-only diagnostics.
 - Provider credentials stay in their owning secure store. NERVIS never receives raw
   provider keys.
@@ -742,6 +796,17 @@ an instruction changes nothing, and a caller-supplied identity grants nothing.
 > The two invariants were named against the action-policy layer of Alexander Keisse's
 > `ai-router` (<https://github.com/alexander-keisse>, MIT), which states them as operating
 > rules for a gated action surface.
+
+**As built, 12 September 2026 — three parts of the security gate have nothing behind them.**
+No dependency check runs anywhere: the clean-clone gate installs Node packages with
+`npm ci --no-audit` (`tools/check_clean_clone.sh`), and no Python dependency audit exists in
+either repository. No threat-model review is recorded — threat-model reasoning lives inside
+product documents (Clarvis's `plan.md`, for one), but nothing records the review this gate asks
+to be complete. And no privilege matrix is documented: searching both repositories finds the
+phrase only where a specification requires one. The nearest thing to a secret scan is
+`tools/check_no_tracked_secrets.py`, in the same gate, which checks that nothing git tracks
+matches a `.gitignore` pattern meant to keep it out. The gate stays as written; this records
+that it cannot yet be signed.
 
 ---
 
@@ -846,6 +911,23 @@ After an unclean restart: start authoritative data owners first, run integrity a
 checks, reconcile in-flight SIRVIS jobs and RAVIS requests without replay, expire stale
 registry and Bridge leases, then follow the normal sequence. **Never resume an agent action
 or an approval automatically.**
+
+**As built, 12 September 2026 — the launcher does not follow this sequence.** `tools/run.py` is
+what starts and stops the stack today, and it does less than the steps above:
+
+- `start` launches every service in one loop without waiting between them — SIRVIS, RAVIS,
+  NERVIS, then Ollama and code-server when each is installed — and afterwards checks only that
+  each one answers HTTP at all, a 404 included. It does not wait for `live=true`, record
+  readiness or capabilities, stop on an unsupported protocol major or a failed authentication,
+  or run step 8's whole-ecosystem smoke.
+- Ollama is a local runtime, which step 2 puts before RAVIS; the launcher starts it after
+  NERVIS.
+- `stop` walks the services in name order — NERVIS, Ollama, RAVIS, SIRVIS, code-server — so
+  code-server, which the shutdown order above drains first, stops last, and Ollama stops before
+  RAVIS and SIRVIS rather than after them.
+
+The sequence above is still the requirement; this records that the launcher does not yet meet
+it.
 
 ---
 
@@ -1045,7 +1127,12 @@ of four states, not a bare ✅ or ☐:
 - **IMPLEMENTED** — the code exists on the path that ships. No automated test yet exercises the
   acceptance criterion.
 - **AUTOMATED VERIFIED** — a test in this repository's own suite exercises the acceptance
-  criterion and passes in CI. Not yet demonstrated against real running services.
+  criterion and passes where the gates actually run. GitHub Actions is off on both
+  repositories for good (§14.1), so that means two places rather than a workflow badge: the
+  package's own suite, run locally, and `tools/check_clean_clone.sh`, which clones from the
+  remote into a fresh directory and runs the suites there — the one run that fails on a file
+  nobody committed or a dependency nobody declared. Not yet demonstrated against real running
+  services.
 - **LIVE VERIFIED** — demonstrated against this ecosystem's actual running services, not a
   fixture or a mock, with the evidence recorded — a `STATUS.md` entry, a trace, a transcript.
   The only state that satisfies §15's "reproducible evidence" bar.
@@ -1292,8 +1379,10 @@ may only add product-specific detail beside the required state.
       still installed by a command the launcher prints rather than by NERVIS.
       `clarvis/docs/code-server-matrix.md` is honest about the rest.
       The matrix itself is graded against Clarvis 0.0.1 while the product ships
-      0.12.8, and of its 55 cells (51 original + 4 added by a coverage check) 1
-      remains `NOT_TESTED`: Bridge teardown under code-server. The other two were
+      0.15.4 (12 September 2026), and of its 56 graded cells 1 remains
+      `NOT_TESTED`: Bridge teardown under code-server. (56 is what its tally and
+      its cell headings both count; its prose still says 51 original cells plus
+      4 added by a coverage check, which is one short.) The other two were
       closed for real on 6 September 2026 — rollback to a prior `.vsix` (see the
       "Upgrade, downgrade, backup, rollback" item below) and multiple windows
       against one server (two live code-server tabs, two distinct `instance_id`s
@@ -1313,14 +1402,31 @@ may only add product-specific detail beside the required state.
       NERVIS→code-server: the login page framed through `/code/`, code-server's
       own redirect rewritten onto the proxy, a WebSocket upgraded through it.
       Clarvis's half still needs somebody at a keyboard to sign into the
-      proxied editor and drive the extension. Of §8's 16 required E2E scenarios, `tools/acceptance_run.py`
-      proved every one an unattended run can reach — twice, after real
-      routing/session security patches (F2–F9) landed since the last full pass
-      — but the two needing a person at an editor (Clarvis's contained task
-      through the route; the Bridge-disabled path) were last proved attended
-      on 5 September, before those patches, and were not reattended today.
-      Not closeable until the fourth pairwise gate exists (M14) and the two
-      person-dependent scenarios are reproved against current code.*
+      proxied editor and drive the extension. `tools/acceptance_run.py
+      --unattended` passed every clause of its own that runs without a person —
+      twice, after real routing/session security patches (F2–F9) landed since
+      the last full pass — but the two clauses needing a person at an editor
+      (Clarvis's contained task through the route; the Bridge-disabled path)
+      were last proved attended on 5 September, before those patches, and were
+      not reattended today.*
+
+      ***Corrected 12 September 2026: that run is not a pass over §8's list.***
+      *This item used to say the run proved every one of §8's sixteen scenarios
+      an unattended run can reach. It was written to the stabilization track's
+      golden-path sentence (§15.1) plus two of §10's conditions, not to §8, and
+      mapped onto §8 its unattended steps reach scenarios 1–3, 7, 11, 15, most of
+      16 (it reads NERVIS's event and log surfaces for credential-shaped text)
+      and 12's SIRVIS-outage half; 4 is its person-dependent clause. It has no
+      step at all for 5, 6, 8, 9, 10, 13, 14 or 12's RAVIS-outage half — and 5,
+      10, that half of 12, and 13's SIRVIS and RAVIS side need no editor. The
+      one-scenario-at-a-time scoring in `STATUS.md` ("Stage 10's acceptance
+      list, scored honestly") covered twelve scenarios, on evidence from the
+      suites and earlier live runs, while §8 lists sixteen; 13 (NERVIS disappears), 14
+      (Clarvis on direct providers), 15 and 16 have never been scored that way.
+      Not closeable until the fourth pairwise gate exists (M14), the two
+      person-dependent scenarios are reproved against current code, and every
+      one of §8's scenarios — not the twelve that were scored — has evidence
+      against real services.*
 - [ ] The failure/degradation matrix passes with no unsafe failover.
       *Re-scoped 8 September 2026, and still open — for a better reason than
       before. `tools/check_degradation.py` reads 19 of 19 conditions handled

@@ -1,18 +1,25 @@
 # Where the build is
 
-**Read this before doing anything else.** It is the only file that says what is
-finished and what is next. Everything else describes what the system *should* be;
-this describes what it *is*, as of the last commit that touched it.
+**Read this before doing anything else.** It is the build's log: what was built,
+when, how it was checked and what the checks found. The specifications describe what
+the system *should* be; this describes what it *is*, as of the last commit that
+touched it. **What is left to build** is the **Next** table below, drawn from each
+specification's milestone table — whose rows carry the runbook's §14.8 states — and
+from the as-built notes in the sections those tables point at.
 
 Keeping it honest is part of finishing a milestone, not a separate chore: a
 status file that drifts is worse than none, because it is believed.
 
-**That is enforced, not merely asked for.** `tools/check_status.py` runs in the
-clean-clone gate and fails it when the numbers here stop matching the repository, when a
-path named here stops existing, or when a milestone appears as both done and
-next. It rests on one observation — finishing a milestone always adds tests — so
-an asserted test count doubles as a check that this file was updated when the
-last one landed.
+**That is enforced, but only in part.** `tools/check_status.py` runs in the
+clean-clone gate and fails it when the test counts here stop matching the repository,
+when a `.md`, `.py`, `.toml` or `.yml` path named here stops existing, or when a
+milestone named in bold in a Done table row is named in the Next table too. It rests
+on one observation — finishing a milestone always adds tests — so an asserted test
+count doubles as a check that this file was updated when the last one landed.
+**It does not read prose.** A sentence calling something open, next or finished can
+go stale without failing anything, and the sweep of 12 September 2026 found many that
+had: the agent pool still "the next thing to fix" weeks after it was fixed, a Next
+section still describing 30 August, and Stages 9 and 10 called finished.
 
 ---
 
@@ -25,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2931 tests, no network, no live service
+.venv/bin/pytest                      # part of 2932 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 510 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 511 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1211 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2931 passing across the four, conformance `PASS`.
+Expected: all clean, 2932 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -60,13 +67,15 @@ RAVIS_UPSTREAM_BASE_URL=http://127.0.0.1:1234 .venv/bin/ravis serve
 curl -s localhost:8731/api/v1/pools | python3 -m json.tool | head -30
 ```
 
-`preflight` is the one to run before M9. It prints the VS Code settings to paste
-and then resolves both Clarvis pools against the live catalogue, so the two
-failure modes that read as "Clarvis is broken" — a base URL with `/v1` on the
-end, and an agent pool with no tool-capable candidate — are named before anyone
-opens an editor. On this machine, against LM Studio's twelve models, chat
-resolves and **the agent pool does not**, because nothing has declared tool
-support yet. That is §5.2 working as written, and it is the next thing to fix.
+`preflight` prints the VS Code settings to paste and then resolves both Clarvis
+pools against the live catalogue, so the two failure modes that read as "Clarvis is
+broken" — a base URL with `/v1` on the end, and an agent pool with no tool-capable
+candidate — are named before anyone opens an editor. When this was first written,
+against LM Studio's twelve models, the agent pool did not resolve, because nothing
+had declared tool support. **That was fixed long ago:** LM Studio's catalogue
+(RAVIS M8), SIRVIS's measurements (RAVIS M13) and RAVIS's own tool trials of hosted
+models now say which models can call tools, and on 12 September 2026 both Clarvis
+pools resolved.
 
 ---
 
@@ -82,19 +91,22 @@ into the order work actually happens.
 
 ### Done
 
+*Not kept past its last row. Milestones finished since are recorded in the dated
+sections below and in each specification's milestone table, which carries their state.*
+
 | # | Milestone | What it delivered |
 |---|---|---|
-| 1 | **M0** | Package, config, SQLite + migrations, structured logging, CLI, `/ecosystem/*` MEP surface, §4.4 admission control, §9.6.0 identity |
-| 2 | **M1** | Transparent `/v1/models` and `/v1/chat/completions`, streaming, cancellation |
-| 3 | **M2** | Clarvis wire-contract suite — `ravis conformance clarvis`, 12 Stage 2 checks (23 today; M12 added §8.8's Stage 3 four) |
-| 4 | **M3a** | `ProviderAdapter` protocols, normalized request/response/stream shapes, capability discovery |
-| 5 | **M5** | The 13 virtual pools, route resolution, route explanations |
-| 6 | **M14** *(observation half)* | Residency preference, memory-pressure route change |
-| 7 | **M6** | Request-derived hard constraints — tools, vision, context, schema, streaming |
-| 8 | **M18a** | Read-only management API — pools, models, providers, profiles, policies, route decisions, usage |
-| 9 | **M12** | Failure classification, provider and model health, circuit breakers, retry budget, and the fallback chain — plus the §8.8 Stage 3 conformance scenarios the earlier milestones had left unwritten |
-| 10 | **M9 groundwork** | `ravis preflight clarvis`, and CORS on the read surface so a browser dashboard can reach it |
-| 11 | **M9** | **Live Clarvis ↔ RAVIS**, done 2026-08-23. Evidence below |
+| 1 | **RAVIS M0** | Package, config, SQLite + migrations, structured logging, CLI, `/ecosystem/*` MEP surface, §4.4 admission control, §9.6.0 identity |
+| 2 | **RAVIS M1** | Transparent `/v1/models` and `/v1/chat/completions`, streaming, cancellation |
+| 3 | **RAVIS M2** | Clarvis wire-contract suite — `ravis conformance clarvis`, 12 Stage 2 checks (23 today; M12 added §8.8's Stage 3 four) |
+| 4 | **RAVIS M3a** | `ProviderAdapter` protocols, normalized request/response/stream shapes, capability discovery |
+| 5 | **RAVIS M5** | The 13 virtual pools, route resolution, route explanations |
+| 6 | **RAVIS M14** *(observation half)* | Residency preference, memory-pressure route change |
+| 7 | **RAVIS M6** | Request-derived hard constraints — tools, vision, context, schema, streaming |
+| 8 | **RAVIS M18a** | Read-only management API — pools, models, providers, profiles, policies, route decisions, usage |
+| 9 | **RAVIS M12** | Failure classification, provider and model health, circuit breakers, retry budget, and the fallback chain — plus the §8.8 Stage 3 conformance scenarios the earlier milestones had left unwritten |
+| 10 | **RAVIS M9 groundwork** | `ravis preflight clarvis`, and CORS on the read surface so a browser dashboard can reach it |
+| 11 | **RAVIS M9** | **Live Clarvis ↔ RAVIS**, done 2026-08-23. Evidence below |
 | 12 | **`ecosystem-protocol`, and SIRVIS M0** | The MEP surface extracted to the shared package the runbook has always named, and the second service standing on it |
 | 13 | **SIRVIS M1 + M2** | Machine detection with honest gaps, and the LM Studio adapter. Verified live: discover → load → generate → unload |
 | 14 | **SIRVIS M3** | The four-concept model domain, and the `runtime_key` lookup RAVIS needs |
@@ -130,7 +142,8 @@ every row above belongs to RAVIS or SIRVIS, while NERVIS had shipped eight
 milestones and a voice stack, and the only thing tracking them was its own
 capability surface. Interleaving them now would renumber thirty-four rows to
 assert a sequence nobody recorded at the time, so they are listed on their own
-and the dates they landed are in the sections below.
+and the dates they landed are in the sections below. It stops at M8b: NERVIS M9 to
+M27 are recorded in the dated sections and in `NERVIS.md`'s milestone table.
 
 | Milestone | What it delivered | Evidence |
 |---|---|---|
@@ -146,19 +159,84 @@ and the dates they landed are in the sections below.
 | **NERVIS M8b** | Reading a registered Bridge's own `/v1/status`, presenting the token NERVIS issued it. Blocked until 29 Aug on Clarvis having a Bridge to read — a reader written against the specification alone would have been a guess about a contract, and the registry row said `unknown` rather than pretending. Every field passes an allowlist: the Bridge's port is dynamic and anything on this machine can bind one | `nervis/tests/test_m8b_status.py`, `/api/v1/registry/instances/{service}/{id}/status` |
 | **Voice (§18.2)** | Not a numbered milestone and too large to leave unlisted: the credential in NERVIS's own storage, named voice profiles, engine settings, and the privacy gate that refuses a cloud voice for a locally-produced reply. Advertised only when configured | `nervis/tests/test_voice.py`, `nervis.voice@1` |
 
-**Stages 0, 1, 2, 3 and 4 are complete.** Stage 1 was the last of them to
-close. The runbook requires the metadata endpoints "in SIRVIS, RAVIS and
-**NERVIS**", and exits when all three "pass live MEP conformance at one pinned
-protocol version" — and for a long stretch this file claimed the stage was done
-while NERVIS had no MEP surface at all, because `nervis/` was one HTML file.
-Two services out of three was not a stage. NERVIS M0 built the third. Stage 2 completed as of 2026-08-24, when M10 landed. This file claimed Stage 2 was complete for some time before that, and
-was wrong: the stage mapping puts **RAVIS M10** in Stage 2, *"since an upstream
-needing a credential cannot be reached without it"*, and M10 had never been
-built. No gate caught it; a question about where an operator would type an API
-key did. Stage 4's last piece was SIRVIS M15; the evidence plane measures,
-stores, serves and recommends.
+**Where the stages stand, 12 September 2026.** The runbook's stages (§6.2) are the
+schedule, and each has an exit. `ECOSYSTEM_RUNBOOK.md` §6.2 now ends with the same
+account, citing the entry below that records each one. Stages 1, 2 and 4 to 8 have
+met their exits. The rest do not read as simply as this file used to say:
 
-**Stage 5 has started out of order, and by now substantially.** M3b, M4 and RAVIS M13 all belong to it and are all done — the last of them met Stage 5's own exit criterion, a SIRVIS result changing a RAVIS preference, before Stage 4 finished. That is not drift: each was unblocked early and the reason is recorded under *Reorderings made during the build*.
+- **Stage 0** asks for each application document to be signed off by its owner.
+  Nothing records that it was.
+- **Stage 3** was recorded met with one clause unobserved: both Clarvis pools
+  resolved to the same model that day, so chat and agent routing to *different*
+  models independently was not seen. It has been since — on 11 September a request
+  to `ravis/clarvis-agent` was answered by claude-sonnet-5, and on 12 September one
+  to `ravis/clarvis-chat` by claude-haiku-4-5.
+- **Stage 9 has not met its exit as written.** It asks for one supported
+  code-server, Clarvis and OS combination to pass install through teardown, direct
+  and proxied. Bridge teardown under code-server is still `NOT_TESTED`, the proxied
+  grades went through a throwaway spike rather than NERVIS's own proxy (built
+  9 September), and the matrix graded Clarvis 0.0.1 while 0.15.4 ships. Its second
+  clause, blocking ungraded combinations in the UI, is done. This file called the
+  stage met on 30 August.
+- **Stage 10 is open.** This file called it closed on 1 September, on runbook §8's
+  twelve-scenario acceptance list; the stage itself asks for load, long-running,
+  upgrade, downgrade, backup, rollback and recovery suites, and a release candidate
+  frozen only once that evidence is attached. What is left is row 1 of Next.
+- **Stage 11**, an assistant that grows, is defined in `NERVIS.md` §21.1 rather than
+  the runbook, and closed on 1 September.
+
+Two closed stages still have a milestone mapped into them that is not built — SIRVIS
+M15b in Stage 4, and the Clarvis half of NERVIS M17 in Stage 8 — because their exits
+did not depend on them. Whether a stage is finished when its exit is met, or when
+everything mapped to it is, is the owner's call.
+
+### Next — what is left to build, as of 12 September 2026
+
+Swept against the code and the running services on 12 September 2026, not copied from
+earlier lists. **Not an order**: the stages come first because the runbook schedules
+them, and the rest is grouped by product. Each specification section named below now
+carries an as-built note saying what exists and what does not.
+
+| # | What | Where it stands |
+|---|---|---|
+| 1 | **Stage 10 — whole-ecosystem hardening** | The load test ran on 12 September (`tools/load_test.py`). Still to do: the four-hour long-running test (`tools/soak_test.py` — built, never run its full length, and started by the owner, overnight); rollback and recovery rehearsed as one sequence; upgrade, downgrade and backup suites; runbook §8's scenarios 13 to 16 scored; the four unchecked items in runbook §15; and a frozen release candidate — the repository has no tags yet. Its milestones are rows 3 to 5 |
+| 2 | **Stage 9 — the Code tab's exit, as written** | Re-grade the code-server matrix on the Clarvis that ships, through NERVIS's own proxy, including Bridge teardown when a browser tab closes. Needs a real browser session. NERVIS's proxy capability stays degraded until its Firefox, Safari and https rows are graded |
+| 3 | **App bundles — NERVIS M19, SIRVIS M22, RAVIS M24** | None built; only NERVIS's icon exists. Whether they are still wanted now that the launcher starts everything is the owner's call, and signing one for another machine would probably need a paid Apple Developer ID |
+| 4 | **RAVIS M20 — concurrency awareness** | Nothing counts active requests, queue depth or provider congestion, or reads rate limits; only memory pressure reaches routing. Throughput above about a hundred callers was never profiled, and RAVIS meets its 5 ms routing budget only narrowly |
+| 5 | **Clarvis's release regression (E-C7)** | Rollback to the previous package was verified live. The comparison with RAVIS and the Bridge switched off, upgrade and recovery were not, and the release bar in Clarvis's own plan still has open boxes |
+| 6 | **A Clarvis → RAVIS → provider trace, seen whole** | The last clause of NERVIS M17 and of Clarvis E-C4, and the reason NERVIS's diagnostics capability reads degraded. Needs one agent turn in a real editor window. Clarvis sends RAVIS only a trace header and a session id — not the request and workspace ids `CLARVIS.md` §6.5 asks for — and its Anthropic adapter sends neither |
+| 7 | **SIRVIS M15b — what the recommendation engine left out** | Runtime Set recommendations, and expected memory, performance and quality as named outputs. Mapped to Stage 4, which closed without it; asking for it is refused as unsupported |
+| 8 | **SIRVIS M5, M17, M18, M19, M20** | Client libraries, configuration sweeps, quality suites, GGUF-against-MLX comparison and analytics: none started. The recommendation engine says so itself — "no coding suite yet (M18)" |
+| 9 | **RAVIS M21, M22, M23** | Request replay, advanced routing (escalation, shadow routing, outcome scoring) and the Responses API: none started. RAVIS correctly does not advertise `/v1/responses` |
+| 10 | **RAVIS M25a, M25b, M27** | Serverless GPUs as an upstream and as a routing candidate, and more than one SIRVIS: none started. M27 needs a second machine, and M25b has an open question about evidence identity in `RAVIS.md` |
+| 11 | **RAVIS M17 and M26 — perhaps closable rather than buildable** | M17's dashboard is NERVIS's twelve RAVIS screens, which lack only Profiles, a Models page, estimated savings and a live Clarvis compatibility page. M26's background pool may be superseded by `ravis/free-api` (M28). Both are the owner's call |
+| 12 | **Specified for SIRVIS and not built** | Four `/api/v1` paths and a sessions list (§4.2); most of the command line — models, runtime, compare, recommend (§18); Discover filters beyond format and size, and the installed view's Compare, Inspect, Find variants, Reveal and Delete (§8); randomized and balanced run order (§11.7); the fit classes, and recording installed sizes (§14.2); most of its events, and spans (§15.3); capabilities that turn unavailable when LM Studio or Hugging Face is down (§15.4); Playground, Pareto, regressions and result comparison (§16) |
+| 13 | **Specified for RAVIS and not built** | Five management reads and three writes (§15.1); the command line's providers, models, profiles, routes, usage, sirvis status and test (§15.4); most of its events, and per-stage spans (§15.2); per-step routing timings (§9.8); budgets per day, week, application and provider (§14); route decisions that survive a restart, and the SIRVIS model reference (§17) |
+| 14 | **Specified for NERVIS and not built** | Most of the command line, and a doctor that checks its peers (§17); notifications for a finished benchmark, a budget threshold, a spike in route failures, memory pressure, swap and a Clarvis approval — the notification centre exists and little posts to it (§18); a route decision that can be linked to, and screens that update in place (§25.2, partial); benchmark progress streamed rather than polled, which needs SIRVIS to publish progress first (M5b) |
+| 15 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
+| 16 | **Defects recorded below and never closed** | Nothing found on 12 September closes these: a tool refusal fails the request instead of trying another model; a tool probe can land on a model that is not loaded (§8.7); RAVIS reads LM Studio's advertised context window rather than the one it loaded; every credential write refreshes the catalogue, with no cooldown; with the proxy on, Hand over does not open the task's folder in the Code tab; exporting a conversation stored before it had a remote id saves half of it; SIRVIS M22b's reasoning share was never confirmed on real data; the launcher has no automated tests |
+| 17 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run only inside the slow clean-clone gate, which is how five of them failed unnoticed for up to three days before 12 September |
+
+### After that — deferred on purpose, or waiting on the owner
+
+| # | What | Why it waits |
+|---|---|---|
+| 1 | **NERVIS M11's content stages** | Recording prompts and responses in the API Inspector is a privacy decision — retention, redaction, where they live on disk — before it is a coding one |
+| 2 | **RAVIS's Idempotency-Key** | Left out on purpose: four of the five writes are full replacements, so a replay cache would change nothing observable. The exception is the catalogue refresh in row 16 of Next |
+| 3 | **Deferred by decision** | A waiting queue above SIRVIS's resource manager; Parquet telemetry; a pull event stream; web research in chat; WWAH as a second consumer; RAVIS's embeddings staying degraded; SIRVIS's CSRF token; the runbook §13 clause about rerouting queued requests |
+
+**Decisions only the owner can make**, each recorded where it came up:
+
+- whether a stage is finished when its exit is met, or when every milestone mapped to it is;
+- whether the release process in runbook §12 — canary, cohort, a frozen release candidate — applies to a project that runs on one machine;
+- whether Clarvis 0.15.2's RAVIS-aware credential code stands against `CLARVIS.md` §2, which says Clarvis needs no RAVIS feature;
+- whether a plan NERVIS handed over may build unattended once its interview is signed off (E-C8);
+- whether recalled conversations may feed a turn that is answered in the cloud;
+- whether a tool refusal should ever fall back to another model;
+- whether route decisions should survive a restart;
+- whether the page checks should stop executing the page's code in Node's `vm` and parse it instead (F1);
+- whether the SIRVIS, RAVIS, NERVIS and Clarvis lists in rows 12 to 15 of Next are still wanted, or should be struck from the specifications;
+- what to do with artefacts tracked in git that nothing reads: `results/` (65 files, against `.gitignore`'s own rule), two `sirvis.db.v8.bak` companion files, `AUDIT-REPORT.html` and its PDF, and `nervis-build-ladder.html`.
 
 ### The protocol package, extracted when the second consumer arrived
 
@@ -2031,6 +2109,11 @@ measurement in the corpus still came through LM Studio.
 
 ### Which prototype screens read real services
 
+*As of 12 September 2026 this table undercounts. Nearly every screen reads its service first
+and falls back to a mock only when the service does not answer, and it lists none of NERVIS's
+own screens and few of RAVIS's. Two rows are stale: Benchmarks has read and submitted to
+SIRVIS's queue since 29 August, and Models shows what is loaded, though still no size.*
+
 `nervis/index.html` renders every screen against mocks. Three now read live
 services instead, and the rest still should not — a screen wired to an endpoint
 that does not exist is worse than a screen on mocks, because it looks finished.
@@ -2216,8 +2299,8 @@ repository root, which is the same trap this repository has already paid for onc
 Left in place rather than deleted: they are data, and which of them is worth
 keeping is the operator's call.
 
-**Stage 10's acceptance list, scored honestly.** §8 names twelve required
-end-to-end scenarios and nothing had ever gone through them one at a time. Most
+**Stage 10's acceptance list, scored honestly.** §8 named twelve required
+end-to-end scenarios (it lists sixteen since, and 13 to 16 have never been scored) and nothing had ever gone through them one at a time. Most
 turn out to be met by work already done, which is worth knowing precisely — the
 value here is the four that are not.
 
@@ -3547,6 +3630,11 @@ re-derived.
 
 ### The plans record what shipped, 1 Sep
 
+*Superseded. This is what was left on 1 September. The ticks it counts were replaced by the
+runbook's §14.8 states on 5 September, most of its left-to-build column has shipped since, and
+its Clarvis row was wrong: E-C6 and E-C7 were never met. The current list is **Next**, near the
+top.*
+
 Only `NERVIS.md` carried ✅ marks, added when the version-scheme test needed a
 source of truth that was not the version number. So "what is left to build" was
 answerable for one service by reading, and for the other two only by inferring
@@ -3577,9 +3665,8 @@ Either the version is one behind or a milestone is ticked that should not be, an
 guessing which would replace an honest discrepancy with a confident wrong answer.
 Recorded so somebody who knows can settle it.
 
-Since M11 (12 September 2026) seventeen rows tick against 0.17.0, which agrees.
-The version stood at 0.16.0 before M11 moved it; when the earlier gap closed is
-not recorded.
+Rows have carried §14.8 states rather than ticks since 5 September, so there is no
+longer a tick count to hold against a version.
 
 ### M25 — work NERVIS starts unasked, 1 Sep. NERVIS 0.14.0. **Stage 11 closed**
 
@@ -4637,9 +4724,14 @@ have to re-derive why.
 in RAVIS.md's own gate mapping, and Stage 10 was closed on a separate,
 already-scored twelve-item runbook §8 acceptance list — none of the twelve
 scenarios mention throughput or concurrency. `tools/check_plans.py` still passes:
-un-ticking a row doesn't change its width or its stage assignment.
+un-ticking a row doesn't change its width or its stage assignment. *(12 September 2026:
+Stage 10 was never closed by its own definition — see* Where the stages stand *near the top.)*
 
-### Next — in this order
+### What was next on 30 August 2026
+
+*Kept as history. Of the table below, row 1 is deferred, row 2 — NERVIS's own proxy — was
+built on 9 September, and row 3's Stage 6 is complete; Downloads has read SIRVIS since M11 on
+12 September. The current list is **Next**, near the top.*
 
 **Stage 8 closed on 30 Aug**, both remaining exit items settled by running them —
 a real-host test for the standalone clause, and a four-window registry snapshot
@@ -4685,7 +4777,8 @@ All three observed through `/api/v1/services` on a running NERVIS, which is the
 whole chain the screen reads. Both throwaway processes were stopped afterwards
 and the real stack verified back up on its own code-server.
 
-**Stage 9's exit is met.** One graded combination passes the ten behaviours direct
+**Stage 9's exit is met** — *not as the runbook words it, it turned out; see* Where the stages
+stand *near the top (12 September 2026).* One graded combination passes the ten behaviours direct
 and proxied, and unsupported combinations are now blocked in the UI.
 
 **Why the clause went unnoticed until now, which is the more useful part.**
@@ -4717,7 +4810,7 @@ visible increment for the stage is "the prototype stops being one", and the six
 things §25.2 says must be rebuilt were, each behind a check that can see the
 defect. Two of the six are partial and named as such above.
 
-### After that
+### What came after it
 
 **NERVIS M7 and M12 are done, which closes NERVIS's Stage 7 ladder.** M7's
 missing half was other people's — cross-service spans needed both peers to
@@ -4786,7 +4879,9 @@ anonymous from authenticated, which is the same authorization as ordinary
 inference. Any credential that can call `/v1/chat/completions` can rewrite every
 provider key. Closing that needs a permission model RAVIS does not have, which
 is a design decision rather than an implementation detail, so it is named here
-rather than quietly satisfied.
+rather than quietly satisfied. *(Closed on 4 September: configuration writes need an
+`admin.` credential. The capability's published reason went on describing the gap until
+12 September.)*
 
 **SIRVIS M14 — the benchmark queue.** Submit, poll and cancel, which is what
 `sirvis.benchmarks.jobs@1` had been promising since M6 ran synchronously, and
@@ -5622,7 +5717,8 @@ The new pool is suggestible in its own right: `ravis/agents` proposes it.
 
 ## Stretch goal — chat that can do more than talk (30 Aug)
 
-**Proposed, not started.** NERVIS.md §7 already names the direction — *"Later: images, files,
+**Proposed, not started** *(on 30 August; documents, pictures and image generation have
+shipped since, and web research has not)*. NERVIS.md §7 already names the direction — *"Later: images, files,
 voice, search, artifacts"* — and three of those now have a plausible shape, because the pieces
 they need exist for other reasons.
 
@@ -5910,6 +6006,10 @@ reviewer who disagrees should say so rather than assume it was an accident.
 ---
 
 ## Open decisions — yours, not mine
+
+*12 September 2026: vision and capability configuration below are settled — `ravis/vision`
+exists, and LM Studio's catalogue, SIRVIS's evidence and RAVIS's tool trials now say what a
+model can do. The advertised-versus-loaded context window is still open for LM Studio.*
 
 - **A model's advertised context is not the context it is loaded with, and RAVIS
   is currently told the advertised one.** `ravis/measured-capabilities.json`
@@ -18642,6 +18742,98 @@ Checked: ruff and mypy clean, 510 SIRVIS tests pass (four new) and 1211 NERVIS,
 the page's script parses, release notes written. The long-running test is still
 waiting to be started overnight.
 
+## A sweep of the ecosystem: what is left, and what the documents had wrong — 2026-09-12
+
+Asked to find what still needs building without trusting the documents. Six read-only
+checks compared each specification and this file with the code and the running
+services — one each for SIRVIS, RAVIS, NERVIS, Clarvis, the runbook's stages and
+checklists, and this file's own open items. Five editors then corrected the documents,
+each checking a finding against the code before changing a word; what did not hold was
+not written. The result is the **Next** and **After that** tables and the stage account
+near the top, which replace a Next section that was still describing 30 August.
+
+**The stages.** Stages 9 and 10 had been called finished and are not, by their own
+exits; Stage 0 has no record of its sign-off; and Stage 3's unobserved clause turned out
+to have been seen on 11 and 12 September. `ECOSYSTEM_RUNBOOK.md` §6.2 carries the same
+account. Its §14.8 no longer defines AUTOMATED VERIFIED as passing in CI, which has not
+run since 30 August: it means the package's own suite and the clean-clone gate.
+
+**Milestone states, corrected against their tests and records.** SIRVIS M8, RAVIS M28
+and NERVIS M2 were IMPLEMENTED with every exit clause under a passing test, and are now
+AUTOMATED VERIFIED. Clarvis's E-C0 to E-C7 carried no state at all — which the plan check
+reads as not started — while this file called all eight built. E-C1, E-C3 and E-C5 are
+LIVE VERIFIED, E-C4 is AUTOMATED VERIFIED with its unmet clause named, E-C0 is
+IMPLEMENTED, and E-C2, E-C6 and E-C7 stay unstarted, each with a note saying what exists.
+
+**As-built notes wherever a specification describes more than exists**: SIRVIS's API
+list, Discover filters, run ordering, fit classes, events, standalone capabilities,
+dashboard and command line; RAVIS's management API, events, dashboard, command line,
+budgets, routing timings, storage and remote access; NERVIS's navigation, settings,
+command line and notifications; and Clarvis's status fields, trace headers,
+capabilities, fencing, and the handoff, which changed in 0.13.0 without its section
+following. A requirement that is not built stays in its specification, and the note
+says it is not built.
+
+**What chat believed.** Its notes said Hugging Face ranks only by recent downloads; that
+RAVIS's write authorization was unfinished, that every routing decision is recorded, and
+that this machine's models were a few small Ollama ones; that NERVIS's analysis surface
+was unbuilt, and where Clarvis's screen lives; and Clarvis's old version, with
+code-server management unbuilt. All corrected.
+
+**The services were saying false things too**, and anything negotiating capabilities
+reads those sentences:
+- RAVIS's management capability described a write-authorization gap closed on
+  4 September — which this file had recorded as already corrected. It now names what is
+  actually missing. Its native-provider capability named only Anthropic, and
+  `ravis preflight clarvis` said nothing probes.
+- SIRVIS's API document reported version 0.0.1 for the life of the service; it now reads
+  the package's version, with a test. Its events capability left out downloads.
+- NERVIS's Benchmarks screen said SIRVIS has no queue, two weeks after the queue shipped;
+  four disabled-button explanations described RAVIS and SIRVIS as they used to be;
+  Discover's all-time note repeated the Hugging Face error; and the Clarvis capability
+  promised a task list that nothing fills.
+- All three services refused a non-loopback address by pointing at a runbook section that
+  no longer exists. They point at §9 now, which says nothing is building remote access.
+
+RAVIS 0.23.2 → 0.23.3, SIRVIS 0.19.0 → 0.19.1, NERVIS 0.27.0 → 0.27.1.
+
+**Five of the dashboard's page checks were failing, and nothing had run them.** They run
+only inside `tools/check_clean_clone.sh`; the commits that broke them recorded ruff, mypy,
+pytest and a parse check, and not these. Found by running every one, then bisected:
+- **complexity**: three Discover functions over the ratchet — one since SIRVIS M11, two
+  more from the Discover sort and size-slider commits earlier today. Split into
+  single-purpose functions, with the markup unchanged.
+- **check.py**: a literal `undefined` passed as a locale since the spend reset. `[]` means
+  the same, and is what the page already uses elsewhere.
+- **liveness**: the page had improved to 47 hard-coded card classes and the ratchet had not
+  been lowered. Lowered.
+- **shaping**: the check's replayed chat accumulator had no `thinking` field from
+  9 September, when the page began keeping one, so a reasoning-only stream replayed as
+  "undefined......". The page was right; the fixture matches it now, and the golden file
+  records the thinking text.
+- **outcome**: its fake responses had no headers, and the page reads one since RAVIS reads
+  went through NERVIS's relay, so every failure mode was recorded as unreachable. The page
+  was right; the fakes carry headers now.
+
+None of the five was something a person would see. Nothing yet makes these checks part of
+every commit to the page; that is in row 17 of Next.
+
+**Clarvis's own documents** — its current-state milestone count, the code-server matrix's
+version line, the verification guide's test count and two plan notes — were corrected in
+its repository, without ticking any box on code reading alone.
+
+Checked: ruff and mypy clean in RAVIS, SIRVIS and NERVIS; all four suites pass, 2932
+tests with one new in SIRVIS; `ravis conformance clarvis` PASS; `nervis/tools/check.py` and
+the twenty-five dashboard gates pass, as do the plan, status, degradation, release,
+dead-code, import, secret and knowledge checks. Verified live after a restart: the three
+services report 0.23.3, 0.19.1 and 0.27.1, and SIRVIS's API document 0.19.1; RAVIS's
+management and native-provider reasons, SIRVIS's events reason and NERVIS's Clarvis reason
+read as corrected; the Benchmarks screen describes the queue; and Discover, searched for
+"smollm2" by all-time downloads, shows the corrected note and draws 23 versions of SmolLM2
+1.7B with their sizes, room left and a runs-here chip. Nothing was downloaded. Chat reads
+its notes from disk when NERVIS starts, so the restart is what put the corrected ones in
+front of it.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
@@ -18671,14 +18863,17 @@ they disagree the health check is right.
 
 **Ports are not a choice made in the launcher.** 8721 and 8731 are the services'
 own defaults *and* the addresses hard-coded in `nervis/index.html`; picking
-others would produce a dashboard reporting everything offline. Each service is
+others would produce a dashboard reporting everything offline. *(Since 12 September
+the dashboard reads RAVIS through NERVIS's relay, so only SIRVIS's address is still
+written into the page; NERVIS serves the dashboard itself, on 8790.)* Each service is
 started with the dashboard's origin allow-listed and nothing else, because both
 default to an empty list and the screens would otherwise silently show nothing.
 
-**It starts nothing it does not own.** LM Studio, Ollama and Clarvis are
-reported, never launched — §9 puts model loading behind SIRVIS's Resource
-Manager, and "nothing is routing" and "no runtime is running" are the same
-symptom with different fixes.
+**It starts nothing it does not own.** LM Studio and Clarvis are reported, never
+launched — §9 puts model loading behind SIRVIS's Resource Manager, and "nothing is
+routing" and "no runtime is running" are the same symptom with different fixes.
+Ollama and code-server are the later exceptions: the launcher starts each when it is
+installed.
 
 **No automated tests.** The launcher spawns detached processes and signals them;
 the verification was done live and is described above — start, status,
@@ -18692,14 +18887,17 @@ ECOSYSTEM_RUNBOOK.md   cross-product authority — protocol, build order, gates,
 RAVIS.md SIRVIS.md     per-product build plans; the runbook wins on anything crossing a boundary
 NERVIS.md CLARVIS.md
 ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
-nervis/                the prototype — every screen, wired to mocks shaped like the real responses
+OPERATOR_RUNBOOK.md    running the stack, and what each failure looks like
+RELEASES.md            release notes per component, enforced by tools/check_releases.py
+AGENTS.md README.md    the rules for anyone editing here, and the front door
+nervis/                NERVIS — the FastAPI service, the dashboard (index.html) and chat's knowledge notes
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
-ravis/                 the routing gateway (M0–M18a, M12, M9, M3b, M4)
-sirvis/                the evidence plane (M0–M4, M6–M10)
-tools/                 run.py (the launcher), the STATUS and dead-code gates,
-                       and propose_pools.py — which asks a model which models
-                       belong in which pool and writes a proposal nobody applies
-                       automatically
+ravis/                 RAVIS, the routing gateway
+sirvis/                SIRVIS, the evidence plane
+tools/                 run.py (the launcher), the repository gates (check_*.py and the clean-clone
+                       gate), the load and long-running tests, and propose_pools.py — which asks
+                       a model which models belong in which pool and writes a proposal nobody
+                       applies automatically
 ```
 
 Clarvis lives in its own repository (`../clarvis`) — different language, runtime

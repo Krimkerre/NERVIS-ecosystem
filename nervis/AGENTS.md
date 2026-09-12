@@ -37,8 +37,9 @@ Here that means: **do not add a UI control without an endpoint that backs it.** 
 that implies an API nobody has agreed to is worse than a missing screen, because it looks
 finished. If you need something the specs do not define, say so and stop.
 
-`../STATUS.md` says which endpoints are real today. Everything else is still a mock, and
-a mock is fine — a mock presented as live is not.
+`../STATUS.md` says which endpoints are real today. Most screens now read a live service
+first and fall back to a mock when it does not answer. A mock is fine — a mock presented as
+live is not.
 
 ## Working rules
 

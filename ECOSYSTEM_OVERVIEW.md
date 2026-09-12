@@ -266,11 +266,16 @@ SIRVIS produces controlled benchmark evidence. RAVIS also observes real traffic.
 
 ```text
 SIRVIS: local model measured at 42 tok/s
-RAVIS:  last 100 real requests averaged 39.8 tok/s
+RAVIS:  last 100 real requests averaged 39.8 tok/s     ← not yet measured
 ```
 
 One answers *what can this model do under controlled conditions?* The other answers *what is it
 actually doing during normal use?* Both are useful, and they are never conflated.
+
+**As built, 12 September 2026, the second line is an illustration rather than something RAVIS
+reports.** What RAVIS observes from real traffic is latency, time to first token and error rate.
+Nothing in RAVIS tracks a production tokens-per-second figure (`RAVIS.md` M19), so the
+throughput comparison above is the shape of the idea, not a number anyone can read today.
 
 ## Local model lifecycle
 

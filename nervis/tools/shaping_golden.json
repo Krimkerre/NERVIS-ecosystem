@@ -423,6 +423,8 @@
         "requestId": "req_1",
         "served": "",
         "conversationId": "",
+        "thinking": "",
+        "profile": "",
         "reasoning": 0,
         "failed": "circuit open after 3 consecutive failures (model_unavailable)",
         "aborted": false
@@ -442,6 +444,8 @@
         "requestId": "req_1",
         "served": "gpt-4o-mini",
         "conversationId": "",
+        "thinking": "",
+        "profile": "",
         "reasoning": 0,
         "failed": "",
         "aborted": false
@@ -461,6 +465,8 @@
         "requestId": "req_1",
         "served": "qwen2.5-coder-7b",
         "conversationId": "",
+        "thinking": "",
+        "profile": "",
         "reasoning": 0,
         "failed": "",
         "aborted": false
@@ -480,6 +486,8 @@
         "requestId": "req_1",
         "served": "",
         "conversationId": "",
+        "thinking": "......",
+        "profile": "",
         "reasoning": 2,
         "failed": "",
         "aborted": false
@@ -490,6 +498,7 @@
         "request_id": "req_1",
         "speaker": "NERVIS",
         "at": "<when>",
+        "thinking": "......",
         "reasoningOnly": true,
         "text": "No answer. The model spent its whole budget on reasoning (2 frames) and stopped before producing any. Raise Max tokens."
       }
@@ -500,6 +509,8 @@
         "requestId": "req_1",
         "served": "",
         "conversationId": "",
+        "thinking": "",
+        "profile": "",
         "reasoning": 0,
         "failed": "no upstream available",
         "aborted": false
@@ -519,6 +530,8 @@
         "requestId": "req_1",
         "served": "",
         "conversationId": "",
+        "thinking": "",
+        "profile": "",
         "reasoning": 0,
         "failed": "RAVIS refused mid-stream",
         "aborted": false
@@ -538,6 +551,8 @@
         "requestId": "req_1",
         "served": "",
         "conversationId": "",
+        "thinking": "",
+        "profile": "",
         "reasoning": 0,
         "failed": "",
         "aborted": false

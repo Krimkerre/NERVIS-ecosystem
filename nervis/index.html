@@ -3860,10 +3860,10 @@ const API={
    released. A control that starts something invisible is only half a control. */
 const UNBUILT={
  download:'POST /api/v1/downloads · SIRVIS M11',
- activateProfile:'POST /api/v1/profiles/{id}/activate · no endpoint; RAVIS management is read-only at M18a',
- setProvider:'POST /api/v1/providers/{id}/enable · no endpoint; RAVIS management is read-only at M18a',
- refreshEvidence:'POST /api/v1/evidence/refresh · RAVIS M13',
- runBenchmark:'POST /api/v1/benchmark-jobs · specified in SIRVIS §4.2, not built — benchmarks run on the CLI',
+ activateProfile:'POST /api/v1/profiles/{id}/activate · specified in RAVIS.md §15.1, not built',
+ setProvider:'PUT /api/v1/providers/{name}/enabled · on the Providers screen, through NERVIS',
+ refreshEvidence:'POST /api/v1/evidence/refresh · specified in RAVIS.md §15.1, not built',
+ runBenchmark:'POST /api/v1/benchmark-jobs · SIRVIS M14, submitted through NERVIS on the Benchmarks screen',
  reroute:'POST /api/v1/route-tests · no endpoint',
 };
 
@@ -8605,17 +8605,25 @@ function discoverFit(x){
 function discoverNotes(res){
  if(!res||!res.live)return '';
  const lines=[];
- if(DISCOVER.sort==='downloads_all_time')lines.push('Hugging Face only ranks by the last 30 days, so these are its 200 most downloaded matches, ranked by all-time downloads. A model nobody downloads any more will not appear.');
+ /* Hugging Face ranks by 30-day downloads, likes, trending, last update and creation date,
+    and by neither all-time downloads nor size, so for those two SIRVIS re-ranks the 200
+    most downloaded matches itself and the reader should know the list is that sample.
+    Until 12 September 2026 this said "Hugging Face only ranks by the last 30 days", which
+    was false about the other four orders. */
+ if(DISCOVER.sort==='downloads_all_time')lines.push('Hugging Face cannot rank by all-time downloads, so these are its 200 most downloaded matches of the last 30 days, re-ranked by all-time downloads. A model nobody downloads any more will not appear.');
  if(DISCOVER.sort==='smallest')lines.push('Smallest first ranks the 200 most downloaded matches by their estimated size.');
- if(res.size_limit_bytes!=null){
-  const hid=[res.hidden_too_large?`${res.hidden_too_large} too large`:'',res.hidden_unknown_size?`${res.hidden_unknown_size} with no size to judge`:''].filter(Boolean).join(' and ');
-  const both=res.fits_filter==='applied'&&res.max_bytes!=null;
-  const why=both?(res.size_limit_bytes===res.max_bytes?'your maximum, which is below what this Mac can hold':'what this Mac can hold, which is below your maximum')
-   :res.fits_filter==='applied'?'what this Mac can hold':'your maximum';
-  lines.push(`Showing models whose usual build (4-bit for GGUF, the named precision for MLX) is estimated at up to ${sizeText(res.size_limit_bytes)}, ${why}${hid?`; hidden: ${hid}`:''}. Details shows the real files.`);
- }
+ if(res.size_limit_bytes!=null)lines.push(discoverLimitNote(res));
  if(res.fits_filter==='unavailable')lines.push("SIRVIS does not know this Mac's memory yet, so Runs on this Mac hides nothing.");
  return lines.map(line=>`<small class="mono dim" style="display:block;margin:6px 0">${escapeHtml(line)}</small>`).join('');
+}
+/* Which size limit is in force, why, and what it hid. Its own function because the notes
+   above went over the complexity ratchet once this sentence had four ways to be said. */
+function discoverLimitNote(res){
+ const hid=[res.hidden_too_large?`${res.hidden_too_large} too large`:'',res.hidden_unknown_size?`${res.hidden_unknown_size} with no size to judge`:''].filter(Boolean).join(' and ');
+ const both=res.fits_filter==='applied'&&res.max_bytes!=null;
+ const why=both?(res.size_limit_bytes===res.max_bytes?'your maximum, which is below what this Mac can hold':'what this Mac can hold, which is below your maximum')
+  :res.fits_filter==='applied'?'what this Mac can hold':'your maximum';
+ return `Showing models whose usual build (4-bit for GGUF, the named precision for MLX) is estimated at up to ${sizeText(res.size_limit_bytes)}, ${why}${hid?`; hidden: ${hid}`:''}. Details shows the real files.`;
 }
 function discoverVariants(repoId){
  const m=DISCOVER.models[repoId]||{loading:true,variants:[]};
@@ -8647,18 +8655,39 @@ function discoverFacts(repoId,m){
  const page=`https://huggingface.co/${repoId.split('/').map(encodeURIComponent).join('/')}`;
  return `<div class="discover-facts">${facts.map(([label,value])=>`<span><b>${escapeHtml(label)}</b>${escapeHtml(String(value))}</span>`).join('')}<span><b>page</b><a href="${escapeHtml(page)}" target="_blank" rel="noopener noreferrer">open on Hugging Face ↗</a></span></div>`;
 }
+/* One downloadable version as a row. Split into the cells that each decide something,
+   because as one function it reached 21 on the complexity ratchet (limit 13): it gained a
+   branch with every question a version answers — installed, fits the disk, runs in memory,
+   starting, warned, refused. The markup is unchanged. */
 function discoverVariant(repoId,v){
  const key=repoId+'@'+v.quantization, pend=DISCOVER.pending[key]||{}, disk=v.disk||{};
- const warned=(disk.warnings||[]).length, after=disk.remaining_bytes;
  const click=confirm=>`discoverDownload('${jsAttr(repoId)}','${jsAttr(v.quantization)}',${confirm})`;
- const action=v.installed?'<span class="chip">installed</span>'
-  :disk.fits===false?'<span class="chip warn">does not fit</span>'
-  :pend.busy?'<span class="chip">starting…</span>'
-  :`<button class="btn${warned?'':' primary'}" onclick="${click(false)}">Download</button>`;
- const asked=pend.details&&pend.details.confirm_required
-  ?`<div class="trace-step" style="padding-left:14px"><b>before it downloads</b><span>${(pend.details.warnings||[]).map(escapeHtml).join(' · ')} <button class="btn" onclick="${click(true)}">Download anyway</button></span></div>`
-  :pend.error?`<div class="trace-step" style="padding-left:14px"><b>refused</b><span style="color:#ffb648">${escapeHtml(pend.error)}</span></div>`:'';
- return `<div class="table-row six"><span class="mono" style="grid-column:1/3;padding-left:14px">${escapeHtml(v.quantization||'whole folder')}</span><span>${escapeHtml(sizeText(v.size_bytes))}</span><span class="mono"${warned||disk.fits===false?' style="color:#ffb648"':''}>${after==null?'size unknown':after<0?'does not fit':escapeHtml(sizeText(after))+' left'}</span><span style="opacity:.75">${v.fits_memory===true?'<span class="chip">runs here</span> ':v.fits_memory===false?'<span class="chip warn">too big for this Mac</span> ':''}${warned?escapeHtml(warned+(warned>1?' warnings':' warning')):''}</span><span>${action}</span></div>${asked}`;
+ return `<div class="table-row six"><span class="mono" style="grid-column:1/3;padding-left:14px">${escapeHtml(v.quantization||'whole folder')}</span><span>${escapeHtml(sizeText(v.size_bytes))}</span>${discoverRoom(disk)}${discoverHere(v,disk)}<span>${discoverAction(v,pend,disk,click)}</span></div>${discoverAsked(pend,click)}`;
+}
+/* What the disk would have left afterwards, in amber when the disk check warned or refused. */
+function discoverRoom(disk){
+ const after=disk.remaining_bytes, warned=(disk.warnings||[]).length;
+ const text=after==null?'size unknown':after<0?'does not fit':escapeHtml(sizeText(after))+' left';
+ return `<span class="mono"${warned||disk.fits===false?' style="color:#ffb648"':''}>${text}</span>`;
+}
+/* Whether it runs in this Mac's memory, judged by its real file size, and how many disk warnings it carries. */
+function discoverHere(v,disk){
+ const warned=(disk.warnings||[]).length;
+ const memory=v.fits_memory===true?'<span class="chip">runs here</span> ':v.fits_memory===false?'<span class="chip warn">too big for this Mac</span> ':'';
+ return `<span style="opacity:.75">${memory}${warned?escapeHtml(warned+(warned>1?' warnings':' warning')):''}</span>`;
+}
+/* The one control. Nothing to press when it is on disk already, cannot fit, or is starting. */
+function discoverAction(v,pend,disk,click){
+ if(v.installed)return '<span class="chip">installed</span>';
+ if(disk.fits===false)return '<span class="chip warn">does not fit</span>';
+ if(pend.busy)return '<span class="chip">starting…</span>';
+ const warned=(disk.warnings||[]).length;
+ return `<button class="btn${warned?'':' primary'}" onclick="${click(false)}">Download</button>`;
+}
+/* SIRVIS's answer to a download somebody asked for: its warnings with a way past them, or its refusal. */
+function discoverAsked(pend,click){
+ if(pend.details&&pend.details.confirm_required)return `<div class="trace-step" style="padding-left:14px"><b>before it downloads</b><span>${(pend.details.warnings||[]).map(escapeHtml).join(' · ')} <button class="btn" onclick="${click(true)}">Download anyway</button></span></div>`;
+ return pend.error?`<div class="trace-step" style="padding-left:14px"><b>refused</b><span style="color:#ffb648">${escapeHtml(pend.error)}</span></div>`:'';
 }
 async function sirvisDiscover(){
  heading('Discover','Search Hugging Face through SIRVIS, check a model against this disk, and hand the download to LM Studio.');
@@ -8666,11 +8695,7 @@ async function sirvisDiscover(){
  const chip=(val,label)=>`<button class="mode-chip${DISCOVER.format===val?' on':''}" onclick="DISCOVER.format='${jsAttr(val)}';discoverSearch()">${label}</button>`;
  const order=(DISCOVER_SORTS.find(s=>s[0]===DISCOVER.sort)||DISCOVER_SORTS[0])[1];
  const options=DISCOVER_SORTS.map(([val,label])=>`<option value="${escapeHtml(val)}"${DISCOVER.sort===val?' selected':''}>${escapeHtml(label)}</option>`).join('');
- $('#content').innerHTML=kpis([
-   ['Results',live?String(res.items.length):'—',live?`${DISCOVER.top?'top ten · ':''}${order.toLowerCase()}`:'nothing searched yet','sirvis',live],
-   ['Installed',live?String(res.items.filter(x=>x.installed).length):'—','of these results, already on disk','sirvis',live],
-   ['Disk free',live&&res.disk_free_bytes!=null?sizeText(res.disk_free_bytes):'—','where LM Studio keeps models','sirvis',live],
-   ['Memory for a model',live&&res.fit_budget_bytes!=null?sizeText(res.fit_budget_bytes):'—',live&&res.memory_bytes!=null?`three quarters of this Mac's ${sizeText(res.memory_bytes)}`:'what Runs on this Mac measures against','sirvis',live]])
+ $('#content').innerHTML=discoverKpis(res,live,order)
  +`<div class="card full live"><h3>Search</h3>${cell(`
    <div class="profile-row"><input id="discoverQ" value="${escapeHtml(DISCOVER.q)}" placeholder="A model family: qwen3, gemma, llama…" style="flex:1;min-width:220px" onkeydown="if(event.key==='Enter')discoverSearch('search')">
     <button class="btn primary" onclick="discoverSearch('search')">Search</button>
@@ -8683,6 +8708,16 @@ async function sirvisDiscover(){
    ${discoverRows()}
    ${discoverNotes(res)}
    <small class="mono dim">Each size comes from the model's own file list, and the disk is checked before anything is queued: a download that does not fit cannot start, and one that would leave little room asks first. SIRVIS never deletes a model to make room. A gated model is shown and not offered, because LM Studio would need a Hugging Face login.</small>`,'sirvis')}</div>`;
+}
+
+/* The four figures above the search, each a dash until a search has come back live. Its own
+   function to keep the screen under the complexity ratchet. */
+function discoverKpis(res,live,order){
+ return kpis([
+   ['Results',live?String(res.items.length):'—',live?`${DISCOVER.top?'top ten · ':''}${order.toLowerCase()}`:'nothing searched yet','sirvis',live],
+   ['Installed',live?String(res.items.filter(x=>x.installed).length):'—','of these results, already on disk','sirvis',live],
+   ['Disk free',live&&res.disk_free_bytes!=null?sizeText(res.disk_free_bytes):'—','where LM Studio keeps models','sirvis',live],
+   ['Memory for a model',live&&res.fit_budget_bytes!=null?sizeText(res.fit_budget_bytes):'—',live&&res.memory_bytes!=null?`three quarters of this Mac's ${sizeText(res.memory_bytes)}`:'what Runs on this Mac measures against','sirvis',live]]);
 }
 
 /* Benchmarks — the job queue. `state` is the closed contract enum consumers switch
@@ -8743,7 +8778,7 @@ async function sirvisBenchmarks(){
     `AGENTS.md` forbids: it looks finished. */
  heading(j.source==='live'?'Benchmark runs':'Benchmark queue',
   j.source==='live'
-   ?'Real runs on this machine and the contract state each ended in. There is no queue yet — §11.10\'s job machinery is unbuilt, so nothing is ever pending.'
+   ?(j.queue?'Real runs on this machine, the queue that feeds them, and the contract state each ended in.':'Real runs on this machine and the contract state each ended in. This SIRVIS predates M14 and serves no queue, so nothing is ever pending.')
    :'Jobs, their contract state, and the internal phase that rides alongside it.',
   j.queue
    ?`<button class="btn primary"${runtimeArmed()} onclick="submitBenchmark()">New benchmark</button>`
@@ -9361,7 +9396,7 @@ function armProfile(id){ARMED=ARMED===id?null:id;render()}
    reset figure is never read as the last 24 hours. */
 const spendCalls=usage=>(usage.calls_priced||0)+(usage.calls_unpriced||0);
 const spendSpan=usage=>usage.spend_window==='since'
-  ?'since '+new Date(usage.spend_since*1000).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
+  ?'since '+new Date(usage.spend_since*1000).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
   :'24h';
 const spendFigure=usage=>usage.spend_window==='since'&&!spendCalls(usage)
   ?money(0,null)
@@ -10256,7 +10291,7 @@ async function ravisSessions(){
    its models and applications. Totals are estimates, never an invoice (§14), and a
    day priced in two currencies shows no total rather than adding euros to dollars. */
 const dayKey=moment=>`${moment.getFullYear()}-${String(moment.getMonth()+1).padStart(2,'0')}-${String(moment.getDate()).padStart(2,'0')}`;
-const dayLabel=day=>new Date(day+'T12:00:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+const dayLabel=day=>new Date(day+'T12:00:00').toLocaleDateString([],{weekday:'short',day:'numeric',month:'short',year:'numeric'});
 const spendOf=x=>x.spend_estimated!=null?money(x.spend_estimated,x.spend_currency)
   :((x.currencies||[]).length>1?'mixed currencies':'not measured');
 const tokenCount=n=>n==null?'—':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);

@@ -55,7 +55,7 @@ const FILE = path.join(__dirname, "..", "index.html");
    anything is "live". A liveness class on it would be claiming a data source
    the card does not have, the same reasoning as the trace and benchmark
    cards above. */
-const CEILING = 49;
+const CEILING = 47;
 
 const source = fs.readFileSync(FILE, "utf8");
 

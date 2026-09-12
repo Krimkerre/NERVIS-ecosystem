@@ -54,6 +54,17 @@ Clarvis's existing expectations; Clarvis is never changed to compensate for a br
 > The best RAVIS integration is one in which Clarvis does not know RAVIS is special. From
 > Clarvis's perspective, **RAVIS is just a very good OpenAI-compatible server.**
 
+**12 September 2026 — Clarvis now carries RAVIS-aware source, and whether that fits this
+section is the owner's call.** Clarvis 0.15.2 added `src/model/ravisCredential.ts`. When the
+ecosystem launcher starts code-server with `CLARVIS_RAVIS_CREDENTIAL` set, `ModelService` offers
+that token as the key for a `ravis/` model at a loopback address whenever no key is stored in the
+editor, so RAVIS counts Clarvis as a named caller (E-C8's 0.15.2 entry says why). No provider was
+added — the token is only the key the existing adapter sends — but it is Clarvis code that knows
+RAVIS by name, so *"Clarvis does not know RAVIS is special"* above and §8.1's *"no Clarvis source
+change"* no longer describe the code as it is. §3.1's record of 23 August is unaffected. This note
+records the fact; it does not decide whether this is an acceptable exception or should move out of
+Clarvis.
+
 ---
 
 # 3. Source-established invariants — must not regress
@@ -147,6 +158,26 @@ restated here beyond this: M0–M9 are built and shipped, plus M9d2, M9d3, M9h a
 M13; M9g and M10 are designed and not built; M11 is the release gate rather
 than a future milestone. **Where this section and `plan.md` §7 disagree, §7 is
 right and this is stale.**
+
+**Corrected and brought forward, 12 September 2026.** Two statements above were already wrong
+on 31 August, and the rest has moved on. Re-read from the extension today:
+
+- **Version 0.15.4.** Still 29 commands, 23 settings, VS Code engine `^1.93.0`, MEP protocol
+  `1.0.0`, API version `1`, and the same nine tools. The release table above stops at 0.11.2
+  and is not extended here: the ecosystem's `RELEASES.md` carries Clarvis's notes from 0.12.3
+  to 0.15.4.
+- **`clarvis.status.read@1` is not the only capability declared `available`.**
+  `clarvis.config.summary@1` has been `available` since it was added on 30 August, and
+  `clarvis.voice@1`, added on 29 August, is resolved at startup — `available` on a desktop host
+  with voice on, `degraded` where the panel plays the speech, `unavailable` with voice off
+  (`src/bridge/protocol.ts`).
+- **`clarvis.events@1` is declared `degraded`, not unavailable**, and has been since 29 August:
+  served and conformant, with the reason that nothing subscribes to it yet. The argument in that
+  paragraph stands; the state it names was wrong.
+- **The built list misses M14 and half of M8i.** M14, the Bridge, is the milestone this section
+  opens with. M8i's first half — reasoning blocks stripped at the provider
+  (`src/model/reasoning.ts`) — shipped on 20 August and is ticked in `plan.md`'s M11 checklist.
+  M8j is not built: `plan.md` signed it off as deferred until M9h needs it.
 
 ## 3.3 Corrections to the source drafts
 
@@ -320,7 +351,17 @@ clarvis.events@1
 clarvis.diagnostics.summary@1
 clarvis.logs.reference@1        only where M13 log tailing exists and is approved
 clarvis.ravis_provider@1
+clarvis.voice@1                 as built, 29 August 2026 — see the note below
 ```
+
+**As built, 12 September 2026: a seventh capability, and the states in force.** `clarvis.voice@1`
+was added on 29 August because runbook Stage 9's exit asks that *"voice limitations are advertised
+through capabilities"*, and nothing advertised voice at all. It is resolved at startup —
+`available` on a desktop host with voice on, `degraded` where the panel plays the speech (a browser
+workbench or a remote host), `unavailable` with voice off. Of the rest, `status.read@1` and
+`config.summary@1` are `available`, `events@1` is `degraded` because nothing subscribes to it, and
+`diagnostics.summary@1`, `logs.reference@1` and `ravis_provider@1` are `unavailable`, each with its
+reason (`src/bridge/protocol.ts`).
 
 **`clarvis.config.summary@1` is the read that exists so a write does not have to.**
 §6.7 forbids NERVIS changing a Clarvis setting and the Bridge has no write path to extend, so
@@ -367,6 +408,14 @@ Expose interpreted, bounded state — never raw editor internals:
 **Unknown values stay unknown. Never invent a duration, step total, branch, task or model
 route.** NERVIS reads status; it never becomes the owner of Clarvis state.
 
+**As built, 12 September 2026: `/v1/status` carries less than this list.** It returns `state` (one
+of the six above), `activity_id`, `steps_taken`, `elapsed_ms`, `awaiting` — a gate's category — and
+`observed_at`, and nothing else (`src/bridge/activity.ts`; `statusBody` in `protocol.ts`). Two
+items are published elsewhere: readiness on `/ecosystem/health`, which reports listening and
+registered, and the chat mode with each role's provider and model on `GET /v1/config`
+(`clarvis.config.summary@1`). Not published anywhere yet: aggregate diagnostic counts, build and
+test outcome, the current RAVIS route reference, a recent event cursor and a log reference.
+
 ## 6.4 Events
 
 ```text
@@ -392,6 +441,12 @@ attach them to model and agent events.
 **Tracing is observability. It must not change Clarvis's execution semantics.** A trace ID never
 authorizes a tool or a gate. Telemetry failure can never delay or fail editor work; buffering is
 bounded.
+
+**As built, 12 September 2026: two of the four identifiers travel.** An OpenAI-compatible model
+request carries `traceparent` — the trace id, in W3C form — and `x-session-id`, and nothing else
+from this list: no request id and no workspace id (`lineageHeaders` in `src/model/lineage.ts`,
+called only from `OpenAiCompatibleProvider.ts`, so a request through the Anthropic adapter carries
+neither). Chat and agent events carry the trace; model events are not emitted at all (E-C4).
 
 ## 6.6 Multiple simultaneous instances
 
@@ -606,7 +661,7 @@ behaviour**, and it must be verified against the same regression suite as any ot
 Stated as ecosystem milestones **outside** the `plan.md` M-numbering, which continues to own
 Clarvis's product milestones.
 
-### E-C0 — Invariant baseline
+### E-C0 IMPLEMENTED — Invariant baseline
 
 Pin the source `plan.md` / README version. Run established Clarvis tests and manual gates.
 
@@ -614,12 +669,27 @@ Pin the source `plan.md` / README version. Run established Clarvis tests and man
 SecretStorage and teardown evidence captured. §3 of this document has a passing check or a
 named manual check behind every row.
 
-### E-C1 — RAVIS provider *(configuration only)*
+**Where it stands, 12 September 2026.** The invariants are in the code that ships, and §3 names
+the source for each row, but the exit asks for a passing check or a named manual check behind
+every row, and §3 cites files rather than checks. Some rows have a test that would serve —
+`src/test/containment.spec.ts` for containment, `src/agent/gate/injection.test.ts` for the command
+gate — but nobody has walked the table pairing each row with one, and `STATUS.md` has no Stage 0
+baseline record.
+
+### E-C1 LIVE VERIFIED — RAVIS provider *(configuration only)*
 
 Configure RAVIS through the generic OpenAI-compatible adapter. **No source modification.**
 
 **Exit:** Custom provider connects to RAVIS; chat works; agent tools work; separate chat and
 agent pools work; Stop cancels. No Clarvis safety code moves into the adapter.
+
+**Where it stands, 12 September 2026.** Runbook Stage 3, run on 23 August against a running RAVIS
+(§3.1; `STATUS.md`, "M9, and what it actually proved"): an unmodified Clarvis set up through its
+own provider UI, chat streaming, five sequential tool-calling agent steps with a real write, the
+two pools resolving independently, Stop cancelling upstream work, and no Clarvis source changed.
+One gap that run named itself: both pools resolved to the same model, so separate pools reaching
+*different* models is unproven. Clarvis 0.15.2 has since added RAVIS-aware source for the key it
+sends; §2's note records that.
 
 ### E-C2 — Role profiles, fallback and RAVIS regression fixture
 
@@ -629,7 +699,15 @@ source fixtures or probes that let RAVIS validate its own Clarvis compatibility.
 **Exit:** role isolation, tool capability, policy refusal, stream, stop, error and fallback
 tests pass. **No new runtime dependency is introduced.**
 
-### E-C3 — Bridge protocol
+**Where it stands, 12 September 2026 — left without a state, because one clause has nothing
+behind it.** The fixture half is AUTOMATED VERIFIED on RAVIS's side (`RAVIS.md` M2,
+`ravis conformance clarvis`); separate chat and agent roles have run live since Stage 3; and no
+runtime dependency was added — `package.json` still declares none. But Clarvis has no explicit
+direct-provider fallback: nothing in `src/model/` moves a request to another provider when RAVIS
+fails. The one thing there named `fallback` (`ModelService.ts`, since 0.15.2) is the launcher's
+RAVIS credential used when no key is stored, not a provider fallback.
+
+### E-C3 LIVE VERIFIED — Bridge protocol
 
 Opt-in, extension-host-scoped metadata and status endpoints.
 
@@ -638,7 +716,17 @@ tests pass; Bridge absence does not affect Clarvis; no safety-gate bypass; no wo
 no secrets emitted; **an unauthenticated caller is refused on every endpoint including the event
 stream, and the token never appears in a log, event or trace.**
 
-### E-C4 — Events and traces
+**Where it stands, 12 September 2026 — with two clauses uncovered.** Run against a real NERVIS on
+29 and 30 August (`STATUS.md`, "Stage 8 — the Clarvis Bridge, built and driven end to end"): an
+unauthenticated read refused with `401`, a `POST` answered `405`, two windows and then four
+registering on distinct OS-assigned ports with distinct instance IDs, closing one removing only its
+registration, and — in a real extension host — the Bridge off by default binding nothing and
+writing nothing (`src/test/bridgeDisabled.spec.ts`). `src/bridge/server.test.ts` covers the token
+on every route including the event stream, every non-GET refused, and no route that could approve
+a gate. What nothing covers: **reload** has no test and no recorded run, and **nothing checks that
+the token never appears in a log**.
+
+### E-C4 AUTOMATED VERIFIED — Events and traces
 
 Structured redacted events, correlation propagated through RAVIS.
 
@@ -647,12 +735,34 @@ trace resolves; normal Clarvis behaviour is unchanged; **tracing failure never b
 run**; an unauthenticated subscriber receives no events, and a process impersonating a Bridge on
 a free port cannot register with NERVIS.
 
-### E-C5 — NERVIS visibility
+**Where it stands, 12 September 2026 — with two clauses unmet.** The suite covers Clarvis's side
+of the exit: monotonic event ids, replay of only what a reconnecting client missed, a bounded
+buffer that drops the oldest and counts the overflow, primitive-only payloads that cannot carry a
+command, path or secret, a stream closed to an unauthenticated subscriber, emitting that never
+throws, and a refusing or absent hub reported rather than thrown (`src/bridge/events.test.ts`,
+`server.test.ts`, `publish.test.ts`, `eventForwarding.test.ts`). The impersonation clause rests on
+NERVIS's enrolment secret and is not assessed here. Unmet: **a cross-service trace has never been
+seen whole** — Clarvis to RAVIS to a provider needs an editor window publishing into it
+(`STATUS.md`, the scenario table under "The build order, unambiguously", and the 8 September
+Diagnostics entry). And **§6.4's list is only partly emitted**: lifecycle, gate, chat, agent and
+capability events exist; `clarvis.tool.*`, `clarvis.diagnostic.changed`, `clarvis.task.*` and
+`clarvis.model.*` do not (`src/bridge/events.ts`).
+
+### E-C5 LIVE VERIFIED — NERVIS visibility
 
 Register real Clarvis instances; display only published status and capabilities.
 
 **Exit:** NERVIS cannot approve gates or reach tools or secrets; disconnect and reconnect are
 accurate.
+
+**Where it stands, 12 September 2026.** NERVIS's half of this, `NERVIS.md` M8b, is LIVE VERIFIED.
+On 29 August NERVIS read two real Bridges' `/v1/status` with the tokens it had issued them and drew
+*waiting for you · sensitive_read* for one and *answering* for the other; a write was refused with
+`405`, because the Bridge has no write path by which to reach a gate, a tool or a secret; and
+closing one window removed only its registration. On 30 August four registrations renewed their
+leases on four independent clocks across a full 45-second window (`STATUS.md`, Stage 8). Reconnect
+was not run as a step of its own; what covers it is that renewal and the re-registration tests in
+`src/bridge/Bridge.test.ts`.
 
 ### E-C6 — code-server spike and supported path
 
@@ -662,6 +772,15 @@ unsupported host behaviour.
 **Exit:** supported cells pass all core and security tests, direct and proxied; limitations are
 published.
 
+**Where it stands, 12 September 2026 — left without a state.** The matrix exists
+(`clarvis/docs/code-server-matrix.md`: 39 `PASS`, 16 `PASS_WITH_LIMITATION`, 0 `FAIL`,
+1 `NOT_TESTED`), but it was graded on Clarvis 0.0.1 on 29–30 August — only the multiple-window and
+rollback cells were run later, on 0.12.6 — and Clarvis is at 0.15.4. Its one `NOT_TESTED` cell is
+Bridge teardown under code-server, and teardown is on the list runbook Stage 9 requires to pass.
+The proxied cells were graded through a spike proxy that does none of NERVIS's security work, not
+through NERVIS's own `/code/` route, which shipped on 9 September (`NERVIS.md` M14). The matrix
+itself still declares no combination supported.
+
 ### E-C7 — Release regression
 
 Established Clarvis release gates plus ecosystem degradation, upgrade, rollback and recovery.
@@ -669,6 +788,15 @@ Established Clarvis release gates plus ecosystem degradation, upgrade, rollback 
 **Exit:** with the Bridge and RAVIS disabled, established standalone behaviour is byte-for-byte
 what it was; rollback to the prior `.vsix` succeeds with workspace data and SecretStorage
 intact.
+
+**Where it stands, 12 September 2026 — left without a state.** Rollback is LIVE VERIFIED: on
+6 September Clarvis 0.12.6 was force-downgraded to 0.12.3 in a daily-driver VS Code workspace, and
+SecretStorage and the conversation store both came through byte-for-byte (`STATUS.md`, "§15's
+code-server item"). Nothing records the rest: an ecosystem degradation sweep, an upgrade with data
+and keys checked afterwards, the standalone comparison with RAVIS disabled as well as the Bridge
+(the Bridge-off half is `bridgeDisabled.spec.ts`, under E-C3), or recovery. Clarvis's own release
+gates are open too: `plan.md`'s M11 exit checklist and its v1 release bar still carry unticked
+items.
 
 ### E-C8 IMPLEMENTED — Receiving a task from NERVIS *(paired with NERVIS M27)*
 
@@ -850,6 +978,20 @@ What is not: the three lines inside `ChatService` that arm the offer and post it
 in a test, so covering that link is a harness of its own rather than an assertion, and
 claiming the clause without it would be the optimism §14.8 exists to end.
 
+**Corrected 12 September 2026: the offer described in the last three paragraphs was removed in
+Clarvis 0.13.0.** Since 10 September a handed-over task is not offered as a build with choices: it
+starts the planning interview with the brief pre-typed in the first answer box, and the task file
+is cleared once the first answers are saved rather than surviving until an answer
+(`planNervisTask` and `interviewMemoryFor` in `src/chat/ChatService.ts`). Commit `99d8566` deleted
+`nervisOffer.ts` and its tests, the handoff entry in `OFFER_ORDER`, and `ChatService`'s offer state
+and answer handler — so the four-way answer decision, the offer's place among the others and the
+three untested lines that armed it no longer exist. What carries the clause now:
+`startupOffer.test.ts` still decides when a waiting task is taken up on opening;
+`nervisHandoff.test.ts` checks that the message leads with where the task came from;
+`Interview.test.ts` checks the brief waits in the answer box and is never taken as the answer; and
+`src/test/nervisHandoffFile.spec.ts` reads and clears the file in real VS Code. Not tested:
+`planNervisTask` itself, and the wrapper that clears the file after the first save.
+
 **The other two clauses are unevidenced rather than contradicted.** *"Every tool call still
 passes the same gates"* is now stronger than it was — approval is forced on for a handed-over
 task whatever the mode says, because a brief that arrived from another program has had no
@@ -857,11 +999,26 @@ human hand on it — and nothing tests that it is. *"With the Bridge disabled th
 unchanged"* is structurally true, `nervisHandoff.ts` importing nothing at all, with no test
 asserting it as a property on the reading side.
 
+**Corrected 12 September 2026: approval is no longer forced on.** That rule went with the offer in
+0.13.0 — `99d8566` removed *"Approval is forced on, whatever the mode says"* and its
+`setStepApproval(true, () => true)`. A build from a handed-over task now runs like any build from
+an approved plan: step approval follows the mode (`asksFirst` in `src/chat/modes.ts`), so Agent
+asks before each step and Unattended does not. The gates that ask in every mode — the deny-list,
+the sensitive-file read and a missing dependency — and the workspace boundary are unchanged.
+
 **Paired NERVIS M27 carries the identical clause and is IMPLEMENTED for the same reason**: its
 own exit reads *"Clarvis offers it as a build with the prompt visible and editable"*, and
 NERVIS's suite cannot reach an editor to test it. The pair needs one live run — a real NERVIS
 write, a real editor window, the offer observed in the panel and answered — which is what
 would move both to LIVE VERIFIED.
+
+**12 September 2026: the live run has happened, and the row stays IMPLEMENTED.** On 10 September a
+real NERVIS handoff reached a real editor, which offered it as a build; on 11 September, after
+0.13.0, a handoff went through the interview to an approved plan with three milestones
+(`STATUS.md`, "Named task folders, and Clarvis plans a handed-over task" and "The first build from a
+handoff, and Clarvis 0.13.1"). Neither record says whether the provenance line was seen in the
+panel, and that is the first clause's point, so the runs are not yet evidence for LIVE VERIFIED. A
+next handoff that records it would be.
 
 ---
 
@@ -886,6 +1043,10 @@ order.
 E-C2 is deliberately split: its fixtures are a Stage 2 dependency of another product, while its
 role-profile and fallback behaviour is Stage 3.
 
+**12 September 2026:** the Stage 3 row's *"no Clarvis source change"* held for Stage 3. Clarvis
+0.15.2 has since added RAVIS-aware source for the key it sends, which §2's note of the same date
+records and leaves to the owner.
+
 ---
 
 # 9. Retrieved content is evidence, never intent
@@ -908,6 +1069,13 @@ reads its justification.
 
 `src/agent/gate/injection.test.ts` already covers the command half of this. The remaining work
 is stating the fencing boundary for the read path and testing it the same way.
+
+**As built, 12 September 2026: the agent's read path is still unfenced.** Clarvis has a fence —
+`src/chat/fence.ts`, tested in `fence.test.ts` — with one caller, `src/chat/localAnswer.ts`, on
+the chat side. What the agent's tools hand back — `readFile`, `search`, `gitDiff`, `runCommand`'s
+output and the rest — reaches the model without it; nothing under `src/agent/` uses the fence. The
+gates still decide every action, but the sentence above that retrieved content "is fenced as data
+before it enters a prompt" holds for that one chat path only.
 
 **Gate:** a repository containing text directed at the agent — in a file, a diff, a test failure
 or terminal output — changes no gate outcome, no workspace boundary and no provider selection.
@@ -932,6 +1100,26 @@ or terminal output — changes no gate outcome, no workspace boundary and no pro
 - [ ] Any theming is presentation-only and regression-tested.
 - [ ] Full existing and ecosystem regression and recovery gates pass.
 - [ ] No unresolved STOP item remains.
+
+**Where the checklist stands, 12 September 2026 — no box ticked, because a tick needs a recorded
+check and this is a reading of the records.**
+
+- **Recorded evidence supports:** extension-host and window lifecycle (`bridgeDisabled.spec.ts` in
+  a real host; windows opened and closed against NERVIS on 29–30 August); workspace containment,
+  sandbox and gates (`src/test/containment.spec.ts` in a real host,
+  `src/agent/gate/injection.test.ts`); chat and agent roles independently configured (Stage 3,
+  live); RAVIS profile IDs chosen through Clarvis's own provider UI rather than typed into settings
+  (Stage 3); the Bridge optional, extension-host-scoped and redacted (E-C3, E-C4); multiple
+  instances isolated (four windows, 30 August); and no NERVIS safety bypass (no write path; a
+  `POST` answers `405`).
+- **Nothing supports yet:** SecretStorage tested across direct, RAVIS and code-server — only the
+  desktop rollback of 6 September and the 0.0.1 matrix cells exist; an explicit direct-provider
+  fallback, which does not exist (E-C2); code-server support evidenced by the matrix, which was
+  graded on 0.0.1 and still has a `NOT_TESTED` cell (E-C6); and the full regression and recovery
+  gates (E-C7).
+- **Not assessed here:** `plan.md` changed only by approved references, additions labelled
+  *proposed*, MEP conformance as a whole, theming, open STOP items, and "no RAVIS-specific
+  provider", which turns on §2's note and is the owner's call.
 
 ---
 

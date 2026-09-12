@@ -206,6 +206,17 @@ def test_version_depends_on_nothing_that_can_be_unwell(settings: Settings) -> No
     assert body["build_version"] != "unknown", "the package should be installed under test"
 
 
+def test_the_api_document_names_the_same_build(settings: Settings) -> None:
+    """`/openapi.json` said 0.0.1 for the whole life of the service.
+
+    The build version moved to one place, the package, and `/ecosystem/version`
+    reads it from there — but the FastAPI constructor kept a literal of its own,
+    so the API document went on describing a build that never shipped. Found by
+    reading the live document during the 12 September 2026 sweep.
+    """
+    assert create_app(settings).openapi()["info"]["version"] == BUILD_VERSION
+
+
 def test_doctor_reports_a_serveable_configuration(capsys) -> None:  # type: ignore[no-untyped-def]
     """`sirvis doctor` works, contacting nothing."""
     assert main(["doctor"]) == 0

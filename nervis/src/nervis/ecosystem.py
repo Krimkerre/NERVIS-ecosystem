@@ -178,8 +178,9 @@ DECLARED: dict[str, Capability] = {
         reason="M8a's registration -- per-extension-host instances, leases, "
         "redaction -- M8b's read of a registered Bridge's own /v1/status "
         "through the token NERVIS issued it, every field through an allowlist, "
-        "and M9's diagnostics screen: status, agent run, tasks, forwarded "
-        "events and the fact that a gate awaits the user. Read only -- a gate "
+        "and M9's diagnostics screen: status, agent run, forwarded events and "
+        "the fact that a gate awaits the user; its task list stays empty, "
+        "because Clarvis publishes no task events. Read only -- a gate "
         "is displayed and never resolved here (CLARVIS.md 6.7), and no Clarvis "
         "state is stored as a copy of its own",
     ),

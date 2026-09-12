@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     # and "any local page may write one" is the browser handing a stranger a
     # local write primitive. A named port is a boundary; "localhost" is not.
     # Host names this service may be addressed by. Loopback only, matching the
-    # only bind that can start (§16 item 2). It is a setting rather than a
+    # only bind that can start (runbook §9). It is a setting rather than a
     # constant because a deployment behind a reverse proxy is addressed by the
     # proxy's name, and because the test suite addresses it as `testserver` —
     # both are configuration, not exceptions to carve into the check.
@@ -86,8 +86,8 @@ class Settings(BaseSettings):
     # were read by nothing — `cli.py` never passed them to `uvicorn.run`, which
     # is the defect that closed this door — and `check_dead_code.py` puts it
     # exactly right: a field like that "makes something look implemented".
-    # Keeping them for the remote mode §16 item 2 will build would be keeping the
-    # affordance that caused this. Two lines come back when something reads them.
+    # Keeping them for a remote mode nothing is building yet (runbook §9) would
+    # keep the affordance that caused this. Two lines come back when something reads them.
     # `extra="ignore"` means a stale env var is harmless in the meantime.
     #
     # `client_credential` stays because RAVIS's `identity.py` genuinely reads it.
@@ -520,13 +520,14 @@ def _check_remote_exposure(settings: Settings, report: ConfigurationReport) -> N
     Remote operation returns when it is built and proven end to end: TLS wired to
     the listener, per-request authentication, Host and Origin validation, SSE held
     to the same rules, and a test against a real TLS listener.
-    `ECOSYSTEM_RUNBOOK.md` §16 item 2 lists it.
+    `ECOSYSTEM_RUNBOOK.md` §9 records that nothing is building it yet; the §16
+    that once listed it is retired.
     """
     report.findings.append(
         ConfigurationFinding(
             True,
             "host",
             f"binding beyond loopback ({settings.host}) is not supported yet"
-            " — see ECOSYSTEM_RUNBOOK.md §16 item 2",
+            " — see ECOSYSTEM_RUNBOOK.md §9",
         )
     )

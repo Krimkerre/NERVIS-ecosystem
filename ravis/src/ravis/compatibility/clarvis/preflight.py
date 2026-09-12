@@ -178,8 +178,8 @@ def _pool_lines(pool: str, setting: str, decision: RouteDecision) -> list[str]:
     return [
         f"  [FAIL] {setting:<20} {pool}",
         f"         {decision.reason}",
-        "         declare what the models can do in RAVIS_MODEL_CAPABILITIES —"
-        " nothing probes yet (§8.7, M13)",
+        "         declare what the models can do in RAVIS_MODEL_CAPABILITIES,"
+        " or let SIRVIS measure them (§13)",
         "",
     ]
 

@@ -158,6 +158,23 @@ commit. Endpoint groups:
 /api/v1/downloads              /api/v1/events
 ```
 
+**As built, 12 September 2026: the list above is the plan, and the running service differs from
+it.** Checked against the live `GET /openapi.json` on port 8721. **Not built:**
+`/api/v1/runtimes/{runtime_id}`, `/api/v1/runtime-instances`, `/api/v1/profiles` and
+`/api/v1/events`, and there is no `GET` list of `/api/v1/runtime/sessions` — a session is opened
+with `POST`, and what is held is read from `/api/v1/runtime/residency`. SIRVIS serves no event
+feed of its own: the shared publisher (`protocol/src/ecosystem_protocol/publisher.py`) posts each
+event to `/api/v1/events` at the NERVIS address in `SIRVIS_NERVIS_BASE_URL`, which `tools/run.py`
+sets, and SIRVIS's `/ecosystem/events` answers with heartbeats only, because SIRVIS plugs no
+stream into it (§15.3). **Built but missing from the list:** `GET /api/v1/tokens` (which tokens
+exist, never a usable secret), `GET /api/v1/runtime/residency`,
+`DELETE /api/v1/runtime/sessions/{session_id}` and `POST /api/v1/runtime/sessions/{session_id}/renew`,
+`GET /api/v1/runtime-sets/{runtime_set_id}` and its `/revisions`,
+`GET /api/v1/evidence/{evidence_id}`, `GET /api/v1/runtimes/{runtime_key}/models`,
+`GET /api/v1/catalog/{repo_id}` and `GET /api/v1/downloads/{download_id}` (§8).
+`/api/v1/recommendations` is `POST` only, and the model detail route is keyed by
+`local_model_id` rather than `artifact_id`.
+
 List responses return `{items, next_cursor, snapshot_revision}`. **The envelope is common;
 the paging is not** — `/api/v1/benchmark-runs` and `/api/v1/evidence` accept `limit` and
 `cursor`, while the inventory and Runtime Set lists return the whole collection and answer
@@ -421,8 +438,8 @@ is recorded `already_present` without asking LM Studio. A download that does not
 one that would leave under 20 GB free or use more than half of what is free is refused with its
 warnings until the request carries `confirm: true`. A gated model is shown and not offered.
 **There is no pause or cancel**: LM Studio publishes neither, so `paused` appears only when LM
-Studio reports it and nothing sets `cancelled`. Not built: architecture and licence filters, and
-the CLI's `sirvis models search/download`.
+Studio reports it and nothing sets `cancelled`. What is still not built is listed at the end of
+this section.
 
 **Ordering and fit, added 12 September 2026 (0.18.0).** `GET /api/v1/catalog` takes `sort` —
 `downloads` (Hugging Face's own count, which covers the last thirty days), `downloads_all_time`,
@@ -448,6 +465,20 @@ when the card says nothing, the tag's relation such as `quantized:` dropped — 
 task, library and creation date, the parameter count checked against the name as a search checks
 it, a page link built from the checked repository id rather than taken from the metadata, and for
 each variant `fits_memory`: whether its real file size fits in the same share of memory.
+
+**Still not built, checked 12 September 2026.** Discover's filters are the catalog route's
+parameters, and `GET /api/v1/catalog` takes only `q`, `format`, `limit`, `sort`, `fits` and
+`max_bytes` (`search_catalog` in `sirvis/src/sirvis/api/routes.py`). Of the filters asked for
+above, search and GGUF/MLX are built, file size is covered by `max_bytes`, and popularity and last
+update by `sort`; **parameter size, quantization, architecture, installed/not installed, family,
+licence and author have no filter**. A search row carries its parameter count and Discover marks
+what is already installed, but the list cannot be narrowed on either. Of the installed view's
+actions, the SIRVIS **Models** screen (`sirvisModels` in `nervis/index.html`) has none on its
+rows — its only control is a *Runtime & sessions* button in the heading. **Load** and a lease
+release are on the **Runtime** screen and the SIRVIS **Dashboard**, and a benchmark is started from
+the **Benchmarks** screen's *New benchmark* rather than from a model. **Compare, Inspect, Find
+Variants, Reveal and Delete are not built**, and neither is the CLI's `sirvis models
+search/download` (§18).
 
 ---
 
@@ -650,6 +681,12 @@ permits.
 
 Experiment ordering supports `fixed`, `randomized` and `balanced`, with ABBA ordering later.
 Store the order and the random seed.
+
+**As built, 12 September 2026: only `fixed`.** `sirvis/src/sirvis/benchmarks/spec.py` sets
+`ORDERINGS = ("fixed",)`, because `randomized` and `balanced` need more than one target to mean
+anything, so a spec can ask for no other order. The ordering is stored with the experiment. A
+`seed` key in a spec is copied into the stored experiment as well, but nothing generates a seed
+or reads one, so there is no random seed to record. ABBA ordering is not built.
 
 ## 11.8 Telemetry, thermal and validity
 
@@ -994,6 +1031,19 @@ already-loaded models. Always distinguish measured from estimated.
 {"fit": "GOOD", "headroom_gb": 8.1, "swap_expected": false}
 ```
 
+**As built, 12 September 2026: the six classes are names, not an estimator.**
+`sirvis/src/sirvis/core/recommendations.py` defines `IDEAL` through `UNKNOWN` as constants and
+nothing ever assigns one but the default, so every recommendation's `fit` is `UNKNOWN`, marked
+`basis: estimate`. The input the arithmetic would need is missing: `installed_size_bytes`
+(`sirvis/src/sirvis/core/models.py`) is declared and never filled in, and the live
+`GET /api/v1/models` returned it empty for all 20 installed builds. A Runtime Set gets a narrower
+check, `estimate_fit` in `sirvis/src/sirvis/core/runtime_sets.py`: `REFUSED` when the members'
+weights alone exceed the machine's memory, `PLAUSIBLE` when they do not, and `UNKNOWN` when any
+member's size is missing — which, with no sizes recorded, is every set; a live read of one answered
+exactly that. It names what it leaves out, starting with KV cache, runtime overhead and OS memory.
+Discover's *runs on this Mac* (§8, `sirvis/src/sirvis/catalog.py`) is a separate estimate made
+from a repository's parameter count, and uses none of these classes.
+
 ## 14.3 Recommendation engine
 
 **Inputs:** machine, roles, constraints, profile weights, benchmark evidence, acceptable
@@ -1113,6 +1163,25 @@ recommendation generation. Where invoked by RAVIS or NERVIS, preserve `trace_id`
 
 **Telemetry export is optional, bounded, redacted, and never blocks a benchmark.**
 
+**As built, 12 September 2026: seven events, and no spans of SIRVIS's own.** The shared publisher
+sends them to NERVIS (§4.2's note): `sirvis.benchmark.started`, `sirvis.benchmark.completed` and
+`sirvis.benchmark.failed` (`sirvis/src/sirvis/benchmarks/engine.py`, under a trace the run mints
+for itself); `sirvis.download.started`, `sirvis.download.completed` — sent for a version already
+present too — and `sirvis.download.failed` (`sirvis/src/sirvis/downloads.py`, under the job's
+trace); and `sirvis.recommendation.created` (`sirvis/src/sirvis/api/routes.py`, under the caller's
+trace, carrying the roles and mode and never the evidence). Of the six names in the block above
+only `sirvis.recommendation.created` is built; `sirvis.inventory.changed`,
+`sirvis.runtime.state.changed`, `sirvis.benchmark.job.state_changed`,
+`sirvis.benchmark.result.created` and `sirvis.capability.changed` are not. Of the operational
+stream, download started and completed and benchmark started, completed and failed exist under the
+`sirvis.` prefix; download progress (left out on purpose — a transfer reports every two seconds),
+benchmark progress, the model load and unload events and the session events do not. **Spans are
+not built as spans.** SIRVIS emits events and NERVIS draws spans from them
+(`nervis/src/nervis/traces.py`), where one event is a point rather than an interval. A benchmark
+run is the one operation written to have both ends — its started event is paired with completed or
+failed, so its span has a duration — and a recommendation is a single point in the caller's trace.
+API request, queue wait, preparation, runtime load and result persistence emit nothing.
+
 ## 15.4 Standalone behaviour
 
 SIRVIS starts and operates without RAVIS, Clarvis, NERVIS or a trace collector. Missing peers
@@ -1120,16 +1189,35 @@ affect only integration capabilities. Runtime absence produces an unavailable st
 service failure. Loss of event consumers does not grow an unbounded queue. Keychain, network,
 disk and runtime failures expose truthful readiness and actionable structured errors.
 
+**As built, 12 September 2026: capabilities never change.** All ten capabilities SIRVIS declares
+(`DECLARED` in `sirvis/src/sirvis/ecosystem.py`) are fixed `AVAILABLE` constants, so an absent
+LM Studio or a dead event collector changes none of them, and the live `/ecosystem/capabilities`
+answered all ten available. Readiness has one check, the database; `sirvis_surface` leaves the
+runtime and the event publisher out on purpose, so a laptop with nothing loaded is not reported as
+a broken SIRVIS. A runtime that is down shows where it is read instead: its
+`/api/v1/runtimes` row stops saying `running`, and a model read answers 502 rather than 404
+(`sirvis/tests/test_m8_resources.py`).
+
 ---
 
 # 16. Web dashboard
 
-**`nervis/index.html` already renders the Models, Benchmarks, Runtime Sets and Results
-screens**, against a transcription of a real benchmark run on a real machine — including the
-provenance rendering this section insists on. It is the reference implementation, not a sketch,
-and this stage's visible increment is wiring those screens to real endpoints rather than
-building them (`ECOSYSTEM_RUNBOOK.md` §6.2 Stage 4). Read `nervis/docs/WIRING.md` before
-starting; read `nervis/docs/PITFALLS.md` before writing the replacement.
+**As built, 12 September 2026: the SIRVIS screens live in NERVIS and read the running service.**
+SIRVIS serves no page of its own — `/`, `/docs` and `/dashboard` on port 8721 answer 404. Its
+dashboard is the SIRVIS tab of `nervis/index.html`, whose navigation (`APP_CONFIG`) lists
+Dashboard, Models, Runtime, Discover, Benchmarks, Runtime sets, Results, Recommendations and
+Downloads. Every one of them reads a live SIRVIS endpoint — recommendations through NERVIS, the
+rest directly: `/api/v1/models`, `/api/v1/system`, `/api/v1/evidence`, `/api/v1/benchmark-runs`,
+`/api/v1/benchmark-jobs`, `/api/v1/runtime/residency` and the session routes,
+`/api/v1/runtime-sets`, `POST /api/v1/recommendations`, `/api/v1/catalog` and
+`/api/v1/downloads`. The transcription of a real benchmark run these screens were first drawn
+against survives only as a fallback: when SIRVIS does not answer, the screen is marked as not live,
+a transcribed row on the Results screen says it has no record behind it, and the Runtime screen
+shows nothing rather than a remembered answer, because residency is a fact about right now. The
+page list below differs from that navigation: the job queue is on Benchmarks rather than a page of
+its own, and there is no System or Settings page. The wiring the runbook's Stage 4 asked for is
+done; what this section asks for beyond it is listed as not built at its end.
+`nervis/docs/WIRING.md` and `nervis/docs/PITFALLS.md` still apply to any screen added here.
 
 Pages: Dashboard, Models, Downloads, Benchmarks, Queue, Results, Recommendations, Runtime,
 System, Settings.
@@ -1161,6 +1249,13 @@ runtime, benchmark version or machine differs.
 
 **Playground** — a secondary manual interface (model, system prompt, user prompt, temperature,
 max tokens, seed) showing TTFT, tok/s, tokens and elapsed, with **Save as benchmark case**.
+
+**Not built, checked 12 September 2026.** A search of `nervis/index.html` finds no Pareto
+analysis, no historical regression view, no result comparison, no Playground and no *Save as
+benchmark case*. Of the charts, the SIRVIS Dashboard draws each build's generation rate as a bar
+against the fastest one measured, and the Models screen draws a resident-memory bar; prompt
+throughput, TTFT, RAM, swap, quality, context scaling, the quality, speed and memory trade-offs,
+joint score against RAM and concurrency degradation have no chart.
 
 ---
 
@@ -1217,6 +1312,16 @@ installed models, GGUF capability, MLX capability, the database, the results dir
 the benchmark directory.
 
 **Keep API and CLI at parity for core functionality.**
+
+**As built, 12 September 2026: parity is not met.** `sirvis --help` lists six commands:
+`restore-database` (put back the backup taken before a migration), `doctor`, `serve`, `token`
+(show the bootstrap token or mint a scoped one), `benchmark run <specification>` (one YAML
+experiment specification, with `--model`, `--warmups`, `--repetitions`, `--tool-trials`, `--role`,
+`--clarvis-role` and `--runtime-set`) and `results latest`. `sirvis models list`, `models search`,
+`models download`, `runtime list`, `runtime sessions`, `benchmark run --profile clarvis --chat …
+--agent …`, `compare` and `recommend` do not exist. The inventory, the catalogue, downloads,
+sessions and recommendations are served by the API (§4.2) and have no command; comparing two runs
+has neither.
 
 Logging carries timestamp, experiment ID, job ID, runtime session ID, model ID, runtime,
 operation, severity, message and `trace_id`. **Never log secrets.**
@@ -1308,13 +1413,13 @@ mapping is in §21.2.
 | **M5** | SDK foundation | TypeScript and Python clients | A Node client can reach health, system, models, runtime |
 | **M6** LIVE VERIFIED | Single-model benchmark engine | Experiment, warmups, repetitions, raw response capture, TTFT, tok/s, memory, load lifecycle | `sirvis benchmark run examples/basic.yaml` persists a valid result |
 | **M7** LIVE VERIFIED | Benchmark evidence schema | Canonical identity and repeated-measurement structure | No scalar-only canonical score; individual repetitions preserved; median and spread available; `ESTIMATED`/`UNKNOWN` never become `MEASURED` |
-| **M8** IMPLEMENTED | Resource Manager | Loaded registry, ownership, reference counts, leases, conflict policies, runtime sessions | Two clients safely share a loaded model; concurrent, warm-reuse, cold-start, load-failure, hung-inference, crash, stale-lease, cancellation and exhaustion tests leave consistent state |
+| **M8** AUTOMATED VERIFIED | Resource Manager | Loaded registry, ownership, reference counts, leases, conflict policies, runtime sessions | Two clients safely share a loaded model; concurrent, warm-reuse, cold-start, load-failure, hung-inference, crash, stale-lease, cancellation and exhaustion tests leave consistent state. *Every clause has its test in `sirvis/tests/test_m8_resources.py` — two clients sharing, concurrent acquires producing one load, warm reuse, a cold load, a failed load leaving no phantom reference, a hung load and a stalled generation, a crashed client, a stale lease, an abandoned acquire not cancelling someone else's load, and exhaustion naming the holders; 38 tests passing on 12 September 2026* |
 | **M9** AUTOMATED VERIFIED | Runtime Sets | Multi-role members, load order, combined memory, session creation, revisions | Two models stay loaded and independently addressable; two revisions distinguishable; old results retain their revision |
 | **M10** AUTOMATED VERIFIED | Multi-model benchmarks | Sequential, alternating, concurrent, contention metrics, swap, combined memory | Interaction matrix produced; a simultaneous-load failure is recorded as a result, not converted into separate-model success |
-| **M11** AUTOMATED VERIFIED | Model browser and download | Installed, Discover, Downloads, GGUF/MLX filters, jobs, disk checks | Browser reload does not lose download state; disk warnings fire; nothing auto-deletes |
-| **M12** IMPLEMENTED | Clarvis benchmark adapter spike | Inspect existing Clarvis benchmark assets — **do not rewrite** | Each asset classified `REUSE`, `WRAP`, `UNSUITABLE` or `MISSING`; a written mapping from Clarvis benchmark output to `EvidenceRecord` exists |
+| **M11** AUTOMATED VERIFIED | Model browser and download | Installed, Discover, Downloads, GGUF/MLX filters, jobs, disk checks | Browser reload does not lose download state; disk warnings fire; nothing auto-deletes. *Sub-claims, 12 September 2026 (`STATUS.md`, "SIRVIS M11: the model browser and downloads"): a real download — SmolLM2-135M at Q4_K_M, started through NERVIS and tracked to completed — the job's record still listed after a SIRVIS restart, and a disk refusal (`DISK_SPACE` for a 1,250 GB build against 487 GB free) are LIVE VERIFIED. The disk-warning confirmation and a browser reload during a download were not observed live* |
+| **M12** IMPLEMENTED | Clarvis benchmark adapter spike | Inspect existing Clarvis benchmark assets — **do not rewrite** | Each asset classified `REUSE`, `WRAP`, `UNSUITABLE` or `MISSING`; a written mapping from Clarvis benchmark output to `EvidenceRecord` exists. *As built: `sirvis/src/sirvis/benchmarks/clarvis_roles.py` classifies three assets from `clarvis-firstrun/tools/suite2.py`, all `REUSE`, and states the `TrialRate` mapping; nothing records what was inspected and not reused, so no asset is on record as `WRAP`, `UNSUITABLE` or `MISSING`* |
 | **M13** LIVE VERIFIED | Clarvis role benchmarks | `clarvis-chat`, `clarvis-agent` using wrapped existing tests where possible | Role-specific verdicts exist; agent evidence includes tool-call reliability; no metadata-only capability claim |
-| **M14** IMPLEMENTED | Web UI | Dashboard, Models, Downloads, Benchmarks, Queue, Results, System, Settings | Core workflow works entirely in the browser; provenance is drillable everywhere |
+| **M14** IMPLEMENTED | Web UI | Dashboard, Models, Downloads, Benchmarks, Queue, Results, System, Settings. *The benchmark job queue itself (§11.10) also shipped under M14: submit, poll and cancel at `/api/v1/benchmark-jobs`, tested in `sirvis/tests/test_m14_queue.py`, shown on the Benchmarks screen (`STATUS.md`, "SIRVIS M14 — the benchmark queue")* | Core workflow works entirely in the browser; provenance is drillable everywhere |
 | **M15** LIVE VERIFIED | Recommendation engine | Role profiles, fit, single-model and Runtime Set recommendation, evidence levels, fast mode | SIRVIS recommends a Clarvis chat + agent pair; exclusions and uncertainty are reproducible |
 | **M22b** AUTOMATED VERIFIED | Reasoning-token overhead | **Reasoning-token overhead as evidence.** How much of a completion a build spends on reasoning tokens before emitting content — measured per build, like every other figure here, because no runtime advertises it: LM Studio's `/api/v0/models` publishes `type`, `arch` and `quantization` and nothing about reasoning | A build that emits reasoning tokens is distinguishable from one that does not, from evidence rather than from its name; RAVIS M16's tiebreak can read it |
 | **M15b** | The §14.3 outputs M15 left out | Runtime Set recommendation (M15 ranks models only), expected memory, performance and quality as named outputs rather than `Utility.axes` entries, evidence level as an input and an output, and §14.3's hard `constraints` — refused with `UNSUPPORTED_PARAMETER` until then | A request carrying `{"avoid_swap": true}` changes the ranking rather than being rejected; a Runtime Set can win a role |
@@ -1352,8 +1457,9 @@ Load GGUF + MLX → measure combined RAM → benchmark independently
 | Stage 4 — SIRVIS evidence plane *(parallel; may start after Stage 1)* | M1 + M2 (machine detection and runtime integration — nothing can be measured without them), M3 + M4 (inventory, state and the public API), M7 (evidence and provenance schema — **its acceptance is verbatim this stage's exit criterion**), M8 (Resource Manager, which owns every load and unload), M6 + M10 (benchmark lifecycle), M9 (Runtime Sets), M12 + M13 + M15 (the asset spike, the Clarvis role workloads it produced, and recommendations) + M15b (the §14.3 outputs M15 left out, unbuilt), M22b (reasoning-token overhead, the measurement RAVIS's reasoning tiebreak was waiting on), **M16 (the RAVIS evidence API)** |
 | Stage 6–7 — NERVIS core, events and tracing | M21 — **no production test doubles** |
 | Stage 10 — whole-ecosystem hardening | M22 |
-| **Unscheduled — deferred by decision** | M5 (SDK), M11 (model browser and download), M17, M18, M19, M20. Listed so no milestone is silently unassigned |
-| Stage 4 — visible increment | M14 (web UI). Not deferred: the prototype at `nervis/` already renders the Models, Benchmarks and Results screens against SIRVIS-shaped data, so this stage's increment is wiring those to real endpoints rather than building screens. §16's standalone requirement is what that satisfies |
+| **Unscheduled — deferred by decision** | M5 (SDK), M17, M18, M19, M20. Listed so no milestone is silently unassigned |
+| **Built outside the stage plan** | M11 (model browser and download). Deferred by decision until it shipped on 12 September 2026, when NERVIS's Discover and Downloads screens needed a real source; no runbook stage names it |
+| Stage 4 — visible increment | M14 (web UI). Not deferred. The wiring this row asked for is done: as of 12 September 2026 all nine screens on the SIRVIS tab of `nervis/index.html` read the live service (§16's opening note). What is left of M14 is §16's charts, Pareto analysis, historical regressions, result comparison and the Playground, plus separate Queue, System and Settings pages — none of them built |
 
 > Stage 4 runs alongside Stages 2–3 and must be finished before Stage 5, when RAVIS begins
 > ingesting evidence. SIRVIS has no inbound dependency before that point.

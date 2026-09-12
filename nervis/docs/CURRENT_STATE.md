@@ -1,5 +1,11 @@
 # Current state
 
+**This is a snapshot, not the current state — noted 12 September 2026.** It was last
+rewritten on 28 August 2026. A few facts below were corrected on 12 September and marked
+where they were; the rest was not re-checked. What is built now is in the milestone tables
+of `../NERVIS.md` §21, `../RAVIS.md`, `../SIRVIS.md` and `../CLARVIS.md`, and in
+`../STATUS.md`.
+
 *Snapshot as of 28 Aug 2026. Written so an agent with no memory of how this got here
 can be useful in five minutes. If this file and the code disagree, the code is right
 and this file is stale — fix it.*
@@ -30,7 +36,10 @@ frontend, and the data layer below is a client of NERVIS rather than of every
 service at once. `../STATUS.md` says what is actually finished.
 
 **The one rule that has not changed**: it must still render with nothing running.
-`tools/render_check.js` enforces that in CI now, across all 36 screens.
+`tools/render_check.js` enforces that across every screen in `APP_CONFIG`, when somebody
+runs it (`node tools/render_check.js`). **It does not run in CI** — corrected 12 September
+2026: GitHub Actions is switched off for this repository, so the workflow file in
+`.github/workflows/` no longer runs anything.
 
 ## Architecture, in one pass
 
@@ -79,10 +88,14 @@ Every screen in the rail is built. Nothing falls back to a dashboard any more.
 
 | App | Screens |
 |---|---|
-| NERVIS | Overview · Chat · Ecosystem map · Events · Traces · **System** · Diagnostics · Settings |
-| SIRVIS | Dashboard · Models · **Discover** · Benchmarks · Runtime sets · Results · Recommendations · Downloads |
-| RAVIS | Dashboard · Routes · Pools · Providers · Policies · Evidence · Logs · Diagnostics · **Settings** |
+| NERVIS | Overview · Chat · Files · Notifications · Ecosystem map · Events · Traces · Diagnostics · **System** · Settings |
+| SIRVIS | Dashboard · Models · Runtime · **Discover** · Benchmarks · Runtime sets · Results · Recommendations · Downloads |
+| RAVIS | Dashboard · Routes · Sessions · Spending · Pools · Providers · Credentials · Policies · Evidence · Logs · Diagnostics · **Settings** |
 | CLARVIS | all seven — by design the rail drives the editor's side panel, it does not swap pages |
+
+Files, Notifications, Runtime, Sessions, Spending and Credentials were missing from this table
+until 12 September 2026; the list above is copied from `APP_CONFIG` in `index.html`, which is
+the authority if the two ever disagree again.
 
 **Most of them now read a live service**, and the count is deliberately not
 repeated here. `STATUS.md` carries the live/partly-live/invented table and is
@@ -93,9 +106,11 @@ table, in STATUS.md.**
 What this page can say without going stale: a screen that reads a service says
 so on screen, an invented card is faded and labelled `PROTOTYPE`, and a screen
 that mixes the two fades only the invented half. Where a value cannot be read at
-all — RAVIS's routing timings (§9.8), SIRVIS's benchmark job queue (M14), peer
-events (RAVIS M18b, SIRVIS M21) — the screen reports the effect it *can* observe
-and names the milestone that would publish the value.
+all — RAVIS's routing timings (§9.8) — the screen reports the effect it *can*
+observe and names what would publish the value. **Corrected 12 September 2026:**
+this list also named SIRVIS's benchmark job queue (M14) and the peers' event
+streams (RAVIS M18b, SIRVIS M21). All three have shipped since — the Benchmarks
+screen reads SIRVIS's queue, and SIRVIS and RAVIS both publish their events.
 
 **That badge is only as good as the flag behind it, and for a long time it was
 not good at all.** `live()` performs every read on this page; it knew whether

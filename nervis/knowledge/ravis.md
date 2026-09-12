@@ -121,6 +121,8 @@ rather than picking a model.
 - `ravis/chat` — conversation; a hosted model first, this machine's underneath
 - `ravis/balanced`, `ravis/fast`, `ravis/performance` — the speed/cost/quality axis
 - `ravis/cheap` — least money, preferring local
+- `ravis/free-api` — costs nothing and runs on somebody else's hardware; logged,
+  never private (see the free pool, below)
 - `ravis/local` — never leaves this machine
 - `ravis/api` — cloud only
 - `ravis/private` — strictest privacy; cloud excluded
@@ -185,8 +187,11 @@ for a reading and to `google/gemini-2.5-flash-image` for a drawing.
 ## What the local models on this machine are actually good for
 
 Measured on 7 September 2026 rather than assumed, because "use local" and "use
-the cloud" are usually argued rather than tested. This machine runs
-`qwen2.5vl:3b` (vision), `llama3.2:3b` and two embedding models — all small.
+the cloud" are usually argued rather than tested. Both findings below were
+measured on the small models Ollama serves here — a vision model, a small chat
+model and two embedding models. LM Studio serves many more beside them, several
+of them larger, so read the live list at `/api/v1/models` rather than trusting a
+list written down here, which goes stale.
 
 **Bounded jobs: local, and it works.** The save-time layout glance on a PDF runs
 on `qwen2.5vl:3b` and correctly named a real defect in a deliberately broken
@@ -250,6 +255,10 @@ estimated cost, sessions and their model affinity, and the pools themselves.
 Every routing decision is recorded rather than recomputed, because re-running a
 router later uses a different catalogue and can reach a different answer — an
 explanation you recompute is a guess about the past.
+
+**Recorded in memory, not on disk.** RAVIS keeps the most recent 200 decisions.
+An older one falls off the end, and a restart empties the list, so a decision
+made before the last restart can no longer be looked up.
 
 ## Where provider credentials live
 
@@ -453,9 +462,14 @@ declarations. The capability_trials setting switches it off.
 
 ## Known limits, as of this writing
 
-The management API is **degraded**: reads work, and pool-membership and
-provider-configuration writes exist, but authorization on a loopback bind is not
-finished. Cost figures are estimates from published prices unless the provider
+The management API is **degraded**: reads work, and pool-membership,
+provider-configuration and credential writes exist. Authorization on them is
+finished: since 4 September 2026 every write needs an admin credential, and
+being on the same machine no longer counts as permission. What is still missing
+is three writes the plan asks for — activating a profile, refreshing SIRVIS
+evidence and running a route test — and repeat-safe request keys, left out on
+purpose because each write replaces whole state, so sending it twice changes
+nothing. Cost figures are estimates from published prices unless the provider
 reported them; a record says which.
 
 **RAVIS is at its delay target since 0.23.2, narrowly (12 September 2026).** A load test

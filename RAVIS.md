@@ -121,6 +121,7 @@ something that cannot succeed.
 | `ravis.usage_cost@1` | accounting distinguishes reported/estimated/billed/unknown |
 | `ravis.management@1` | the management API is authorized and audited |
 | `ravis.events@1` | MEP events publish |
+| `ravis.embeddings@1` | `POST /v1/embeddings` passes provider *and* gateway conformance, as the rule below requires. Until then it is advertised `degraded` — since 6 September 2026 — because it forwards to one configured local runtime with no routing between candidates, no fallback chain and no conformance suite (`ravis/src/ravis/ecosystem/capabilities.py`) |
 
 **Do not advertise streaming, tools, JSON or structured output, vision, embeddings or audio
 unless that exact operation passes provider *and* gateway conformance.**
@@ -207,8 +208,17 @@ safe. `cli.py` calls `uvicorn.run` without `ssl_certfile` or `ssl_keyfile`, so c
 both pieces produced a bind that started and published the model registry in cleartext —
 the exact trap the rule existed to close, reached by satisfying it. Naming the missing
 piece made it worse, since supplying it is what an operator would then do. The finding now
-names the host and points at `ECOSYSTEM_RUNBOOK.md` §16 item 2, which lists what remote
-operation has to prove before this reopens.
+names the host and says binding beyond loopback is not supported yet (`_check_remote_exposure`
+in `ravis/src/ravis/config.py`).
+
+**As built, 12 September 2026: remote access is not built, and nothing owns it.** That
+finding and the function's docstring pointed at `ECOSYSTEM_RUNBOOK.md` §16 item 2 as the
+list of what remote operation must prove until 12 September, and now point at runbook §9. But that item belonged to the stabilization track,
+and it closed as loopback-only containment (runbook §15.1), not as a remote mode. No milestone
+in §20 schedules TLS and authentication on a non-loopback bind, so the bind stays refused
+however it is configured. What remote operation would have to prove is still written in that
+docstring: TLS wired to the listener, per-request authentication, `Host` and `Origin`
+validation, SSE held to the same rules, and a test against a real TLS listener.
 
 **Origin and Host validation.** Loopback is not a boundary against a browser: any page the
 user visits can issue a cross-origin request to `127.0.0.1`. RAVIS rejects requests whose
@@ -899,6 +909,12 @@ Measure `normalization_ms`, `capability_ms`, `policy_ms`, `scoring_ms`, `total_r
 `upstream_connect_ms`, `upstream_ttft_ms`. Target for cached rule-based routing:
 **P50 < 5 ms, P95 < 20 ms.**
 
+**As built, 12 September 2026: none of those seven timings is measured.** Nothing in
+`ravis/src` records `normalization_ms` or any of the others; the management routes' own module
+docstring (`ravis/src/ravis/api/management/routes.py`) lists §9.8's routing timings as a
+subsystem that does not exist yet. The figures below come from outside the router instead:
+`tools/load_test.py` subtracting a stand-in's latency, and one-off in-process timing.
+
 Background refresh keeps provider models, pricing, health, SIRVIS evidence and local host state
 current. **Routing reads cached snapshots**, never live lookups.
 
@@ -1138,6 +1154,13 @@ Monthly budget €50 →  0–70% normal routing · 70–90% prefer cheaper/loca
                      90–100% strong cost penalty · 100% paid APIs blocked if hard
 ```
 
+**As built, 12 September 2026: one budget, not five.** RAVIS has a single global budget, set by
+`RAVIS_BUDGET_LIMIT`, `RAVIS_BUDGET_CURRENCY`, `RAVIS_BUDGET_PERIOD` and `RAVIS_BUDGET_HARD`. The
+period is one of `daily`, `weekly` or `monthly`, each a rolling window rather than a calendar
+period, and spend within it falls into the bands above at 70, 90 and 100 % (`Budget.band` in
+`ravis/src/ravis/cost.py`). A limit of zero means no budget. Budgets per application or per
+provider, and more than one period at a time, are not built.
+
 **Gate:** fixture arithmetic, currency, price-version, partial stream, retry, fallback and
 missing-usage tests prevent double counting.
 
@@ -1195,6 +1218,14 @@ GET /api/v1/health          /api/v1/route-decisions
     /api/v1/sirvis
 ```
 
+**As built, 12 September 2026.** Five of these reads do not exist: `/api/v1/profiles/{id}`,
+`/api/v1/diagnostics`, `/api/v1/settings`, `/api/v1/runtime-state` and `/api/v1/sirvis` each
+answer 404 on the running RAVIS. Seven reads exist that the list does not name:
+`/api/v1/observations`, `/api/v1/evidence`, `/api/v1/usage/records`,
+`/api/v1/pools/{pool_key}/members`, `/api/v1/providers/credentials`,
+`/api/v1/providers/{name}/models` and `/api/v1/providers/{name}/catalogue`, defined in
+`ravis/src/ravis/api/management/routes.py` and `credentials.py`.
+
 List responses use `{items, next_cursor, snapshot_revision}`. Provider and model results are
 redacted and capability-evidenced.
 
@@ -1234,8 +1265,14 @@ credential never reaches the browser, which is the point of the hop.
 **currently eligible members, derived rather than stored** (§5.2) — so an installed model that
 gains or loses a capability moves the membership without anyone editing a list.
 `/api/v1/policies` reads `RoutingRule` in the `IF … THEN …` form of §9.6, marked hard or soft.
-Both are reads of state RAVIS already owns; neither accepts a mutation, because a profile change
-goes through `POST /api/v1/profiles/{id}/activate` and stays auditable.
+`/api/v1/policies` accepts no mutation: operator policies are loaded from `policies.json` in
+RAVIS's configuration directory. **Pools do accept one** — corrected 12 September 2026, since
+this paragraph said neither did. `PUT /api/v1/pools/{pool_key}/members` narrows one pool to
+chosen models or clears the narrowing, and `POST /api/v1/pools/curate` removes every narrowing
+so membership is derived again; both are audited. Nor does a profile change go through
+`POST /api/v1/profiles/{id}/activate`: that endpoint is not built, and a profile is currently
+the display name of a pool (`GET /api/v1/profiles` returns one per pool, each at revision 1),
+so there is no separate profile to activate yet.
 
 Canonical v1 mutations:
 
@@ -1249,6 +1286,19 @@ PUT  /api/v1/providers/{name}/enabled     {"enabled": true｜false}
 **Runtime control has no RAVIS endpoint until an ownership contract adds one.** Mutations accept
 `Idempotency-Key` and `If-Match` where state changes, are separately authorized and audited, and
 return the actual post-state plus revision. **Never expose credential values.**
+
+**As built, 12 September 2026.** Of the four mutations listed, only
+`PUT /api/v1/providers/{name}/enabled` exists. Activating a profile, refreshing evidence and
+route tests have no route defined, and NERVIS's Diagnostics screen says so of route tests. Five
+writes exist that the list does not name: `PUT /api/v1/pools/{pool_key}/members`,
+`POST /api/v1/pools/curate`, `PUT` and `DELETE /api/v1/providers/credentials/{name}`, and
+`PUT /api/v1/providers/{name}/models`. Each publishes an audit event
+(`ravis/src/ravis/api/management/audit.py`). `If-Match` is honoured on the pool-members write
+(`_if_match_refusal` in `api/management/routes.py`). **`Idempotency-Key` is not implemented, on
+purpose:** the writes replace whole state, so a replay leaves the same result, and a replay
+cache would imply a guarantee it does not add. The one effect that is not idempotent, the live
+catalogue refresh a credential write triggers, wants a refresh cooldown, which is not built
+either. `STATUS.md`'s entry on M18b's management half has the reasoning.
 
 NERVIS controls must be capability-driven. **A UI need does not create a RAVIS API.**
 
@@ -1320,9 +1370,21 @@ Spans cover gateway validation, policy and eligibility, evidence lookup, ranking
 coordination, provider call, streaming and accounting. **Payload capture is off by default.
 Export failure never blocks routing.**
 
+**As built, 12 September 2026.** Three events publish from the request path
+(`ravis/src/ravis/api/openai/chat.py`): `ravis.route.selected`; `ravis.route.refused`, which is
+this list's `no_route`, named so that a type never asserts a selection that did not happen; and
+`ravis.request.completed`, whose severity is `error` when no attempt succeeded. Management
+writes publish audit events: `ravis.credential.set`, `ravis.credential.forgotten`,
+`ravis.provider.enabled_changed`, `ravis.provider.model_filter_changed` and
+`ravis.pool.members_changed`. **Not built:** request accepted, failed and cancelled as events of
+their own; route fallback; usage recorded; provider, capability and runtime state changed; and
+profile changed. **Nor are the spans.** RAVIS emits no per-stage span, so a NERVIS trace draws
+RAVIS as one bar covering the interval between its events.
+
 ## 15.3 Dashboard
 
-**These screens already exist, rendered by `nervis/index.html`.** It is not a mockup of
+**Most of these screens exist, rendered by `nervis/index.html` — not all of them; the dated
+note below says which.** It is not a mockup of
 this section — it is a working implementation whose data layer is shaped like §15.1's responses
 and whose every method cites the endpoint it will call. From Stage 3 it reads RAVIS's real
 read-only management API (M18a), so the screens below are how RAVIS is observed *during* the
@@ -1338,6 +1400,15 @@ evidence, protocol mode, status.
 **Clarvis compatibility page** (developer-facing, not essential user UI) showing the conformance
 results live.
 
+**As built, 12 September 2026.** NERVIS's RAVIS tab has twelve screens: Dashboard, Routes,
+Sessions, Spending, Pools, Providers, Credentials, Policies, Evidence, Logs, Diagnostics and
+Settings (`APP_CONFIG` in `nervis/index.html`). Four things this section names are not among
+them. There is **no Profiles screen**, and **no Models page** of its own; the Pools screen reads
+the model list beside the pools. The dashboard shows **no estimated savings**; the word appears
+nowhere in the page. And there is **no live Clarvis compatibility page**: the Diagnostics screen
+lists the suite's checks under *not run from here*, because `ravis conformance clarvis` is a CLI
+command whose result reaches no endpoint a browser can read.
+
 ## 15.4 CLI
 
 ```bash
@@ -1348,6 +1419,13 @@ ravis sirvis status
 ravis test --model ravis/auto "Explain this code"
 ravis conformance clarvis
 ```
+
+**As built, 12 September 2026.** `ravis --help` lists six commands: `serve`, `doctor`,
+`conformance`, `preflight` (whether a consumer pointed here right now would work), `credential`
+(stores one read from standard input, for bootstrapping an admin token) and `restore-database`
+(puts back the backup taken before a migration). **Not built:** `providers`, `models`,
+`profiles`, `routes`, `usage`, `sirvis status` and `test`. What the first five would print is
+readable from the management API (§15.1) and NERVIS's RAVIS screens.
 
 ## 15.5 Replay, shadow routing, escalation
 
@@ -1365,7 +1443,11 @@ that one incoming request equals one upstream call, but do not implement orchest
 - **Without NERVIS** — full API and routing remain available.
 - **Without a provider or runtime** — remove it from eligibility; continue only if policy allows.
 - **Without a telemetry collector** — bounded local observability; no request fails.
-- **Without secure storage** — providers needing credentials are unavailable; never plaintext.
+- **Without a platform keyring** — credentials are written to a `0600` file inside a `0700`
+  directory, which is plaintext and says so (§14, rule 16); a provider whose credential is in
+  none of the file, the keyring or the environment stays unavailable. *Corrected 12 September
+  2026: this line said "never plaintext", which §14 and rule 16 stopped promising on
+  9 September.*
 
 ---
 
@@ -1382,6 +1464,17 @@ UsageRecord · CostRecord · Budget
 SirvisEvidenceSnapshot
 Setting
 ```
+
+**As built, 12 September 2026.** Most names in this list are not tables. RAVIS's SQLite database
+has six: `applied_migration`, `client_application`, `setting`, `routing_session`,
+`capability_trial` and `usage_record` (schema in `ravis/src/ravis/storage/database.py`).
+Operator configuration is JSON in RAVIS's configuration directory (`providers.json`,
+`models.json`, `pools.json`, `policies.json`, `prices.json`, `observations.json`), with
+credentials in the keyring or the credential file (§14). **`RouteDecision` is not stored:** the
+most recent 200 decisions are held in memory (`DecisionLog` in
+`ravis/src/ravis/api/management/decisions.py`), so a restart empties `/api/v1/route-decisions`.
+**`SirvisModelRef` is not built**; nothing in `ravis/src` defines it, so the join the next
+paragraph describes does not exist yet.
 
 `SirvisModelRef` is the join RAVIS would otherwise have to guess. A provider reports a runtime
 name — `qwen3-30b-a3b-mlx` — while SIRVIS keys evidence by family, variant, source revision,
@@ -1487,7 +1580,7 @@ and §20.1 maps these milestones onto its stages.
 | **M14** AUTOMATED VERIFIED | Local lifecycle intelligence — HOT/WARM/COLD, load penalty, resource awareness. **Split:** the observation half (residency preference, memory pressure) is Stage 3; the load-versus-don't tradeoff is **Stage 6, after M11**, since it needs M11's session length (M13's evidence landed at Stage 5) | Memory pressure produces a safe route change |
 | **M15** AUTOMATED VERIFIED | Cost engine — pricing, estimates, actual usage, budgets | No double counting; estimates never presented as invoices |
 | **M16** AUTOMATED VERIFIED | Policy engine — application policies, privacy, provider allow/deny, model exclusions, §9.6.1 background-call class. **`ClientApplication` regains `may_declare_background_calls` and `max_privacy_level` here**: both were set on every identity and enforced nowhere, and a field describing an unenforced trust boundary reads as protection, so they were removed rather than left looking live. **Also: a tiebreak that knows about reasoning overhead.** `ravis/auto` breaks a tie on smallest-build-is-cheapest, which on this machine selects a reasoning distill that spends most of a small `max_tokens` budget on reasoning tokens before emitting any content. RAVIS cannot know this from advertised metadata — LM Studio publishes no reasoning flag — so it needs SIRVIS M22b's measurement, not a name-pattern guess. **Also: pool versions and revisions**, which §4.1 makes the advertise-when condition for `ravis.virtual_profiles@1` — the capability is `degraded` until they exist | Each hard constraint provably excludes a top-ranked candidate; a declared background call never selects a paid provider under the default profile; a pool carries a revision a consumer can pin |
-| **M17** | Dashboard — Dashboard, Providers, Models, Profiles, Rules, Sessions, Routes, Usage, SIRVIS | — |
+| **M17** | Dashboard — Dashboard, Providers, Models, Profiles, Rules, Sessions, Routes, Usage, SIRVIS. **Mostly covered by NERVIS as of 12 September 2026, and not closed here:** NERVIS's RAVIS tab serves Dashboard, Providers, Sessions, Routes, Spending for usage, Policies for rules and Evidence for what SIRVIS measured, plus Pools, Credentials, Logs, Diagnostics and Settings. It has no Profiles or Models screen (§15.3). Whether that closes M17 is the owner's call | — |
 | **M18** AUTOMATED VERIFIED | Two halves, scheduled apart. **M18a — read-only management API:** the `/api/v1` reads (`pools`, `policies`, `providers`, `models`, `profiles`, `route-decisions`, `usage`), which is what makes a route decision visible while it is being debugged. **M18b — events and tracing surfaces** for NERVIS | Does not affect Clarvis wire compatibility; M18a exposes no mutation and no credential |
 | **M19** AUTOMATED VERIFIED | Production observations — rolling latency, TTFT and error rate, sampled from real traffic. **Throughput is not part of this**: `observations.py`'s rolling windows and `HealthRegistry.error_rate()` are real and tested, and nothing in `src/ravis` tracks a production throughput figure — the row originally claimed one, corrected 3 Sep after an audit found no supporting code | — |
 | **M20** | Concurrency awareness — active requests, local congestion, SIRVIS contention evidence | — |
@@ -1496,9 +1589,9 @@ and §20.1 maps these milestones onto its stages.
 | **M23** | Responses API — `/v1/responses` | No regression in Chat Completions compatibility |
 | **M24** | Packaging — `RAVIS.app` | — |
 | **M25a** | **Serverless GPU as a transparent upstream — RunPod.** A `kind: "runpod"` adapter over `https://api.runpod.ai/v2/{endpoint_id}/openai/v1`, which vLLM workers already expose OpenAI-compatibly. **Direct addressing only** — `ravis/runpod/<model>` — and deliberately *not* a pool candidate, the same position Anthropic holds. No new capability: it is Path A, so `ravis.openai_compatible.chat_completions@1` already covers it | A completion runs through a declared RunPod endpoint; no pool can select it; the key never leaves the credential store |
-| **M26** | **`ravis/background` — a pool for work with nobody watching.** Unattended callers (NERVIS's own thinking, M25 there) need a pool that runs *beside* interactive work rather than competing with it, and none of the existing thirteen expresses that. **The invariant is "must not contend", and it is deliberately not "must be hosted" or "must be free".** Both of those are answers to the question rather than the question, and each is wrong on some machine: on a laptop with a closed runtime, free resolves to a cold local load that fights chat for RAM — the exaone incident — while on a workstation with an idle 16 GB card, local is fast, costs nothing and contends with nobody, and a hosted-only rule would spend money to avoid a machine that was sitting there. So the pool's price ceiling is **operator configuration** and the invariant is expressed through what RAVIS already measures: residency, memory pressure and §12.2's load-versus-don't tradeoff. Prefer a model already resident, refuse to pay a load under pressure, and let the ceiling say what this machine is willing to spend | A background caller and an interactive one run concurrently without either paying a model load for the other; **the same RAVIS reaches opposite answers on two machines from configuration alone** — a resident local model where one is loaded and idle, a small hosted one where the local runtime is cold or the memory is tight — with the route explanation naming which and why; spend is attributable by pool in `/api/v1/usage`, so "what did unattended work cost this week" is a query; **§9.6.1's marker is not how this is used** — "must be free" is the same baked-in answer in a different place, and it resolves to local on exactly the machine where local is the wrong choice |
+| **M26** | **`ravis/background` — a pool for work with nobody watching.** Unattended callers (NERVIS's own thinking, M25 there) need a pool that runs *beside* interactive work rather than competing with it, and none of the thirteen pools that existed when this row was written expressed that. Eighteen are served on 12 September 2026, `ravis/free-api` (M28) among them, and whether that one now serves this purpose is §20.1's open decision. **The invariant is "must not contend", and it is deliberately not "must be hosted" or "must be free".** Both of those are answers to the question rather than the question, and each is wrong on some machine: on a laptop with a closed runtime, free resolves to a cold local load that fights chat for RAM — the exaone incident — while on a workstation with an idle 16 GB card, local is fast, costs nothing and contends with nobody, and a hosted-only rule would spend money to avoid a machine that was sitting there. So the pool's price ceiling is **operator configuration** and the invariant is expressed through what RAVIS already measures: residency, memory pressure and §12.2's load-versus-don't tradeoff. Prefer a model already resident, refuse to pay a load under pressure, and let the ceiling say what this machine is willing to spend | A background caller and an interactive one run concurrently without either paying a model load for the other; **the same RAVIS reaches opposite answers on two machines from configuration alone** — a resident local model where one is loaded and idle, a small hosted one where the local runtime is cold or the memory is tight — with the route explanation naming which and why; spend is attributable by pool in `/api/v1/usage`, so "what did unattended work cost this week" is a query; **§9.6.1's marker is not how this is used** — "must be free" is the same baked-in answer in a different place, and it resolves to local on exactly the machine where local is the wrong choice |
 | **M25b** | **Serverless GPU as a routing candidate.** Everything that must be true before a pool may pick one — see the four dependencies below | A cold endpoint warms without opening its circuit; a scaled-to-zero endpoint is distinguishable from a COLD local model in a route decision; spend on it is visible; a background call under the default profile never selects it |
-| **M28** IMPLEMENTED | **`ravis/free-api` — costs nothing and runs somebody else's hardware.** Both halves are load-bearing and neither is `ravis/cheap`: cheap prefers local, and on any machine with a runtime "least monetary cost" resolves to a local model — right for cheap, wrong for the caller this exists for. Unattended work must not load a local model, because loading one is exactly how work nobody is watching starts competing for memory with the conversation somebody is having. It is also why §9.6.1's background marker is not the answer: that marker means *must be free* and a local model satisfies it. **Below `private` on the privacy ladder**, and structurally rather than by rule — a free tier is free because the prompt is worth something, so this is an egress path with logging, and `free` requiring remote while `local` and `private` require local leaves the two with no candidate in common. Rate limits are the normal case rather than a fault, and needed no new handling: `RATE_LIMIT` is already `retry_same_target=False, may_fall_back=True` | A machine with a free hosted model, a paid one and a local one routes `ravis/free-api` to the free hosted one, `ravis/cheap` to the local one, and the two disagreeing **is** the reason both exist; **a pool with nothing free refuses rather than billing** — the ceiling is a contract, so membership resolves to nothing and the engine says the pool is unavailable, where `cheap` correctly falls back to the cheapest paid; a request carrying `LOCAL_ONLY` can reach no member of this pool by any route; the description says on its face that it is logged and never private |
+| **M28** AUTOMATED VERIFIED | **`ravis/free-api` — costs nothing and runs somebody else's hardware.** Both halves are load-bearing and neither is `ravis/cheap`: cheap prefers local, and on any machine with a runtime "least monetary cost" resolves to a local model — right for cheap, wrong for the caller this exists for. Unattended work must not load a local model, because loading one is exactly how work nobody is watching starts competing for memory with the conversation somebody is having. It is also why §9.6.1's background marker is not the answer: that marker means *must be free* and a local model satisfies it. **Below `private` on the privacy ladder**, and structurally rather than by rule — a free tier is free because the prompt is worth something, so this is an egress path with logging, and `free` requiring remote while `local` and `private` require local leaves the two with no candidate in common. Rate limits are the normal case rather than a fault, and needed no new handling: `RATE_LIMIT` is already `retry_same_target=False, may_fall_back=True` | A machine with a free hosted model, a paid one and a local one routes `ravis/free-api` to the free hosted one, `ravis/cheap` to the local one, and the two disagreeing **is** the reason both exist; **a pool with nothing free refuses rather than billing** — the ceiling is a contract, so membership resolves to nothing and the engine says the pool is unavailable, where `cheap` correctly falls back to the cheapest paid; a request carrying `LOCAL_ONLY` can reach no member of this pool by any route; the description says on its face that it is logged and never private. **Moved from IMPLEMENTED, 12 September 2026:** `ravis/tests/test_pool_free_api.py` exercises the acceptance and passes, eleven tests. Offered a local, a free hosted and a paid model, the pool takes the free one while `ravis/cheap` takes the local one; given only the local or only the paid one it selects nothing, so it refuses rather than billing; the ceiling is zero rather than merely low; and the description says logged. The `LOCAL_ONLY` clause is checked as pool locality — `ravis/free-api` requires remote where `ravis/local` and `ravis/private` require local — not by sending a `LOCAL_ONLY` request. A live request through the pool, served by a free hosted model, is recorded in `STATUS.md` on 1 September 2026; that is one request rather than a recorded run of the acceptance, so the row stops short of live verification |
 | **M27** | **More than one SIRVIS.** `sirvis_base_url` is one string and the evidence store is keyed `runtime_key → role → record`, so a second measuring service is not "configure another URL" — it is a store that can hold two machines' answers about the same build without one erasing the other. See below | The same build measured on two machines yields two records, both readable; a route decision names *which machine* its evidence came from; an upstream on machine A is never ranked on a measurement taken on machine B; one SIRVIS going away degrades only the machine it measured |
 
 ## 20.1 Ecosystem gate mapping

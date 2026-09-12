@@ -132,6 +132,36 @@ CLARVIS      Status · Workspaces · Agent Runs · Events
 Diagnostics  Live · Traces · Logs · Health · API Inspector · Analyze
 ```
 
+**As built, 12 September 2026.** The block above is the plan, and the page is organised
+differently. The real screen list is `APP_CONFIG` in `nervis/index.html`: four application
+tabs across the top, each with its own side rail.
+
+```text
+NERVIS   Overview · Chat · Files · Notifications · Ecosystem map · Events · Traces ·
+         Diagnostics · System · Settings
+SIRVIS   Dashboard · Models · Runtime · Discover · Benchmarks · Runtime sets · Results ·
+         Recommendations · Downloads
+RAVIS    Dashboard · Routes · Sessions · Spending · Pools · Providers · Credentials ·
+         Policies · Evidence · Logs · Diagnostics · Settings
+CLARVIS  the editor's own rail — Workspace · Explorer · Search · Source control ·
+         Run & debug · Extensions · Terminal
+```
+
+Where the planned screens went:
+
+- **There is no separate Code tab.** The CLARVIS tab *is* the editor: it frames code-server —
+  through NERVIS's `/code/` proxy when that is switched on, at the editor's own address
+  otherwise — and its rail is the editor's side-bar list (§13).
+- **Clarvis's status, agent run, tasks and events** live on NERVIS → Diagnostics → *clarvis in
+  the editor* rather than on the CLARVIS tab, which hides its rail so the editor can fill the
+  page (§10).
+- **Diagnostics** has four sections picked from a row of tabs — *services* (the health read),
+  *clarvis in the editor*, *api inspector* and *raw logs* — with **Analyze trace…** in its
+  header (§11.5). The planned *Live* and *Traces* are NERVIS's own **Events** and **Traces**
+  screens.
+- **SIRVIS's queue** is the Benchmarks screen, which reads SIRVIS's job queue. **RAVIS's usage**
+  is the Spending screen.
+
 ---
 
 # 5. Service registry and capability negotiation
@@ -1007,16 +1037,28 @@ Large raw log files stay on disk separately. Use database migrations.
 **Settings sections:** General, Services, Chat, Diagnostics, Code, Privacy, Storage, Advanced —
 with a health-test button per service.
 
+**As built, 12 September 2026.** NERVIS → Settings has nine collapsible sections, and they are
+not the eight above: Ecosystem, Screen, Files, Voice, Privacy and retention, Backup, Unattended
+work, What NERVIS remembers, and Supervision. The per-service health test is built — a **Test**
+button on each row of the Services table inside Ecosystem, which reads that service's health
+and capabilities. There is no General, Chat, Diagnostics, Code, Storage or Advanced section;
+§13.5's Code settings are NERVIS configuration (`nervis/src/nervis/config.py`) rather than
+controls on this screen.
+
 ---
 
 # 15. Security and privacy
 
 - Loopback-first, and **loopback-only for now**: a non-loopback bind fails to start
-  whatever it is configured with, because the TLS this clause requires was validated at
-  startup and never reached the listener (`ECOSYSTEM_RUNBOOK.md` §16 item 2). Remote NERVIS
-  still requires TLS, authentication, authorization and explicit exposure — that is what
-  §16 item 2 has to build before the bind reopens. Localhost-only MVP may use simple local
-  auth; a NERVIS session token follows.
+  whatever it is configured with — `nervis/src/nervis/config.py` refuses it as a fatal
+  finding before the port is bound — because the TLS this clause requires was validated at
+  startup and never reached the listener. That was item 2 of the stabilization track, and
+  it was closed by making all three services loopback-only, not by building remote access
+  (`ECOSYSTEM_RUNBOOK.md` §15.1). Remote NERVIS still requires TLS, authentication,
+  authorization and explicit exposure. **As of 12 September 2026 none of that is built and
+  nothing owns it**: the stabilization list that was to build it is finished and gone, no
+  milestone in §21 carries it, and remote internet access is a first-release non-goal
+  (§21.3). Localhost-only MVP may use simple local auth; a NERVIS session token follows.
 - Separate **viewer**, **operator**, **benchmark-control**, **routing-control** and
   **supervisor** permissions.
 - Store peer credentials in OS-backed secure storage; **never return them to the browser**, and
@@ -1080,12 +1122,32 @@ nervis code status
 `nervis doctor` checks Python, the database, ports, RAVIS, SIRVIS, code-server, the Clarvis
 VSIX, LM Studio, Ollama, disk and permissions.
 
+**As built, 12 September 2026.** Three commands exist, in `nervis/src/nervis/cli.py`:
+`nervis serve`, `nervis doctor`, and `nervis restore-database`, which puts back the backup
+taken before a migration (runbook §13). None of the others above is built. `nervis doctor` is
+also narrower than the sentence above: it reports configuration findings (a non-loopback bind
+among them), opens and migrates the database, says whether the dashboard file is present,
+prints every capability NERVIS advertises with its reason, and lists the address each peer
+would be probed at along with any the SSRF guard refuses — **without contacting any of them**,
+so it still works with the whole ecosystem down. It does not check Python, ports,
+code-server, the Clarvis VSIX, LM Studio, Ollama, disk or permissions.
+
 ---
 
 # 18. Notifications and voice
 
 Surface service offline, benchmark finished, budget threshold, route-failure spike, memory
 pressure, swap warning, and *Clarvis waiting for approval*. **Keep notification volume low.**
+
+**As built, 12 September 2026.** Two things file notes. The registry files one when a service
+changes state (`nervis/src/nervis/app.py`), which covers *service offline*. Unattended work
+(§21 M25), when switched on, files notes for its two triggers in
+`nervis/src/nervis/background.py`: a service that has stayed unreachable or degraded for a
+while, and a once-a-day digest of what the event hub recorded. **Nothing files a note for a
+finished benchmark, a budget threshold, a spike in route failures, memory pressure or a swap
+warning.** *Clarvis waiting for approval* is shown but never filed: the status line at the top
+of every screen changes to "Waiting for you", naming the editor window and the kind of
+approval, and no note is written.
 
 ## 18.1 Voice and character
 
@@ -1232,7 +1294,7 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 |---|---|---|
 | **M0** AUTOMATED VERIFIED | Foundation — package, FastAPI, config, SQLite, migrations, logging, web shell, CLI, **NERVIS's own `/ecosystem/*` surface** (§3.1) | `nervis serve` starts; the browser opens the dashboard; `nervis doctor` works; the database migrates cleanly; **no external service is required**; NERVIS answers its own identity, health, capabilities and version, and MEP conformance fixtures pass at one pinned protocol version — Stage 1 exits here, and M2 is the client half |
 | **M1** IMPLEMENTED | System telemetry — CPU, RAM, swap, disk, process list, basic thermal | Dashboard updates live; sampling does not noticeably load the machine; missing telemetry degrades to Unknown; metrics survive a browser reconnect |
-| **M2** IMPLEMENTED | Service registry — health model, registry, RAVIS/SIRVIS/LM Studio/Ollama probes, capability negotiation | Each service shows state independently; an offline service never breaks the page; health timeouts are bounded; status changes update live; spoofing, duplicate, stale, auth and version tests pass |
+| **M2** AUTOMATED VERIFIED | Service registry — health model, registry, RAVIS/SIRVIS/LM Studio/Ollama probes, capability negotiation | Each service shows state independently; an offline service never breaks the page; health timeouts are bounded; status changes update live; spoofing, duplicate, stale, auth and version tests pass. **Automated verified, 12 September 2026:** `nervis/tests/test_m2_registry.py` covers that test list and its 76 tests pass — an observation cannot rewrite what a service is and a disguised remote host is refused (spoofing), a duplicate id does not overwrite a live instance, an entry goes stale on read rather than by a timer, a rejected probe reads unauthorized rather than unreachable, and an unsupported major version reads incompatible — along with a silent peer bounded by the probe deadline and the services route still answering while a peer is slow |
 | **M3** LIVE VERIFIED | RAVIS integration — health, providers, models, routes, usage, sessions | NERVIS inspects RAVIS **without touching its DB**; provider health and recent routes visible; the RAVIS-unavailable state works |
 | **M4** AUTOMATED VERIFIED | General chat — RAVIS-backed, streaming, history, mode selector, route inspector | `ravis/auto` chat works; streaming works; route details correspond to the real RAVIS decision; history persists locally; a RAVIS outage produces a clear error; **a NERVIS session never appears as a Clarvis session**; title generation is marked as a background call |
 | **M5a** LIVE VERIFIED | SIRVIS integration, read half — models, results, system, Runtime Sets, evidence, recommendations | Existing SIRVIS results appear; **no benchmark business logic exists in NERVIS**; provenance renders correctly |
@@ -1240,7 +1302,7 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 | **M6** AUTOMATED VERIFIED | Event hub — envelope, ingestion, SSE broadcast, bounded persistence, filters | Events appear live; RAVIS events ingest; retention is enforced; **an invalid event cannot crash the hub** |
 | **M7** LIVE VERIFIED | Distributed tracing — trace IDs, correlation, timeline | One RAVIS request forms a trace; multiple events correlate; missing spans render gracefully; filters work |
 | **M8a** LIVE VERIFIED | Clarvis Bridge integration, receiving half — §5.1's **authenticated local dynamic registration**, per-extension-host instances, redaction, and §10.1's limits enforced structurally | A Bridge can register with a port and token it generated; two extension hosts appear separately with no cross-instance leakage; no workspace path, file content or token is stored or displayed; NERVIS has no code path that could resolve a gate |
-| **M8b** LIVE VERIFIED | Clarvis Bridge integration, live half — status, mode, busy and gate state polled from a running Bridge's `/v1/status` and `config` (`nervis/src/nervis/bridges.py`, wired into `api/instances.py` and `api/chat_reads.py`); agent runs, tasks and gate history folded from the same event stream every peer ingests (`nervis/src/nervis/clarvis.py`, M9). Was blocked on Clarvis building the Bridge; it now exists (`CLARVIS.md` §6, `clarvis/plan.md` M14, signed off 29 Aug) and this reads it | Clarvis still works without NERVIS; connect/disconnect is safe; existing Clarvis safety behaviour unchanged |
+| **M8b** LIVE VERIFIED | Clarvis Bridge integration, live half — status, mode, busy and gate state polled from a running Bridge's `/v1/status` and `config` (`nervis/src/nervis/bridges.py`, wired into `api/instances.py` and `api/chat_reads.py`); agent runs, tasks and gate history folded from the same event stream every peer ingests (`nervis/src/nervis/clarvis.py`, M9). Was blocked on Clarvis building the Bridge; it now exists (`CLARVIS.md` §6, `clarvis/plan.md` M14, signed off 29 Aug) and this reads it. **As built, 12 September 2026: the task list stays empty.** NERVIS folds `clarvis.task.started` and `clarvis.task.completed`, and the Bridge emits no task events at all — `clarvis/src/bridge/events.ts` names lifecycle, gate, chat, agent and capability events only — so no task Clarvis started or finished ever appears | Clarvis still works without NERVIS; connect/disconnect is safe; existing Clarvis safety behaviour unchanged |
 | **M9** AUTOMATED VERIFIED | Clarvis diagnostics UI — status, workspace, agent run, tasks, recent events, approval waiting | Live agent activity visible; task state matches Clarvis; a stale connection is clearly shown; **no Clarvis state duplicated independently**; multi-instance isolation holds |
 | **M10** AUTOMATED VERIFIED | Raw logs — per-source adapters with rotation and retention | Filters work; rotation and retention enforced; secrets redacted; a missing file does not error globally |
 | **M11** AUTOMATED VERIFIED | API Inspector — RAVIS request stages, normalized request, route, provider metadata, final response | One request inspectable end to end; credentials never displayed; content follows privacy settings; transparent vs translated distinguished honestly |
@@ -1249,11 +1311,11 @@ Milestone numbers identify work; the runbook's stages schedule it, and §21.1 ma
 | **M14** IMPLEMENTED | Code tab *(only if M13 succeeds)* — code-server management, reverse proxy, workspace launcher, Clarvis install | Code tab loads; Clarvis activates; the WebSocket survives; the workspace opens; the Clarvis panel renders; the terminal works; the proxy security suite passes. **§13.3's proxy and §13.5's settings both shipped 9 September 2026** — `/code/` with its session store and ten-test gate, and the tab served through it rather than from code-server's own port; `code_tab_enabled` (which closes the route, not only the screen), `code_server_binary`, `code_workspace_roots`, `clarvis_vsix_path` and `clarvis_auto_install`, with NERVIS installing and updating the extension itself rather than printing a command to copy. What remains is coverage rather than code: the proxied path's browser and host matrix (§13.3) has one graded row |
 | **M15** IMPLEMENTED | Browser Clarvis compatibility — **address only issues found in M13**, no speculative porting | The existing VSIX stays one artifact if possible; VS Code stable and VSCodium still pass regression; the code-server path passes the agreed matrix |
 | **M16** AUTOMATED VERIFIED | Service supervision — ownership modes, start, stop, restart, PID verification | Only managed services are controlled; **external services are never killed**; crash recovery works; a restart does not create a duplicate process |
-| **M17** IMPLEMENTED | Unified diagnostics — cross-service trace, health overlay, log correlation, benchmark/runtime context | A Clarvis → RAVIS → provider trace is visible; SIRVIS runtime evidence links where available; a broken link still produces a partial trace |
+| **M17** IMPLEMENTED | Unified diagnostics — cross-service trace, health overlay, log correlation, benchmark/runtime context | A Clarvis → RAVIS → provider trace is visible; SIRVIS runtime evidence links where available; a broken link still produces a partial trace. **Still unwitnessed, as of 12 September 2026:** the health overlay and log correlation are built and the SIRVIS evidence link was seen live (`STATUS.md`, M17, 2 Sep), but no Clarvis → RAVIS → provider trace has ever been seen whole — a chat turn draws only NERVIS and RAVIS, and the Clarvis leg needs an agent run in an editor window. `nervis.diagnostics@1` publishes itself degraded for that reason |
 | **M18** LIVE VERIFIED | Polish — responsive UI, navigation, error states, onboarding, settings, backup/export | A fresh install is understandable; no service is required for dashboard startup; every unavailable state has a sensible explanation; settings import/export works **without secrets** |
 | **M20** LIVE VERIFIED | Conversation memory — recall across conversations, not merely history within one | A new conversation can draw on an earlier one; what was recalled is **shown, with its source conversation**, never silently injected; recall is local by default and follows §7.2's storage rule; **turning it off leaves ordinary chat unchanged**; a recalled passage is fenced before it re-enters a prompt (§11.5), because a stored assistant reply is model output and re-admitting it unfenced is the same trust mistake in a longer loop |
-| **M19** | macOS packaging — `NERVIS.app` | Launches the service, opens the UI, exits cleanly, respects independently running services, leaves no orphan process |
-| **M21** IMPLEMENTED | Notification centre — a durable store for things NERVIS wants to tell the user, with a screen, an unread count and dismissal | A finished task, a service transition and a question survive a reload and a restart; **every note says why it exists**, and one produced by a model also says which model and what it cost; **every note acted on is one the reader could see** — a selection, or "mark all read" over exactly what is listed, resolved to one request per note, so nothing the server expands on its own can reach a note nobody has read; **no per-kind mute and no standing rule**, which is the actual failure this guards against rather than bulk action as such; the voice announcement and the note are one event seen twice, not two events — muting speech must not lose the record |
+| **M19** | macOS packaging — `NERVIS.app`. **As built, 12 September 2026: only the icon exists.** `nervis/packaging/macos/` holds `NERVIS.icns`, its source artwork and the two scripts that regenerate it; nothing builds, launches or installs a `NERVIS.app` yet | Launches the service, opens the UI, exits cleanly, respects independently running services, leaves no orphan process |
+| **M21** IMPLEMENTED | Notification centre — a durable store for things NERVIS wants to tell the user, with a screen, an unread count and dismissal | A finished task, a service transition and a question survive a reload and a restart; **every note says why it exists**, and one produced by a model also says which model and what it cost; **every note acted on is one the reader could see** — a selection, or "mark all read" over exactly what is listed, resolved to one request per note, so nothing the server expands on its own can reach a note nobody has read; **no per-kind mute and no standing rule**, which is the actual failure this guards against rather than bulk action as such; the voice announcement and the note are one event seen twice, not two events — muting speech must not lose the record. **As built, 12 September 2026: nothing files a note for a finished task.** The only producers are the registry's service transitions and unattended work's two triggers (§18), so this exit's service transition has a producer and its finished task does not |
 | **M22** AUTOMATED VERIFIED | Proposal outcomes — record whether a confirmed thing was accepted, declined or edited, and let later proposals read it | An offer's fate is stored with the offer; a preference drawn from it is **visible in the proposal that uses it** — "you declined this twice, so this suggests the local model" — never a silent change of behaviour; clearing the record restores the unlearned proposal exactly; **no outcome is inferred from silence**, because a person who closed the tab did not decline |
 | **M23** LIVE VERIFIED | Learned notes — a file NERVIS appends to, beside the hand-written knowledge files and retrieved the same way | What NERVIS learned is a file a person can read, edit and delete; a learned note carries its date and what prompted it; **it never overwrites a hand-written note**, and where the two disagree the hand-written one wins and the conflict is shown; `tools/knowledge_check.py` gates the learned file exactly as it gates the others |
 | **M24** AUTOMATED VERIFIED | Planning — propose an ordered sequence of operations from the closed set, confirmed once, stoppable | Every step is an operation §12 already allows and nothing new is invented; the whole plan is shown before anything runs; **each step remains individually bounded and reversible**, so one confirmation is an ordering decision and not a blanket approval; a stop takes effect at the next step boundary and says what had already happened; a step that fails halts the plan rather than continuing past it |

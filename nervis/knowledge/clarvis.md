@@ -95,7 +95,8 @@ so the dashboard can show a live editor. It is **off unless configured**, needs
 an enrollment secret, and binds a dynamic port.
 
 What it publishes is deliberately thin: identity, health, capabilities, version,
-events, and `/v1/status`. What it does **not** accept is any instruction from
+events, `/v1/status`, and `/v1/config` — a summary of its settings with the setting
+id for each, which never includes a path, an address somebody typed, or a key. What it does **not** accept is any instruction from
 NERVIS. Registration lets NERVIS *see* an editor; there is no path by which
 NERVIS can drive one, and adding remote control is explicitly out of bounds.
 
@@ -121,20 +122,26 @@ NERVIS queries for workspace contents.
 
 ## Current state, as of this writing
 
-**Version 0.15.2**, 29 commands, 23 settings, VS Code ^1.93.
+**Version 0.15.4**, 29 commands, 23 settings, VS Code ^1.93.
 
-Milestones M0–M9 are built and shipped, plus M9d2, M9d3, M9h and M13. **M14 —
-the NERVIS Bridge — was signed off on 29 Aug**; 0.10.x and 0.11.x were its
-follow-through: sending the session and trace RAVIS joins on, giving chat and
-the agent their own sessions, and publishing events to NERVIS with the trace
-on them. **M15 — browser (code-server) compatibility — is graded
-`PASS_WITH_LIMITATION`**: the existing `.vsix` still works there, desktop
-regression holds, and the matrix stands at 39 `PASS` / 16
-`PASS_WITH_LIMITATION` / 0 `FAIL` / 1 `NOT_TESTED` (Bridge teardown under
-code-server — the rest of the matrix's gaps closed 6 September). What M15
-does not yet cover is code-server *management* — that is M14's sibling
-milestone in NERVIS's own plan, not Clarvis's, and has no status tag because
-it has not been built.
+Milestones M0–M9 are built and shipped, plus M9d2, M9d3, M9h, M13 and the first
+half of M8i (reasoning stripped out of replies). **M14 — the NERVIS Bridge — was
+signed off on 29 Aug**; 0.10.x and 0.11.x were its follow-through: sending the
+session and trace RAVIS joins on, giving chat and the agent their own sessions,
+and publishing events to NERVIS with the trace on them.
+
+**Running Clarvis inside the browser editor (code-server) is NERVIS's own M15,
+which NERVIS's plan marks IMPLEMENTED.** The evidence behind it is Clarvis's
+compatibility matrix, whose cells are graded `PASS`, `PASS_WITH_LIMITATION`,
+`FAIL` or `NOT_TESTED` — grades for single checks, not the state of a milestone.
+It stands at 39 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 1 `NOT_TESTED`
+(Bridge teardown under code-server), but nearly all of those cells were run
+against Clarvis 0.0.1 at the end of August; only the multiple-window and rollback
+checks were run later, on 0.12.6. So the matrix describes that early version
+rather than today's. Managing code-server — starting it, serving it through
+NERVIS's own proxy at `/code/`, and installing Clarvis into it — is NERVIS's own
+M14 (the Code tab), which NERVIS's plan also marks IMPLEMENTED; the proxy shipped
+on 9 September 2026.
 
 Rollback — reinstalling a prior `.vsix` over the current one — was proven
 safe for real on 6 September 2026: both the stored provider key and the

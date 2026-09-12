@@ -223,8 +223,8 @@ recognised now; if a request ever produces no button, nothing was handed over.
 **Where it opens, since 10 September 2026.** The editor opens at its usual
 address with the task's folder attached, so its saved keys, history and
 settings are all still there — only which folder is open changes, and only
-because the button was pressed. Clarvis then shows the task and waits for you
-to start it. The offer no longer checks for an open editor window first: each
+because the button was pressed. Clarvis then starts its planning interview with
+the task typed into the first answer, as described above. The offer no longer checks for an open editor window first: each
 task's folder is new, so no window open beforehand could be looking at it.
 One limit: if the editor is set up behind NERVIS's own proxy (off by default),
 the tab opens its configured workspace instead, and you open the task's folder

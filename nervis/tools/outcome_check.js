@@ -18,18 +18,24 @@
 const { loadPage } = require("./page_context.js");
 const vm = require("node:vm");
 
+/* A real Response always has headers, and `live()` reads `x-nervis-relay` from
+ * them since RAVIS reads went through NERVIS on 12 September 2026. These fakes
+ * predate that: without headers every case threw a TypeError before its status
+ * was read, and all seven were recorded as unreachable. */
+const NO_HEADERS = { get: () => null };
+
 /* Each case is a fetch that fails in one specific way. */
 const CASES = [
   { name: "a refusal",        kind: "refused",
-    fetch: async () => ({ ok: false, status: 401, json: async () => ({}) }) },
+    fetch: async () => ({ headers: NO_HEADERS, ok: false, status: 401, json: async () => ({}) }) },
   { name: "a forbidden read", kind: "refused",
-    fetch: async () => ({ ok: false, status: 403, json: async () => ({}) }) },
+    fetch: async () => ({ headers: NO_HEADERS, ok: false, status: 403, json: async () => ({}) }) },
   { name: "a broken service", kind: "failed",
-    fetch: async () => ({ ok: false, status: 503, json: async () => ({}) }) },
+    fetch: async () => ({ headers: NO_HEADERS, ok: false, status: 503, json: async () => ({}) }) },
   { name: "an absent service", kind: "unreachable",
     fetch: async () => { throw new TypeError("fetch failed"); } },
   { name: "a body that is not JSON", kind: "malformed",
-    fetch: async () => ({ ok: true, status: 200,
+    fetch: async () => ({ headers: NO_HEADERS, ok: true, status: 200,
       json: async () => { throw new SyntaxError("Unexpected token <"); } }) },
   { name: "a port that hangs", kind: "slow",
     fetch: async () => { const e = new Error("aborted"); e.name = "AbortError"; throw e; } },
@@ -61,7 +67,7 @@ const seen = new Map();
      blame the service — the service answered. */
   {
     const { context } = loadPage({
-      fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ items: [] }) }),
+      fetchImpl: async () => ({ headers: NO_HEADERS, ok: true, status: 200, json: async () => ({ items: [] }) }),
     });
     await vm.runInContext(
       "live('ravis','/x',async()=>({items:[]}),()=>{throw new Error('no field')})", context);
@@ -76,7 +82,7 @@ const seen = new Map();
   /* And the ordinary case, so a check that reports everything as broken fails. */
   {
     const { context } = loadPage({
-      fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ items: [1] }) }),
+      fetchImpl: async () => ({ headers: NO_HEADERS, ok: true, status: 200, json: async () => ({ items: [1] }) }),
     });
     await vm.runInContext("live('ravis','/x',async()=>({items:[]}),p=>p)", context);
     const outcome = vm.runInContext("OUTCOME.ravis", context);

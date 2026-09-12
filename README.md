@@ -76,12 +76,15 @@ Manager rather than a launcher. Their state is reported instead, because
 "nothing is routing" and "no runtime is running" look identical from the
 dashboard and have very different fixes.
 
-**Ollama is the one exception**, started and stopped alongside the other four
-services. RAVIS's `/v1/embeddings` route needs a local embedding model to
-answer NERVIS chat's own knowledge lookups, which makes it load-bearing for
-chat rather than an optional runtime choice — `nomic-embed-text` is warmed
-once at startup if Ollama is installed, and the launcher says plainly when it
-is not (`brew install ollama && ollama pull nomic-embed-text`).
+**Ollama and code-server are the two exceptions**, each started and stopped
+alongside the three services when it is installed. RAVIS's `/v1/embeddings`
+route needs a local embedding model to answer NERVIS chat's own knowledge
+lookups, which makes Ollama load-bearing for chat rather than an optional
+runtime choice — `nomic-embed-text` is warmed once at startup if Ollama is
+installed, and the launcher says plainly when it is not
+(`brew install ollama && ollama pull nomic-embed-text`). code-server hosts
+Clarvis for NERVIS's Code tab; the launcher prints its address and the command
+that installs Clarvis into it, and says so when code-server is not installed.
 
 Logs are in `.run/`, one file per service, and so are the credentials the
 launcher mints so that nothing has to be pasted anywhere:
@@ -101,8 +104,9 @@ browser is the whole of that section.
 
 Two repositories, not four — see `ECOSYSTEM_RUNBOOK.md` §3 for why. **Clarvis is separate**
 (TypeScript, VS Code extension host, shipped as a `.vsix`). SIRVIS, RAVIS and NERVIS live here
-alongside the protocol package and the template, as separately buildable packages with their own
-entry points and their own databases.
+alongside the protocol package, as separately buildable packages with their own entry points and
+their own databases. The template is no longer one of them: its mock-only snapshot lives outside
+this repository, at `~/Documents/coding/nervis-template/` (see above).
 
 Each application stays authoritative for its own internals. Most importantly:
 

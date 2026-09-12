@@ -1,20 +1,24 @@
-"""The read-only management surface (RAVIS.md §15.1, M18a).
+"""The management surface (RAVIS.md §15.1): M18a's reads and M18b's pool writes.
 
 Every endpoint here answers a question a person is asking while something is
 going wrong: which models can this pool actually use, why was that one excluded,
 what did RAVIS decide for that request, is the provider healthy. That audience
 shapes three rules the code follows throughout.
 
-**Reads, and one write.** `PUT /pools/{pool_key}/members` narrows a pool and
-persists the narrowing to `pools.json`. It arrived with the Pools screen and
-this paragraph went on saying "no endpoint here mutates" -- which is how it also
-shipped without the authorization the sentence promised, so on a non-loopback
-bind an unauthenticated caller could change which models every client routes to.
-It now takes the same guard the credential writes take.
+**Reads, and two writes.** `PUT /pools/{pool_key}/members` narrows a pool and
+persists the narrowing to `pools.json`; `POST /pools/curate` removes every
+narrowing. The first arrived with the Pools screen while this paragraph went on
+saying "no endpoint here mutates" -- which is how it also shipped without the
+authorization the sentence promised, so on a non-loopback bind an
+unauthenticated caller could change which models every client routes to. Both
+now take the guard the credential writes take -- an `admin.` credential, with no
+loopback exception since 4 September 2026 -- and both publish an audit event.
 
-The rest of §15.1's mutation machinery -- `Idempotency-Key` and an audit event
--- is still M18b, and is still not here. That is a real gap and is stated as one
-rather than described as read-only.
+What §15.1 still asks of a mutation and this file does not do is accept
+`Idempotency-Key`. That is a real gap, left out on purpose and recorded in
+STATUS.md, and it is stated as one rather than described away. (Until
+12 September this paragraph also listed the audit event as missing, two weeks
+after it shipped on 29 August.)
 
 **Redacted by construction.** §15.1 requires provider and model results to be
 redacted, so nothing here reads a credential in the first place — an endpoint

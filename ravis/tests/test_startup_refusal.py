@@ -63,7 +63,9 @@ def test_the_refusal_names_the_bind_rather_than_a_missing_piece() -> None:
 
     settings_named = {finding.setting for finding in report.fatal_findings}
     assert settings_named == {"host"}
-    assert any("§16" in finding.message for finding in report.fatal_findings)
+    # It points at runbook §9, which records that nothing is building remote access
+    # yet. Until 12 September 2026 it pointed at a §16 that had been retired.
+    assert any("§9" in finding.message for finding in report.fatal_findings)
 
 
 def test_a_fully_configured_remote_bind_is_refused_too() -> None:
