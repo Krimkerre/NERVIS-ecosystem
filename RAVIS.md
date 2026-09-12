@@ -1096,7 +1096,9 @@ provider-specific billable usage.
 **Usage records** capture input/output/cached/reasoning tokens where providers report them,
 latency, provider and model, currency, price-source version and time, estimated-versus-billed
 status, and route/session/request IDs. **Unknown usage or cost stays unknown. Never present an
-estimated cost as an invoice.**
+estimated cost as an invoice.** They are kept in RAVIS's database for ninety days and read back at
+start (since 12 September 2026): held only in memory, every restart emptied the spend screen and
+the monthly budget with it. A record carries no prompt and no completion.
 
 **Budgets:** daily, weekly, monthly, per application, per provider. Budget constraints use
 declared accounting semantics and fail predictably when a price is unavailable.

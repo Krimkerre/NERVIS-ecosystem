@@ -248,9 +248,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # the refresh that already runs -- see `_restate_prices`, which is the
     # wiring that makes that true; until 9 September 2026 this comment
     # described an intention rather than the code, and every figure on the
-    # spend screen was as old as the process. The ledger is bounded and in
-    # memory, like the
-    # decision log, because neither is anybody's accounting system and §14 is
+    # spend screen was as old as the process. The ledger is persisted, since 12
+    # September 2026: in memory, every restart emptied the spend screen and the
+    # monthly budget with it. It is still nobody's accounting system, and §14 is
     # explicit that RAVIS never presents an estimate as an invoice.
     api.state.prices = PriceBook()
     # Operator-stated prices, loaded before any catalogue fills the book so the
@@ -260,7 +260,7 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # unknown as unspent.
     for model, price in load_prices().items():
         api.state.prices.state(model, price)
-    api.state.usage_ledger = UsageLedger()
+    api.state.usage_ledger = UsageLedger(database=api.state.database)
     # §14's budget, when one is configured. `None` means unlimited, which is
     # not the same as a limit of zero and must not route as one.
     api.state.budget = budget_from(settings)

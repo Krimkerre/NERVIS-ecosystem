@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2884 tests, no network, no live service
+.venv/bin/pytest                      # part of 2889 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 486 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1203 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1207 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2884 passing across the four, conformance `PASS`.
+Expected: all clean, 2889 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the

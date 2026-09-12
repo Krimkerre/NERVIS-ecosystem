@@ -356,6 +356,15 @@ only symptom was RAVIS's spend sitting below the provider's own figures. Since
 10 September 2026 the reader keeps the tail of an unfinished frame and joins it
 to the next chunk. The bytes sent to the client are untouched either way.
 
+**The spend screen used to forget everything when RAVIS restarted.** Usage
+records were kept only in memory, so every restart emptied the list, the
+day's total and the monthly budget along with them — a restart was enough to
+make a month's spending read as none. Since 12 September 2026 RAVIS writes each
+record to its own database and reads the recent ones back when it starts. A
+record holds no prompt and no reply, only which model, which app, the token
+counts and the estimated cost. Records older than ninety days are dropped; the
+budget only looks back thirty.
+
 **How often any of this updates, which was worse than it looked.** Until
 9 September 2026 the answer was *never*: prices were read from the file once,
 at startup, and OpenRouter's published rates — the only machine-readable

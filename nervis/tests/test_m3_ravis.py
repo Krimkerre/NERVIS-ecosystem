@@ -301,6 +301,20 @@ def test_the_index_says_what_is_readable_without_reading_any_of_it() -> None:
         assert surface["reason"], f"{surface['key']} is unusable and says nothing"
 
 
+def test_the_relay_reads_only_what_the_dashboard_may_read() -> None:
+    """The page's reads of RAVIS travel through NERVIS since 12 September 2026. A dead
+    RAVIS is marked for the page; the gateway itself is never relayed."""
+    with an_api() as client:
+        dead = client.get("/api/v1/relay/ravis/api/v1/usage")
+        gateway = client.get("/api/v1/relay/ravis/v1/chat/completions")
+        written = client.post("/api/v1/relay/ravis/api/v1/pools/curate")
+
+    assert dead.headers.get("x-nervis-relay") == "unreachable"
+    assert dead.status_code in (502, 503)
+    assert gateway.status_code == 404
+    assert written.status_code == 405, "read-only: no other verb is registered"
+
+
 def test_an_unknown_surface_lists_the_known_ones() -> None:
     """A 404 that names the alternatives ends the question where it was asked."""
     with an_api() as client:

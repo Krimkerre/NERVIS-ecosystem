@@ -23,7 +23,7 @@ from typing import Any
 
 from ecosystem_protocol import wire_identifier
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from nervis import documents, workspace
 from nervis.api.control import require_control
@@ -412,6 +412,38 @@ async def upload_to_workspace(name: str, request: Request) -> Any:
             "readable": documents.readable_name(stored.shown),
         }
     }
+
+
+_RELAY_ROOT = "/api/v1/relay/ravis/"
+
+
+@router.get("/relay/ravis/{path:path}")
+async def relay_ravis_read(path: str, request: Request) -> Response:
+    """The dashboard's reads of RAVIS, carried with NERVIS's credential.
+
+    See `ravis_peer.relay_read` for why. Read-only by construction: GET is the only
+    verb registered, and only RAVIS's management and ecosystem paths are forwarded.
+
+    **The raw path is what travels.** The path parameter arrives percent-decoded, so a
+    pool key the page encoded would reach RAVIS as extra path segments; the check runs
+    on the decoded form, which is the one a `..` would climb with.
+    """
+    if not ravis_peer.relayable(path):
+        raise NotFoundError(
+            f"NERVIS does not relay the RAVIS path {path!r}",
+            known=list(ravis_peer.RELAYED_PREFIXES),
+        )
+    raw = bytes(request.scope.get("raw_path") or b"").decode("latin-1")
+    forwarded = raw[len(_RELAY_ROOT):] if raw.startswith(_RELAY_ROOT) else path
+    status, body, media_type, failure = await ravis_peer.relay_read(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        forwarded,
+        request.url.query,
+        peer_credential(request, "ravis"),
+    )
+    headers = {"x-nervis-relay": failure} if failure else None
+    return Response(body, status_code=status, media_type=media_type, headers=headers)
 
 
 @router.put("/ravis/credentials/{name}", dependencies=[Depends(require_control)])

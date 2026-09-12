@@ -13,6 +13,7 @@ the table of what exists.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping
 
 import httpx
@@ -206,3 +207,59 @@ async def _credential_call(
         return answered.status_code, dict(answered.json())
     except ValueError:
         return answered.status_code, {"message": answered.text[:200]}
+
+
+# What the dashboard may read of RAVIS through NERVIS: the management reads and the
+# ecosystem surface. Never `/v1`, the gateway itself — relaying a completion would spend
+# NERVIS's allowance on a conversation that is not NERVIS's.
+RELAYED_PREFIXES = ("api/v1/", "ecosystem/")
+# Longer than the page waits for most reads, so the page's own deadline decides what
+# counts as slow, and short enough that a stalled RAVIS does not pile requests up here.
+RELAY_TIMEOUT_SECONDS = 5.0
+
+
+def relayable(path: str) -> bool:
+    """Whether a page may read this RAVIS path through NERVIS: a relayed prefix, and no
+    segment that is empty or climbs out of it."""
+    return (
+        path.startswith(RELAYED_PREFIXES)
+        and "\\" not in path
+        and all(segment not in ("", ".", "..") for segment in path.split("/"))
+    )
+
+
+async def relay_read(
+    client: httpx.AsyncClient,
+    entry: RegistryEntry | None,
+    path: str,
+    query: str,
+    credential: str,
+) -> tuple[int, bytes, str, str]:
+    """One read of RAVIS for the dashboard, answered exactly as RAVIS answered it.
+
+    **Why the page stopped reading RAVIS itself.** Measured 12 September 2026: the
+    overview alone made about twenty-seven reads of RAVIS a minute, all anonymous, and
+    RAVIS gives every anonymous caller on this machine one allowance of sixty a minute
+    between them — every open tab and any script included. Nothing had been refused yet;
+    two tabs and one more caller would have been enough. Through NERVIS the reads carry
+    NERVIS's own client credential, and the browser still holds no secret.
+
+    Returns `(status, body, media type, failure)`. `failure` is empty whenever RAVIS
+    answered, and whatever it answered — a refusal included — passes through untouched,
+    because the page tells a refusal from an outage by the status. When RAVIS did not
+    answer, `failure` says how, `unreachable` (502) or `slow` (504), and the page turns
+    that back into the outcome it shows for a service that is not there.
+    """
+    if entry is None or not entry.declaration.base_url:
+        return 503, b'{"message": "RAVIS is not registered"}', "application/json", "unreachable"
+    url = f"{entry.declaration.base_url}/{path}" + (f"?{query}" if query else "")
+    headers = {"authorization": f"Bearer {credential}"} if credential else {}
+    try:
+        answered = await client.get(url, headers=headers, timeout=RELAY_TIMEOUT_SECONDS)
+    except httpx.TimeoutException:
+        return 504, b'{"message": "RAVIS did not answer in time"}', "application/json", "slow"
+    except httpx.HTTPError as failure:
+        said = json.dumps({"message": f"RAVIS did not answer: {type(failure).__name__}"})
+        return 502, said.encode(), "application/json", "unreachable"
+    media_type = answered.headers.get("content-type", "application/json")
+    return answered.status_code, answered.content, media_type, ""

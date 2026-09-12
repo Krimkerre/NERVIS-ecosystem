@@ -277,6 +277,17 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
+As of 12 September 2026: the dashboard no longer reads RAVIS straight from the
+browser. Every open tab used to share RAVIS's one anonymous allowance of sixty
+requests a minute with any other program on the machine, and the overview
+alone used about twenty-seven; its reads now go through NERVIS, which presents
+its own RAVIS credential and hands RAVIS's answer back unchanged. Reads only,
+and never RAVIS's chat gateway. The same day RAVIS started keeping its usage
+records across restarts, so the spend screen and the monthly budget no longer
+fall back to zero whenever the stack restarts, and started checking for itself
+which hosted models can use tools instead of waiting for the operator to
+declare them.
+
 As of 6 September 2026: chat's own background retrieval, described above,
 went live the same day — before it, a paraphrase sharing no vocabulary with
 these notes found nothing at all, which is the bug that made this section

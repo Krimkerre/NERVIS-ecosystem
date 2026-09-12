@@ -1965,6 +1965,12 @@ async function live(service,path,mock,adapt){
   try{
    const response=await fetch(BASE[service]+path,{signal:stop.signal});
    status=response.status;
+   /* Through NERVIS's relay, a RAVIS that did not answer arrives as NERVIS's 502 or
+      504 with a marker. Turned back into the failure it is, so the card says the
+      service did not answer rather than that it answered HTTP 502. */
+   const relayed=response.headers.get('x-nervis-relay');
+   if(relayed==='slow'){const late=new Error('RAVIS was slow to answer NERVIS');late.name='AbortError';throw late}
+   if(relayed)throw new TypeError('RAVIS did not answer NERVIS');
    if(!response.ok){refusedWith=response.status;throw new Error('HTTP '+response.status)}
    payload=await response.json();
   }finally{clearTimeout(timer)}
@@ -2176,8 +2182,17 @@ async function _workspaceDid(response){
 }
 
 function control_headers(){return{'content-type':'application/json','x-nervis-control':CONTROL_TOKEN}}
-const BASE={sirvis:'http://127.0.0.1:8721',ravis:'http://127.0.0.1:8731',
+/* RAVIS is read through NERVIS rather than dialled from the page, since 12 September
+   2026. Measured that day: the overview alone read RAVIS about twenty-seven times a
+   minute, anonymously, and RAVIS gives every anonymous caller on the machine one
+   allowance of sixty a minute between them — every open tab and any script included.
+   Through NERVIS the reads carry NERVIS's own credential, and this page still holds no
+   secret. `RAVIS_ADDRESS` is where RAVIS listens, for the places that show an address
+   rather than dial one. */
+const RAVIS_ADDRESS='http://127.0.0.1:8731';
+const BASE={sirvis:'http://127.0.0.1:8721',ravis:'/api/v1/relay/ravis',
             nervis:'',clarvis:'http://127.0.0.1:7071'};
+const ADDRESS={...BASE,ravis:RAVIS_ADDRESS};
 
 /* Live SIRVIS, or null when it is not there.
 
@@ -3684,7 +3699,7 @@ const API={
   /* GET /api/v1/settings — every value here is a real switch in the built product,
      and several are safety boundaries rather than preferences. */
   async settings(){return{
-   services:[['RAVIS',BASE.ravis,'nervis_managed'],['SIRVIS',BASE.sirvis,'external'],
+   services:[['RAVIS',RAVIS_ADDRESS,'nervis_managed'],['SIRVIS',BASE.sirvis,'external'],
              ['Clarvis Bridge',BASE.clarvis,'external'],['code-server','http://127.0.0.1:8080','user_managed']],
    privacy:{content_logging:false,payload_capture:false,diagnostics_route:'local only',
             redact_paths:true,redact_prompts:true},
@@ -7413,7 +7428,7 @@ async function settingsView(){
  const liveCard=`<div class="card full${liveClass(configObserved)}"><h3>What NERVIS is configured with <span class="chip">${answeredChip(configObserved)}</span></h3>${cell(`
    ${['ravis','sirvis','clarvis'].map((k,n)=>{
      const d=n<2?peers[n]:null;
-     return `<div class="trace-step"><b>${escapeHtml(k.toUpperCase())}</b><span class="mono" style="opacity:.85">${escapeHtml(BASE[k])} · ${
+     return `<div class="trace-step"><b>${escapeHtml(k.toUpperCase())}</b><span class="mono" style="opacity:.85">${escapeHtml(ADDRESS[k])} · ${
        n<2?peerAnswerNote(d,registry,k):'no MEP surface — the optional bridge'}</span></div>`;}).join('')}
    <div class="trace-step"><b>NERVIS</b><span class="mono" style="opacity:.85">${escapeHtml(location.origin)} · serving this page</span></div>
    <div class="trace-step"><b>stored settings</b><span>${STORED_SETTINGS==null?'<span class="chip warn">NERVIS not answering</span>':STORED_SETTINGS+' in the NERVIS database'}</span></div>
@@ -10292,7 +10307,7 @@ async function ravisSettings(){
     as two decisions against the complexity ratchet. */
  const ravisObserved=[sHealth,sProv,sDiag].some(Boolean);
  const liveCard=`<div class="card full${liveClass(ravisObserved)}"><h3>How RAVIS is running <span class="chip">${answeredChip(ravisObserved)}</span></h3>${cell(`
-   <div class="trace-step"><b>reached at</b><span class="mono">${escapeHtml(BASE.ravis)}</span></div>
+   <div class="trace-step"><b>reached at</b><span class="mono">${escapeHtml(RAVIS_ADDRESS)} · through NERVIS</span></div>
    ${sDiag&&sDiag.identity?`<div class="trace-step"><b>identity</b><span class="mono">${escapeHtml(sDiag.identity.service_id||'')} · build ${escapeHtml(dash(sDiag.identity.build_version))}</span></div>`:''}
    <div class="trace-step"><b>upstream</b><span>${sHealth?(sHealth.upstream_reachable?'<span class="chip">answering</span>':'<span class="chip warn">not answering</span>'):'—'}${sHealth?` <span class="mono dim">${escapeHtml(sHealth.models_known)} model(s) visible</span>`:''}</span></div>
    ${(sProv||[]).map(p=>`<div class="trace-step"><b>${escapeHtml(p.name)}</b><span class="mono" style="opacity:.8">${escapeHtml(p.enabled?'enabled':'disabled')} · ${p.credential_configured?escapeHtml(p.credential_source):'no credential'} · ${escapeHtml(p.reachable===null?'not probed':(p.reachable?'answering':'not answering'))}</span></div>`).join('')}
@@ -10313,7 +10328,7 @@ async function ravisSettings(){
       contradicted. What the dashboard does know first-hand is the address it
       dials, so the tile now names whose fact it is. Still false on the last
       argument: nothing was read for this. */
-   ['Base address',BASE.ravis.replace(/^https?:\/\//,''),'where this page reaches RAVIS · not a setting RAVIS publishes','ravis',false]])
+   ['Base address',RAVIS_ADDRESS.replace(/^https?:\/\//,''),'where NERVIS reaches RAVIS for this page · not a setting RAVIS publishes','ravis',false]])
  +`<div class="card full"><h3>What a client can change</h3>${cell(`
    <div class="trace-step"><b>provider credentials</b><span class="mono">PUT · DELETE /api/v1/providers/credentials/{name}</span></div>
    <div class="trace-step"><b>provider enable/disable</b><span class="mono">PUT /api/v1/providers/{name}/enabled</span></div>
@@ -10329,9 +10344,9 @@ async function ravisSettings(){
    <div class="trace-step" style="margin-top:10px"><b>request features</b><span>${escapeHtml(s.serving.supported.length)} supported</span></div>
    <small class="mono dim" style="opacity:.8">${escapeHtml(s.serving.supported.join(' · '))}</small>
    <small class="mono dim">${escapeHtml(s.serving.note)}. Errors are <b>${escapeHtml(s.serving.error_shape)}</b> — a client parses the OpenAI shape, so the management envelope must not leak onto <b>/v1</b>.</small>`,'ravis')}</div>
-  <div class="card full"><h3>Listen address <span class="chip${warnUnless(BASE.ravis.startsWith('https'))}">${escapeHtml(BASE.ravis.startsWith('https')?'tls':'no tls on this address')}</span></h3>${cell(`
+  <div class="card full"><h3>Listen address <span class="chip${warnUnless(RAVIS_ADDRESS.startsWith('https'))}">${escapeHtml(RAVIS_ADDRESS.startsWith('https')?'tls':'no tls on this address')}</span></h3>${cell(`
    <div class="table-row head six"><span>Surface</span><span style="grid-column:2/4">Address</span><span style="grid-column:4/-1">Who talks to it</span></div>
-   ${s.listen.surfaces.map(([path,what,who])=>`<div class="table-row six"><span>${escapeHtml(what)}</span><span class="mono" style="grid-column:2/4">${escapeHtml(BASE.ravis)}${escapeHtml(path)}</span><span style="grid-column:4/-1;opacity:.75">${escapeHtml(who)}</span></div>`).join('')}
+   ${s.listen.surfaces.map(([path,what,who])=>`<div class="table-row six"><span>${escapeHtml(what)}</span><span class="mono" style="grid-column:2/4">${escapeHtml(RAVIS_ADDRESS)}${escapeHtml(path)}</span><span style="grid-column:4/-1;opacity:.75">${escapeHtml(who)}</span></div>`).join('')}
    <div class="trace-step" style="margin-top:11px"><b>what RAVIS was started with</b><span>not published — nothing serves the settings document, so the host it bound, the port it was given and whether it answers anywhere other than this address are not readable from here</span></div>
    <small class="mono dim">all three surfaces share one port, so they move together. There is no endpoint to change this and that is structural rather than an omission: rebinding the socket a request arrived on would drop that request. It is set at start and changed by restarting.<br>${escapeHtml(s.listen.note)}.<br>a runtime version of this is written up as <b>PROPOSED</b> in RAVIS.md §15.1.1, with the six questions that block it — response ordering, in-flight streams, rollback when the new bind fails, propagation to the clients holding the old address, ownership, and its own permission. It is not in the agreed mutation list, so nothing here writes it.</small>`,'ravis')}</div>
   <div class="card wide"><h3>What breaks if the port changes</h3>${cell(`

@@ -13,6 +13,8 @@ success.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -82,6 +84,58 @@ async def test_no_credential_is_refused_here_rather_than_sent_unauthenticated() 
     assert status == 403
     assert "admin credential" in body["message"]
     assert not called, "nothing should have been sent upstream"
+
+
+@pytest.mark.asyncio()
+async def test_a_dashboard_read_carries_nervis_s_credential_and_ravis_s_answer_untouched() -> None:
+    """Found 12 September 2026: the page read RAVIS itself, anonymously, sharing one
+    allowance of sixty a minute with every other tab and script. Through NERVIS the read
+    is named, and what RAVIS answered — a refusal included — reaches the page as it was.
+    """
+    seen: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(429, json={"error": {"code": "rate_limited"}})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    status, body, media_type, failure = await ravis_peer.relay_read(
+        client, _Entry(), "api/v1/route-decisions", "limit=200", "client.nervis"
+    )
+
+    assert (status, failure) == (429, "")
+    assert json.loads(body) == {"error": {"code": "rate_limited"}}
+    assert media_type.startswith("application/json")
+    assert seen[0].headers["authorization"] == "Bearer client.nervis"
+    assert str(seen[0].url) == "http://ravis.invalid/api/v1/route-decisions?limit=200"
+
+
+@pytest.mark.asyncio()
+async def test_a_ravis_that_does_not_answer_is_marked_for_the_page() -> None:
+    """The marker is what lets the page say "did not answer" rather than "answered 502"."""
+
+    async def refuse(_: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    async def stall(_: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow")
+
+    for handler, expected in ((refuse, (502, "unreachable")), (stall, (504, "slow"))):
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        status, _, _, failure = await ravis_peer.relay_read(
+            client, _Entry(), "api/v1/usage", "", "client.nervis"
+        )
+        assert (status, failure) == expected
+    status, _, _, failure = await ravis_peer.relay_read(client, None, "api/v1/usage", "", "")
+    assert (status, failure) == (503, "unreachable")
+
+
+def test_only_management_and_ecosystem_paths_are_relayable() -> None:
+    assert ravis_peer.relayable("api/v1/pools/clarvis-agent/members")
+    assert ravis_peer.relayable("ecosystem/capabilities")
+    assert not ravis_peer.relayable("v1/chat/completions"), "never the gateway itself"
+    assert not ravis_peer.relayable("api/v1/../../v1/models")
+    assert not ravis_peer.relayable("api/v1//usage")
 
 
 @pytest.mark.asyncio()

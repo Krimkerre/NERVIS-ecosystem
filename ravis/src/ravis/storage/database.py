@@ -115,6 +115,39 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        7,
+        "usage records, per RAVIS.md §14 and §17, kept across restarts",
+        """
+        -- One row per completed call, as `cost.UsageRecord` holds it. Kept here because
+        -- a ledger in memory emptied the spend screen, and the monthly budget with it,
+        -- on every restart. Token counts are nullable on purpose: an unreported count
+        -- stays unknown rather than becoming zero (§14). No prompt, no completion.
+        CREATE TABLE IF NOT EXISTS usage_record (
+            at                  REAL NOT NULL,
+            model               TEXT NOT NULL,
+            provider            TEXT NOT NULL,
+            application_id      TEXT NOT NULL,
+            input_tokens        INTEGER,
+            output_tokens       INTEGER,
+            cached_input_tokens INTEGER,
+            reasoning_tokens    INTEGER,
+            reported_cost       REAL,
+            cost                REAL,
+            cost_state          TEXT NOT NULL,
+            currency            TEXT,
+            price_source        TEXT NOT NULL DEFAULT '',
+            price_captured_at   REAL NOT NULL DEFAULT 0,
+            latency_ms          REAL,
+            request_id          TEXT NOT NULL DEFAULT '',
+            session_id          TEXT NOT NULL DEFAULT '',
+            decision_id         TEXT NOT NULL DEFAULT '',
+            pool                TEXT NOT NULL DEFAULT ''
+        );
+        -- Retention and every "since" read order by time.
+        CREATE INDEX IF NOT EXISTS usage_record_at ON usage_record (at);
+        """,
+    ),
 ]
 
 

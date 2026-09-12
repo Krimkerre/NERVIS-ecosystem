@@ -38,6 +38,7 @@ from ravis.cost import (
     load_prices,
     price_from_book,
 )
+from ravis.storage.database import prepare_database
 
 
 class Clock:
@@ -674,6 +675,32 @@ def test_a_single_currency_ledger_reports_that_currency() -> None:
 
     assert ledger.currencies() == {"EUR"}
     assert (total, priced) == (3.0, 2)
+
+
+def test_the_ledger_is_read_back_after_a_restart_and_forgets_past_retention() -> None:
+    """Found 12 September 2026: every restart emptied the spend screen, and the
+    monthly budget with it, because the ledger lived only in memory."""
+    database = prepare_database(":memory:")
+    now = [1_000_000.0]
+    before = UsageLedger(database=database, clock=lambda: now[0])
+    before.record(UsageRecord(model="old", provider="p", application_id="a", cost=5.0,
+                              currency="USD", cost_state=CostState.ESTIMATED))
+    now[0] += 100 * 86400.0
+    counts = Usage(input_tokens=500, output_tokens=40, cached_input_tokens=100)
+    before.record(UsageRecord(model="priced", provider="anthropic", application_id="clarvis",
+                              usage=counts, cost=0.0038, currency="USD",
+                              cost_state=CostState.ESTIMATED, price_source="operator",
+                              latency_ms=812.0, pool="ravis/clarvis-agent"))
+    before.record(UsageRecord(model="unpriced", provider="openrouter", application_id="nervis"))
+
+    after = UsageLedger(database=database, clock=lambda: now[0])
+
+    assert [record.model for record in after.recent()] == ["unpriced", "priced"], (
+        "newest first, and the record a hundred days old is past retention"
+    )
+    assert after.recent()[1] == before.recent()[1], "every field survives the round trip"
+    assert after.recent()[0].usage is None and after.recent()[0].cost is None
+    assert after.spend() == (0.0038, 1, 1)
 
 
 def test_an_unpriced_record_does_not_claim_a_currency() -> None:

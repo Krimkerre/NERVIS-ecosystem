@@ -34,6 +34,7 @@ from typing import Any
 
 from ravis.core.responses import Usage
 from ravis.credentials import config_directory
+from ravis.storage.database import Database
 
 # Prices are published per token and are unreadable at that scale — OpenRouter
 # ships `"0.0000004"` — so everything here is per million tokens.
@@ -309,27 +310,61 @@ class PriceBook:
         return len(self._prices)
 
 
+# How long a usage record is kept on disk. The monthly budget reads thirty days back
+# (`PERIOD_SECONDS`), so a record has to outlive that; ninety leaves a quarter to look
+# back over and keeps the table from growing without end.
+USAGE_RETENTION_SECONDS = 90 * 24 * 3600.0
+
+
 class UsageLedger:
     """What RAVIS has spent, as far as it can tell.
 
-    Bounded and in memory, like the decision log and for the same reason: these
-    are diagnostic rather than business state, and §17's storage model is not
-    the authority on anybody's bill. **A budget computed from this is a budget
-    computed from what RAVIS observed**, which is the only thing it can honestly
-    offer and is stated wherever the figure is shown.
+    **Persisted when given a database, since 12 September 2026.** It was bounded and
+    in memory, like the decision log, on the reasoning that usage is diagnostic rather
+    than business state. Every restart then emptied the spend screen, and the monthly
+    budget with it: a restart was enough to make a month's spending read as none. §17's
+    storage model already lists `UsageRecord`. Memory stays the working set, bounded as
+    before; the database is what a restart reads it back from. A record carries no
+    prompt and no completion, so storing it stores neither.
+
+    **A budget computed from this is a budget computed from what RAVIS observed**,
+    which is the only thing it can honestly offer and is stated wherever the figure is
+    shown.
     """
 
-    def __init__(self, capacity: int = 5_000, clock: Any = time.time) -> None:
-        self._records: list[UsageRecord] = []
+    def __init__(
+        self,
+        capacity: int = 5_000,
+        clock: Any = time.time,
+        database: Database | None = None,
+        retention_seconds: float = USAGE_RETENTION_SECONDS,
+    ) -> None:
         self._capacity = capacity
         self._clock = clock
+        self._database = database
+        self._records: list[UsageRecord] = (
+            self._reload(database, retention_seconds) if database is not None else []
+        )
 
     def record(self, entry: UsageRecord) -> UsageRecord:
         stamped = entry if entry.at else _stamped(entry, self._clock())
         self._records.append(stamped)
         if len(self._records) > self._capacity:
             del self._records[: len(self._records) - self._capacity]
+        if self._database is not None:
+            self._database.connection.execute(_INSERT_USAGE, _usage_row(stamped))
         return stamped
+
+    def _reload(self, database: Database, retention_seconds: float) -> list[UsageRecord]:
+        """The newest records inside retention, oldest first; older rows are dropped."""
+        connection = database.connection
+        cutoff = self._clock() - retention_seconds
+        connection.execute("DELETE FROM usage_record WHERE at < ?", (cutoff,))
+        rows = connection.execute(
+            "SELECT * FROM usage_record ORDER BY at DESC, rowid DESC LIMIT ?",
+            (self._capacity,),
+        ).fetchall()
+        return [_usage_from_row(row) for row in reversed(rows)]
 
     def recent(self, limit: int = 100) -> list[UsageRecord]:
         return list(reversed(self._records[-limit:]))
@@ -381,6 +416,62 @@ class UsageLedger:
 def _stamped(entry: UsageRecord, now: float) -> UsageRecord:
     """`entry` with a timestamp, since the record is frozen."""
     return replace(entry, at=now)
+
+
+_INSERT_USAGE = (
+    "INSERT INTO usage_record (at, model, provider, application_id, input_tokens,"
+    " output_tokens, cached_input_tokens, reasoning_tokens, reported_cost, cost,"
+    " cost_state, currency, price_source, price_captured_at, latency_ms, request_id,"
+    " session_id, decision_id, pool) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+    " ?, ?, ?, ?)"
+)
+
+
+def _usage_row(record: UsageRecord) -> tuple[Any, ...]:
+    """One record as a `usage_record` row, in `_INSERT_USAGE`'s column order."""
+    usage = record.usage
+    counts = (
+        (usage.input_tokens, usage.output_tokens, usage.cached_input_tokens,
+         usage.reasoning_tokens, usage.reported_cost)
+        if usage is not None
+        else (None, None, None, None, None)
+    )
+    return (
+        record.at, record.model, record.provider, record.application_id, *counts,
+        record.cost, record.cost_state.value, record.currency, record.price_source,
+        record.price_captured_at, record.latency_ms, record.request_id,
+        record.session_id, record.decision_id, record.pool,
+    )
+
+
+def _usage_from_row(row: Any) -> UsageRecord:
+    """A stored row as the record it was.
+
+    `usage` comes back None where every count was unreported, which is how an empty
+    `Usage` and no `Usage` already read everywhere a record is shown.
+    """
+    counts = {
+        name: row[name]
+        for name in ("input_tokens", "output_tokens", "cached_input_tokens",
+                     "reasoning_tokens", "reported_cost")
+    }
+    return UsageRecord(
+        model=row["model"],
+        provider=row["provider"],
+        application_id=row["application_id"],
+        usage=Usage(**counts) if any(value is not None for value in counts.values()) else None,
+        cost=row["cost"],
+        cost_state=CostState(row["cost_state"]),
+        currency=row["currency"],
+        price_source=row["price_source"],
+        price_captured_at=row["price_captured_at"],
+        latency_ms=row["latency_ms"],
+        request_id=row["request_id"],
+        session_id=row["session_id"],
+        decision_id=row["decision_id"],
+        pool=row["pool"],
+        at=row["at"],
+    )
 
 
 # ── Budgets (§14) ───────────────────────────────────────────────────────────

@@ -477,6 +477,14 @@ NERVIS consumes RAVIS management APIs for providers, models, profiles, routing, 
 costs, health and route explanations — and RAVIS's OpenAI-compatible API for chat. It never
 reads RAVIS's database.
 
+**The dashboard reads RAVIS through NERVIS** (since 12 September 2026), at
+`/api/v1/relay/ravis/{path}`: GET only, RAVIS's `/api/v1/` and `/ecosystem/` paths only, never
+the `/v1` gateway. NERVIS presents its own client credential and returns RAVIS's status and body
+unchanged; a RAVIS that did not answer comes back as 502 or 504 marked `x-nervis-relay`, which the
+page shows as unreachable or slow. Read directly, every open tab shared RAVIS's one anonymous
+allowance of sixty requests a minute with any other local caller, and the overview alone used
+about twenty-seven. The browser holds no RAVIS credential either way.
+
 The RAVIS diagnostics view exposes virtual pool, actual model, execution path, **transparent vs
 translated**, route reason, fallback, latency, cost and SIRVIS evidence.
 
