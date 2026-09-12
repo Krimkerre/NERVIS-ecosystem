@@ -111,8 +111,13 @@ class SystemSample:
 def sample_system(*, processes: int = TOP_PROCESSES) -> SystemSample:
     """One reading, taken now.
 
-    Nothing here blocks: every call is a read of something the kernel already
-    maintains. That is what makes it safe to take on every dashboard poll.
+    Cheap, but not free, and it does block. The process scan walks every
+    process, and on macOS the thermal state is an `osascript` call — tens of
+    milliseconds, up to `THERMAL_TIMEOUT_SECONDS` when it wedges. This docstring
+    used to say nothing here blocks, and the route believed it: taken inside
+    the event loop, a sample made every other NERVIS read wait behind it, which
+    the load test measured on 12 September 2026 as `health` going from 3.9 ms to
+    203.6 ms with ten readers. The route takes it in a worker thread.
     """
     memory = _memory()
     swap = _swap()

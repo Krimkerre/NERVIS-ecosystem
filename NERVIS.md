@@ -250,11 +250,15 @@ output, credentials and machine details are redacted by default.
 NERVIS owns **general system and dashboard telemetry**: CPU, GPU where measurable, RAM, swap,
 disk, network, thermal state, and per-process memory, CPU and PID where practical.
 
-**Measured 12 September 2026: reading it stalls NERVIS.** `read_system` calls `sample_system()`
-— a scan of every process plus an `osascript` thermal query — straight from an `async` route, so
-NERVIS answers nothing else while it runs. With ten readers at once, `/api/v1/health` took 3.9 ms
-at the median on its own and 203.6 ms interleaved with `/api/v1/system`, which the System screen
-reads whenever it draws. Not fixed yet.
+**Taken in a worker thread since 0.25.1.** `read_system` used to call `sample_system()` — a scan
+of every process plus an `osascript` thermal query — straight from an `async` route, so NERVIS
+answered nothing else while it ran: on 12 September 2026, with ten readers at once,
+`/api/v1/health` took 3.9 ms at the median on its own and 203.6 ms interleaved with
+`/api/v1/system`. Live after the fix: 11.0 ms interleaved, and 4.9 ms at the median (20.3 ms at
+P95) beside one System screen redrawing without pause. What remains is the process scan holding
+Python's interpreter lock inside its thread, which adds up only when samples overlap: fifty
+callers mixing every dashboard read put `health` at 159 ms, against 19.7 ms for health alone.
+Overlapping samples are not merged — one System screen is the case that occurs, and it is fine.
 
 ```text
 RAVIS 182 MB · SIRVIS 294 MB · NERVIS 165 MB · code-server 812 MB · LM Studio 38.4 GB

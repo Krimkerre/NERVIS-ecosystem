@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncIterator
 
 import httpx
@@ -446,6 +449,42 @@ def test_two_samples_are_two_readings(settings: Settings) -> None:
     second = client.get("/api/v1/system").json()
 
     assert second["sampled_at"] >= first["sampled_at"]
+
+
+def test_a_slow_system_sample_does_not_stall_other_reads(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reading that takes its time holds up only the screen that asked for it.
+
+    Measured by `tools/load_test.py` on 12 September 2026: the sample's process
+    scan and `osascript` thermal query ran inside the event loop, so with ten
+    readers at once `health` went from 3.9 ms to 203.6 ms interleaved with
+    `system`, and every dashboard read waited behind the System screen.
+
+    One lifespan-scoped client, so both requests share one event loop — separate
+    clients would each get their own and could never block each other.
+    """
+    from nervis.api import routes
+    from nervis.telemetry import sample_system
+
+    sampling = threading.Event()
+
+    def slow_sample(**kwargs: Any) -> Any:
+        sampling.set()
+        time.sleep(1.0)
+        return sample_system(**kwargs)
+
+    monkeypatch.setattr(routes, "sample_system", slow_sample)
+    with TestClient(create_app(settings)) as client, ThreadPoolExecutor(max_workers=1) as pool:
+        system = pool.submit(client.get, "/api/v1/system")
+        assert sampling.wait(timeout=5), "the system read never started sampling"
+        began = time.monotonic()
+        health = client.get("/api/v1/health")
+        waited = time.monotonic() - began
+
+        assert health.status_code == 200
+        assert waited < 0.5, f"health waited {waited:.2f} s behind a slow system sample"
+        assert system.result(timeout=10).status_code == 200
 
 
 def test_the_identifying_fields_are_labelled_and_redactable(settings: Settings) -> None:

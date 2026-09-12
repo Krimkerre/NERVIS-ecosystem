@@ -698,11 +698,13 @@ instance is not built" for a day after it was, and chat repeated it. What NERVIS
 publishes about itself is current by construction; a written summary of it is
 only as fresh as the last person to edit it.
 
-**The System screen slows the rest of the dashboard while it loads.** Reading this
-machine's load means listing every process and asking macOS for the thermal state,
-and NERVIS waits for both before it answers anything else. Measured on 12 September
-2026 with ten reads at once: other dashboard reads went from about 4 ms to about
-200 ms. Not fixed yet.
+**The System screen no longer holds up the rest of the dashboard** (fixed in NERVIS
+0.25.1, 12 September 2026). Reading this machine's load lists every process and asks
+macOS for the thermal state. NERVIS used to wait for both before answering anything
+else, which took other dashboard reads from about 4 ms to about 200 ms; it now does
+that work on the side. With the System screen open and redrawing, other reads take
+about 5 ms. Several browser tabs reading the System screen at the same moment can
+still slow other reads somewhat.
 
 **Unavailable rarely means "cannot".** It usually means *not on this machine*:
 supervision is built, and it reads unavailable here because nothing has been

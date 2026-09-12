@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2906 tests, no network, no live service
+.venv/bin/pytest                      # part of 2907 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -34,13 +34,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 499 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1210 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1211 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2906 passing across the four, conformance `PASS`.
+Expected: all clean, 2907 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -18401,7 +18401,8 @@ services:
   health took 3.9 ms alone and 203.6 ms interleaved with system; in the full run
   every read sat at about 86 ms with ten at once and 348 ms with fifty.
 
-None of the four is fixed yet.
+None of the four was fixed by this entry. The NERVIS system read is fixed in the
+entry below; the three in RAVIS follow.
 
 Two mistakes in the first run, both the test's own:
 
@@ -18421,6 +18422,39 @@ either keeps growing is the long-running test's question.
 
 Checked: ruff and mypy clean on the tool. No test counts change — like
 `tools/acceptance_run.py`, it is a procedure run against real processes.
+
+## The System screen no longer stalls NERVIS — 2026-09-12
+
+The first of the four slowdowns the load test found, and the one the dashboard
+felt. NERVIS's system read listed every process and ran `osascript` for the
+thermal state inside its event loop, so every other request waited behind it.
+NERVIS 0.25.1 takes the sample in a worker thread.
+
+A new test reproduces it: a system sample slowed to one second, and a health read
+sent while it runs. Against the old code health waited 1.08 s; against the fix it
+answers at once.
+
+Live, after reinstalling and restarting (NERVIS reports 0.25.1), measured the way
+the load test measured it before:
+
+- Ten callers mixing health with system reads: health 11.0 ms at the median, down
+  from 203.6 ms.
+- Ten health callers beside one System screen redrawing without pause: 4.9 ms at
+  the median, 20.3 ms at P95, 22 ms at worst.
+- The load test's live part with ten at once: health 4.2 ms (was 85.6), services
+  2.4 ms (was 87.1), registry 6.3 ms (was 87.4). With fifty at once, health
+  158.9 ms (was 347.7).
+
+Not all of it went. With fifty callers about ten system samples are always
+running, and their process scans hold Python's interpreter lock inside their
+threads: health at 159 ms, against 19.7 ms with fifty health callers alone. Only
+several System screens reading at the same moment would do that, so overlapping
+samples are not merged. The relayed spend read, which waits on RAVIS, did not
+improve — 275 ms with ten at once, against 179 ms before. RAVIS's per-request key
+lookup is the next fix, and this read is where it should show.
+
+Checked: ruff and mypy clean, 1211 NERVIS tests pass (one new), release note
+written.
 
 ## Starting the thing
 

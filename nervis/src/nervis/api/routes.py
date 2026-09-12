@@ -17,6 +17,7 @@ sibling services both shipped one before learning that.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -152,7 +153,10 @@ async def read_system(request: Request) -> dict[str, Any]:
     describe different machines once NERVIS watches a remote peer.
     """
     redact = request.query_params.get("redact", "").lower() in {"1", "true", "yes"}
-    return sample_system().as_dict(redact=redact)
+    # In a worker thread: the sample scans every process and runs `osascript`,
+    # and taken here in the event loop it made every other read wait behind it.
+    sample = await asyncio.to_thread(sample_system)
+    return sample.as_dict(redact=redact)
 
 
 @router.get("/services")

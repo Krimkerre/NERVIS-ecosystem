@@ -313,7 +313,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.25.0
+## NERVIS — 0.25.1
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The System screen no longer stalls the rest of the dashboard.** Reading this machine's
+  load lists every process and asks macOS for the thermal state through `osascript`, and
+  `/api/v1/system` did both inside NERVIS's event loop, so every other request waited behind
+  it. `tools/load_test.py` measured it on 12 September 2026: with ten readers at once,
+  `/api/v1/health` took 3.9 ms on its own and 203.6 ms interleaved with the system read. The
+  sample is now taken in a worker thread: 11.0 ms interleaved, measured live after the fix, and
+  4.9 ms at the median beside one System screen redrawing without pause.
+
+### 0.25.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
