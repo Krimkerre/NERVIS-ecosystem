@@ -313,7 +313,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.9
+## NERVIS — 0.28.10
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The launcher tells RAVIS LM Studio's own default context.** When the LM Studio RAVIS uses is on this
+  machine, starting the stack reads the default context set in LM Studio (`defaultContextLength` in
+  `~/.lmstudio/settings.json`, and nothing else from that file) and passes it to RAVIS as
+  `RAVIS_LMSTUDIO_DEFAULT_CONTEXT`, unless you set that yourself. `start` says which number it used and
+  where it came from. Change LM Studio's default and restart the stack, and RAVIS follows.
+
+### 0.28.9
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -829,7 +839,15 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.5
+## RAVIS — 0.23.6
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **New setting `RAVIS_LMSTUDIO_DEFAULT_CONTEXT`** (8,192 unless set): the context RAVIS assumes for a local
+  LM Studio model that is not loaded yet, the same role `RAVIS_OLLAMA_DEFAULT_CONTEXT` plays for Ollama. The
+  launcher fills it in from LM Studio's own default, so the two agree.
+
+### 0.23.5
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

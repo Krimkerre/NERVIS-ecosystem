@@ -159,6 +159,23 @@ class Settings(BaseSettings):
     # if that was raised; leaving it low costs a local model a long-context
     # pool, and raising it wrongly costs somebody their document.
     ollama_default_context: int = 4096
+    # **What LM Studio serves a model with, when it is not already loaded.**
+    #
+    # The same gap as the setting above, in the other local runtime. LM Studio
+    # publishes a build's ceiling (`max_context_length`) and, for a model in
+    # memory, the length it was loaded with — but a model nobody has loaded yet
+    # is opened at LM Studio's *default* load length, a figure in LM Studio's own
+    # settings that its API does not report. RAVIS never asks for a bigger load,
+    # so that default is the window a cold model will really have
+    # (`providers/lmstudio.py`, `_served_window`).
+    #
+    # 8,192 is the default this machine's LM Studio holds. `tools/run.py` reads
+    # the figure out of LM Studio's settings at every stack start and sets this
+    # to match, so a default changed in LM Studio reaches RAVIS without anybody
+    # copying a number; setting it yourself overrules the launcher. The costs
+    # are the ones above: too low keeps a cold model out of a long-context pool,
+    # too high routes a long document to a model that will be opened too small.
+    lmstudio_default_context: int = 8192
     # More than one transparent upstream, as a JSON list (M8):
     #
     #   [{"name": "lmstudio", "base_url": "http://127.0.0.1:1234", "kind": "lmstudio"},

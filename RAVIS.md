@@ -972,6 +972,10 @@ otherwise its default load context (8,192, the `defaultContextLength` its own se
 every on-demand load in its logs used), capped by `max_context_length`. RAVIS never asks for a
 larger load — a request for a model that is not loaded is served by LM Studio's on-demand load
 at that default — so the build's maximum describes nothing RAVIS will actually be served.
+That default is `RAVIS_LMSTUDIO_DEFAULT_CONTEXT` (8,192); the launcher sets it from LM Studio's own
+`defaultContextLength` when the LM Studio upstream is on the same machine (13 Sep), so changing the
+default in LM Studio and restarting the stack keeps the two in agreement, as `OLLAMA_CONTEXT_LENGTH`
+and `RAVIS_OLLAMA_DEFAULT_CONTEXT` are for Ollama.
 
 ---
 

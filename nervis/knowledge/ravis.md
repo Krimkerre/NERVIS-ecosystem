@@ -88,8 +88,12 @@ model that is not loaded no longer qualifies for a pool that needs more than
 8,192** — `ravis/agent` asks for 32,768 and `ravis/long-context` for 131,072, which
 leaves the long-context pool with no local model at all — until one is loaded that
 large, and a
-model loaded from the menu bar app opens at the same default. Unlike Ollama there
-is no setting yet to tell RAVIS a different LM Studio default.
+model loaded from the menu bar app opens at the same default. RAVIS does not guess
+that 8,192: since 13 September 2026 the stack reads LM Studio's own default
+context setting each time it starts and tells RAVIS the same number. So if you
+change the default context in LM Studio's settings, restart the stack and RAVIS
+follows. Someone who wants RAVIS to assume a different number can set
+`RAVIS_LMSTUDIO_DEFAULT_CONTEXT`, which wins over LM Studio's setting.
 
 **Clarvis's "can this model use tools?" check goes to a model that answers
 without loading** (since 12 September 2026). Clarvis asks once per session with a

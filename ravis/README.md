@@ -86,8 +86,12 @@ costs somebody their document.
 LM Studio is read the same way since 12 September 2026: a loaded model's window is what it
 was loaded with (`loaded_context_length`), and one that is not loaded is reported at LM
 Studio's default load context, 8,192, capped by the build's maximum — RAVIS never asks for a
-larger load, so the maximum describes nothing it will be served. There is no setting for a
-different LM Studio default yet.
+larger load, so the maximum describes nothing it will be served. That default is
+`RAVIS_LMSTUDIO_DEFAULT_CONTEXT` (8,192 unless set), and the launcher keeps it in step with LM
+Studio: when the LM Studio RAVIS uses is on this machine, `tools/run.py` reads LM Studio's own
+default (`defaultContextLength` in `~/.lmstudio/settings.json`) and passes it on, unless you set
+the variable yourself. Change LM Studio's default in its settings, restart the stack, and the two
+agree again.
 
 [`measured-capabilities.json`](measured-capabilities.json) is that somebody, for this
 machine — for tool support. It is derived from `clarvis/docs/benchmarks.md` — executed

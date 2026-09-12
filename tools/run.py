@@ -42,6 +42,7 @@ teaches its own output to be ignored.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import pathlib
@@ -57,6 +58,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -121,6 +123,22 @@ EXTERNAL = [
 # registers it with NERVIS, so NERVIS's registry is what says whether Clarvis is running
 # (`_clarvis_bridges`). Until 12 September 2026 this list probed 127.0.0.1:7071, where no
 # Bridge listens, and so reported Clarvis as not running whatever was open.
+
+# **Where LM Studio keeps the window it opens a model with.** A model LM Studio has not loaded
+# yet is opened at its *default* load length, a figure in LM Studio's own settings that its API
+# does not report, and RAVIS needs it to know what a cold model will hold
+# (`RAVIS_LMSTUDIO_DEFAULT_CONTEXT`). Ollama is simply started with its number, above. LM Studio
+# is not this launcher's to start, so its number is read instead — at every start, so that a
+# default changed in LM Studio reaches RAVIS rather than silently disagreeing with it.
+#
+# LM Studio's folder is `~/.lmstudio` unless `~/.lmstudio-home-pointer` names another: a one-line
+# file holding an absolute path, which LM Studio follows and so does `_lmstudio_home`. These are
+# only paths; nothing is opened until `lmstudio_default_context` needs it.
+LM_STUDIO_HOME = Path.home() / ".lmstudio"
+LM_STUDIO_HOME_POINTER = Path.home() / ".lmstudio-home-pointer"
+# RAVIS's own figure when it is told none: `lmstudio_default_context` in
+# `ravis/src/ravis/config.py`. Only ever printed — when it is the answer, nothing is set.
+RAVIS_LMSTUDIO_DEFAULT = 8192
 
 
 def code_server_binary() -> str:
@@ -420,6 +438,11 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # give 32,768, and route long documents away from a runtime that
             # could hold them. Set only as a default, like everything else here.
             env.setdefault("RAVIS_OLLAMA_DEFAULT_CONTEXT", str(OLLAMA_CONTEXT))
+            # **And the window LM Studio opens a model with**, which cannot be set the same
+            # way because LM Studio is not started here. It is read out of LM Studio's own
+            # settings instead, when that LM Studio is this machine's, and an operator's own
+            # value still wins. See `lmstudio_default_context`.
+            env.update(_lmstudio_context_environment(env))
             # **What the operator has declared about models nothing has measured.**
             # A hosted vendor's catalogue can leave out a capability its API has —
             # Anthropic's publishes no tool support — and a pool that requires tools
@@ -585,6 +608,160 @@ def _warm_ollama() -> bool:
             return bool(response.status == 200)
     except Exception:  # noqa: BLE001 - see responds(): every failure means "not warmed"
         return False
+
+
+# ── LM Studio's default load window, told to RAVIS ────────────────────────────
+
+
+def lmstudio_default_context(environ: Mapping[str, str]) -> tuple[str | None, str]:
+    """What RAVIS is told LM Studio opens an unloaded model with, and where that came from.
+
+    Returns the value for `RAVIS_LMSTUDIO_DEFAULT_CONTEXT` — `None` leaves it unset — and the
+    source in words, for `start` to print. The first of these that applies wins:
+
+    1. **A value already in the environment.** Somebody who set the variable said what they
+       want, and guessing over a stated choice is worse than not guessing — the rule every
+       default in `env_for` follows. RAVIS itself refuses one that is not a number.
+    2. **LM Studio's own settings**, when every LM Studio RAVIS talks to is this machine and the
+       file holds a figure in the shape LM Studio writes. A remote LM Studio's default is in its
+       own machine's settings; reading this one's would give it a number nobody chose for it.
+    3. **Nothing**, so RAVIS uses its own default, `RAVIS_LMSTUDIO_DEFAULT`.
+
+    Only LM Studio's *default* is learned this way. A model given load settings of its own
+    inside LM Studio may open at another length, and nothing here reads those.
+    """
+    stated = environ.get("RAVIS_LMSTUDIO_DEFAULT_CONTEXT")
+    if stated is not None:
+        return stated, "set by you in RAVIS_LMSTUDIO_DEFAULT_CONTEXT"
+    if not _lmstudio_is_this_machine(environ):
+        return None, "RAVIS's default: the LM Studio RAVIS uses is not on this machine"
+    held = _lmstudio_settings_context(_lmstudio_home() / "settings.json")
+    if held is None:
+        return None, "RAVIS's default: LM Studio's settings hold no default this launcher can read"
+    return str(held), "from LM Studio's settings"
+
+
+def _lmstudio_context_environment(environ: Mapping[str, str]) -> dict[str, str]:
+    """`RAVIS_LMSTUDIO_DEFAULT_CONTEXT` for RAVIS's environment, or nothing to add."""
+    told, _ = lmstudio_default_context(environ)
+    return {} if told is None else {"RAVIS_LMSTUDIO_DEFAULT_CONTEXT": told}
+
+
+def lmstudio_context_line(environ: Mapping[str, str]) -> str:
+    """`start`'s sentence about it: the number RAVIS will use, and where that number came from."""
+    told, source = lmstudio_default_context(environ)
+    shown = RAVIS_LMSTUDIO_DEFAULT if told is None else told
+    return f"RAVIS's LM Studio context for models not yet loaded: {shown} ({source})."
+
+
+def _lmstudio_is_this_machine(environ: Mapping[str, str]) -> bool:
+    """Whether RAVIS is given an LM Studio, and every one it is given is on this machine.
+
+    Every one, because the setting is a single number for all LM Studio upstreams: with one
+    here and one elsewhere, this machine's default would be told about the other one too.
+    """
+    addresses = _lmstudio_addresses(environ)
+    return bool(addresses) and all(_on_this_machine(address) for address in addresses)
+
+
+def _lmstudio_addresses(environ: Mapping[str, str]) -> list[str]:
+    """The address of each LM Studio upstream RAVIS will read out of this environment.
+
+    Read the way RAVIS reads it (`upstream_specs` in `ravis/src/ravis/upstreams.py`, and
+    `adapter_for` for the kind): `RAVIS_UPSTREAMS` replaces the singular settings whenever it
+    holds anything, and a kind matches whatever its case and spacing. With neither variable
+    set, `env_for` declares `_default_upstreams`, whose LM Studio is `LM_STUDIO`.
+    """
+    if not environ.get("RAVIS_UPSTREAMS") and not environ.get("RAVIS_UPSTREAM_BASE_URL"):
+        return [LM_STUDIO]
+    declared = environ.get("RAVIS_UPSTREAMS", "").strip()
+    if declared:
+        return _lmstudio_entries(declared)
+    single = environ.get("RAVIS_UPSTREAM_BASE_URL", "")
+    return [single] if single and _is_lmstudio(environ.get("RAVIS_UPSTREAM_KIND")) else []
+
+
+def _lmstudio_entries(declared: str) -> list[str]:
+    """The `base_url` of each `lmstudio` entry in a `RAVIS_UPSTREAMS` list.
+
+    A list RAVIS cannot parse stops RAVIS from starting at all, so the answer for one only has
+    to be safe: none, which leaves LM Studio's settings unread.
+    """
+    try:
+        entries = json.loads(declared)
+    except ValueError:
+        return []
+    if not isinstance(entries, list):
+        return []
+    return [
+        str(entry.get("base_url") or "").strip()
+        for entry in entries
+        if isinstance(entry, dict) and _is_lmstudio(entry.get("kind"))
+    ]
+
+
+def _is_lmstudio(kind: object) -> bool:
+    """Whether a declared upstream kind names LM Studio, read as `adapter_for` reads it."""
+    return str(kind or "").strip().lower() == "lmstudio"
+
+
+def _on_this_machine(address: str) -> bool:
+    """Whether an upstream address is loopback, decided as RAVIS's `is_local_address` decides it.
+
+    Failing closed the same way: a LAN address is somebody else's computer, and one that does
+    not parse is not assumed to be this one.
+    """
+    try:
+        host = urllib.parse.urlsplit(address).hostname or ""
+        return host in {"localhost", "localhost."} or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _lmstudio_home() -> Path:
+    """LM Studio's folder: the one its home pointer names, or `~/.lmstudio` without one."""
+    try:
+        pointed = Path(LM_STUDIO_HOME_POINTER.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return LM_STUDIO_HOME
+    return pointed if pointed.is_absolute() and pointed.is_dir() else LM_STUDIO_HOME
+
+
+def _lmstudio_settings_context(settings: Path) -> int | None:
+    """The default load length in LM Studio's settings file, or None when it holds no usable one.
+
+    **Only `defaultContextLength` is decoded.** The file holds everything else LM Studio
+    remembers, none of which is this launcher's business — and LM Studio's credentials sit in
+    the same folder — so the text is searched for that one key and only the value after it is
+    parsed. The shape is the one LM Studio writes for a length chosen in its settings,
+    `"defaultContextLength": {"type": "custom", "value": 8192}`, read off this machine on
+    13 September 2026. Anything else (no file, no key, the key twice, another `type`, a value
+    that is not a positive whole number) is a shape nobody here has seen, and a guess at it
+    could tell RAVIS a window LM Studio does not open; `None` keeps RAVIS's own default.
+    """
+    try:
+        text = settings.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+    found = list(re.finditer(r'"defaultContextLength"\s*:\s*', text))
+    if len(found) != 1:
+        return None
+    try:
+        held, _ = json.JSONDecoder().raw_decode(text, found[0].end())
+    except ValueError:
+        return None
+    return _custom_length(held)
+
+
+def _custom_length(held: object) -> int | None:
+    """N out of `{"type": "custom", "value": N}` when N is a positive whole number, else None."""
+    if not isinstance(held, dict) or held.get("type") != "custom":
+        return None
+    value = held.get("value")
+    # JSON's `true` decodes to a subclass of int in Python, and it is not a window.
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
 
 
 def _default_upstreams() -> dict[str, str]:
@@ -1298,6 +1475,9 @@ def start() -> int:
     print("\nRuntimes this ecosystem uses but does not start:")
     for name, url in EXTERNAL:
         print(f"  {name:<10} {'answering' if responds(url, 1.0) else 'not running'}")
+    # What RAVIS was told LM Studio opens an unloaded model with, and where the number came
+    # from. A figure read out of another application's settings is one somebody should see.
+    print(f"\n{lmstudio_context_line(os.environ)}")
 
     if not os.environ.get("RAVIS_UPSTREAM_BASE_URL") and not os.environ.get("RAVIS_UPSTREAMS"):
         declared = _default_upstreams()

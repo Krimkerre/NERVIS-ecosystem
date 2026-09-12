@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 3062 tests, no network, no live service
+.venv/bin/pytest                      # part of 3089 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 534 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1236 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1259 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 3062 passing across the four, conformance `PASS`.
+Expected: all clean, 3089 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -19220,8 +19220,9 @@ keeps any capability file from declaring one nobody measured or chose. The runni
 file, so it was not the source of the recorded 32,768; the adapter was. **What changes after a restart:**
 a local LM Studio model that is not loaded counts at 8,192, so `ravis/agent` (32,768) keeps one local
 member while only qwen3-1.7b is loaded — llama3.2:3b on Ollama — and `ravis/long-context` (131,072) has
-none; `ravis/clarvis-agent` had no local member before and has none now. Not built: a setting like
-`RAVIS_OLLAMA_DEFAULT_CONTEXT` for LM Studio, for a machine whose LM Studio default is not 8,192. Vision
+none; `ravis/clarvis-agent` had no local member before and has none now. ~~Not built: a setting like
+`RAVIS_OLLAMA_DEFAULT_CONTEXT` for LM Studio, for a machine whose LM Studio default is not 8,192.~~
+Built on 13 September — see *LM Studio's default context, read from LM Studio*. Vision
 builds that ignore a requested length and load at their own (gemma-4-e2b at 131,072) are under-reported
 until loaded.
 
@@ -19328,6 +19329,39 @@ twelve seconds old is not, nor a vanished or recycled one, nor one whose age can
 elapsed time in each of its shapes. With `_problem`'s report removed the first fails; restored
 byte-identical. ruff finds nothing new in `tools/run.py` (the eleven findings it had before remain). NERVIS
 0.28.8 → 0.28.9.
+
+## LM Studio's default context, read from LM Studio — 2026-09-13
+
+The setting the previous day's context fix left out, asked for next. RAVIS reports an LM Studio model that
+is not loaded at LM Studio's default load context, and until now that default was a constant, 8,192 —
+right on this machine, and silently wrong on one whose LM Studio default is anything else.
+
+**`RAVIS_LMSTUDIO_DEFAULT_CONTEXT`** (`lmstudio_default_context`, 8,192), declared beside
+`RAVIS_OLLAMA_DEFAULT_CONTEXT` and passed to the LM Studio adapter by `adapter_for` in `transparent.py`.
+
+**The launcher keeps it in step with LM Studio, the way it does for Ollama — by reading rather than
+setting**, since it does not start LM Studio. LM Studio keeps its default in `~/.lmstudio/settings.json`
+as `"defaultContextLength": {"type": "custom", "value": 8192}`, in a folder `~/.lmstudio-home-pointer` can
+move. When building RAVIS's environment, `tools/run.py` takes, in order: a
+`RAVIS_LMSTUDIO_DEFAULT_CONTEXT` already set by the operator; otherwise that value, but only when every LM
+Studio upstream RAVIS is configured with is this machine — a remote LM Studio's default is not in this Mac's
+file — and only in that exact shape, a positive whole number, the key present once; otherwise nothing, and
+RAVIS keeps 8,192. Only that key is read; nothing else in LM Studio's folder is opened. `start` names the
+number and its source: *"RAVIS's LM Studio context for models not yet loaded: 8192 (from LM Studio's
+settings)."* On this machine it reads 8,192 from LM Studio's settings, so nothing changes today; the point
+is the day the default is changed in LM Studio.
+
+Checked: four RAVIS tests in `ravis/tests/test_upstream_kind.py` (default, override, a non-number refused,
+and the value reaching the adapter capped by each model's maximum) and 23 cases in
+`nervis/tests/test_launcher_lmstudio_context.py` (the real shape, a missing file, key or garbage, the
+operator's value winning, a remote LM Studio skipping the file, the home pointer, the `start` line, and the
+launcher's fallback matching RAVIS's), fifteen pieces each undone and caught. ruff still finds the same
+eleven things in `tools/run.py`. Known: LM Studio's per-model settings folder is empty here, and its vision
+builds ignore the default — gemma-4-e2b loads at 131,072 — so for those RAVIS reports less than the model
+gets, the safe side. Not guarded, like its Ollama twin: a negative number typed into the variable by hand
+is accepted and would report every unloaded model at that window, keeping them out of every pool; the
+launcher never passes one, so it was left rather than add a validation pattern `config.py` uses nowhere
+else. RAVIS 0.23.5 → 0.23.6, NERVIS 0.28.9 → 0.28.10.
 
 ## Starting the thing
 

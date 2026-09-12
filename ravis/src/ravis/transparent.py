@@ -24,6 +24,7 @@ from ravis.credentials import CredentialStore, credential_for
 from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.model_filter import ModelFilter
 from ravis.providers.generic_openai import GenericOpenAiAdapter
+from ravis.providers.lmstudio import DEFAULT_CONTEXT as LMSTUDIO_DEFAULT_CONTEXT
 from ravis.providers.lmstudio import LmStudioAdapter
 from ravis.providers.ollama import DEFAULT_CONTEXT, OllamaAdapter
 from ravis.providers.openrouter import OpenRouterAdapter
@@ -158,6 +159,16 @@ def adapter_for(
         # default is — so an operator who raised it says so here.
         extra["default_context"] = int(
             getattr(settings, "ollama_default_context", 0) or DEFAULT_CONTEXT
+        )
+    elif adapter is LmStudioAdapter:
+        # The same gap in LM Studio: a model it has not loaded yet is opened at
+        # LM Studio's default load length, which its API does not publish
+        # either. Without this the adapter could only ever assume 8,192, so an
+        # owner who raised the default in LM Studio would have RAVIS keep
+        # routing long documents away from models that could now hold them.
+        # The launcher reads LM Studio's settings and fills this in.
+        extra["default_context"] = int(
+            getattr(settings, "lmstudio_default_context", 0) or LMSTUDIO_DEFAULT_CONTEXT
         )
     return adapter(
         upstream=upstream,
