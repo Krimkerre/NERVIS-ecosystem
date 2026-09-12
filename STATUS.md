@@ -18240,14 +18240,35 @@ direct anonymous reads of RAVIS. Before the fix, forty were answered and thirty
 refused: every Inspector read had spent an anonymous slot. After committing
 15ac2e1 and restarting, fifty-seven were answered — the three missing were the
 launcher's own start-up and status checks, which ask RAVIS whether it is up
-without a credential, a handful of requests each time the stack starts, left as
-they are. With the launcher quiet for a minute, the same test answered exactly
+without a credential, a handful of requests each time the stack starts, named
+too in the entry below. With the launcher quiet for a minute, the same test answered exactly
 sixty: nothing NERVIS reads from RAVIS counts as anonymous any more. All twenty
 Inspector reads in each run did reach RAVIS.
 
 Checked: ruff and mypy clean, NERVIS's full suite passes. New test: chat's route
 lookup sends NERVIS's credential to RAVIS; the existing reader tests now state
 an empty credential.
+
+## The launcher names itself when it checks whether RAVIS is up — 2026-09-12
+
+tools/run.py asks every service whether something is listening, and for RAVIS
+that was an anonymous request: start polls until RAVIS answers, and start and
+status each ask again, so every start and status spent part of RAVIS's one
+anonymous allowance. The check now presents the admin credential the launcher
+already puts in RAVIS's store before starting it, and only to RAVIS's address;
+SIRVIS, NERVIS, Ollama and code-server are asked as before. The credential is
+read from its cache and never created here, so status and stop do not mint one
+as a side effect.
+
+Measured live, straight after a start and a status, with seventy direct
+anonymous reads of RAVIS: fifty-seven answered before, exactly sixty after
+committing a74cda6. With this, neither NERVIS nor the launcher reads RAVIS
+anonymously; the one-off scripts in tools/, such as probe_models.py, were not
+checked.
+
+Checked: compiles, ruff clean, the dead-code gate passes; the check sends a
+bearer header to RAVIS's address and none to SIRVIS's or NERVIS's. The launcher
+still has no automated tests, as recorded under *Starting the thing*.
 
 ## Starting the thing
 
