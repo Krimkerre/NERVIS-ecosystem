@@ -313,7 +313,14 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.5
+## NERVIS — 0.28.6
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The SIRVIS Models screen shows each installed model's size.** It read the size as absent by design,
+  because SIRVIS never recorded one; since SIRVIS 0.19.2 it does, and the screen now shows it.
+
+### 0.28.5
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

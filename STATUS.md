@@ -2111,7 +2111,7 @@ measurement in the corpus still came through LM Studio.
 *As of 12 September 2026 this table undercounts. Nearly every screen reads its service first
 and falls back to a mock only when the service does not answer, and it lists none of NERVIS's
 own screens and few of RAVIS's. Two rows are stale: Benchmarks has read and submitted to
-SIRVIS's queue since 29 August, and Models shows what is loaded, though still no size.*
+SIRVIS's queue since 29 August, and Models shows what is loaded and, since 12 September, each build's size.*
 
 `nervis/index.html` renders every screen against mocks. Three now read live
 services instead, and the rest still should not — a screen wired to an endpoint
@@ -19051,6 +19051,28 @@ previous run ended without quitting; and the next quit logged its exit again. Th
 replaced with this build without touching the stack or the qwen3-1.7b the owner still had loaded.
 
 NERVIS 0.28.4 → 0.28.5.
+
+## The docs checked against today's menu bar changes, and sizes on the Models screen — 2026-09-12
+
+Asked whether the documents had kept up with the day's run of small changes to the menu bar app, they
+were checked rather than assumed. The operator runbook and chat's notes on NERVIS already described the
+CLARVIS line, the browser links, LM Studio's models, the red figures and the log. Three gaps were filled:
+the M19 row in `NERVIS.md` now names the browser links, the red CPU and GPU figures and the log's record
+of how each run ended; chat's notes on NERVIS say what the log keeps; and chat's notes on SIRVIS say it
+now knows each installed model's size.
+
+**The check found one gap that was not a document.** SIRVIS has recorded installed sizes since 0.19.2,
+but the dashboard's SIRVIS Models screen still drew every size as absent — its reader hard-coded `null`
+under a comment saying nothing records an installed size. It now reads `installed_size_bytes`, in GB to
+one decimal as the menu bar app shows it, and a build SIRVIS cannot size still renders absent. Verified
+live on a freshly loaded dashboard: all 20 build rows show a size, qwen3-1.7b at 1.7 GB and loaded,
+qwen3.5-9b at 5.6 GB, matching the menu bar app. A dashboard already open keeps its cached page until it
+is reloaded.
+
+NERVIS 0.28.5 → 0.28.6.
+
+Checked: the page check and every dashboard gate pass, as does the knowledge check; and the commit went
+through the dashboard hook.
 
 ## Starting the thing
 

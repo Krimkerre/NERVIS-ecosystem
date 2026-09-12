@@ -63,6 +63,10 @@ based on, what it is for, downloads, likes, when it was created and updated, and
 a link to its Hugging Face page. Each downloadable version is marked when it runs
 on this Mac, judged by its real file size.
 
+Since 12 September 2026 SIRVIS also knows how big each installed model is on disk, read from LM
+Studio's own listing, so its model list, the menu bar app and the memory check before loading can
+all show and use a real size.
+
 ## What a crash does to a benchmark
 
 A job that was *running* when the service stopped is marked failed on the next

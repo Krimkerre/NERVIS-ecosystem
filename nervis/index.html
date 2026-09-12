@@ -2314,12 +2314,9 @@ const API={
      closed runtime enum, mapped from LM Studio's own `state` field. */
   /* GET /api/v1/models -> the build row this page's tables already read.
 
-     Four fields the API does not carry, each rendered absent rather than
+     Three fields the API does not carry, each rendered absent rather than
      defaulted, because every default here would be a positive claim:
 
-       size_gb           nothing records an installed size — LM Studio's
-                         catalogue does not report one, so `installed_size_bytes`
-                         is declared and never populated.
        resident_gb       the Resource Manager counts references, not bytes.
        measured          throughput and tool reliability live on evidence
                          records, not on a build; the Results screen has them.
@@ -2329,7 +2326,13 @@ const API={
 
      `runtime` is derived from `runtime_format` and stops at absence: a null
      format is not llama.cpp, it is a format nobody reported. Same rule the
-     variant string follows one line down. */
+     variant string follows one line down.
+
+     `size_gb` is SIRVIS's `installed_size_bytes`, in GB to one decimal as the menu
+     bar app shows it. Until 12 September 2026 nothing filled that field — LM
+     Studio's HTTP catalogue reports no size — so this read hard-coded null; SIRVIS
+     0.19.2 takes the size from LM Studio's own CLI listing. A build it still cannot
+     size stays null and renders absent. */
   async models(){return live('sirvis','/api/v1/models',this._modelsMock,payload=>({
    snapshot_revision:payload.snapshot_revision,
    items:payload.items.map(m=>{const v=m.variant||{};
@@ -2350,7 +2353,7 @@ const API={
      runtime_config:{
       context_length:instances.length?instances[0].effective_context:null,
       max_context_length:m.declared_context?m.declared_context.value:null},
-     size_gb:null,
+     size_gb:m.installed_size_bytes==null?null:Math.round(m.installed_size_bytes/1073741824*10)/10,
      resident_gb:null,
      measured:null,
      tools_advertised:null,

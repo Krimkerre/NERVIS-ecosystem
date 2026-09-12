@@ -1068,4 +1068,5 @@ The NERVIS mark in the menu bar has a pupil that is solid while the whole stack 
 when part of it is not, and blinks while there are unread notifications; reading them on the
 Notifications screen stops the blink within about ten seconds. The app holds no code of its own,
 so it never needs rebuilding after an update — only moving the project folder means building it
-again.
+again. Its log, `.run/menubar.log`, keeps every run: it records each start and quit, and if the icon
+ever vanishes without a quit, the next launch notes that the previous run ended without quitting.
