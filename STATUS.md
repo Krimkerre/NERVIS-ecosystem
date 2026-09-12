@@ -19284,6 +19284,16 @@ the one-second mark finishes and is unloaded only if it lands within the six; th
 overlapping loads have not been tried against a real LM Studio. SIRVIS 0.19.2 → 0.19.3. Checked on a
 snapshot holding only these files over HEAD: ruff and mypy clean, and 534 tests pass, twenty-two more.
 
+**Live, after both commits and a restart.** The new launcher stopped a stack the old one had started —
+its PID file carried the old broad markers — and reached all five services in 7.6 seconds, releasing the
+menu bar app's qwen3-1.7b first; LM Studio then reported nothing loaded. `start` brought every service
+back, and the menu bar app, left running throughout, showed them answering. RAVIS's health carries
+`capability_suppressions` (empty) through the relay path the Diagnostics screen reads, the running
+dashboard serves the new rows, and SIRVIS holds nothing. Not seen live: SIRVIS's own release on stop,
+because the SIRVIS that stopped was the old one — the next stop is its first; a real tool refusal falling
+back, which needs a model that refuses; the probe routing, which needs a Clarvis window; and Hand over
+through the proxy, which is off here.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
