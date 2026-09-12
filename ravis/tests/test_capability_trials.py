@@ -140,6 +140,18 @@ def test_a_pass_is_bounded_by_its_limit() -> None:
     assert len(choose_trials(candidates, frozenset(candidates), lambda _model: True, 1)) == 1
 
 
+def test_the_makers_own_copies_are_tried_before_an_aggregators_listings() -> None:
+    """Alphabetically `anthropic/…` comes first; the first live pass went that way."""
+    candidates = {name: _hosted(name) for name in ("anthropic/claude-opus-4-8", "claude-opus-5")}
+    remote = frozenset(candidates)
+
+    assert choose_trials(candidates, remote, lambda _model: True, 1) == ["claude-opus-5"]
+    assert choose_trials(candidates, remote, lambda _model: True, 2) == [
+        "claude-opus-5",
+        "anthropic/claude-opus-4-8",
+    ]
+
+
 def test_only_a_call_or_a_refusal_of_tools_concludes_anything() -> None:
     assert outcome_from_calls(1).state is CapabilityState.SUPPORTED
     assert outcome_from_calls(0).state is CapabilityState.UNSUPPORTED

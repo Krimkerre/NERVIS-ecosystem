@@ -267,6 +267,11 @@ def choose_trials(
 
     A model qualifies when it is hosted, nothing has said anything about its tools, a
     pool that requires tools would admit it if tools were supported, and it is due.
+
+    **The makers' own copies first.** Their catalogues are why trials exist, and the
+    reseller rule already ranks an aggregator's copy behind them. The first live pass
+    went alphabetically and spent itself on three OpenRouter listings (`aion-labs/…`,
+    `anthracite-org/…`, `baidu/…`) while every direct Claude and GPT model waited.
     """
     if limit <= 0:
         return []
@@ -277,7 +282,9 @@ def choose_trials(
         pool.pool_id: set(pool.default_membership(names, prices, None)) for pool in tool_pools
     }
     chosen: list[str] = []
-    for model in names:
+    # A `<vendor>/<name>` id is an aggregator's listing, the same reading the reseller rule
+    # makes; sorted() is stable, so each group stays alphabetical.
+    for model in sorted(names, key=lambda name: "/" in name.lstrip("~")):
         known = candidates[model]
         if model not in remote or known.state_of(Capability.TOOLS) is not CapabilityState.UNKNOWN:
             continue
@@ -429,13 +436,16 @@ async def run_trial_pass(
                 model,
             )
         store.record(model, outcome, provider)
-        note_trial_spend(
-            getattr(api.state, "usage_ledger", None),
-            getattr(api.state, "prices", None),
-            model,
-            provider,
-            usage,
-        )
+        # Spend is what a provider reports. A refusal reports none and is not billed, and
+        # the first live pass showed its row as a charge of unknown size nobody made.
+        if usage is not None:
+            note_trial_spend(
+                getattr(api.state, "usage_ledger", None),
+                getattr(api.state, "prices", None),
+                model,
+                provider,
+                usage,
+            )
         logger.info(
             "capability trial: %s via %s -> %s (%s)",
             model,

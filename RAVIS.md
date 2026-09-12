@@ -1058,12 +1058,14 @@ eligibility and ranking. On absence, version mismatch or corruption, mark the so
 and fall back to configured evidence or unknown values. **Never fabricate a benchmark score.**
 
 **OBSERVED_BY_RAVIS is RAVIS's own trial of a hosted model** (added 12 September 2026). Hosted
-providers that publish no tool support — Anthropic, OpenAI and Google — leave their models UNKNOWN, and
-SIRVIS cannot measure an API. RAVIS sends such a model one request carrying one tool it is required to
-call: a call records SUPPORTED, a provider refusing tools records UNSUPPORTED, and any other failure
-records nothing and is retried hours later. Hosted models only, only models a tool-requiring pool would
-otherwise admit, a few per pass under a daily ceiling, results kept thirty days, and every trial recorded
-as usage. In code the provenance is `OBSERVED`, ranked above `ADVERTISED` and below `MEASURED` and
+providers that publish no tool support — Anthropic, OpenAI and Google — leave their models UNKNOWN, as
+does OpenRouter when a model's parameter list is silent about tools, and SIRVIS cannot measure an API.
+RAVIS sends such a model one request carrying one tool it is required to call: a call records SUPPORTED,
+a provider refusing tools records UNSUPPORTED, a transient failure records nothing and is retried hours
+later, and a refusal for any other reason records nothing for thirty days. The makers' own copies are
+tried before an aggregator's listings. Hosted models only, only models a tool-requiring pool would
+otherwise admit, a few per pass under a daily ceiling, results kept thirty days, and every trial a
+provider answered recorded as usage. In code the provenance is `OBSERVED`, ranked above `ADVERTISED` and below `MEASURED` and
 `CONFIGURED`.
 
 ## 13.4 Optionality

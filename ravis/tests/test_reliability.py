@@ -65,6 +65,9 @@ class FakeClock:
         (400, b'{"error":{"code":"content_filter"}}', FailureClass.CONTENT_REFUSAL),
         (400, b'{"error":{"message":"this model does not support tools"}}',
          FailureClass.TOOL_INCOMPATIBILITY),
+        # OpenRouter's refusal arrives as a 404; the body must win over the status.
+        (404, b'{"error":{"message":"No endpoints found that support tool use."}}',
+         FailureClass.TOOL_INCOMPATIBILITY),
         (500, b'{"error":{"message":"failed to allocate 8 GB"}}', FailureClass.LOCAL_OOM),
     ],
 )

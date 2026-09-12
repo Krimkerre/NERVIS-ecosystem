@@ -201,8 +201,12 @@ _BODY_MARKERS: tuple[tuple[FailureClass, tuple[str, ...]], ...] = (
     ),
     (
         FailureClass.TOOL_INCOMPATIBILITY,
+        # "support tool use" is OpenRouter's wording, found on RAVIS's first tool trial:
+        # "No endpoints found that support tool use", sent as a 404. Unmarked, the status
+        # read it as a missing model and opened that model's circuit for every request,
+        # tools or not.
         ("does not support tools", "tools are not supported", "function calling is not",
-         "unsupported parameter: 'tools'"),
+         "unsupported parameter: 'tools'", "support tool use"),
     ),
     # After the tools entry, so "unsupported parameter: 'tools'" stays a tool
     # incompatibility. OpenAI's own codes first, then its wording.
