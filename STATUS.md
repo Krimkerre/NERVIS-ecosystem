@@ -18007,6 +18007,34 @@ named). 0.15.3 is installed in code-server and VS Code and both installed bundle
 match the package built from its commit. Not seen live: the next greeting after a
 reload.
 
+## Clarvis reads the open folder's repository, not a subfolder's, Clarvis 0.15.4 — 2026-09-12
+
+With nervis-tasks open, Clarvis greeted with the pomodoro project's branch and
+its untracked file. nervis-tasks holds one folder per handed-over task and is not
+a repository — inside the ecosystem repository it is ignored — but the editor's
+Git extension scans subfolders and found pomodoro-timer's repository. Clarvis's
+own log showed the watcher starting with no repositories and the briefing then
+reporting one; its chat line said, correctly, that the folder was empty.
+
+The briefing was one of eight places that took the first repository the Git
+extension had found: the briefing, commit noticing, the review wizard, an agent
+run's branch and commits, the branch-flow check and plan commit, the agent's git
+tools, and the shared helper behind branch switching and plain git status. The
+greeting was the visible part; the same rule decided where a run started in
+nervis-tasks would branch and commit.
+
+Fixed in Clarvis 0.15.4. Every one of those reads now takes the deepest
+repository whose root contains the open folder, and none when no repository does.
+A folder that is not a repository is treated as not one — a run there is offered
+git init rather than working inside a task's project.
+
+Checked: Clarvis's check passes, 1375 tests with types and lint; three probes
+each fail the new tests (a sibling folder sharing the prefix counting as inside,
+the first containing repository winning over the deepest, and the first repository
+returned as before). 0.15.4 is installed in code-server and VS Code and both
+installed bundles match the package built from its commit. Not seen live: the
+greeting in nervis-tasks after a reload.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

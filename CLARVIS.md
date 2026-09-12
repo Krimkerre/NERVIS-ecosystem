@@ -815,6 +815,16 @@ list that is always one editor short — and the stored list is filtered the sam
 stale entry drops out without anyone clearing it. With no folder open, the named exclusions apply as
 before, and `code-server/User/` is now among them.
 
+**12 September 2026 — this folder's repository, never the first one found (Clarvis 0.15.4).** With
+`nervis-tasks` open — a folder of task folders with no repository of its own — the greeting named
+`pomodoro-timer`'s branch and untracked file as this folder's. The editor's Git extension scans
+subfolders, and Clarvis took the first repository it was handed in eight places: the briefing, commit
+noticing, the review wizard, an agent run's branch and commits, the branch-flow check and plan commit,
+the agent's git tools, and the shared helper behind branch switching and plain git status. Every one of
+them now takes the deepest repository whose root contains the open folder, and none when no repository
+does — so a folder that is not a repository is treated as one that is not, and a run started there can
+no longer branch or commit inside a subfolder's project.
+
 **Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
 Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
 as a build with its origin visible in the prompt"* — failing three separate ways, all the same
