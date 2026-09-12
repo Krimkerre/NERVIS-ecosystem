@@ -440,6 +440,15 @@ download. `fits=true` keeps rows whose estimate fits in three quarters of this m
 read from its latest snapshot, and reports how many it hid as too large and how many had no count
 to judge. A top ten is `limit=10` with an empty search.
 
+**A size cap and a fuller model read, added the same evening (0.19.0).** `max_bytes` keeps rows
+whose estimate is at or under it; with `fits=true` too, the smaller limit applies and the answer
+names it (`size_limit_bytes`). `GET /api/v1/catalog/{owner}/{name}` now also returns the author,
+the licence and base model — from the model card, or from its `license:` and `base_model:` tags
+when the card says nothing, the tag's relation such as `quantized:` dropped — the model type,
+task, library and creation date, the parameter count checked against the name as a search checks
+it, a page link built from the checked repository id rather than taken from the metadata, and for
+each variant `fits_memory`: whether its real file size fits in the same share of memory.
+
 ---
 
 # 9. Resource management

@@ -803,6 +803,11 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 .profile-row{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
 /* Discover's sort menu, dressed like the page's other dark fields. */
 .discover-sort{background:#0b1118;border:1px solid #2a3541;border-radius:6px;padding:6px 8px;color:#d9e3ed;font:inherit;margin-left:4px}
+.discover-size{accent-color:var(--accent);vertical-align:middle;width:150px;margin:0 4px}
+.discover-name{cursor:pointer}.discover-name:hover{color:var(--accent)}
+.discover-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 18px;padding:8px 14px 10px}
+.discover-facts b{display:block;font-weight:500;opacity:.6;font-size:.85em}
+.discover-facts a{color:var(--accent)}
 /* The event feed's filter strip: the same chips, plus a free-text box. */
 .filter-row{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
 .mode-chip{font:9px/1 ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em;
@@ -2811,13 +2816,14 @@ const API={
      candidates this machine could actually fetch. Search and filters travel to
      this endpoint as query parameters; the catalogue is remote and much larger
      than one page of it. */
-  async catalog(q,format,sort,fits,limit){
+  async catalog(q,format,sort,fits,limit,maxBytes){
    /* **Live since SIRVIS M11, 12 September 2026.** This was empty on purpose
       until SIRVIS published a catalogue, after it had once returned hand-written
       "available" builds nothing had verified. SIRVIS searches Hugging Face for
       it, so the wait is longer than a local read's. */
    try{
     const params=new URLSearchParams({q:q||'',format:format||'any',sort:sort||'downloads',fits:fits?'true':'false',limit:String(limit||30)});
+    if(maxBytes!=null)params.set('max_bytes',String(Math.round(maxBytes)));
     // Longer than a model read: an order SIRVIS sorts itself reads two hundred rows per format.
     const r=await fetch(BASE.sirvis+'/api/v1/catalog?'+params,{signal:AbortSignal.timeout(25000)});
     const d=await r.json().catch(()=>({}));
@@ -8523,11 +8529,15 @@ async function sirvisModels(){
    query parameters on /api/v1/catalog — the catalog is remote and much larger
    than one page of it, so filtering client-side is a property of the mock and not
    of the design. */
-const DISCOVER={q:'',format:'any',sort:'downloads',fits:false,top:false,results:null,open:null,models:{},pending:{}};
+const DISCOVER={q:'',format:'any',sort:'downloads',fits:false,top:false,maxIndex:Infinity,results:null,open:null,models:{},pending:{}};
 /* Every order Discover offers, named as SIRVIS names it. Hugging Face sorts by five of
    them; "all time" and "smallest" are SIRVIS ordering a wider page itself, because
    Hugging Face refuses to, and the note under the list says what that means. */
 const DISCOVER_SORTS=[['downloads','Most downloaded · 30 days'],['downloads_all_time','Most downloaded · all time'],['likes','Most liked'],['trending','Trending'],['updated','Recently updated'],['created','Newest'],['smallest','Smallest first']];
+/* The size slider's stops, in GB. The position past the last one is no limit at all. */
+const DISCOVER_MAX_GB=[1,2,4,8,12,16,24,32,48,64,96,128];
+const discoverSizeText=i=>+i>=DISCOVER_MAX_GB.length?'any size':`up to ${DISCOVER_MAX_GB[+i]} GB`;
+const discoverMaxBytes=()=>DISCOVER.maxIndex>=DISCOVER_MAX_GB.length?null:DISCOVER_MAX_GB[DISCOVER.maxIndex]*1024**3;
 /* Since SIRVIS M11 (12 September 2026) the search and the format travel to SIRVIS
    as those query parameters, as the note above said they would, and SIRVIS asks
    Hugging Face. What came back is kept here between repaints, so a refresh never
@@ -8542,7 +8552,7 @@ async function discoverSearch(mode){
  if(mode)DISCOVER.top=mode==='top';
  DISCOVER.q=DISCOVER.top?'':(($('#discoverQ')||{}).value||'').trim();
  DISCOVER.results={searching:true,items:[]};DISCOVER.open=null;repaint();
- DISCOVER.results=await API.sirvis.catalog(DISCOVER.q,DISCOVER.format,DISCOVER.sort,DISCOVER.fits,DISCOVER.top?10:30);
+ DISCOVER.results=await API.sirvis.catalog(DISCOVER.q,DISCOVER.format,DISCOVER.sort,DISCOVER.fits,DISCOVER.top?10:30,discoverMaxBytes());
  repaint();
 }
 async function discoverOpen(repoId){
@@ -8572,8 +8582,8 @@ function discoverRows(){
  if(!res)return note('search for a model family, such as <b>qwen3</b> or <b>gemma</b>, or press <b>Top 10</b> for the ten most popular in the order chosen above');
  if(res.searching)return note('asking SIRVIS, which asks Hugging Face…');
  if(res.error)return note(`<span style="color:#ffb648">${escapeHtml(res.error)}</span>`);
- if(!res.items.length)return note(res.fits_filter==='applied'?'nothing in this search fits this Mac — turn off <b>Runs on this Mac</b> to see everything':'nothing on Hugging Face matches that search in these formats');
- return res.items.map(x=>`<div class="table-row six"><span class="mono" style="grid-column:1/3">${escapeHtml(x.author)}/<b>${escapeHtml(x.name)}</b></span><span class="mono">${escapeHtml(x.format)}</span><span>${escapeHtml(discoverMetric(x))}</span><span>${x.installed?'<span class="chip">installed</span> ':''}${discoverFit(x)}</span><span><button class="btn" onclick="discoverOpen('${jsAttr(x.repo_id)}')">${DISCOVER.open===x.repo_id?'Close':'Sizes'}</button></span></div>${DISCOVER.open===x.repo_id?discoverVariants(x.repo_id):''}`).join('');
+ if(!res.items.length)return note(res.size_limit_bytes!=null?'nothing in this search is small enough — raise <b>Max size</b> or turn off <b>Runs on this Mac</b>':'nothing on Hugging Face matches that search in these formats');
+ return res.items.map(x=>`<div class="table-row six"><span class="mono discover-name" style="grid-column:1/3" onclick="discoverOpen('${jsAttr(x.repo_id)}')">${escapeHtml(x.author)}/<b>${escapeHtml(x.name)}</b></span><span class="mono">${escapeHtml(x.format)}</span><span>${escapeHtml(discoverMetric(x))}</span><span>${x.installed?'<span class="chip">installed</span> ':''}${discoverFit(x)}</span><span><button class="btn" onclick="discoverOpen('${jsAttr(x.repo_id)}')">${DISCOVER.open===x.repo_id?'Close':'Details'}</button></span></div>${DISCOVER.open===x.repo_id?discoverVariants(x.repo_id):''}`).join('');
 }
 /* The figure the list is ordered by, so the column always explains the order. */
 function discoverMetric(x){
@@ -8597,9 +8607,12 @@ function discoverNotes(res){
  const lines=[];
  if(DISCOVER.sort==='downloads_all_time')lines.push('Hugging Face only ranks by the last 30 days, so these are its 200 most downloaded matches, ranked by all-time downloads. A model nobody downloads any more will not appear.');
  if(DISCOVER.sort==='smallest')lines.push('Smallest first ranks the 200 most downloaded matches by their estimated size.');
- if(res.fits_filter==='applied'){
+ if(res.size_limit_bytes!=null){
   const hid=[res.hidden_too_large?`${res.hidden_too_large} too large`:'',res.hidden_unknown_size?`${res.hidden_unknown_size} with no size to judge`:''].filter(Boolean).join(' and ');
-  lines.push(`Runs on this Mac keeps models whose usual build (4-bit for GGUF, the named precision for MLX) fits in ${sizeText(res.fit_budget_bytes)}, estimated from the parameter count${hid?`; hidden: ${hid}`:''}. The Sizes button shows the real files.`);
+  const both=res.fits_filter==='applied'&&res.max_bytes!=null;
+  const why=both?(res.size_limit_bytes===res.max_bytes?'your maximum, which is below what this Mac can hold':'what this Mac can hold, which is below your maximum')
+   :res.fits_filter==='applied'?'what this Mac can hold':'your maximum';
+  lines.push(`Showing models whose usual build (4-bit for GGUF, the named precision for MLX) is estimated at up to ${sizeText(res.size_limit_bytes)}, ${why}${hid?`; hidden: ${hid}`:''}. Details shows the real files.`);
  }
  if(res.fits_filter==='unavailable')lines.push("SIRVIS does not know this Mac's memory yet, so Runs on this Mac hides nothing.");
  return lines.map(line=>`<small class="mono dim" style="display:block;margin:6px 0">${escapeHtml(line)}</small>`).join('');
@@ -8607,11 +8620,32 @@ function discoverNotes(res){
 function discoverVariants(repoId){
  const m=DISCOVER.models[repoId]||{loading:true,variants:[]};
  const step=(label,text)=>`<div class="trace-step" style="padding-left:14px"><b>${label}</b><span>${text}</span></div>`;
- if(m.loading)return step('sizes','reading the model’s file list…');
- if(m.error)return step('sizes',`<span style="color:#ffb648">${escapeHtml(m.error)}</span>`);
- if(m.gated)return step('gated','accepting a licence on Hugging Face comes first, and LM Studio would need a Hugging Face login SIRVIS does not have');
- if(!m.variants.length)return step('nothing to download','this repository is neither GGUF nor MLX');
- return m.variants.map(v=>discoverVariant(repoId,v)).join('');
+ if(m.loading)return step('details','reading the model from Hugging Face…');
+ if(m.error)return step('details',`<span style="color:#ffb648">${escapeHtml(m.error)}</span>`);
+ const facts=discoverFacts(repoId,m);
+ if(m.gated)return facts+step('gated','accepting a licence on Hugging Face comes first, and LM Studio would need a Hugging Face login SIRVIS does not have');
+ if(!m.variants.length)return facts+step('nothing to download','this repository is neither GGUF nor MLX');
+ return facts+m.variants.map(v=>discoverVariant(repoId,v)).join('');
+}
+/* What a person wants to know before choosing a version: what the model is, where it came
+   from, how it may be used, and how widely it is. Every value is Hugging Face's own, shown as
+   text; the one link is built from the repository name SIRVIS already checked. */
+function discoverFacts(repoId,m){
+ const row=((DISCOVER.results||{}).items||[]).find(x=>x.repo_id===repoId)||{};
+ const count=n=>n==null?'':tokenCount(n);
+ const day=iso=>(iso||'').slice(0,10);
+ const downloads=[count(m.downloads)&&`${count(m.downloads)} in 30 days`,count(row.downloads_all_time)&&`${count(row.downloads_all_time)} all time`].filter(Boolean).join(' · ');
+ const facts=[
+  ['by',m.author],
+  ['parameters',m.parameters==null?'':`${tokenCount(m.parameters)}${m.parameters_source==='name'?' (from its name)':''}`],
+  ['architecture',m.architecture||m.model_type],
+  ['context',m.context_length==null?'':`${tokenCount(m.context_length)} tokens`],
+  ['licence',m.license],['based on',m.base_model],['task',m.pipeline_tag],['library',m.library],
+  ['downloads',downloads],['likes',count(m.likes)],['created',day(m.created_at)],['updated',day(m.updated_at)],
+  ['this Mac',m.fit_budget_bytes==null?'':`${sizeText(m.fit_budget_bytes)} for a model, three quarters of ${sizeText(m.memory_bytes)}`]
+ ].filter(([,value])=>value!=null&&value!=='');
+ const page=`https://huggingface.co/${repoId.split('/').map(encodeURIComponent).join('/')}`;
+ return `<div class="discover-facts">${facts.map(([label,value])=>`<span><b>${escapeHtml(label)}</b>${escapeHtml(String(value))}</span>`).join('')}<span><b>page</b><a href="${escapeHtml(page)}" target="_blank" rel="noopener noreferrer">open on Hugging Face ↗</a></span></div>`;
 }
 function discoverVariant(repoId,v){
  const key=repoId+'@'+v.quantization, pend=DISCOVER.pending[key]||{}, disk=v.disk||{};
@@ -8624,7 +8658,7 @@ function discoverVariant(repoId,v){
  const asked=pend.details&&pend.details.confirm_required
   ?`<div class="trace-step" style="padding-left:14px"><b>before it downloads</b><span>${(pend.details.warnings||[]).map(escapeHtml).join(' · ')} <button class="btn" onclick="${click(true)}">Download anyway</button></span></div>`
   :pend.error?`<div class="trace-step" style="padding-left:14px"><b>refused</b><span style="color:#ffb648">${escapeHtml(pend.error)}</span></div>`:'';
- return `<div class="table-row six"><span class="mono" style="grid-column:1/3;padding-left:14px">${escapeHtml(v.quantization||'whole folder')}</span><span>${escapeHtml(sizeText(v.size_bytes))}</span><span class="mono"${warned||disk.fits===false?' style="color:#ffb648"':''}>${after==null?'size unknown':after<0?'does not fit':escapeHtml(sizeText(after))+' left'}</span><span style="opacity:.75">${warned?escapeHtml(warned+(warned>1?' warnings':' warning')):''}</span><span>${action}</span></div>${asked}`;
+ return `<div class="table-row six"><span class="mono" style="grid-column:1/3;padding-left:14px">${escapeHtml(v.quantization||'whole folder')}</span><span>${escapeHtml(sizeText(v.size_bytes))}</span><span class="mono"${warned||disk.fits===false?' style="color:#ffb648"':''}>${after==null?'size unknown':after<0?'does not fit':escapeHtml(sizeText(after))+' left'}</span><span style="opacity:.75">${v.fits_memory===true?'<span class="chip">runs here</span> ':v.fits_memory===false?'<span class="chip warn">too big for this Mac</span> ':''}${warned?escapeHtml(warned+(warned>1?' warnings':' warning')):''}</span><span>${action}</span></div>${asked}`;
 }
 async function sirvisDiscover(){
  heading('Discover','Search Hugging Face through SIRVIS, check a model against this disk, and hand the download to LM Studio.');
@@ -8643,8 +8677,9 @@ async function sirvisDiscover(){
     <button class="btn" onclick="discoverSearch('top')">Top 10</button></div>
    <div class="profile-row"><span data-filter="format">${chip('any','GGUF and MLX')}${chip('gguf','GGUF')}${chip('mlx','MLX')}</span>
     <button class="mode-chip${DISCOVER.fits?' on':''}" onclick="DISCOVER.fits=!DISCOVER.fits;discoverSearch()">Runs on this Mac</button>
-    <label class="mono dim">Sort <select id="discoverSort" class="discover-sort" onchange="DISCOVER.sort=this.value;discoverSearch()">${options}</select></label></div>
-   <div class="table-row head six"><span style="grid-column:1/3">Model</span><span>Format</span><span>${escapeHtml(order)}</span><span>Here</span><span>Sizes</span></div>
+    <label class="mono dim">Sort <select id="discoverSort" class="discover-sort" onchange="DISCOVER.sort=this.value;discoverSearch()">${options}</select></label>
+    <label class="mono dim">Max size <input type="range" class="discover-size" min="0" max="${DISCOVER_MAX_GB.length}" step="1" value="${Math.min(DISCOVER.maxIndex,DISCOVER_MAX_GB.length)}" oninput="$('#discoverSizeLabel').textContent=discoverSizeText(this.value)" onchange="DISCOVER.maxIndex=+this.value;discoverSearch()"> <span id="discoverSizeLabel">${discoverSizeText(DISCOVER.maxIndex)}</span></label></div>
+   <div class="table-row head six"><span style="grid-column:1/3">Model</span><span>Format</span><span>${escapeHtml(order)}</span><span>Here</span><span>Details</span></div>
    ${discoverRows()}
    ${discoverNotes(res)}
    <small class="mono dim">Each size comes from the model's own file list, and the disk is checked before anything is queued: a download that does not fit cannot start, and one that would leave little room asks first. SIRVIS never deletes a model to make room. A gated model is shown and not offered, because LM Studio would need a Hugging Face login.</small>`,'sirvis')}</div>`;

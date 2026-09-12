@@ -542,7 +542,10 @@ a download, and there is no cancel, because LM Studio, which carries the transfe
 Since 0.26.0 Discover sends `sort` and `fits` too: a sort menu with SIRVIS's seven orders, a *Runs
 on this Mac* toggle, and *Top 10*, which asks for ten rows with the box empty. The column beside
 each model shows the figure the list is ordered by, and a note under the list says when an order
-or the filter worked from a sample of Hugging Face rather than all of it.
+or the filter worked from a sample of Hugging Face rather than all of it. Since 0.27.0 a *Max size*
+slider sends `max_bytes` (1 to 128 GB, or any), and clicking a model opens its details — author,
+parameters, architecture, context length, licence, base model, task, downloads, likes and dates, a
+link to its Hugging Face page — above its versions, each marked when it runs on this Mac.
 
 Views must preserve `MEASURED`, `ESTIMATED`, `UNKNOWN` (and treat `PARTIALLY_MEASURED` as at
 most estimated), plus timestamps, staleness, method, sample count, units and evidence links.

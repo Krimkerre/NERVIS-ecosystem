@@ -108,6 +108,7 @@ async def search(
     sort: str = "downloads",
     memory_bytes: int | None = None,
     fits_only: bool = False,
+    max_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Repositories matching `query`, in the chosen order, in one format or both.
 
@@ -118,7 +119,7 @@ async def search(
     """
     formats = FORMATS if format_ == "any" else (format_,)
     remote = SORTS[sort]
-    page = LOCAL_PAGE if remote is None or fits_only else limit
+    page = LOCAL_PAGE if remote is None or fits_only or max_bytes is not None else limit
     budget = int(memory_bytes * FIT_SHARE) if memory_bytes else None
     found: list[dict[str, Any]] = []
     for each in formats:
@@ -130,15 +131,28 @@ async def search(
         for item in answered if isinstance(answered, list) else []:
             if isinstance(item, dict) and _REPO_ID.match(str(item.get("id") or "")):
                 found.append(_summary(item, each, installed, budget))
-    filtering = fits_only and budget is not None
-    too_large = sum(1 for entry in found if entry["fits"] is False) if filtering else 0
-    unknown = sum(1 for entry in found if entry["fits"] is None) if filtering else 0
-    if filtering:
-        found = [entry for entry in found if entry["fits"]]
+    # The size a row may be: this machine's budget when asked for, a stated maximum, or the
+    # smaller of the two. A row with no estimate cannot be shown to be under either.
+    caps = [cap for cap in (budget if fits_only else None, max_bytes) if cap is not None]
+    size_limit = min(caps) if caps else None
+
+    def under(entry: dict[str, Any]) -> bool | None:
+        size = entry["estimated_bytes"]
+        return None if size is None or size_limit is None else size <= size_limit
+
+    too_large = unknown = 0
+    if size_limit is not None:
+        too_large = sum(1 for entry in found if under(entry) is False)
+        unknown = sum(1 for entry in found if under(entry) is None)
+        found = [entry for entry in found if under(entry)]
     return {
         "items": _ordered(found, sort)[:limit],
         "fit_budget_bytes": budget,
-        "fits_filter": "applied" if filtering else "unavailable" if fits_only else "off",
+        "fits_filter": (
+            "applied" if fits_only and budget is not None else "unavailable" if fits_only else "off"
+        ),
+        "max_bytes": max_bytes,
+        "size_limit_bytes": size_limit,
         "hidden_too_large": too_large,
         "hidden_unknown_size": unknown,
     }
@@ -253,6 +267,19 @@ async def model(
     siblings = [one for one in data.get("siblings") or [] if isinstance(one, dict)]
     raw_gguf = data.get("gguf")
     gguf: dict[str, Any] = raw_gguf if isinstance(raw_gguf, dict) else {}
+    raw_safetensors = data.get("safetensors")
+    safetensors: dict[str, Any] = raw_safetensors if isinstance(raw_safetensors, dict) else {}
+    raw_card = data.get("cardData")
+    card: dict[str, Any] = raw_card if isinstance(raw_card, dict) else {}
+    raw_config = data.get("config")
+    config: dict[str, Any] = raw_config if isinstance(raw_config, dict) else {}
+    architectures = config.get("architectures")
+    named_architecture = (
+        str(architectures[0]) if isinstance(architectures, list) and architectures else ""
+    )
+    parameters, source = _parameters(
+        _int(gguf.get("total")) if gguf else _int(safetensors.get("total")), repo_id
+    )
     variants = (
         _gguf_variants(repo_id, siblings, installed) if format_ == "gguf"
         else _mlx_variants(repo_id, siblings, installed) if format_ == "mlx"
@@ -260,17 +287,44 @@ async def model(
     )
     return {
         "repo_id": repo_id,
+        "author": str(data.get("author") or repo_id.split("/", 1)[0]),
+        # Built from the checked repository id, never taken from the metadata (§4.5).
+        "url": f"https://huggingface.co/{repo_id}",
         "format": format_,
         # `false`, or `"auto"` / `"manual"` for a model behind a licence click.
         "gated": bool(data.get("gated")),
-        "architecture": str(gguf.get("architecture") or ""),
+        "architecture": str(gguf.get("architecture") or named_architecture),
+        "model_type": str(config.get("model_type") or ""),
         "context_length": _int(gguf.get("context_length")),
-        "parameters": _int(gguf.get("total")),
+        "parameters": parameters,
+        "parameters_source": source,
+        "license": _card_or_tag(card.get("license"), tags, "license:"),
+        "base_model": _card_or_tag(card.get("base_model"), tags, "base_model:"),
+        "pipeline_tag": str(data.get("pipeline_tag") or card.get("pipeline_tag") or ""),
+        "library": str(data.get("library_name") or card.get("library_name") or ""),
         "downloads": _int(data.get("downloads")),
         "likes": _int(data.get("likes")),
+        "created_at": str(data.get("createdAt") or ""),
         "updated_at": str(data.get("lastModified") or ""),
         "variants": variants,
     }
+
+
+def _card_or_tag(value: Any, tags: set[str], prefix: str) -> str:
+    """A model card field — a string or a list of them — or, failing that, its tag.
+
+    A tag like `base_model:quantized:Qwen/Qwen3-8B` says how the base was changed as well
+    as which model it was, so the relation is dropped and the model kept.
+    """
+    if isinstance(value, list):
+        value = next((str(each) for each in value if each), "")
+    if isinstance(value, str) and value:
+        return value
+    for tag in sorted(tags):
+        if tag.startswith(prefix):
+            named = tag[len(prefix):]
+            return named.split(":", 1)[1] if ":" in named else named
+    return ""
 
 
 def _gguf_variants(

@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2927 tests, no network, no live service
+.venv/bin/pytest                      # part of 2931 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -33,14 +33,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 506 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 510 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1211 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2927 passing across the four, conformance `PASS`.
+Expected: all clean, 2931 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -18600,6 +18600,47 @@ Sizes button still reads each model's real files before anything downloads.
 Checked: ruff and mypy clean, 506 SIRVIS tests pass (seven new) and 1211 NERVIS,
 the page's script parses, release notes written. The long-running test is not
 running; it waits to be started overnight.
+
+## Discover: a size slider and a model's details — 2026-09-12
+
+Asked for straight after the sort menu: a slider to set the largest size shown,
+and more to see when a model is clicked. SIRVIS 0.19.0 and NERVIS 0.27.0.
+
+SIRVIS's search takes `max_bytes` and keeps rows whose estimated size is at or
+under it; with *Runs on this Mac* on as well, the smaller limit applies, and the
+answer names the limit it used. A negative size is refused the way an unknown
+order is: first written with `Query(ge=0)`, whose refusal is FastAPI's own
+validation list rather than SIRVIS's error, and changed after the live check
+showed it.
+
+A model read now carries the author, the licence and base model — from the model
+card, or from its `license:` and `base_model:` tags when the card says nothing —
+the model type, task, library and creation date, the parameter count checked
+against the name the way a search checks it, a link to its Hugging Face page built
+from the checked repository name, and for each version whether its real file size
+fits in three quarters of this Mac's memory.
+
+On the Discover screen, *Max size* runs from 1 GB to 128 GB or any size and asks
+again when released. Clicking a model's name, or its *Details* button, opens those
+facts above its versions, and each version is marked *runs here* or *too big for
+this Mac*.
+
+Live, after restarting (SIRVIS reports 0.19.0, NERVIS 0.27.0):
+
+- A cap of 8 GB on "qwen" kept ten rows, the largest estimated at 5.2 GiB, and
+  hid 196 as too large and 50 with no size to judge. With *Runs on this Mac* and a
+  cap of 100 GB, the 18 GiB this Mac allows was the limit applied.
+- Qwen3.8 27B GGUF read as published by unsloth, 27.3 billion parameters, context
+  262,144, apache-2.0, based on Qwen/Qwen3.8-27B. Of its 25 versions 15 run here
+  and 10 do not, and the line falls where it should: Q5_K_S at 17.4 GiB runs, Q5_K_M
+  at 18.4 GiB does not.
+- The MLX 4-bit copy read its architecture from its config, image-text-to-text as
+  its task and transformers as its library, and its 15.0 GiB folder runs here.
+- `max_bytes=-1` is refused with UNSUPPORTED_PARAMETER.
+
+Checked: ruff and mypy clean, 510 SIRVIS tests pass (four new) and 1211 NERVIS,
+the page's script parses, release notes written. The long-running test is still
+waiting to be started overnight.
 
 ## Starting the thing
 

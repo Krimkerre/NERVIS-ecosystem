@@ -53,6 +53,14 @@ in the name for MLX; the Sizes button shows the real files. When Hugging Face's
 count is missing or clearly wrong, as it is for a model split into pieces, the
 size in the model's name (such as 27B) is used instead.
 
+A **Max size** slider limits the list to models estimated at or under a chosen
+size, from 1 GB to 128 GB or any size; with Runs on this Mac on as well, the
+smaller of the two limits applies. Clicking a model shows its details: who
+published it, parameters, architecture, context length, licence, the model it is
+based on, what it is for, downloads, likes, when it was created and updated, and
+a link to its Hugging Face page. Each downloadable version is marked when it runs
+on this Mac, judged by its real file size.
+
 ## What a crash does to a benchmark
 
 A job that was *running* when the service stopped is marked failed on the next

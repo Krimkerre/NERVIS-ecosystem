@@ -313,7 +313,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.26.0
+## NERVIS — 0.27.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Discover gains a size slider and a details view.** *Max size* sets the largest estimated size
+  to show, from 1 to 128 GB or any; it works alongside *Runs on this Mac*, and the note under the
+  list says which limit applied. Clicking a model, or its *Details* button, shows who published it,
+  parameters, architecture, context length, licence, base model, task, downloads, likes and dates,
+  a link to its Hugging Face page, and marks each version that runs on this Mac.
+
+### 0.26.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -845,7 +855,20 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.18.0
+## SIRVIS — 0.19.0
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
+
+- **A size cap.** `max_bytes` on `GET /api/v1/catalog` keeps rows whose estimated size is at or
+  under it. With `fits=true` as well the smaller limit applies, and the answer names the limit it
+  used (`size_limit_bytes`) and how many rows it hid as too large or unsized.
+- **A model read says more.** `GET /api/v1/catalog/{owner}/{name}` now carries the author, the
+  licence and base model — from the model card, or its tags when the card says nothing — the model
+  type, task, library and creation date, the parameter count checked against the name the way a
+  search checks it, and a link to the model's page built from the checked repository id. Each
+  version says whether its real file size fits in three quarters of this machine's memory.
+
+### 0.18.0
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
 

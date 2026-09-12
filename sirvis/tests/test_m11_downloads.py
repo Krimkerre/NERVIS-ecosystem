@@ -526,3 +526,80 @@ def test_a_count_that_disagrees_with_the_name_by_tenfold_is_replaced_by_the_name
     )
     assert by_repo["c/Model-8B-GGUF"] == (8_190_000_000, "count"), "a count near the name is kept"
     assert by_repo["d/Model-4bit-GGUF"] == (None, None), "`4bit` is a precision, not a size"
+
+
+# ── A size cap, and what a model read says ────────────────────────────────────
+
+
+SIZED_ROWS = {"gguf": [
+    {"id": "a/Model-1B-GGUF", "downloads": 3, "gguf": {"total": 1_000_000_000}},
+    {"id": "b/Model-8B-GGUF", "downloads": 2, "gguf": {"total": 8_000_000_000}},
+    {"id": "c/Model-GGUF", "downloads": 1},
+]}
+
+
+def test_a_size_cap_keeps_what_is_under_it_and_the_smaller_limit_wins() -> None:
+    capped = asyncio.run(catalog.search(
+        hub_search(SIZED_ROWS), "", "gguf", 10, frozenset(), max_bytes=2 * GIB,
+    ))
+    both = asyncio.run(catalog.search(
+        hub_search(SIZED_ROWS), "", "gguf", 10, frozenset(),
+        max_bytes=100 * GIB, memory_bytes=4 * GIB, fits_only=True,
+    ))
+
+    assert [row["repo_id"] for row in capped["items"]] == ["a/Model-1B-GGUF"]
+    assert (
+        capped["size_limit_bytes"], capped["hidden_too_large"], capped["hidden_unknown_size"]
+    ) == (2 * GIB, 1, 1)
+    assert both["size_limit_bytes"] == int(4 * GIB * catalog.FIT_SHARE), (
+        "this machine's budget is the smaller limit, so it is the one applied"
+    )
+
+
+def test_a_model_read_names_its_licence_base_model_and_type() -> None:
+    carded = {
+        **GGUF_MODEL, "author": "lmstudio-community",
+        "cardData": {"license": "apache-2.0", "base_model": ["Tiny/Base"]},
+        "config": {"model_type": "llama"},
+    }
+    tagged = {**GGUF_MODEL, "tags": ["gguf", "base_model:quantized:Tiny/Base", "license:mit"]}
+
+    detail = asyncio.run(catalog.model(hub({GGUF_REPO: carded}), GGUF_REPO, frozenset()))
+    from_tags = asyncio.run(catalog.model(hub({GGUF_REPO: tagged}), GGUF_REPO, frozenset()))
+
+    assert (detail["license"], detail["base_model"], detail["model_type"]) == (
+        "apache-2.0", "Tiny/Base", "llama",
+    )
+    assert detail["url"] == f"https://huggingface.co/{GGUF_REPO}"
+    assert (from_tags["license"], from_tags["base_model"]) == ("mit", "Tiny/Base"), (
+        "the tags answer when the card is silent, without the `quantized:` relation"
+    )
+
+
+def test_a_model_read_says_which_versions_fit_this_machines_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, app, _token = an_api(monkeypatch)
+    app.state.machine_memory_bytes = 4 * GIB
+
+    detail = client.get(f"/api/v1/catalog/{GGUF_REPO}").json()
+
+    assert [(v["quantization"], v["fits_memory"]) for v in detail["variants"]] == [
+        ("Q4_K_M", True), ("Q8_0", False),
+    ], "2 GiB fits in three quarters of 4 GiB and 4 GiB does not"
+    assert detail["fit_budget_bytes"] == int(4 * GIB * catalog.FIT_SHARE)
+
+
+def test_the_catalog_route_caps_by_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, app, _token = an_api(monkeypatch)
+    app.state.machine_memory_bytes = 24 * GIB
+    app.state.hub_client = hub_search(SIZED_ROWS)
+
+    capped = client.get("/api/v1/catalog", params={"format": "gguf", "max_bytes": 2 * GIB}).json()
+    negative = client.get("/api/v1/catalog", params={"max_bytes": -1})
+
+    assert [row["repo_id"] for row in capped["items"]] == ["a/Model-1B-GGUF"]
+    assert negative.json()["error"]["code"] == "UNSUPPORTED_PARAMETER", (
+        "refused the way an unknown order is, not with FastAPI's own validation list"
+    )
+    assert (capped["max_bytes"], capped["size_limit_bytes"]) == (2 * GIB, 2 * GIB)

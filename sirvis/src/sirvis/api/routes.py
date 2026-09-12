@@ -373,6 +373,7 @@ async def search_catalog(
     limit: int = 20,
     sort: str = "downloads",
     fits: bool = False,
+    max_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Models this machine could download, in the order asked for (§8, M11).
 
@@ -392,11 +393,17 @@ async def search_catalog(
             "sort is one of " + ", ".join(f"`{name}`" for name in catalog.SORTS),
             parameter="sort", value=sort,
         )
+    # Checked here rather than with `Query(ge=0)`, whose refusal is FastAPI's own list and
+    # not the error every other refusal on this route carries.
+    if max_bytes is not None and max_bytes < 0:
+        raise UnsupportedParameterError(
+            "max_bytes is a size in bytes, zero or more", parameter="max_bytes", value=max_bytes
+        )
     memory = await _machine_memory(request)
     found = await catalog.search(
         request.app.state.hub_client, q.strip(), format_,
         max(1, min(limit, catalog.MAX_RESULTS)), await _installed(request),
-        sort=sort, memory_bytes=memory, fits_only=fits,
+        sort=sort, memory_bytes=memory, fits_only=fits, max_bytes=max_bytes,
     )
     free = downloads.free_bytes(request.app.state.settings.lmstudio_models_path)
     return _listing(found.pop("items")) | found | {
@@ -426,11 +433,16 @@ async def _machine_memory(request: Request) -> int | None:
 
 @router.get("/catalog/{repo_id:path}")
 async def read_catalog_model(request: Request, repo_id: str) -> dict[str, Any]:
-    """One model's downloadable variants, each with its size and its disk check."""
+    """One model, and its downloadable variants with their sizes, disk checks and memory fit."""
     detail = await catalog.model(request.app.state.hub_client, repo_id, await _installed(request))
+    memory = await _machine_memory(request)
+    budget = int(memory * catalog.FIT_SHARE) if memory else None
     for variant in detail["variants"]:
         variant["disk"] = _disk(request, variant["size_bytes"]).as_dict()
-    return detail
+        size = variant["size_bytes"]
+        # The real file size, against the same share of memory a search's estimate uses.
+        variant["fits_memory"] = None if size is None or budget is None else size <= budget
+    return detail | {"memory_bytes": memory, "fit_budget_bytes": budget}
 
 
 @router.post("/downloads", status_code=202)
