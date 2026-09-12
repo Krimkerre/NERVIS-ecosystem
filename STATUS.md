@@ -18978,9 +18978,14 @@ Next.
 
 Verified live: the stack restarted onto the new SIRVIS; `tools/run.py models --json` listed 20 models,
 every one with a size and none loaded; and the app's menu, printed from that answer, showed LM Studio's
-submenu with Open LM Studio and all 20 models with format, quantization and size. **Not seen live yet:
-loading and unloading a model from the menu** — that is left to the owner's own click, since a model is
-never loaded without asking first.
+submenu with Open LM Studio and all 20 models with format, quantization and size. Then, by the owner's own click
+— a model is never loaded here without asking — **loading and unloading were seen working.** The owner
+loaded qwen3-1.7b from the menu: the menu recorded one session; SIRVIS held `qwen/qwen3-1.7b`, loaded by
+itself, under one active one-hour lease owned by the dashboard's token, with nothing loaded outside it;
+LM Studio had exactly that model loaded, 1.7 GB at an 8,192-token context; the menu ticked it; and memory
+in use read 61%. Clicking it again emptied the menu's record, left SIRVIS holding nothing and LM Studio
+with nothing loaded, took the tick away, and memory in use fell to 55%. Not yet watched: a lease renewal,
+the first of which comes ten minutes after a load.
 
 SIRVIS 0.19.1 → 0.19.2, NERVIS 0.28.1 → 0.28.2.
 
