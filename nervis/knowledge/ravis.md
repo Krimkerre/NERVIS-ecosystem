@@ -320,6 +320,14 @@ Google, DeepSeek and xAI publish catalogues with no pricing in them at all, so
 without that file their calls cost `UNKNOWN` — which a budget reads as *nothing
 has been spent*.
 
+**Those rates are also what routing ranks on, since 12 September 2026.** A
+hosted model whose provider publishes no price used to reach ranking unpriced,
+so two direct builds of one family tied and the tie went to alphabetical order —
+the oldest build first. It now ranks on the price in that file, and a dated
+build name such as claude-haiku-4-5-20251001 finds the price written as
+claude-haiku-4-5, which also stopped those calls costing UNKNOWN. A price the
+provider does publish is never replaced.
+
 DeepSeek and xAI rates were added on 9 September 2026 from each vendor's own
 documentation. Both vendors bill **two tiers**, and the file holds one rate per
 model, so two deliberate choices were made:

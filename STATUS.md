@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2866 tests, no network, no live service
+.venv/bin/pytest                      # part of 2869 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1203 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2866 passing across the four, conformance `PASS`.
+Expected: all clean, 2869 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -18035,6 +18035,44 @@ returned as before). 0.15.4 is installed in code-server and VS Code and both
 installed bundles match the package built from its commit. Seen live the same
 morning: reloaded with nervis-tasks open, the greeting no longer names the pomodoro
 project's branch.
+
+## Diagnostics' last faded card was its row of tabs — 2026-09-12
+
+The Diagnostics screen still showed a faded card after 8 September's fix, which
+wired one faded panel and removed the other. Inspecting the live page found it:
+the faded card was the row of tabs itself — services, Clarvis in the editor, API
+inspector, raw logs. Every card not marked live is drawn at 55% opacity and
+desaturated, the page's signal that no reading stands behind it; the tabs are
+navigation and never had a reading, so on all four Diagnostics views they were
+permanently faded. They are now a plain row spanning the grid rather than a
+card, and the refusal and capability gate still applies where they sit.
+
+Checked: NERVIS's suite passes. On the live dashboard, all four Diagnostics views
+have no faded card, and the four tabs sit on one line.
+
+## RAVIS ranks unpriced hosted models on the operator's prices — 2026-09-12
+
+Anthropic, OpenAI and Google publish no prices, so their direct builds reached
+ranking unpriced, although the operator's prices.json already held their rates
+for the spend screen. Direct builds of one family tied, and the tie fell to
+alphabetical order — which is why only Claude Sonnet 5 could be declared
+tool-capable without handing builds to the oldest Sonnet. A candidate with no
+published price now ranks on the rate the price book holds for it, in routing and
+on the management screens; a published catalogue price is never replaced, and no
+price stays no price rather than becoming zero. A dated build id,
+claude-haiku-4-5-20251001, now also finds the price written under its undated
+name, claude-haiku-4-5, which the book had never matched: direct Haiku calls had
+been costing UNKNOWN on the spend screen.
+
+Not changed: Claude Opus 4.5 to Opus 5 share one price, so if several Opus builds
+become eligible together they still tie, and alphabetical order still picks the
+oldest.
+
+Checked: RAVIS's full suite passes with ruff and mypy; new tests cover the
+dated-name fallback, filling only unpriced candidates, and the cheapest direct
+Sonnet winning once priced. Live after a restart: a request routed to
+claude-haiku-4-5-20251001 recorded a cost of $0.000565, estimated from the
+operator's price, where it had been unpriced.
 
 ## Starting the thing
 
