@@ -313,7 +313,15 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.2
+## NERVIS — 0.28.3
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Clicking a line of the stack in the menu bar app opens it in the browser.** SIRVIS, RAVIS, NERVIS and
+  CLARVIS open their screens in the dashboard, since only NERVIS serves pages; code-server opens its own
+  address. `tools/run.py status --json` carries each address.
+
+### 0.28.2
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

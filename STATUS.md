@@ -18993,6 +18993,25 @@ Checked: ruff and mypy clean in SIRVIS and NERVIS; SIRVIS's full suite passes, 5
 for sizes; NERVIS's full suite passes, 1217 with four new for the launcher's model commands; the app
 builds, and the build refreshed its copy in Applications; and the commit went through the dashboard hook.
 
+## Stack lines in the menu bar app open in the browser — 2026-09-12
+
+Each line of the menu's stack section now opens that part of the stack in the default browser, as the
+owner asked. SIRVIS, RAVIS and CLARVIS serve no pages of their own — their screens are NERVIS's
+dashboard — so SIRVIS and RAVIS open their Dashboard screens, NERVIS its Overview and CLARVIS its
+Workspace, each through the dashboard's hash route; code-server opens its own address.
+`tools/run.py status --json` carries each one as `address`, null for Ollama and LM Studio, which have
+no page, so the app still knows nothing about ports or screens.
+
+Verified live: the status answer gave all five addresses; each dashboard address, opened in a browser,
+landed on the named screen with no correction from the router; code-server's address answered with
+its login redirect; the app's menu, printed from the answer, showed each line opening its page; and the
+running app was replaced with this build without touching the stack.
+
+NERVIS 0.28.2 → 0.28.3.
+
+Checked: the launcher's status test, now covering every address, and the knowledge tests pass; the app
+builds and refreshed its copy in Applications; and the commit went through the dashboard hook.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

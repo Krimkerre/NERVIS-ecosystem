@@ -1060,7 +1060,8 @@ LM Studio and Ollama are running — CLARVIS only while an editor window has it 
 Open LM Studio, and every installed model. Clicking a model loads it through SIRVIS; it gets a tick and
 stays loaded until you click it again or quit NERVIS. Before loading a model that probably won't fit in
 the memory free at the time, the menu asks. A model loaded any other way shows a dash and is left alone,
-and SIRVIS loads at most two models at once.
+and SIRVIS loads at most two models at once. Clicking SIRVIS, RAVIS, NERVIS or CLARVIS in the menu opens
+that app's screen in the dashboard in your browser, and code-server opens the browser editor.
 
 The NERVIS mark in the menu bar has a pupil that is solid while the whole stack is running, faint
 when part of it is not, and blinks while there are unread notifications; reading them on the

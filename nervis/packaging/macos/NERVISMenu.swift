@@ -36,6 +36,8 @@ struct StackReport: Decodable {
         let answering: Bool
         /// For CLARVIS, how many editor windows have a live Bridge; nil for everything else.
         let windows: Int?
+        /// The page the line opens in the browser, when there is one.
+        let address: String?
     }
 
     /// NERVIS's own machine reading, trimmed to what the menu shows. Every field is
@@ -542,6 +544,11 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    @objc private func openAddress(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     @objc private func openNotifications() {
         guard let address = report?.notifications?.screen, let url = URL(string: address) else { return }
         NSWorkspace.shared.open(url)
@@ -801,6 +808,14 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let item = NSMenuItem()
         item.attributedTitle = title
         item.isEnabled = true
+        // A line of the stack opens that part of it in the browser — its screen in NERVIS's
+        // dashboard, or code-server itself — as the owner asked.
+        if let address = service.address, let url = URL(string: address) {
+            item.representedObject = url
+            item.action = #selector(openAddress(_:))
+            item.target = self
+            item.toolTip = "Open \(service.name) in the browser"
+        }
         // LM Studio's row opens a submenu: the app itself, and the installed models, each
         // loaded through SIRVIS rather than straight into LM Studio (SIRVIS.md §9).
         if service.name == "LM Studio" {

@@ -40,7 +40,9 @@ menu shows the number of unread notifications when there are any, **Open NERVIS 
 each service — CLARVIS among them, running while an editor window has its Bridge on — and
 LM Studio and Ollama as running or not (LM Studio's entry opens LM Studio and lists its installed
 models), CPU, GPU and memory use, and **Quit
-NERVIS and stop the stack**. The pupil in the mark is solid while the whole stack answers, faint
+NERVIS and stop the stack**. Clicking a line of the stack opens it in the browser: SIRVIS, RAVIS,
+NERVIS and CLARVIS on their screens in the dashboard, code-server at its own address. The pupil in
+the mark is solid while the whole stack answers, faint
 when part of it does not, and blinks while NERVIS has unread notifications. GPU use is the figure
 the graphics driver publishes; Activity Monitor's GPU History is the place to compare it.
 

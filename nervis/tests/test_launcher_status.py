@@ -68,6 +68,14 @@ def test_status_json_groups_every_service_and_reads_the_rest_only_through_nervis
     section = [s["name"] for s in body["services"] if s["group"] in ("stack", "editor")]
     assert section == ["SIRVIS", "RAVIS", "NERVIS", "CLARVIS", "code-server"]
     assert next(s for s in body["services"] if s["name"] == "CLARVIS")["windows"] == 2
+    # Each line of the stack opens something: a screen in the dashboard, or code-server itself.
+    addresses = {s["name"]: s["address"] for s in body["services"]}
+    assert addresses["SIRVIS"] == run.DASHBOARD + "#/sirvis/Dashboard"
+    assert addresses["RAVIS"] == run.DASHBOARD + "#/ravis/Dashboard"
+    assert addresses["NERVIS"] == run.DASHBOARD + "#/nervis/Overview"
+    assert addresses["CLARVIS"] == run.DASHBOARD + "#/clarvis/Workspace"
+    assert addresses["code-server"] == "http://127.0.0.1:8080/"
+    assert addresses["Ollama"] is None and addresses["LM Studio"] is None
 
     assert body["dashboard"] == run.DASHBOARD
     assert body["system"] == {"memory_total_bytes": 24}

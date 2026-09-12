@@ -54,6 +54,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
@@ -1231,6 +1232,26 @@ def status(quiet: bool = False) -> dict[str, bool]:
     return answers
 
 
+#: Where clicking a line of the stack in the menu bar app takes the browser. SIRVIS, RAVIS
+#: and CLARVIS serve no pages of their own — their screens are NERVIS's dashboard — so each
+#: opens its screen there, addressed the way the dashboard's router reads a hash.
+SCREENS = {
+    "NERVIS": "nervis/Overview", "SIRVIS": "sirvis/Dashboard",
+    "RAVIS": "ravis/Dashboard", "CLARVIS": "clarvis/Workspace",
+}
+
+
+def _open_address(name: str, health_url: str) -> str | None:
+    """The page a service's line opens: its dashboard screen, code-server's own address, or
+    None for a runtime with nothing to show in a browser."""
+    if name in SCREENS:
+        return f"{DASHBOARD}#/{SCREENS[name]}"
+    if name == "code-server":
+        parts = urllib.parse.urlsplit(health_url)
+        return f"{parts.scheme}://{parts.netloc}/"
+    return None
+
+
 #: The machine figures the menu bar app shows, out of everything NERVIS samples.
 SYSTEM_FIGURES = (
     "memory_total_bytes", "memory_available_bytes", "swap_used_bytes", "disk_free_bytes",
@@ -1258,8 +1279,8 @@ def status_report() -> dict[str, object]:
     with ThreadPoolExecutor(max_workers=len(probes)) as pool:
         answers = list(pool.map(lambda probe: responds(probe[1], 1.0), probes))
     services = [
-        {"name": name, "group": group, "answering": answering}
-        for (name, _, group), answering in zip(probes, answers)
+        {"name": name, "group": group, "answering": answering, "address": _open_address(name, url)}
+        for (name, url, group), answering in zip(probes, answers)
     ]
     nervis_up = any(service["name"] == "NERVIS" and service["answering"] for service in services)
     # CLARVIS is listed with the stack, just above code-server, which hosts it in a browser.
@@ -1267,7 +1288,8 @@ def status_report() -> dict[str, object]:
     # stack being down, and the menu bar icon must not say it is.
     windows = _clarvis_bridges() if nervis_up else None
     at = next((i for i, service in enumerate(services) if service["name"] == "code-server"), len(services))
-    services.insert(at, {"name": "CLARVIS", "group": "editor", "answering": bool(windows), "windows": windows})
+    services.insert(at, {"name": "CLARVIS", "group": "editor", "answering": bool(windows),
+                              "windows": windows, "address": _open_address("CLARVIS", "")})
     unread = _unread_notifications() if nervis_up else None
     return {
         "services": services,
