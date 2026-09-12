@@ -485,6 +485,11 @@ page shows as unreachable or slow. Read directly, every open tab shared RAVIS's 
 allowance of sixty requests a minute with any other local caller, and the overview alone used
 about twenty-seven. The browser holds no RAVIS credential either way.
 
+**Spending** (since 12 September 2026): the RAVIS Spending page reads `/api/v1/usage/daily`, and
+the dashboard's spend tile has a reset. The reset is a NERVIS setting, `ravis.spend_counted_since`,
+sent to RAVIS as `/api/v1/usage?since=`. It changes what the tile counts from and nothing else: no
+record is removed, and RAVIS's budget keeps its own window.
+
 The RAVIS diagnostics view exposes virtual pool, actual model, execution path, **transparent vs
 translated**, route reason, fallback, latency, cost and SIRVIS evidence.
 

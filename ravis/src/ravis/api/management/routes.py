@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,7 +47,14 @@ from ravis.api.management.credentials import _may_write, _refused
 from ravis.api.management.decisions import DecisionLog
 from ravis.core.capabilities import Capability
 from ravis.core.pools import DEFAULT_POOLS, POOL_PREFIX, POOLS_BY_ID, size_tier
-from ravis.cost import PriceBook, UsageLedger, band_for, price_from_book
+from ravis.cost import (
+    USAGE_RETENTION_SECONDS,
+    PriceBook,
+    UsageLedger,
+    UsageRecord,
+    band_for,
+    price_from_book,
+)
 from ravis.credentials import CredentialStore
 from ravis.errors import NotFoundError
 from ravis.evidence import EvidenceStore
@@ -1037,8 +1045,15 @@ async def read_route_decision(request: Request, decision_id: str) -> dict[str, A
 
 
 @router.get("/usage")
-async def read_usage(request: Request) -> dict[str, Any]:
+async def read_usage(
+    request: Request, since: float | None = Query(default=None, ge=0)
+) -> dict[str, Any]:
     """What RAVIS has actually done, and what it cannot yet say.
+
+    `since`, a Unix time, counts spend from that moment instead of over the last 24
+    hours: the dashboard's reset, added 12 September 2026. It changes the figure
+    shown and nothing else — the budget still reads its own window, and no record is
+    touched.
 
     Request counts are real. Cost is `None` rather than `0.0`, because the cost
     engine is M15 and §14 forbids presenting an estimate as an invoice — a
@@ -1061,11 +1076,11 @@ async def read_usage(request: Request) -> dict[str, Any]:
         # requests is not zero percent.
         "local_share": None if not executed else local / executed,
         "executed": executed,
-        **_spend(request),
+        **_spend(request, since),
     }
 
 
-def _spend(request: Request) -> dict[str, Any]:
+def _spend(request: Request, since: float | None = None) -> dict[str, Any]:
     """What RAVIS estimates it has spent, and how much of that it can stand behind.
 
     **Three numbers, not one.** A total on its own invites being read as a bill,
@@ -1085,7 +1100,8 @@ def _spend(request: Request) -> dict[str, Any]:
             "spend_estimated": None, "spend_currency": None,
             "cost_available": False, "cost_detail": "no usage ledger is configured",
         }
-    day = ledger.since(time.time() - 24 * 3600)
+    cutoff, window, phrase = _spend_window(since, time.time())
+    day = ledger.since(cutoff)
     total, priced, unpriced = ledger.spend(day)
     # **One currency, or no total.** `spend` adds costs without consulting
     # `record.currency`, and this endpoint labelled the result "USD" whatever
@@ -1109,7 +1125,8 @@ def _spend(request: Request) -> dict[str, Any]:
         # figure against OpenRouter's own for the same call.
         "spend_estimated": round(total, 9) if priced and not mixed else None,
         "spend_currency": currency,
-        "spend_window": "24h",
+        "spend_window": window,
+        "spend_since": cutoff,
         "calls_priced": priced,
         "calls_unpriced": unpriced,
         "prices_known": prices.known() if prices else 0,
@@ -1119,7 +1136,7 @@ def _spend(request: Request) -> dict[str, Any]:
             f"RAVIS does not convert between them, so no single total is offered"
             if mixed else
             f"estimated from published prices for {priced} of {priced + unpriced} call(s) "
-            f"in the last 24h; never an invoice (§14)"
+            f"{phrase}; never an invoice (§14)"
             if priced
             else "no call has been priced yet — either none has run, or no provider "
                  "published a price for the models used"
@@ -1138,3 +1155,92 @@ def _spend(request: Request) -> dict[str, Any]:
             "calls_unpriced_in_window": band_unpriced,
         },
     }
+
+
+def _spend_window(since: float | None, now: float) -> tuple[float, str, str]:
+    """Where the spend figure starts counting: a day back, or the dashboard's reset.
+
+    A reset is never later than now and never earlier than the ledger's retention, so
+    the start the answer states is the start its records actually have.
+    """
+    if since is None:
+        return now - 24 * 3600, "24h", "in the last 24h"
+    return max(min(since, now), now - USAGE_RETENTION_SECONDS), "since", "since the reset"
+
+
+@router.get("/usage/daily")
+async def read_usage_daily(request: Request) -> dict[str, Any]:
+    """What RAVIS spent each day, newest first, for as long as it keeps records.
+
+    Days are this machine's own calendar days. **Only days with calls appear**: a day
+    with no record is not a day that cost nothing — records did not survive a restart
+    before 12 September 2026, and past retention they are gone. Each day states its
+    total the way `/usage` does: estimated, with the calls it rests on, and withheld
+    where the prices disagree on currency. Broken down by model and by application, so
+    a day can be looked up rather than only summed.
+    """
+    retention_days = round(USAGE_RETENTION_SECONDS / 86400)
+    ledger: UsageLedger | None = getattr(request.app.state, "usage_ledger", None)
+    if ledger is None:
+        return {**_listing([]), "retention_days": retention_days}
+    days: dict[str, list[UsageRecord]] = {}
+    for record in ledger.since(time.time() - USAGE_RETENTION_SECONDS):
+        days.setdefault(time.strftime("%Y-%m-%d", time.localtime(record.at)), []).append(record)
+    items = [
+        {
+            "day": day,
+            **_figure(ledger, calls),
+            "by_model": _breakdown(ledger, calls, _model_key),
+            "by_application": _breakdown(ledger, calls, _application_key),
+        }
+        for day, calls in sorted(days.items(), reverse=True)
+    ]
+    return {**_listing(items), "retention_days": retention_days}
+
+
+def _figure(ledger: UsageLedger, calls: list[UsageRecord]) -> dict[str, Any]:
+    """A group of calls as a spend figure: the total where one can be stated, and the
+    calls and tokens it rests on."""
+    total, priced, unpriced = ledger.spend(calls)
+    stated = sorted(ledger.currencies(calls))
+    return {
+        "spend_estimated": round(total, 9) if priced and len(stated) <= 1 else None,
+        "spend_currency": stated[0] if len(stated) == 1 else None,
+        "currencies": stated,
+        "calls": len(calls),
+        "calls_priced": priced,
+        "calls_unpriced": unpriced,
+        "input_tokens": _reported(call.usage.input_tokens for call in calls if call.usage),
+        "output_tokens": _reported(call.usage.output_tokens for call in calls if call.usage),
+    }
+
+
+def _reported(counts: Iterable[int | None]) -> int | None:
+    """A sum of token counts, or None where no call reported one (§14: unknown stays
+    unknown rather than becoming nought)."""
+    known = [count for count in counts if count is not None]
+    return sum(known) if known else None
+
+
+def _breakdown(
+    ledger: UsageLedger,
+    calls: list[UsageRecord],
+    key: Callable[[UsageRecord], tuple[str, str]],
+) -> list[dict[str, Any]]:
+    """The calls grouped by `key`, costliest first; groups nothing priced come last."""
+    groups: dict[tuple[str, str], list[UsageRecord]] = {}
+    for call in calls:
+        groups.setdefault(key(call), []).append(call)
+    rows = [
+        {"name": name, "provider": provider or None, **_figure(ledger, group)}
+        for (name, provider), group in groups.items()
+    ]
+    return sorted(rows, key=lambda row: -(row["spend_estimated"] or 0.0))
+
+
+def _model_key(call: UsageRecord) -> tuple[str, str]:
+    return call.model, call.provider
+
+
+def _application_key(call: UsageRecord) -> tuple[str, str]:
+    return call.application_id, ""

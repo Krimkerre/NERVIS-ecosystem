@@ -954,7 +954,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 const APP_CONFIG={
  nervis:{name:'NERVIS',tag:'Networked Ecosystem Runtime Visualization & Intelligence System',accent:'#7d6cff',rgb:'125,108,255',nav:['Overview','Chat','Files','Notifications','Ecosystem map','Events','Traces','Diagnostics','System','Settings']},
  sirvis:{name:'SIRVIS',tag:'Silicon Inference Runtime Validation & Intelligence System',accent:'#3ddc97',rgb:'61,220,151',nav:['Dashboard','Models','Runtime','Discover','Benchmarks','Runtime sets','Results','Recommendations','Downloads']},
- ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Sessions','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
+ ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Sessions','Spending','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
 const state={app:'nervis',view:'Overview'};
@@ -1373,6 +1373,7 @@ const TILE_CAPABILITY={
  'ravis/Dashboard':{ravis:'ravis.routing.explanations'},
  'ravis/Routes':{ravis:'ravis.routing.explanations'},
  'ravis/Sessions':{ravis:'ravis.sessions'},
+ 'ravis/Spending':{ravis:'ravis.usage_cost'},
  'ravis/Pools':{ravis:'ravis.virtual_profiles'},
  'ravis/Providers':{ravis:'ravis.management'},
  'ravis/Credentials':{ravis:'ravis.management'},
@@ -3116,6 +3117,38 @@ const API={
    return{items:[],live:false};
   },
 
+  /* GET /api/v1/usage/daily — what RAVIS spent each calendar day, newest first, for
+     as long as it keeps records. Only days with calls are listed: a day with no
+     record is not a day that cost nothing. */
+  async usageDaily(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/usage/daily',
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const d=await r.json();return{items:d.items||[],retention_days:d.retention_days,live:true}}
+   }catch(e){}
+   return{items:[],retention_days:null,live:false};
+  },
+
+  /* When the dashboard's spend tile last went back to zero: a NERVIS setting, so the
+     reset holds across reloads and browsers. Null when it never has, and the tile
+     shows the last 24 hours. It moves nothing in RAVIS — no record is removed, and
+     the budget keeps its own window. */
+  async spendCountedSince(){
+   try{
+    const r=await fetch('/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const at=((await r.json()).items||{})['ravis.spend_counted_since'];return typeof at==='number'?at:null}
+   }catch(e){}
+   return null;
+  },
+
+  async resetSpend(){
+   try{
+    const r=await fetch('/api/v1/settings/ravis.spend_counted_since',
+      {method:'PUT',headers:control_headers(),body:JSON.stringify({value:Date.now()/1000})});
+    return r.ok;
+   }catch(e){return false}
+  },
+
   async policies(){
    try{
     const r=await fetch(BASE.ravis+'/api/v1/policies',
@@ -3206,9 +3239,9 @@ const API={
      The counts are real. Cost is `null` and says why: the engine is M15, and
      §14 forbids presenting an estimate as an invoice — "€0.00" would be a
      confident lie where a blank is a true statement about what is known. */
-  async usage(){
+  async usage(since){
    try{
-    const r=await fetch(BASE.ravis+'/api/v1/usage',
+    const r=await fetch(BASE.ravis+'/api/v1/usage'+(since?'?since='+encodeURIComponent(since):''),
       {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
     if(r.ok){const d=await r.json();return{...d,live:true}}
    }catch(e){}
@@ -4157,7 +4190,10 @@ const money=(amount,currency)=>{
    and threading an id through twenty call sites is twenty chances to reuse one. */
 const explains=(summary,body)=>`<details class="explains" id="${domId('x',summary)}"><summary>${summary}</summary><div>${body}</div></details>`;
 
-/* A row of headline figures. `[label, value, subtitle, service, live?]`.
+/* A row of headline figures. `[label, value, subtitle, service, live?, extra?]`.
+
+   `extra`, added 12 September 2026 for the spend tile's reset, is markup this page
+   builds itself — a button — placed under the subtitle. Never a service's text.
 
    **The fifth element is now an override, not a requirement.** It used to be
    the only way a tile could be marked real, and 69 of the 100 tiles scoped to
@@ -4188,7 +4224,7 @@ const held=v=>v&&typeof v==='object'&&'html' in v?v.html:escapeHtml(v==null?'':v
 const kpis=(items,src=null)=>items.map(x=>{const own=x[3]||src;
  const real=x[4]===undefined?(own?SOURCE[own]==='live':false):!!x[4];
  return `<div class="card kpi${liveClass(real)}${own&&!usable(own)?' is-absent':''}"><h3>${held(x[0])}</h3>${
-  cell(`<strong>${held(x[1])}</strong><small>${held(x[2])}</small>`,own)}</div>`}).join('');
+  cell(`<strong>${held(x[1])}</strong><small>${held(x[2])}</small>${x[5]||''}`,own)}</div>`}).join('');
 /* One bar of a trace waterfall. Hoisted out of the Overview because the Traces
    screen draws the identical thing, and a span NERVIS never received must look
    the same on both: a dashed hole with its own label, never a duration invented
@@ -8258,7 +8294,7 @@ const RUNTIME={
 
 const SIRVIS_VIEWS={'Models':sirvisModels,'Runtime':sirvisRuntime,'Discover':sirvisDiscover,'Benchmarks':sirvisBenchmarks,'Runtime sets':sirvisRuntimeSets,
  'Results':sirvisResults,'Recommendations':sirvisRecommendations,'Downloads':sirvisDownloads};
-const RAVIS_VIEWS={'Routes':ravisRoutes,'Sessions':ravisSessions,'Pools':ravisPools,'Providers':ravisProviders,'Credentials':ravisCredentials,
+const RAVIS_VIEWS={'Routes':ravisRoutes,'Sessions':ravisSessions,'Spending':ravisSpending,'Pools':ravisPools,'Providers':ravisProviders,'Credentials':ravisCredentials,
  'Policies':ravisPolicies,'Evidence':ravisEvidence,'Logs':ravisLogs,'Diagnostics':ravisDiagnostics,'Settings':ravisSettings};
 async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
  /* Through `control()`, which is the whole reason it exists: "a button for
@@ -9184,6 +9220,29 @@ function armProfile(id){ARMED=ARMED===id?null:id;render()}
  * cost engine is M15 — RAVIS says so itself in `cost_detail`, and repeating its
  * sentence is better than inventing a figure to fill the tile.
  */
+/* The spend tile, which a reset sets back to nought (12 September 2026).
+
+   After a reset with no call since, nothing was spent, and "0.00" is the true
+   figure where "not measured" would be wrong. Calls that ran unpriced still read as
+   not measured: §14 forbids a confident nought. The window is named either way, so a
+   reset figure is never read as the last 24 hours. */
+const spendCalls=usage=>(usage.calls_priced||0)+(usage.calls_unpriced||0);
+const spendSpan=usage=>usage.spend_window==='since'
+  ?'since '+new Date(usage.spend_since*1000).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
+  :'24h';
+const spendFigure=usage=>usage.spend_window==='since'&&!spendCalls(usage)
+  ?money(0,null)
+  :(usage.cost_available?money(usage.spend_estimated,usage.spend_currency):'not measured');
+function spendNote(usage){
+ if(usage.cost_available)return `estimated · ${usage.calls_priced} of ${spendCalls(usage)} call(s) priced · ${spendSpan(usage)}`;
+ if(usage.spend_window==='since'&&!spendCalls(usage))return `nothing spent ${spendSpan(usage)}`;
+ return usage.cost_detail||'nothing has been priced yet';
+}
+async function resetSpend(){
+ notify(await API.ravis.resetSpend()?'Spend now counts from zero · nothing was deleted':'NERVIS did not store the reset');
+ render();
+}
+
 function liveRavisDashboard(decisions, usage, prof){
  const active=prof.items.find(x=>x.default)||prof.items[0];
  const share=usage.local_share;
@@ -9202,12 +9261,8 @@ function liveRavisDashboard(decisions, usage, prof){
       confident nought. The subtitle carries the coverage rather than the
       total alone, because a sum without the calls behind it invites being
       read as a bill. */
-   ['Spend',
-     usage.cost_available?money(usage.spend_estimated,usage.spend_currency):'not measured',
-     usage.cost_available
-       ? `estimated · ${usage.calls_priced} of ${usage.calls_priced+usage.calls_unpriced} call(s) priced · 24h`
-       : (usage.cost_detail||'nothing has been priced yet'),
-     'ravis',true]])
+   ['Spend',spendFigure(usage),spendNote(usage),'ravis',true,
+     `<button class="btn" style="margin-top:8px" onclick="resetSpend()" title="Count from now. Nothing is deleted, and the budget keeps its own window.">Reset to 0</button>`]])
  +(decisions.length
    ? decisionCard(decisions[0])+funnelCard(decisions[0])+attemptsCard(decisions[0])
      +recentDecisionsCard(decisions.slice(0,8))
@@ -9218,8 +9273,9 @@ function liveRavisDashboard(decisions, usage, prof){
 
 async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
  heading('Route intelligence','Hard constraints eliminate, then preferences rank. Every route explains itself.',control('Simulate request','reroute',' primary'));
+ const since=await API.ravis.spendCountedSince();
  const [decisions,usage,prof]=await Promise.all([API.ravis.decisions(25),
-   API.ravis.usage(),API.ravis.profiles()]);
+   API.ravis.usage(since),API.ravis.profiles()]);
  /* Live when RAVIS answers at all — the counts are real even before anything
     has routed, and "nothing has routed yet" is a better first screen than four
     invented figures. */
@@ -10059,6 +10115,56 @@ async function ravisSessions(){
     <div class="trace-step"><b>affinity</b><span>1 hour idle</span></div>
     <div class="trace-step"><b>retention</b><span>7 days idle</span></div>
     <small class="mono dim">§5.4: every session records the <b>pool revision</b> it used, so a consumer can tell that a pool's definition changed underneath a conversation already in progress — the revision is derived from the pool's behaviour, not its wording, so rewording a description keeps it.<br><br>the two windows are deliberately different. A stale session stops <i>steering</i> routing after the first and stays <i>readable</i> until the second: collapsing them would mean either routing on yesterday's choice or losing the correlation somebody is here to read.</small>`)}`,'ravis')}</div>`;
+}
+
+/* What RAVIS spent each day (12 September 2026). Only days with calls are listed:
+   records did not survive a restart before that date, and past retention they are
+   gone, so a day without a row is not a day that cost nothing. Each day opens into
+   its models and applications. Totals are estimates, never an invoice (§14), and a
+   day priced in two currencies shows no total rather than adding euros to dollars. */
+const dayKey=moment=>`${moment.getFullYear()}-${String(moment.getMonth()+1).padStart(2,'0')}-${String(moment.getDate()).padStart(2,'0')}`;
+const dayLabel=day=>new Date(day+'T12:00:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+const spendOf=x=>x.spend_estimated!=null?money(x.spend_estimated,x.spend_currency)
+  :((x.currencies||[]).length>1?'mixed currencies':'not measured');
+const tokenCount=n=>n==null?'—':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
+const unpricedNote=x=>x.calls_unpriced?`${x.calls_unpriced} unpriced`:'all priced';
+function spendGroupRows(title,list){
+ return `<div class="table-row head six"><span style="grid-column:1/3">${escapeHtml(title)}</span><span>Spend</span><span>Calls</span><span style="grid-column:5/-1">Pricing</span></div>`
+  +list.map(x=>`<div class="table-row six"><span class="mono" style="grid-column:1/3">${escapeHtml(x.name)}${x.provider?`<span class="dim" style="opacity:.6"> via ${escapeHtml(x.provider)}</span>`:''}</span><span class="mono">${escapeHtml(spendOf(x))}</span><span>${escapeHtml(x.calls)}</span><span style="grid-column:5/-1;opacity:.75">${escapeHtml(unpricedNote(x))}</span></div>`).join('');
+}
+function spendDayRow(x){
+ return `<div class="table-row six"><span style="grid-column:1/3">${escapeHtml(dayLabel(x.day))}</span><span class="mono">${escapeHtml(spendOf(x))}</span><span>${escapeHtml(x.calls)}<span class="dim" style="opacity:.6"> · ${escapeHtml(unpricedNote(x))}</span></span><span class="mono" style="grid-column:5/-1;opacity:.8">${escapeHtml(tokenCount(x.input_tokens))} in · ${escapeHtml(tokenCount(x.output_tokens))} out</span></div>`
+  +explains(`${escapeHtml(dayLabel(x.day))} by model and application`,
+    spendGroupRows('Model',x.by_model||[])+spendGroupRows('Application',x.by_application||[]));
+}
+/* The last seven calendar days, today included. One currency or no total, as
+   everywhere else; unpriced calls are counted and named, never added as nought. */
+function spendWeek(days){
+ const start=dayKey(new Date(Date.now()-6*86400000));
+ const recent=days.filter(x=>x.day>=start);
+ const currencies=[...new Set(recent.flatMap(x=>x.currencies||[]))];
+ const calls=recent.reduce((sum,x)=>sum+x.calls,0);
+ const unpriced=recent.reduce((sum,x)=>sum+x.calls_unpriced,0);
+ const total=recent.reduce((sum,x)=>sum+(x.spend_estimated||0),0);
+ return [currencies.length>1?'mixed currencies':money(total,currencies[0]||null),
+   `${calls} call(s)${unpriced?` · ${unpriced} unpriced, not counted`:''}`];
+}
+async function ravisSpending(){
+ heading('Spending','What RAVIS spent each day, as far back as it keeps records.');
+ const d=await API.ravis.usageDaily();
+ const days=d.items;
+ const today=days.find(x=>x.day===dayKey(new Date()));
+ const costliest=days.filter(x=>x.spend_estimated!=null).sort((a,b)=>b.spend_estimated-a.spend_estimated)[0];
+ const [week,weekNote]=spendWeek(days);
+ $('#content').innerHTML=kpis([
+   ['Today',today?spendOf(today):money(0,null),today?`${today.calls} call(s) · estimated`:'no call today','ravis',d.live],
+   ['Last 7 days',week,weekNote,'ravis',d.live],
+   ['Costliest day',costliest?spendOf(costliest):'—',costliest?dayLabel(costliest.day):'nothing priced yet','ravis',d.live],
+   ['Days recorded',String(days.length),d.retention_days?`records kept ${d.retention_days} days`:'','ravis',d.live]])
+ +`<div class="card full${escapeHtml(liveClass(d.live))}"><h3>Spend by day</h3>${cell(`
+   <div class="table-row head six"><span style="grid-column:1/3">Day</span><span>Spend</span><span>Calls</span><span style="grid-column:5/-1">Tokens</span></div>
+   ${days.map(spendDayRow).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">no spending recorded yet</span></div>'}
+   <small class="mono dim">Estimated from published and operator-stated prices, never an invoice (§14). A day appears only when RAVIS served a call that day; records survive restarts from 12 September 2026 on, so an earlier day with no row is not a day that cost nothing. Calls that ran unpriced read <b>not measured</b> rather than nought, and a day priced in two currencies shows no total, because RAVIS does not convert between them. Open a day to see its models and applications.</small>`,'ravis')}</div>`;
 }
 
 async function ravisPolicies(){

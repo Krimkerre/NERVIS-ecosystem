@@ -370,7 +370,18 @@ class UsageLedger:
         return list(reversed(self._records[-limit:]))
 
     def since(self, cutoff: float) -> list[UsageRecord]:
-        return [record for record in self._records if record.at >= cutoff]
+        """Every record at or after `cutoff`, oldest first.
+
+        From the database when there is one: memory holds the newest few thousand,
+        and a month's budget or a page of daily totals must not quietly stop where
+        that bound happens to fall.
+        """
+        if self._database is None:
+            return [record for record in self._records if record.at >= cutoff]
+        rows = self._database.connection.execute(
+            "SELECT * FROM usage_record WHERE at >= ? ORDER BY at, rowid", (cutoff,)
+        ).fetchall()
+        return [_usage_from_row(row) for row in rows]
 
     def spend(self, records: Iterable[UsageRecord] | None = None) -> tuple[float, int, int]:
         """(estimated total, records priced, records not priced).

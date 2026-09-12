@@ -286,7 +286,10 @@ and never RAVIS's chat gateway. The same day RAVIS started keeping its usage
 records across restarts, so the spend screen and the monthly budget no longer
 fall back to zero whenever the stack restarts, and started checking for itself
 which hosted models can use tools instead of waiting for the operator to
-declare them.
+declare them. Also that day: RAVIS's spend tile on the dashboard got a Reset to
+0 button, which makes the tile count from that moment without deleting anything
+or touching the budget, and RAVIS got a Spending page listing what was spent
+each day, with each day opening into its models and apps.
 
 As of 6 September 2026: chat's own background retrieval, described above,
 went live the same day — before it, a paraphrase sharing no vocabulary with

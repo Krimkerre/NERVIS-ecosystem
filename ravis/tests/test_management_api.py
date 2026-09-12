@@ -6,6 +6,8 @@ here can leak a credential.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 from tests.conftest import as_administrator
@@ -14,6 +16,7 @@ from tests.test_transparent_proxy import _app_with
 
 from ravis.app import create_app
 from ravis.config import Settings
+from ravis.cost import CostState, UsageRecord
 from ravis.credentials import CredentialStore
 from ravis.policy import ApplicationPolicies, PrivacyLevel, RoutingPolicy
 
@@ -26,6 +29,7 @@ READ_ENDPOINTS = [
     "/api/v1/policies",
     "/api/v1/route-decisions",
     "/api/v1/usage",
+    "/api/v1/usage/daily",
 ]
 
 
@@ -221,6 +225,47 @@ def test_usage_reports_cost_as_unknown_rather_than_zero() -> None:
     assert usage["spend_estimated"] is None
     assert usage["cost_available"] is False
     assert usage["calls_priced"] == 0
+
+
+def test_daily_spend_is_one_row_a_day_and_a_reset_counts_from_its_moment() -> None:
+    """Added 12 September 2026 with the dashboard's spending page and reset button.
+
+    The calls sit three and two days back at ten in the morning, local time, so the
+    day each lands on cannot change with the moment the test happens to run.
+    """
+    now = time.localtime()
+    first = time.mktime((now.tm_year, now.tm_mon, now.tm_mday - 3, 10, 0, 0, 0, 0, -1))
+    second = first + 86400.0
+    calls = [
+        (first, "claude-haiku-4-5", "nervis", 0.002),
+        (second, "claude-sonnet-5", "clarvis", 0.01),
+        (second + 60, "claude-sonnet-5", "clarvis", 0.02),
+        (second + 120, "qwen-local", "clarvis", None),
+    ]
+    client = _client()
+    with client:
+        ledger = client.app.app.state.usage_ledger
+        for at, model, application, cost in calls:
+            ledger.record(UsageRecord(
+                model=model, provider="anthropic", application_id=application, cost=cost,
+                currency="USD" if cost else None, at=at,
+                cost_state=CostState.ESTIMATED if cost else CostState.UNKNOWN,
+            ))
+        daily = client.get("/api/v1/usage/daily").json()
+        reset = client.get("/api/v1/usage", params={"since": second + 30}).json()
+
+    days = [time.strftime("%Y-%m-%d", time.localtime(at)) for at in (second, first)]
+    assert [day["day"] for day in daily["items"]] == days, "newest first, one row a day"
+    later = daily["items"][0]
+    assert (later["calls"], later["calls_priced"], later["calls_unpriced"]) == (3, 2, 1)
+    assert later["spend_estimated"] == pytest.approx(0.03)
+    assert later["by_model"][0]["name"] == "claude-sonnet-5", "costliest first"
+    assert [row["name"] for row in later["by_application"]] == ["clarvis"]
+    assert daily["retention_days"] == 90
+
+    assert (reset["spend_window"], reset["spend_since"]) == ("since", second + 30)
+    assert (reset["calls_priced"], reset["calls_unpriced"]) == (1, 1)
+    assert reset["spend_estimated"] == pytest.approx(0.02)
 
 
 def test_policies_are_empty_until_the_policy_engine_exists() -> None:

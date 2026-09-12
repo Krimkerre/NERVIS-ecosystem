@@ -1157,7 +1157,8 @@ GET /api/v1/health          /api/v1/route-decisions
     /api/v1/providers       /api/v1/route-decisions/{decision_id}
     /api/v1/models          /api/v1/sessions
     /api/v1/profiles        /api/v1/sessions/{session_id}
-    /api/v1/profiles/{id}   /api/v1/usage
+    /api/v1/profiles/{id}   /api/v1/usage[?since=]
+                            /api/v1/usage/daily
     /api/v1/pools           /api/v1/diagnostics
     /api/v1/policies        /api/v1/settings
     /api/v1/runtime-state
@@ -1166,6 +1167,11 @@ GET /api/v1/health          /api/v1/route-decisions
 
 List responses use `{items, next_cursor, snapshot_revision}`. Provider and model results are
 redacted and capability-evidenced.
+
+`/usage?since=` counts spend from a moment rather than over the last 24 hours, for a dashboard's
+reset; it changes the figure and nothing else. `/usage/daily` totals each of the machine's calendar
+days that had calls, newest first, broken down by model and by application, with the same
+estimated-never-billed and one-currency-or-no-total rules as `/usage`. Both since 12 September 2026.
 
 **Who may write, and why being local is not an answer.** The mutating half of this
 surface — enabling a provider, narrowing a catalogue, re-pointing a pool, and the

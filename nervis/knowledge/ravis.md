@@ -365,6 +365,14 @@ record holds no prompt and no reply, only which model, which app, the token
 counts and the estimated cost. Records older than ninety days are dropped; the
 budget only looks back thirty.
 
+**Spending can be looked up by day, and the spend tile can be reset.** Since 12
+September 2026 the Spending page lists each calendar day RAVIS served a call,
+newest first: the estimated total, how many calls were priced, the tokens, and
+a breakdown by model and by app. Only days with calls appear, so a missing day
+before 12 September is not proof that nothing was spent. The Reset to 0 button
+on the dashboard's spend tile makes that tile count from the moment it was
+pressed; no record is deleted, and the monthly budget keeps counting as before.
+
 **How often any of this updates, which was worse than it looked.** Until
 9 September 2026 the answer was *never*: prices were read from the file once,
 at startup, and OpenRouter's published rates — the only machine-readable
