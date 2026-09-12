@@ -18121,6 +18121,17 @@ members of ravis/clarvis-agent, but that pool prefers the Sonnet family and keep
 Opus and Fable last, so Clarvis builds stay on Claude Sonnet 5. If the pool ever
 falls through to Opus, 4.5 to 4.7 share one price and the oldest wins the tie.
 
+Two more passes followed. The last, on the final code, confirmed the OpenRouter
+fix live: two listings that refuse tools, dolphin-mistral-24b-venice-edition and
+command-a, are now recorded as not supporting them. Between them the two passes
+also found direct Claude Opus 4.8, Opus 5, Sonnet 4.5 and Sonnet 4.6
+tool-capable; the Sonnet 4.6 trial cost $0.0023. Sonnet 4.5 and 4.6 now sit with
+Sonnet 5 at the head of the build pool. That pool ranks no speed term, so price
+decides between them, and Sonnet 5 is the cheapest. Direct GPT, Grok and
+DeepSeek models are not tried: their catalogues also leave structured output
+unknown, which the build pool requires, so a tool trial alone could not admit
+them.
+
 Not verified live: the unforced second attempt. Fable 5.1 is not due for a
 month, and no other model tried so far has refused a forced choice.
 
