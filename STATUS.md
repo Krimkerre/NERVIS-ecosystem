@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 3089 tests, no network, no live service
+.venv/bin/pytest                      # part of 3091 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1259 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 3089 passing across the four, conformance `PASS`.
+Expected: all clean, 3091 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -19358,10 +19358,14 @@ operator's value winning, a remote LM Studio skipping the file, the home pointer
 launcher's fallback matching RAVIS's), fifteen pieces each undone and caught. ruff still finds the same
 eleven things in `tools/run.py`. Known: LM Studio's per-model settings folder is empty here, and its vision
 builds ignore the default — gemma-4-e2b loads at 131,072 — so for those RAVIS reports less than the model
-gets, the safe side. Not guarded, like its Ollama twin: a negative number typed into the variable by hand
+gets, the safe side. ~~Not guarded, like its Ollama twin: a negative number typed into the variable by hand
 is accepted and would report every unloaded model at that window, keeping them out of every pool; the
 launcher never passes one, so it was left rather than add a validation pattern `config.py` uses nowhere
-else. RAVIS 0.23.5 → 0.23.6, NERVIS 0.28.9 → 0.28.10.
+else.~~ **Guarded the same night, at the owner's asking, for both runtimes:** `_check_default_contexts` in
+`config.py` makes a default context of zero or less a fatal finding, the way `max_request_bytes` already
+was — `serve` refuses to start and `doctor` names the variable. Zero is refused too, because `adapter_for`
+had been turning it back into the built-in default, silently ignoring what the operator wrote. RAVIS
+0.23.5 → 0.23.6 → 0.23.7, NERVIS 0.28.9 → 0.28.10.
 
 ## Starting the thing
 

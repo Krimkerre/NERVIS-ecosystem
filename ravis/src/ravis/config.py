@@ -438,6 +438,32 @@ def _check_upstreams(settings: Settings, report: ConfigurationReport) -> None:
         )
 
 
+#: The windows RAVIS assumes for a local model its runtime has not loaded yet.
+DEFAULT_CONTEXT_SETTINGS = ("ollama_default_context", "lmstudio_default_context")
+
+
+def _check_default_contexts(settings: Settings, report: ConfigurationReport) -> None:
+    """Refuse a default context that is not a positive number of tokens.
+
+    Each is the window reported for a model Ollama or LM Studio has not loaded yet
+    (`providers/ollama.py`, `providers/lmstudio.py`). **A negative one was accepted**
+    until 13 September 2026 — only by hand, since the launcher never passes one — and
+    reported every such model at that window, so none of them qualified for any
+    request and a local runtime went quietly unused. **Zero was no better:**
+    `adapter_for` turned it back into the built-in default, silently ignoring what the
+    operator wrote, which is the very disagreement between RAVIS and the runtime these
+    settings exist to remove. Fatal, like `max_request_bytes`, so it is fixed before
+    serving rather than discovered in a route explanation.
+    """
+    for setting in DEFAULT_CONTEXT_SETTINGS:
+        value = getattr(settings, setting)
+        if value <= 0:
+            report.findings.append(ConfigurationFinding(
+                True, setting,
+                f"must be a positive number of tokens, not {value} (RAVIS_{setting.upper()})",
+            ))
+
+
 def inspect_configuration(settings: Settings) -> ConfigurationReport:
     """Check settings for contradictions, without contacting anything.
 
@@ -453,6 +479,7 @@ def inspect_configuration(settings: Settings) -> ConfigurationReport:
         report.findings.append(
             ConfigurationFinding(True, "max_request_bytes", "must be greater than zero")
         )
+    _check_default_contexts(settings, report)
     if settings.allowed_origins:
         report.findings.append(
             ConfigurationFinding(

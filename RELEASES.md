@@ -839,7 +839,16 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.6
+## RAVIS — 0.23.7
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **RAVIS refuses to start on a default context that is not a positive number.** A negative
+  `RAVIS_LMSTUDIO_DEFAULT_CONTEXT` or `RAVIS_OLLAMA_DEFAULT_CONTEXT`, typed by hand, used to be accepted and
+  made every unloaded local model too small for any request; zero was quietly replaced by the built-in
+  default. Both now stop RAVIS with a message naming the setting, and `ravis doctor` reports it.
+
+### 0.23.6
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

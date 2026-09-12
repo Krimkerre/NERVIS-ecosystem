@@ -9,6 +9,31 @@ def _bound_to(host: str, **overrides: object) -> Settings:
     return Settings(host=host, database_path=":memory:", _env_file=None, **overrides)  # type: ignore[call-arg,arg-type]
 
 
+def test_a_default_context_of_zero_or_less_refuses_to_start() -> None:
+    """Both runtimes' default contexts must be a positive number of tokens.
+
+    A negative one made every model its runtime had not loaded too small for any
+    request, and zero was quietly swapped for the built-in default — either way the
+    operator's number and what RAVIS routed on disagreed without a word. Refused
+    before serving, naming the variable to fix.
+    """
+    for setting in ("ollama_default_context", "lmstudio_default_context"):
+        for value in (-8192, 0):
+            report = inspect_configuration(_bound_to("127.0.0.1", **{setting: value}))
+
+            assert report.is_startable() is False
+            [finding] = report.fatal_findings
+            assert finding.setting == setting
+            assert f"RAVIS_{setting.upper()}" in finding.message and str(value) in finding.message
+
+
+def test_the_default_contexts_as_shipped_start() -> None:
+    report = inspect_configuration(_bound_to("127.0.0.1", lmstudio_default_context=1))
+
+    assert report.is_startable() is True
+    assert not [f for f in report.findings if f.setting.endswith("default_context")]
+
+
 def test_loopback_bind_needs_nothing_extra() -> None:
     """The ordinary local case must stay frictionless, or people work around it."""
     report = inspect_configuration(_bound_to("127.0.0.1"))
