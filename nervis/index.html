@@ -87,6 +87,9 @@
 .note-tabs{gap:5px;margin:0 0 10px;padding-bottom:9px;border-bottom:1px solid var(--line)}
 .note-tabs .mode-chip b{font-weight:650;margin-left:2px}
 .note-tabs .mode-chip.on b{color:var(--accent)}
+/* The whole row of the 12-column grid, as the card it replaced did — narrower, the tabs
+   wrapped into a column. */
+.diag-sections{grid-column:1/-1;margin:0 0 12px}
 /* The log search box, styled to sit in a filter row beside the level chips
    rather than looking like a form somebody has to submit. */
 .log-find{background:#0b1118;border:1px solid #2a3642;border-radius:6px;color:#d9e3ed;
@@ -5794,6 +5797,17 @@ function diagSections(){
    tab('inspector','api inspector')}${tab('logs','raw logs')}</div>`;
 }
 
+/* **A row of tabs, not a card.** Every card that is not marked live is drawn faded,
+   which is the page's signal that no reading stands behind it — and the tabs are
+   navigation, so they never had a reading to stand behind them. Wrapped in a card on all
+   four Diagnostics views, they were the one permanently faded panel there (found
+   12 September 2026, after the two faded cards of 8 September had been wired or
+   removed). `cell` still applies, so a refusal or a withdrawn capability is still said
+   where the tabs would be. */
+function diagSectionsRow(){
+ return `<div class="diag-sections">${cell(diagSections(),'nervis')}</div>`;
+}
+
 function setDiagSection(section){
  if(DIAG_SECTION===section)return;
  DIAG_SECTION=section;
@@ -5869,7 +5883,7 @@ async function diagnosticsView(){
     returned `null`, so the table never rendered and the banner always did.
     With that reader gone the branch is gone too: an example of a payload is not
     the payload, and this screen is where a reader checks what would be sent. */
- $('#content').innerHTML = `<div class="card full">${cell(diagSections(),'nervis')}</div>`
+ $('#content').innerHTML = `${diagSectionsRow()}`
    + liveCard + diagnosePanel() + adapterCard
    + banner('No diagnostic packet has been assembled',
        'Nothing has asked for one yet. When a diagnostics run builds a packet this card '
@@ -13208,7 +13222,7 @@ function logBody(lines){
 
 async function logsView(){
  heading('Diagnostics','Raw process logs — the last resort, never the first read.');
- const sections=`<div class="card full">${cell(diagSections(),'nervis')}</div>`;
+ const sections=`${diagSectionsRow()}`;
  const found=await API.nervis.logSources();
 
  if(!found.configured){
@@ -13243,7 +13257,7 @@ async function logsView(){
 
 async function inspectorView(){
  heading('Diagnostics','One request through RAVIS, stage by stage.');
- const sections=`<div class="card full">${cell(diagSections(),'nervis')}</div>`;
+ const sections=`${diagSectionsRow()}`;
  const list=await API.nervis.inspectorList();
 
  if(!INSPECT_ID){
@@ -13285,7 +13299,7 @@ async function clarvisDiagnosticsView(){
  heading('Diagnostics','What each registered editor window is doing — read, never driven.');
  const inst=await API.nervis.clarvisInstances();
  const windows=inst.items||[];
- const sections=`<div class="card full">${cell(diagSections(),'nervis')}</div>`;
+ const sections=`${diagSectionsRow()}`;
  if(!windows.length){$('#content').innerHTML=sections+clarvisNoWindows(inst.live);return}
 
  /* A selection that points at a window which has since closed is dropped rather
