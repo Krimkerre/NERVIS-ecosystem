@@ -119,6 +119,13 @@ class AnthropicUpstreamError(RuntimeError):
 # not fetching it once per routing pass rather than about freshness.
 DISCOVERY_TTL_SECONDS = 300.0
 
+# How long a failed discovery read is believed. Never cached at all, a listing
+# that fails — a missing or refused key, an outage — was asked for again on every
+# routed request: `tools/load_test.py` found 165 ms of a 173 ms route spent on
+# Anthropic's and Google's refusals (RAVIS.md §9.8). The whole TTL would be too
+# long, for the reason `_get` gives; thirty seconds bounds both costs.
+FAILED_DISCOVERY_RETRY_SECONDS = 30.0
+
 
 class AnthropicAdapter:
     """A `TranslatingAdapter` for the Anthropic Messages API (§6, Path B)."""
@@ -160,6 +167,8 @@ class AnthropicAdapter:
         self._clock = clock
         # path -> (read at, payload). Only discovery reads land here.
         self._discovery: dict[str, tuple[float, dict[str, Any]]] = {}
+        # path -> when it last failed, so a failing read is not repeated per route.
+        self._failed: dict[str, float] = {}
 
     # ── Discovery ────────────────────────────────────────────────────────────
 
@@ -310,18 +319,28 @@ class AnthropicAdapter:
             hit = self._discovery.get(path)
             if hit is not None and self._clock() - hit[0] < self._ttl:
                 return hit[1]
+            failed = self._failed.get(path)
+            if failed is not None and self._clock() - failed < FAILED_DISCOVERY_RETRY_SECONDS:
+                return {}
         try:
             response = await self._client.get(self._url(path), headers=self._headers())
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError):
-            # A failed read is not cached. Holding a blip for the whole window
+            # A failed read is not cached for the TTL. Holding a blip that long
             # would leave every Anthropic model capability-less — which fails
-            # closed, so a moment's outage would empty the pools for minutes.
+            # closed, so a moment's outage would empty the pools for minutes. It
+            # is remembered for `FAILED_DISCOVERY_RETRY_SECONDS` instead: a blip
+            # hides the vendor for up to thirty seconds, and a refused key or an
+            # outage costs one round trip per thirty seconds rather than one per
+            # routed request.
+            if cache:
+                self._failed[path] = self._clock()
             return {}
         answer = payload if isinstance(payload, dict) else {}
         if cache:
             self._discovery[path] = (self._clock(), answer)
+            self._failed.pop(path, None)
         return answer
 
     def _url(self, path: str) -> str:

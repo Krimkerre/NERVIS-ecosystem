@@ -507,3 +507,61 @@ def test_the_providers_listing_publishes_the_refused_credential() -> None:
     assert [row["provider"] for row in refused] == ["anthropic"]
     assert refused[0]["reachable"] is True
     assert "401" in refused[0]["detail"]
+
+
+# ── A failed listing is remembered, briefly ──────────────────────────────────
+#
+# A successful listing was cached for five minutes and a failed one not at all, so
+# a missing or refused key made every routed request fetch it again — 165 ms of a
+# 173 ms route when `tools/load_test.py` first ran (RAVIS.md §9.8).
+
+
+def _refusing_anthropic(clock: list[float], answers: list[int]) -> tuple[Any, list[str]]:
+    """An adapter whose listing answers each status in `answers` in turn."""
+    import httpx
+
+    from ravis.providers.anthropic import AnthropicAdapter
+    from ravis.upstream import Upstream
+
+    asked: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        status = answers[min(len(asked), len(answers)) - 1]
+        listing = {"data": [{"id": "claude-test", "type": "model"}]}
+        return httpx.Response(status, json=listing if status == 200 else {"error": "no"})
+
+    adapter = AnthropicAdapter(
+        upstream=Upstream(base_url="https://anthropic.invalid", declared_key="k"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        clock=lambda: clock[0],
+    )
+    return adapter, asked
+
+
+async def test_a_failed_anthropic_listing_is_asked_for_once_per_retry_window() -> None:
+    from ravis.providers.anthropic import FAILED_DISCOVERY_RETRY_SECONDS
+
+    clock = [1000.0]
+    adapter, asked = _refusing_anthropic(clock, [401])
+
+    for _ in range(50):
+        assert await adapter.models() == []
+    assert len(asked) == 1, "fifty routes must cost one refused listing"
+
+    clock[0] += FAILED_DISCOVERY_RETRY_SECONDS
+    await adapter.models()
+    assert len(asked) == 2
+
+
+async def test_a_anthropic_listing_that_recovers_is_listed_once_the_window_passes() -> None:
+    from ravis.providers.anthropic import FAILED_DISCOVERY_RETRY_SECONDS
+
+    clock = [1000.0]
+    adapter, asked = _refusing_anthropic(clock, [401, 200])
+    assert await adapter.models() == []
+
+    clock[0] += FAILED_DISCOVERY_RETRY_SECONDS
+    assert await adapter.models() == ['claude-test']
+    assert await adapter.models() == ['claude-test']
+    assert len(asked) == 2, "a recovered listing is cached again like any success"

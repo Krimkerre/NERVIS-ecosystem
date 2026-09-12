@@ -902,7 +902,7 @@ Measure `normalization_ms`, `capability_ms`, `policy_ms`, `scoring_ms`, `total_r
 Background refresh keeps provider models, pricing, health, SIRVIS evidence and local host state
 current. **Routing reads cached snapshots**, never live lookups.
 
-**Measured 12 September 2026, and not met.** `tools/load_test.py` puts a private RAVIS in front
+**Measured 12 September 2026: not met, then met narrowly.** `tools/load_test.py` puts a private RAVIS in front
 of a stand-in model and subtracts the stand-in's own latency: RAVIS adds 16.1 ms at the median
 and 17.3 ms at P95 with one caller, and 6.1 / 63.8 ms with ten. It stops keeping up at roughly
 100–180 requests a second while using under a core, which is the signature of work waited on
@@ -919,7 +919,18 @@ for each of them on every request, inside the loop — anonymous requests mixed 
 went from 64 to 157 ms at five callers. **Fixed in 0.23.1:** the credential store keeps a lookup
 for sixty seconds and a worker thread renews it every thirty, so a keyed read now takes 15.1 ms
 against 15.2 ms without a key, mixing the two changes nothing at five callers, and NERVIS's
-relayed reads went from 45 ms to 2.9 ms one at a time. The two routing lookups are not fixed yet.
+relayed reads went from 45 ms to 2.9 ms one at a time. **Both routing
+lookups fixed in 0.23.2**: free memory is sampled every five seconds in a
+worker thread and routing reads the sample, and a failed vendor listing is remembered for thirty
+seconds. Measured the same way afterwards, RAVIS adds 4.3 / 4.1 ms with one caller and
+1.7 / 9.3 ms with ten; `_route` takes 0.58 ms in-process against 9.9 before; a vendor that
+refuses slowly was asked twice across twenty-five routed requests rather than on each; and it
+keeps up with 336 requests a second at fifty callers and 457 at a hundred, against 139 and 159.
+The margin is under a millisecond: over five rounds of fifty requests one caller at a time RAVIS
+added 4.0–4.7 ms at the median, and a complete load-test run the same evening measured 5.0 ms and
+failed the check. P95 keeps room (4.1–6.1 ms with one caller, 3.0–7.6 ms with ten), and ten
+callers add nothing measurable at the median. What the remaining 4–5 ms is made of was not
+profiled.
 
 **A context window is what the runtime serves, not what the architecture allows.** Ollama
 publishes the architecture's maximum at `/api/show` and loads the model at its own default;

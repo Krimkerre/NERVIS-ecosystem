@@ -80,7 +80,6 @@ from ravis.reliability import (
 from ravis.reliability.failures import HealthScope
 from ravis.routing.engine import DEFAULT_EXPLORATION_RATE, Exploration, RoutingEngine
 from ravis.routing.explain import RouteDecision
-from ravis.runtime.resources import read_memory
 from ravis.sessions import SESSION_HEADER, SessionStore
 from ravis.transparent import (
     TransparentUpstream,
@@ -857,7 +856,8 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         payload.get("model") or "",
         candidates,
         residency=residency,
-        memory=read_memory(),
+        # Sampled on a timer by the app, never taken here (§9.8).
+        memory=request.app.state.memory,
         # The request's own hard requirements (§9.5): a request carrying tools
         # or images demands a model that can handle them, whatever the pool's
         # static invariants say.

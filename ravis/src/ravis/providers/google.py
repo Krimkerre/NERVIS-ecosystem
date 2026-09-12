@@ -87,6 +87,11 @@ GENERATE = "generateContent"
 # fetching it once per routing pass rather than about freshness.
 DISCOVERY_TTL_SECONDS = 300.0
 
+# How long a failed discovery read is believed, for the reason Anthropic's
+# adapter gives: never cached, a refused or unreachable listing was asked for
+# again on every routed request (RAVIS.md §9.8).
+FAILED_DISCOVERY_RETRY_SECONDS = 30.0
+
 # Gemini takes no `max_tokens` by default and will happily run to its own
 # ceiling. Unlike Anthropic it does not *require* one, so this is not sent
 # unless a client asked — a default cap here would silently truncate replies
@@ -184,6 +189,8 @@ class GoogleAdapter:
         self._ttl = discovery_ttl_seconds
         self._clock = clock
         self._discovery: dict[str, tuple[float, dict[str, Any]]] = {}
+        # path -> when it last failed, so a failing read is not repeated per route.
+        self._failed: dict[str, float] = {}
 
     # ── Discovery ────────────────────────────────────────────────────────────
 
@@ -351,9 +358,12 @@ class GoogleAdapter:
         §9.8's budget. Generation calls are deliberately uncached — those are
         the request.
 
-        A failed read is not cached: holding a blip for the whole window would
+        A failed read is not cached for the TTL: holding a blip that long would
         leave every Gemini model capability-less, which fails closed and would
-        empty the pools for minutes over a moment's outage.
+        empty the pools for minutes over a moment's outage. It is remembered for
+        `FAILED_DISCOVERY_RETRY_SECONDS` instead, so a refused key or an outage
+        costs one round trip per thirty seconds rather than one per routed
+        request (RAVIS.md §9.8).
         """
         if not self._upstream.is_configured:
             return {}
@@ -361,15 +371,21 @@ class GoogleAdapter:
             hit = self._discovery.get(path)
             if hit is not None and self._clock() - hit[0] < self._ttl:
                 return hit[1]
+            failed = self._failed.get(path)
+            if failed is not None and self._clock() - failed < FAILED_DISCOVERY_RETRY_SECONDS:
+                return {}
         try:
             response = await self._client.get(self._url(path), headers=self._headers())
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError):
+            if cache:
+                self._failed[path] = self._clock()
             return {}
         answer = payload if isinstance(payload, dict) else {}
         if cache:
             self._discovery[path] = (self._clock(), answer)
+            self._failed.pop(path, None)
         return answer
 
     def _url(self, path: str) -> str:

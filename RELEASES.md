@@ -674,7 +674,27 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.1
+## RAVIS — 0.23.2
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Routing reads free memory instead of measuring it.** On macOS every routed request ran
+  `vm_stat` to learn how much memory was free, 6–8 ms inside the event loop, which is why RAVIS
+  stopped keeping up at roughly 100–180 requests a second while using under a core. A task now
+  samples it in a worker thread every five seconds, starting at startup, and routing reads the
+  latest sample.
+- **A provider whose model list fails is not asked again on every request.** Anthropic's and
+  Google's adapters cached a successful listing for five minutes and a failed one not at all, so
+  with a missing or refused key, an outage or no network every routed request fetched it again:
+  165 ms of a 173 ms route when `tools/load_test.py` first ran. A failure is now remembered for
+  thirty seconds. The trade is stated in the adapters: a brief blip leaves that provider's models
+  out of pools for up to thirty seconds rather than only while it lasts.
+- **RAVIS is back at §9.8's routing budget, narrowly.** Measured with `tools/load_test.py` after
+  both changes, RAVIS adds 4.0–4.7 ms at the median with one caller over five rounds (16.1 before,
+  against a target of under 5; one complete run measured 5.0), P95 stays under 7.6 ms at one and
+  ten callers (63.8 before at ten), and it answers 457 requests a second at a hundred callers (159).
+
+### 0.23.1
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

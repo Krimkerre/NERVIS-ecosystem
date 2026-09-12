@@ -71,6 +71,7 @@ from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
 from ravis.reliability.attempts import RetryBudget
 from ravis.routing import RoutingEngine
+from ravis.runtime.resources import MemoryReading, read_memory
 from ravis.sessions import SESSION_HEADER, SessionStore
 from ravis.storage import prepare_database
 from ravis.transparent import adapter_for, build_transparents
@@ -143,6 +144,7 @@ def _lifespan(settings: Settings) -> Any:
         # Keychain lookups renewed in a worker thread, so a request that presents
         # a key finds its credential already looked up.
         credential_refresher = asyncio.create_task(_refresh_credentials_periodically(api))
+        memory_sampler = asyncio.create_task(_sample_memory_periodically(api))
         # Runbook Stage 7. Borrows the upstream client rather than opening a
         # pool of its own, and is cancelled like the others — a publisher that
         # outlived the app would hold the process open on a queue nobody reads.
@@ -157,6 +159,7 @@ def _lifespan(settings: Settings) -> Any:
             recorder.cancel()
             trials.cancel()
             credential_refresher.cancel()
+            memory_sampler.cancel()
             publisher.cancel()
             # Bounded, on the way out. The last thing RAVIS publishes about a
             # request is the event that closes its span, and a fire-and-forget
@@ -192,6 +195,25 @@ async def _flush_observations_periodically(api: FastAPI) -> None:
         await asyncio.sleep(OBSERVATION_FLUSH_SECONDS)
         api.state.observations.prune(await _offered_models(api))
         api.state.observations.flush()
+
+
+# How often free memory is read for routing. The reading answers "is memory
+# tight", which changes over seconds rather than per request, and on macOS
+# taking it is a `vm_stat` process — 6–8 ms that every routed request used to
+# spend inside the event loop (RAVIS.md §9.8).
+MEMORY_SAMPLE_SECONDS = 5.0
+
+
+async def _sample_memory_periodically(api: FastAPI) -> None:
+    """Read free memory in a worker thread, on a timer, for routing to read.
+
+    §9.8 says routing reads cached snapshots and never looks anything up live;
+    free memory was the one reading it took live, on every routed request. The
+    first sample is taken at startup. Cancellation at shutdown is the normal end.
+    """
+    while True:
+        api.state.memory = await asyncio.to_thread(read_memory)
+        await asyncio.sleep(MEMORY_SAMPLE_SECONDS)
 
 
 async def _refresh_credentials_periodically(api: FastAPI) -> None:
@@ -302,6 +324,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # memory, so every restart threw away the evidence and left the coverage
     # permanently too thin to route on.
     api.state.observations = Observations.default()
+    # The latest free-memory reading, which routing reads rather than takes
+    # (§9.8). Unknown until the first sample, which routes as RAVIS did before
+    # it considered memory at all.
+    api.state.memory = MemoryReading()
     # Every declared transparent upstream, in declaration order (M8). One
     # entry for a deployment using the singular settings, which is what every
     # deployment written before this is.

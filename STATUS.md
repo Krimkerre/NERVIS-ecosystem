@@ -25,7 +25,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 2914 tests, no network, no live service
+.venv/bin/pytest                      # part of 2920 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -40,7 +40,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1211 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 2914 passing across the four, conformance `PASS`.
+Expected: all clean, 2920 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -18494,6 +18494,65 @@ in NERVIS changed.
 Checked: ruff and mypy clean, 1142 RAVIS tests pass (seven new), release note
 written. Two RAVIS slowdowns remain: `vm_stat` on every routed request, and failed
 vendor listings asked for again on every request.
+
+## RAVIS back at its routing budget, narrowly — 2026-09-12
+
+The last two of the load test's four slowdowns, both inside routing, which §9.8
+says reads cached snapshots and never looks anything up live:
+
+- **Free memory.** Every routed request ran `vm_stat` to learn how much memory was
+  free, 6–8 ms inside the event loop. A lifespan task now samples it in a worker
+  thread every five seconds, starting at startup, and routing reads the latest
+  sample; until the first one it reads as unknown, which routes as RAVIS did
+  before it considered memory.
+- **Failed vendor listings.** Anthropic's and Google's adapters cached a successful
+  model list for five minutes and a failed one not at all, on purpose — holding a
+  blip for the whole window would empty those vendors' pools for minutes. So with
+  a missing or refused key, an outage or no network, every routed request fetched
+  the list again. A failure is now remembered for thirty seconds: a blip leaves
+  that vendor out of pools for up to half a minute rather than only while it
+  lasts, and a refusal costs one round trip per thirty seconds per vendor.
+
+Six new tests: a routed request that cannot measure memory still answers, reading
+the sample; the sampler runs off the event loop; and for each vendor, fifty
+listings after a refusal cost one request until the window passes, and a listing
+that recovers is listed and cached again. Each was checked by breaking its
+protection on purpose, and each failed.
+
+Measured after reinstalling and restarting (RAVIS reports 0.23.2), the same ways
+as before:
+
+- **The load test's RAVIS part passes all three checks.** RAVIS adds 4.3 ms at the
+  median with one caller (was 16.1) and 1.7 / 9.3 ms with ten (was 6.1 / 63.8),
+  inside §9.8's 5 and 20. It answered 336 requests a second at fifty callers (was
+  139), 457 at a hundred (was 159) and 251 at two hundred (was 97); streamed, 532
+  at a hundred (was 182). One caller at a time straight after two hundred at once
+  took 109.6 ms against 107.6 before, inside the 2 ms allowed, and every request
+  got its own answer.
+- **One request step by step, in-process**, vendors at a closed port: routing
+  0.58 ms (was 9.9), the vendor check 0.02 ms (was 2.85), and no memory reading on
+  the request at all (was 6–8 ms).
+- **A vendor that refuses slowly**, played locally by a stand-in answering 401
+  after 80 ms so nothing left the machine: the vendor check took 0.03 ms, and the
+  stand-in was asked for its model list twice across twenty-five routed requests
+  and startup — once per adapter — where the first load test paid 165 ms per
+  request against the real vendors.
+- **The dashboard against RAVIS 0.23.2**: a keyed read 15.2 ms and a keyless one
+  15.1, the relayed spend read 2.7 ms, and all 350 reads answered.
+
+RAVIS still saturates above a hundred callers — 251 requests a second at 0.91 of
+a core with two hundred — and the step timings no longer show a lookup on the
+path; what remains was not profiled.
+
+**The margin is under a millisecond.** A complete load-test run straight
+afterwards passed five of six checks and failed the budget at one caller, with
+5.0 / 5.4 ms (ten callers: −1.0 / 6.2). Five more rounds of fifty requests one at
+a time put the median at 4.0–4.7 ms and P95 at 4.1–6.1 ms; three rounds of two
+hundred at ten callers put P95 at 3.0–7.6 ms. So RAVIS is at its target rather
+than comfortably inside it, and the next run may land either side of 5 ms.
+
+Checked: ruff and mypy clean, 1148 RAVIS tests pass (six new), release note
+written. All four slowdowns the load test found are fixed.
 
 ## Starting the thing
 

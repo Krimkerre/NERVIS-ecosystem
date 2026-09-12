@@ -458,18 +458,19 @@ provider-configuration writes exist, but authorization on a loopback bind is not
 finished. Cost figures are estimates from published prices unless the provider
 reported them; a record says which.
 
-**RAVIS adds more delay than its target, measured on 12 September 2026.** A load
-test found that with one caller RAVIS adds about 16 ms to each request, against a
-target of 5 ms, and that it stops keeping up at roughly 100 to 180 requests a
-second. Three causes were measured. One is fixed: a caller that presents a key
-used to wait about 46 ms while RAVIS checked each stored client and admin key in
-the keychain, holding up everyone else's requests meanwhile; since RAVIS 0.23.1 it
-remembers those keys and renews them in the background, so a request with a key is
-as fast as one without. Two are not fixed yet: it runs a system command to read
-free memory on every request, and it asks a hosted provider for its model list
-again on every request whenever that provider's last answer failed (a missing or
-refused key, an outage, no network). It stays correct under load: 5,180
-requests at up to 200 at once all got their own answers.
+**RAVIS is at its delay target since 0.23.2, narrowly (12 September 2026).** A load test
+first found RAVIS adding about 16 ms to each request with one caller, against a
+target of 5 ms, and falling behind at roughly 100 to 180 requests a second. Three
+causes were measured and all three are fixed. A caller that presents a key no
+longer waits about 46 ms while RAVIS checks each stored key in the keychain: it
+remembers them and renews them in the background (0.23.1). Routing no longer runs
+a system command to read free memory on every request, and no longer asks a hosted
+provider for its model list again on every request after that provider's answer
+failed. It remembers a failure for thirty seconds, so a provider with a bad key or
+an outage drops out of pools for up to half a minute (0.23.2). Measured afterwards:
+about 4 to 5 ms added with one caller, against a target of under 5 — one test run
+came in at exactly 5 — and about 450 requests a second kept up with. It
+stays correct under load: every request at up to 200 at once got its own answer.
 
 **Embeddings are also degraded, and narrowly so on purpose.** `POST
 /v1/embeddings` forwards to one configured local runtime — Ollama's
