@@ -81,6 +81,8 @@ def test_every_published_code_comes_from_the_closed_list() -> None:
         "INSUFFICIENT_MEMORY", "RESOURCE_BUSY", "INVALID_CONFIGURATION",
         "UNSUPPORTED_PARAMETER", "LOAD_FAILED", "BENCHMARK_NOT_FOUND", "TIMEOUT",
         "DOWNLOAD_FAILED",
+        # M11's, added to §4.3 when the model browser and downloads shipped.
+        "CATALOG_UNAVAILABLE", "DISK_SPACE", "DOWNLOAD_NOT_FOUND",
         # MEP codes, which §4.3 admits alongside its own.
         "UNAUTHENTICATED", "FORBIDDEN", "UNSUPPORTED_MEDIA_TYPE", "INTERNAL_ERROR",
     }

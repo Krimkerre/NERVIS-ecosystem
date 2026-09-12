@@ -31,7 +31,8 @@ from sirvis.api.security import (
 )
 from sirvis.config import Settings
 from sirvis.core.machine import machine_identity
-from sirvis.ecosystem import sirvis_surface
+from sirvis.downloads import serve_downloads
+from sirvis.ecosystem import BUILD_VERSION, sirvis_surface
 from sirvis.errors import SirvisError, to_response
 from sirvis.resources import ResourceManager
 from sirvis.runtimes import LMStudioAdapter
@@ -39,6 +40,9 @@ from sirvis.storage import prepare_database, reconcile_interrupted
 from sirvis.worker import serve_queue
 
 NextCall = Callable[[Request], Awaitable[Any]]
+
+# M11's outbound reads: a Hugging Face search, a download's status from LM Studio.
+HUB_TIMEOUT_SECONDS = 15.0
 
 
 def create_app(settings: Settings, runtime: LMStudioAdapter | None = None) -> FastAPI:
@@ -85,12 +89,16 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     # must run whether or not anybody is collecting telemetry — the queue is the
     # product, the events are the observation of it.
     worker = asyncio.create_task(serve_queue(api))
+    # M11's download watcher, for the same reason: a transfer LM Studio is making is
+    # watched whether or not anybody collects the events about it.
+    watcher = asyncio.create_task(serve_downloads(api))
     publisher: EventPublisher = api.state.events
     if not publisher.enabled:
         try:
             yield
         finally:
             worker.cancel()
+            watcher.cancel()
         return
     async with httpx.AsyncClient() as client:
         pump = asyncio.create_task(publisher.run(client))
@@ -98,6 +106,7 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
             yield
         finally:
             worker.cancel()
+            watcher.cancel()
             pump.cancel()
             # Bounded, so a hub that stopped answering cannot hold a shutdown
             # open. The closing event of a benchmark is the one worth waiting a
@@ -172,6 +181,17 @@ def _attach_shared_state(
     # the service is allowed to drive lifecycle directly, because the moment two
     # code paths can unload a model, one of them does it while the other is
     # using it.
+    # §8's two outbound readers (M11): Hugging Face for discovery, LM Studio's REST API
+    # for downloads. Clients of their own rather than the adapter's, so a slow search
+    # or a download poll never shares a timeout with a model load.
+    api.state.hub_client = httpx.AsyncClient(
+        base_url=settings.huggingface_base_url,
+        timeout=HUB_TIMEOUT_SECONDS,
+        headers={"user-agent": f"sirvis/{BUILD_VERSION}"},
+    )
+    api.state.download_client = httpx.AsyncClient(
+        base_url=settings.lmstudio_base_url, timeout=HUB_TIMEOUT_SECONDS
+    )
     api.state.resources = ResourceManager(
         runtime=api.state.lmstudio,
         default_lease_seconds=settings.default_lease_seconds,

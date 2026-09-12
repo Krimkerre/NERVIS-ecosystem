@@ -317,6 +317,50 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON evidence_tombstone (evidence_id);
         """,
     ),
+    (
+        10,
+        "download jobs, per SIRVIS.md §8 (M11)",
+        """
+        -- A download SIRVIS asked LM Studio to make, kept here so a browser reload,
+        -- or a SIRVIS restart, does not lose it (§8: "a browser reload must not
+        -- lose state"). LM Studio does the transfer and holds its own job; this row
+        -- is SIRVIS's record of what was asked, what the disk check said, and how
+        -- far the transfer had got the last time LM Studio was asked.
+        --
+        -- `file` is the GGUF file within the repository, or empty for an MLX
+        -- repository, which is one model as a whole folder.
+        CREATE TABLE IF NOT EXISTS download_job (
+            download_id          TEXT PRIMARY KEY,
+            repo_id              TEXT NOT NULL,
+            file                 TEXT NOT NULL DEFAULT '',
+            quantization         TEXT NOT NULL DEFAULT '',
+            format               TEXT NOT NULL DEFAULT '',
+            source               TEXT NOT NULL,
+            -- queued · downloading · paused · completed · failed · cancelled ·
+            -- already_present (§8). `cancelled` is in the vocabulary and nothing
+            -- sets it: LM Studio publishes no way to stop a download.
+            status               TEXT NOT NULL,
+            expected_bytes       INTEGER,
+            downloaded_bytes     INTEGER,
+            total_bytes          INTEGER,
+            bytes_per_second     REAL,
+            estimated_completion TEXT,
+            lmstudio_job_id      TEXT,
+            detail               TEXT NOT NULL DEFAULT '',
+            -- The disk check's warnings as JSON, kept with the job: what the
+            -- person was told before they confirmed.
+            warnings             TEXT NOT NULL DEFAULT '[]',
+            trace_id             TEXT,
+            submitted_at         TEXT NOT NULL DEFAULT (datetime('now')),
+            started_at           TEXT,
+            completed_at         TEXT
+        );
+
+        -- The poller's own query: what is still moving.
+        CREATE INDEX IF NOT EXISTS download_job_by_status
+            ON download_job (status, submitted_at);
+        """,
+    ),
 ]
 
 

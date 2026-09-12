@@ -12,13 +12,14 @@ to need one.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from ecosystem_protocol import wire_identifier
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
-from sirvis import jobs
+from sirvis import catalog, downloads, jobs
 from sirvis.api.security import (
     Caller,
     Scope,
@@ -48,6 +49,8 @@ from sirvis.core.runtime_sets import (
 from sirvis.errors import (
     BenchmarkNotFoundError,
     DeadlineExceededError,
+    DiskSpaceError,
+    DownloadNotFoundError,
     ForbiddenError,
     InsufficientMemoryError,
     InvalidConfigurationError,
@@ -337,6 +340,157 @@ def _describe(inventory: Inventory, runtime_key: str) -> dict[str, Any]:
         "instances": [instance.as_dict() for instance in instances],
         "is_loaded": bool(instances),
     }
+
+
+# ── §8 model browser and downloads (M11) ────────────────────────────────────
+
+
+async def _installed(request: Request) -> frozenset[str]:
+    """Where each installed build came from, or nothing when the CLI cannot be asked.
+
+    The CLI is a subprocess, so it is asked off the event loop.
+    """
+    adapter: LMStudioAdapter = request.app.state.lmstudio
+    return catalog.installed_paths(await asyncio.to_thread(adapter.installed_builds))
+
+
+def _disk(request: Request, needed_bytes: int | None) -> downloads.DiskCheck:
+    """§8's disk check against the volume LM Studio's models folder is on."""
+    settings = request.app.state.settings
+    return downloads.check_disk(
+        downloads.free_bytes(settings.lmstudio_models_path),
+        needed_bytes,
+        low_disk_bytes=settings.download_low_disk_bytes,
+        large_share=settings.download_large_share,
+    )
+
+
+@router.get("/catalog")
+async def search_catalog(
+    request: Request,
+    q: str = "",
+    format_: str = Query("any", alias="format"),
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Models this machine could download, most downloaded first (§8, M11).
+
+    Searched on Hugging Face, which LM Studio downloads from and which publishes the
+    search LM Studio does not; see `catalog.py`. A read like every other read here,
+    open to a peer: it changes nothing, and the free space travels with it so a
+    screen can say what would fit.
+    """
+    if format_ not in ("any", *catalog.FORMATS):
+        raise UnsupportedParameterError(
+            "format is `gguf`, `mlx` or `any`", parameter="format", value=format_
+        )
+    items = await catalog.search(
+        request.app.state.hub_client, q.strip(), format_,
+        max(1, min(limit, catalog.MAX_RESULTS)), await _installed(request),
+    )
+    free = downloads.free_bytes(request.app.state.settings.lmstudio_models_path)
+    return _listing(items) | {"source": "huggingface", "disk_free_bytes": free}
+
+
+@router.get("/catalog/{repo_id:path}")
+async def read_catalog_model(request: Request, repo_id: str) -> dict[str, Any]:
+    """One model's downloadable variants, each with its size and its disk check."""
+    detail = await catalog.model(request.app.state.hub_client, repo_id, await _installed(request))
+    for variant in detail["variants"]:
+        variant["disk"] = _disk(request, variant["size_bytes"]).as_dict()
+    return detail
+
+
+@router.post("/downloads", status_code=202)
+async def start_download(request: Request) -> dict[str, Any]:
+    """Queue a download for LM Studio to make (§8, M11).
+
+    **`admin`.** §4.5 grades scopes by what they cost, and a download spends disk and
+    bandwidth that nothing here gives back: SIRVIS never deletes a model. A peer that
+    can read or benchmark should not be able to fill the disk.
+
+    **Checked before anything is queued.** A download that does not fit is refused.
+    One that fits with a warning — little space left after, or most of what is free
+    used up — is refused with the warnings until the request says `confirm: true`,
+    so the person deciding has been told. A variant already installed is recorded
+    as `already_present` and nothing is asked of LM Studio.
+    """
+    require(request, Scope.ADMIN)
+    body = await _json_body(request)
+    repo_id = catalog.checked_repo_id(str(body.get("repo_id") or ""))
+    detail = await catalog.model(request.app.state.hub_client, repo_id, await _installed(request))
+    if detail["gated"]:
+        raise InvalidConfigurationError(
+            "this model is gated behind a licence on Hugging Face, and LM Studio would "
+            "need a Hugging Face login SIRVIS does not have to fetch it",
+            repo_id=repo_id,
+        )
+    variant = _chosen_variant(detail, str(body.get("quantization") or ""))
+    database = request.app.state.database
+    common: dict[str, Any] = {
+        "repo_id": repo_id,
+        "file": variant["files"][0] if detail["format"] == "gguf" and variant["files"] else "",
+        "quantization": variant["quantization"],
+        "format_": detail["format"],
+        "source": f"https://huggingface.co/{repo_id}",
+        "expected_bytes": variant["size_bytes"],
+        "trace_id": str(getattr(request.state, "trace_id", "") or ""),
+    }
+    if variant["installed"]:
+        download_id = downloads.record(
+            database, **common, warnings=(),
+            status=downloads.DownloadStatus.ALREADY_PRESENT,
+            detail="already installed; nothing was transferred",
+        )
+    else:
+        disk = _disk(request, variant["size_bytes"])
+        if not disk.fits:
+            raise DiskSpaceError("the download does not fit in the free space", **disk.as_dict())
+        if disk.warnings and body.get("confirm") is not True:
+            raise DiskSpaceError(
+                "the disk check has warnings; send `confirm: true` to download anyway",
+                confirm_required=True, **disk.as_dict(),
+            )
+        download_id = downloads.record(database, **common, warnings=disk.warnings)
+    found = downloads.read(database, download_id)
+    return {"download": downloads.as_public(found) if found else {"download_id": download_id}}
+
+
+def _chosen_variant(detail: Mapping[str, Any], wanted: str) -> dict[str, Any]:
+    """The variant a download names, or a refusal that lists the ones there are."""
+    variants: list[dict[str, Any]] = detail["variants"]
+    if not variants:
+        raise InvalidConfigurationError(
+            "Hugging Face lists nothing SIRVIS can download here: it is neither GGUF nor MLX",
+            repo_id=detail["repo_id"],
+        )
+    if len(variants) == 1 and not wanted:
+        return variants[0]
+    for variant in variants:
+        if str(variant["quantization"]).lower() == wanted.lower():
+            return variant
+    raise InvalidConfigurationError(
+        "name one of this model's quantizations",
+        repo_id=detail["repo_id"],
+        available=[variant["quantization"] for variant in variants],
+    )
+
+
+@router.get("/downloads")
+async def list_downloads(request: Request, limit: int = 50) -> dict[str, Any]:
+    """Every download, newest first, with the free space beside them (§8)."""
+    jobs_found = downloads.recent(request.app.state.database, limit)
+    items = [downloads.as_public(job) for job in jobs_found]
+    free = downloads.free_bytes(request.app.state.settings.lmstudio_models_path)
+    return _listing(items) | {"disk_free_bytes": free}
+
+
+@router.get("/downloads/{download_id}")
+async def read_download(request: Request, download_id: str) -> dict[str, Any]:
+    """One download, as LM Studio last reported it."""
+    found = downloads.read(request.app.state.database, download_id)
+    if found is None:
+        raise DownloadNotFoundError(f"no download {download_id!r}", download_id=download_id)
+    return {"download": downloads.as_public(found)}
 
 
 @router.get("/benchmark-runs")

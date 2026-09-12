@@ -88,6 +88,10 @@ BENCHMARK_SPECIFICATION: dict[str, Any] = {
 }
 
 JOBS_CAPABILITY = "sirvis.benchmarks.jobs"
+# SIRVIS M11's downloads, and a longer wait than a submit: SIRVIS reads the model's
+# file list from Hugging Face before it answers.
+DOWNLOADS_CAPABILITY = "sirvis.downloads"
+DOWNLOAD_TIMEOUT_SECONDS = 30.0
 
 # **The chosen background pool first, then this one model, then this machine's
 # own** (`background.route`). `qwen2.5vl:3b` is the operator's measured choice
@@ -171,6 +175,10 @@ async def run(request: Request) -> dict[str, Any]:
     }
     if operation in own:
         return await own[operation]()
+    if operation == "sirvis.download.start":
+        return await _start_download(
+            request, target, str(body.get("quantization") or ""), body.get("confirm") is True
+        )
     if operation == "sirvis.benchmark.cancel":
         return await _cancel_benchmark(request, target)
     if operation == "sirvis.result.delete":
@@ -326,20 +334,26 @@ async def _learn(request: Request, note: str, prompted_by: str) -> dict[str, Any
     }
 
 
-def _peer(request: Request, credential: str = "benchmark") -> tuple[RegistryEntry, Any]:
+def _peer(
+    request: Request,
+    credential: str = "benchmark",
+    capability: str = JOBS_CAPABILITY,
+    purpose: str = "take a benchmark",
+    label: tuple[str, str] = ("benchmark", "Benchmark queue"),
+) -> tuple[RegistryEntry, Any]:
     """SIRVIS, negotiated and credentialled, or a refusal saying which is missing.
 
-    Shared by both operations because both fail the same two ways, and a second
-    copy of this is how one of them ends up skipping the capability check.
+    Shared by every operation because they fail the same two ways, and a second
+    copy of this is how one of them ends up skipping the capability check. The
+    capability, the purpose and the label are the operation's own, so a download
+    negotiates on `sirvis.downloads` and a refusal says what could not be done.
     """
     settings = request.app.state.settings
     entry: RegistryEntry | None = request.app.state.registry.get("sirvis")
-    verdict = negotiate(
-        Operation("benchmark", "sirvis", JOBS_CAPABILITY, "Benchmark queue"), entry
-    )
+    verdict = negotiate(Operation(label[0], "sirvis", capability, label[1]), entry)
     if not may_attempt(verdict, entry) or entry is None:
         raise InvalidConfigurationError(
-            verdict.reason or "SIRVIS cannot take a benchmark right now",
+            verdict.reason or f"SIRVIS cannot {purpose} right now",
             availability=verdict.availability.value,
         )
     if credential == "admin" and not settings.sirvis_admin_credential:
@@ -348,8 +362,8 @@ def _peer(request: Request, credential: str = "benchmark") -> tuple[RegistryEntr
         # from its benchmark token on purpose — so this install can queue work
         # and still be unable to erase the results of it.
         raise InvalidConfigurationError(
-            "NERVIS holds no admin credential for SIRVIS, so it cannot delete a "
-            "result. The launcher mints an `admin`-scoped token at start; if "
+            f"NERVIS holds no admin credential for SIRVIS, so it cannot {purpose}. "
+            "The launcher mints an `admin`-scoped token at start; if "
             "SIRVIS was started another way, mint one with "
             '`sirvis token --mint nervis-admin --scopes "admin"` and set '
             "NERVIS_SIRVIS_ADMIN_CREDENTIAL."
@@ -454,7 +468,7 @@ async def _delete_result(request: Request, result_id: str, reason: str) -> dict[
     deleted something, and a mandatory field would only ever be filled with a
     dot.
     """
-    entry, settings = _peer(request, "admin")
+    entry, settings = _peer(request, "admin", purpose="delete a result")
     client: httpx.AsyncClient = request.app.state.probe_client
     try:
         answered = await client.request(
@@ -478,6 +492,59 @@ async def _delete_result(request: Request, result_id: str, reason: str) -> dict[
     return {"deleted": payload}
 
 
+async def _start_download(
+    request: Request, repo_id: str, quantization: str, confirm: bool
+) -> dict[str, Any]:
+    """Hand one download to SIRVIS, which checks the disk and asks LM Studio (M11).
+
+    **Admin, and button-only.** SIRVIS requires `admin` for a download, because it
+    spends disk that nothing gives back, and NERVIS holds that credential apart
+    from its benchmark token. No phrase reaches this operation: only the Discover
+    screen's button names it, next to the size and the disk check.
+
+    **A refusal keeps SIRVIS's details.** A disk warning is not a failure to report
+    and forget — the screen needs the warnings to put in front of the person and
+    ask again with `confirm` — so SIRVIS's code and details travel on unchanged.
+    """
+    entry, settings = _peer(
+        request, "admin", DOWNLOADS_CAPABILITY, "start a download", ("download", "Model downloads")
+    )
+    target = f"{repo_id}@{quantization}" if quantization else repo_id
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        answered = await client.post(
+            entry.declaration.base_url + "/api/v1/downloads",
+            json={"repo_id": repo_id, "quantization": quantization, "confirm": confirm},
+            headers=_forwarded(
+                getattr(request.state, "request_id", ""),
+                getattr(request.state, "trace_id", ""),
+                settings.sirvis_admin_credential,
+            ),
+            timeout=DOWNLOAD_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as failure:
+        _audit(request, target, "unreachable", type(failure).__name__, "download")
+        raise InvalidConfigurationError(f"SIRVIS did not answer: {failure}") from failure
+
+    payload = _body_of(answered)
+    if answered.status_code >= 400:
+        raw_error = payload.get("error")
+        error: dict[str, Any] = raw_error if isinstance(raw_error, dict) else {}
+        detail = str(error.get("message") or answered.status_code)
+        _audit(request, target, "refused", detail, "download")
+        raw_details = error.get("details")
+        details: dict[str, Any] = raw_details if isinstance(raw_details, dict) else {}
+        raise InvalidConfigurationError(
+            f"SIRVIS refused it: {detail}", sirvis_code=str(error.get("code") or ""), **details
+        )
+    download = payload.get("download") or {}
+    _audit(
+        request, target, str(download.get("status") or "queued"),
+        str(download.get("download_id") or ""), "download",
+    )
+    return {"download": download}
+
+
 def _body_of(answered: httpx.Response) -> dict[str, Any]:
     """SIRVIS's body, or an empty one — a refusal without JSON is still a refusal."""
     try:
@@ -489,7 +556,11 @@ def _body_of(answered: httpx.Response) -> dict[str, Any]:
 
 # The outcomes that mean the operation happened. Anything else — refused,
 # unreachable, malformed — is worth a warning.
-_SUCCEEDED = frozenset({"queued", "cancelled", "deleted"})
+_SUCCEEDED = frozenset({"queued", "cancelled", "deleted", "already_present"})
+
+# The id an attempt is audited under, where it is not in the benchmark family:
+# `delete` acts on a result and `download` on a model, not on the queue.
+_AUDITED_AS = {"delete": "sirvis.result.delete", "download": "sirvis.download.start"}
 
 
 def _audit(
@@ -510,10 +581,7 @@ def _audit(
         severity="info" if outcome in _SUCCEEDED else "warning",
         subject={"type": "service", "id": "sirvis"},
         data={
-            # `delete` is not in the benchmark family — it acts on a result
-            # rather than on the queue — so the id it audits under says so.
-            "operation": "sirvis.result.delete" if verb == "delete"
-            else f"sirvis.benchmark.{verb}",
+            "operation": _AUDITED_AS.get(verb, f"sirvis.benchmark.{verb}"),
             "target": target,
             "outcome": outcome,
             "detail": detail,

@@ -184,6 +184,31 @@ class UnsupportedMediaTypeError(SirvisError):
     status = 415
 
 
+class CatalogUnavailableError(SirvisError):
+    """Hugging Face, where discovery searches, did not give a usable answer (§8, M11)."""
+
+    code = "CATALOG_UNAVAILABLE"
+    status = 502
+
+
+class DiskSpaceError(SirvisError):
+    """A download that does not fit, or whose disk warnings were not confirmed (§8).
+
+    409 rather than 507: nothing was attempted, and the request can succeed as sent
+    once space is freed or, for warnings alone, with `confirm` set.
+    """
+
+    code = "DISK_SPACE"
+    status = 409
+
+
+class DownloadNotFoundError(SirvisError):
+    """No download with that id (§8, M11)."""
+
+    code = "DOWNLOAD_NOT_FOUND"
+    status = 404
+
+
 def to_response(request: Request, error: SirvisError) -> JSONResponse:
     """Render one failure in §4.3's shape.
 

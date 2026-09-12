@@ -120,6 +120,20 @@ DECLARED: dict[str, Capability] = {
         reason="a benchmark run publishes started and completed or failed under a "
         "trace of its own, and a recommendation under the caller's (M21)",
     ),
+    # M11. §4.1's table gained both rows when they shipped, on 12 September 2026,
+    # so these are its names rather than new ones invented here.
+    "sirvis.catalog.read@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="GGUF and MLX models searched on Hugging Face, with sizes and what is "
+        "already installed (M11)",
+    ),
+    "sirvis.downloads@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="persistent download jobs carried out by LM Studio, disk-checked first; "
+        "no cancel, because LM Studio publishes none (M11)",
+    ),
 }
 
 

@@ -133,6 +133,8 @@ Minimum published capabilities:
 | `sirvis.runtime_sets@1` | versioned multi-model combinations |
 | `sirvis.recommendations@1` | evidence-backed suggestions |
 | `sirvis.events@1` | MEP event stream |
+| `sirvis.catalog.read@1` | models this machine could download, with sizes and install state (M11) |
+| `sirvis.downloads@1` | persistent download jobs, disk-checked first (M11) |
 
 An unavailable capability means absent or explicitly unavailable — **never a stub returning
 plausible data**.
@@ -192,7 +194,8 @@ Cancellation is idempotent. **A successful HTTP request is not a successful benc
 
 Codes: `MODEL_NOT_FOUND`, `MODEL_NOT_INSTALLED`, `RUNTIME_UNAVAILABLE`,
 `INSUFFICIENT_MEMORY`, `RESOURCE_BUSY`, `INVALID_CONFIGURATION`, `UNSUPPORTED_PARAMETER`,
-`LOAD_FAILED`, `BENCHMARK_NOT_FOUND`, `TIMEOUT`, `DOWNLOAD_FAILED`, plus the MEP codes.
+`LOAD_FAILED`, `BENCHMARK_NOT_FOUND`, `TIMEOUT`, `DOWNLOAD_FAILED`, and since M11
+`CATALOG_UNAVAILABLE`, `DISK_SPACE` and `DOWNLOAD_NOT_FOUND`, plus the MEP codes.
 
 ## 4.4 SDKs and OpenAPI
 
@@ -403,6 +406,23 @@ reload must not lose state.
 Before downloading, check model size against available disk and remaining disk after
 download. Warn on insufficient disk, dangerously low remaining disk, or a very large
 percentage consumption. **Never auto-delete models.**
+
+**As built at M11 (12 September 2026), and where it departs from the above.**
+Discovery searches **Hugging Face**, not LM Studio: LM Studio's REST API downloads by
+catalogue name or Hugging Face link but publishes no search — every likely route answered
+"Unexpected endpoint" — while Hugging Face's public API searches, narrows to GGUF or MLX and
+lists every file with its size, anonymously. **Downloads are carried out by LM Studio**
+(`POST /api/v1/models/download`, polled at `/api/v1/models/download/status/{job_id}`); SIRVIS
+keeps its own `download_job` row, so a reload or a SIRVIS restart loses nothing.
+`GET /api/v1/catalog`, `GET /api/v1/catalog/{owner}/{name}` (variants with sizes and a disk check
+each), `POST /api/v1/downloads` (scope `admin`, since a download spends disk nothing gives back),
+`GET /api/v1/downloads` and `GET /api/v1/downloads/{download_id}`. A variant already installed
+is recorded `already_present` without asking LM Studio. A download that does not fit is refused;
+one that would leave under 20 GB free or use more than half of what is free is refused with its
+warnings until the request carries `confirm: true`. A gated model is shown and not offered.
+**There is no pause or cancel**: LM Studio publishes neither, so `paused` appears only when LM
+Studio reports it and nothing sets `cancelled`. Not built: parameter-size, architecture and
+licence filters, and the CLI's `sirvis models search/download`.
 
 ---
 

@@ -471,6 +471,14 @@ class LMStudioAdapter:
             return None
         return shutil.which("lms")
 
+    def installed_builds(self) -> list[InstalledVariant] | None:
+        """Every build installed on this machine, or `None` when nobody can be asked.
+
+        Public for M11's discovery, which marks a search result as already installed.
+        The same local-only rule as `_local_builds`, because it is that.
+        """
+        return self._local_builds()
+
     def _local_builds(self) -> list[InstalledVariant] | None:
         """Installed builds from the CLI — but only for a runtime on this machine.
 

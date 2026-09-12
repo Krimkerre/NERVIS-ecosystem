@@ -33,6 +33,15 @@ The machines, runtimes, models and instances it knows about; benchmark runs and
 their results with provenance; the job queue; model leases; residency — what is
 loaded right now; and its recommendations with the evidence under them.
 
+Since 12 September 2026 it can also find and download models. Discover searches
+Hugging Face for GGUF and MLX models, lists each version's size, and checks it
+against the free disk before anything starts: a model that does not fit is
+refused, and one that would leave less than 20 GB free, or use more than half of
+what is free, asks for confirmation first. LM Studio does the downloading and
+SIRVIS keeps the record, so closing the page or restarting loses nothing. A model
+behind a licence on Hugging Face is shown but not offered, because LM Studio
+would need a Hugging Face login to fetch it.
+
 ## What a crash does to a benchmark
 
 A job that was *running* when the service stopped is marked failed on the next
@@ -88,6 +97,10 @@ and both load on a manager configured for one — the ceiling failing at exactly
 the moment it exists for.
 
 ## What it will not do
+
+It does not delete a model to make room for another, a failed partial download
+included. It cannot cancel or pause a download either: LM Studio carries the
+transfer and offers no way to stop it.
 
 It does not load a model because somebody asked a question. Loading is leases
 and the queue, owned in one place, because two things loading models at once on

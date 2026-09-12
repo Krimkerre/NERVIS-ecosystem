@@ -80,6 +80,15 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="the benchmark result {target}",
         action="Delete",
     ),
+    # **Button-only, like deleting a result** (SIRVIS M11, 12 September 2026). Only
+    # the Discover screen's button names it, beside the size and the disk check; a
+    # phrase matcher could propose filling the disk on the strength of a sentence.
+    Operation(
+        id="sirvis.download.start",
+        service="sirvis",
+        summary="the model {target}",
+        action="Download",
+    ),
     # **Writing is an effect, so it is an operation rather than a tool.**
     # Reading a document is a source — NERVIS opens it before the model sees
     # anything and the model chooses nothing. Writing one changes the machine,
@@ -1113,7 +1122,7 @@ def capabilities_line() -> str:
     offerable = sorted(
         operation.action.lower() + " " + operation.summary.replace("{target}", "…")
         for operation in OPERATIONS
-        if operation.id != "sirvis.result.delete"
+        if operation.id not in ("sirvis.result.delete", "sirvis.download.start")
     )
     return (
         "NERVIS can offer these, as buttons under your reply, when the person names "

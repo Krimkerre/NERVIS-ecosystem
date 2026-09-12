@@ -97,6 +97,22 @@ class Settings(BaseSettings):
     # the developer's machine through exactly this gap.
     lmstudio_cli_path: str = "~/.lmstudio/bin/lms"
 
+    # ── §8 model browser and downloads (M11) ─────────────────────────────────
+    # Where discovery searches: Hugging Face's public API, anonymously. LM Studio
+    # publishes no search, and a public model needs no token. Configurable so a
+    # test can point it at a port nothing listens on, the same way the runtime is.
+    huggingface_base_url: str = "https://huggingface.co"
+    # Where LM Studio keeps models, for the disk check: the free space that
+    # matters is on the volume a download lands on.
+    lmstudio_models_path: str = "~/.lmstudio/models"
+    # §8's warnings. A download that would leave less than this free is warned
+    # about, and so is one that takes more than this share of what is free.
+    # Neither refuses; a download that does not fit at all is refused outright.
+    download_low_disk_bytes: int = 20 * 1024**3
+    download_large_share: float = 0.5
+    # How often a running download's progress is asked of LM Studio.
+    download_poll_seconds: float = 2.0
+
     # ── §9 resource management ───────────────────────────────────────────────
     # Two co-resident models cost almost nothing on 24 GB and the third is where
     # `clarvis/docs/benchmarks.md` measured it getting tight, so two is a

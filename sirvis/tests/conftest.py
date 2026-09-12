@@ -42,6 +42,9 @@ def _no_live_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setenv("SIRVIS_LMSTUDIO_BASE_URL", UNREACHABLE_RUNTIME)
     monkeypatch.setenv("SIRVIS_LMSTUDIO_CLI_PATH", UNREACHABLE_CLI)
+    # M11's third channel out: discovery searches Hugging Face. A test that wants a
+    # catalogue hands the app a recorded client; none reaches the real one.
+    monkeypatch.setenv("SIRVIS_HUGGINGFACE_BASE_URL", UNREACHABLE_RUNTIME)
     # `TestClient` addresses the app as `http://testserver`, so the §16 item 5
     # Host check would refuse the whole suite. Named here once rather than
     # carved into the check as a test-shaped exception.
@@ -116,5 +119,6 @@ def settings() -> Settings:
         database_path=":memory:",
         lmstudio_base_url=UNREACHABLE_RUNTIME,
         lmstudio_cli_path=UNREACHABLE_CLI,
+        huggingface_base_url=UNREACHABLE_RUNTIME,
         _env_file=None,  # type: ignore[call-arg]
     )

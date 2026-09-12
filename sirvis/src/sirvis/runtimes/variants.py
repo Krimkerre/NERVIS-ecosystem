@@ -126,6 +126,11 @@ class InstalledVariant:
     max_context: int | None
     size_bytes: int | None
     model_type: str
+    path: str = ""
+    """Where it sits under LM Studio's models folder, as the Hugging Face repository
+    it came from: `lmstudio-community/granite-4.0-h-tiny-GGUF/…Q4_K_M.gguf` for a GGUF
+    file, `mlx-community/Phi-4-mini-instruct-4bit` for an MLX folder. What lets a
+    search result say it is already installed (M11). Empty when the CLI gave none."""
 
 
 def installed_variants(binary: str | None = None) -> list[InstalledVariant] | None:
@@ -186,6 +191,10 @@ def _read_installed(row: object) -> InstalledVariant | None:
         # domain, whichever reader produced the record.
         model_type="vlm" if row.get("vision") and row.get("type") == "llm"
         else str(row.get("type") or "llm"),
+        # A build LM Studio fetched through its own catalogue is indexed as
+        # `qwen/qwen3.5-9b@lmstudio-community/Qwen3.5-9B-MLX-4bit`; one fetched by
+        # link as the repository path alone. The repository is after the `@` either way.
+        path=str(row.get("indexedModelIdentifier") or row.get("path") or "").split("@", 1)[-1],
     )
 
 

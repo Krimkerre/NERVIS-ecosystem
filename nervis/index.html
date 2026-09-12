@@ -1364,7 +1364,8 @@ const TILE_CAPABILITY={
  'nervis/Notifications':{nervis:'nervis.notifications'},
  'sirvis/Dashboard':{sirvis:'sirvis.inventory.read'},
  'sirvis/Models':{sirvis:'sirvis.inventory.read'},
- 'sirvis/Discover':{sirvis:'sirvis.inventory.read'},
+ 'sirvis/Discover':{sirvis:'sirvis.catalog.read'},
+ 'sirvis/Downloads':{sirvis:'sirvis.downloads'},
  'sirvis/Runtime':{sirvis:'sirvis.runtime.state.read'},
  'sirvis/Benchmarks':{sirvis:'sirvis.benchmarks.results'},
  'sirvis/Results':{sirvis:'sirvis.benchmarks.results'},
@@ -2497,7 +2498,25 @@ const API={
   /* GET /api/v1/downloads — persistent jobs; a browser reload must not lose them.
      The completed and already_present rows are builds this machine really has, at
      their real size on disk. */
-  async downloads(){return{disk_free_gb:null,items:[]}},
+  async downloads(){
+   const d=await liveSirvis('/api/v1/downloads?limit=50');
+   return d?{live:true,items:d.items||[],disk_free_bytes:d.disk_free_bytes}
+    :{live:false,items:[],disk_free_bytes:null}},
+
+  /* Starts one through NERVIS, which holds SIRVIS's admin credential; this tab
+     does not. A disk warning comes back as SIRVIS's own refusal with its details,
+     so the screen can put the warnings in front of the person and ask again with
+     `confirm`. */
+  async startDownload(repoId,quantization,confirm){
+   try{
+    const r=await fetch(BASE.nervis+'/api/v1/commands/run',{method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({operation:'sirvis.download.start',target:repoId,quantization,confirm:!!confirm})});
+    const payload=await r.json().catch(()=>({}));
+    if(!r.ok){const e=payload.error||{};return{error:e.message||('NERVIS answered HTTP '+r.status),details:e.details||{}}}
+    return payload;
+   }catch(failure){return{error:'NERVIS did not answer: '+failure.message,details:{}}}
+  },
 
   /* GET /api/v1/machines/{id} — the snapshot every result is pinned to. Read from
      this machine: sysctl for the chip and memory, sw_vers for the OS, df for the
@@ -2790,14 +2809,27 @@ const API={
      candidates this machine could actually fetch. Search and filters travel to
      this endpoint as query parameters; the catalogue is remote and much larger
      than one page of it. */
-  async catalog(){
-   /* **Empty until SIRVIS publishes a catalogue.** This returned the LM Studio
-      snapshot as "installed" rows plus five hand-written "available" builds with
-      their real sizes — plausible, checkable, and invented: nothing had asked a
-      service what this machine could fetch. SIRVIS M11 is the endpoint; until it
-      exists the Discover screen says there is nothing to show rather than
-      offering downloads nobody verified are offerable. */
-   return{query:'',next_cursor:null,items:[]}},
+  async catalog(q,format){
+   /* **Live since SIRVIS M11, 12 September 2026.** This was empty on purpose
+      until SIRVIS published a catalogue, after it had once returned hand-written
+      "available" builds nothing had verified. SIRVIS searches Hugging Face for
+      it, so the wait is longer than a local read's. */
+   try{
+    const params=new URLSearchParams({q:q||'',format:format||'any',limit:'30'});
+    const r=await fetch(BASE.sirvis+'/api/v1/catalog?'+params,{signal:AbortSignal.timeout(15000)});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)return{live:false,items:[],disk_free_bytes:null,error:((d.error||{}).message)||('SIRVIS answered HTTP '+r.status)};
+    return{live:true,items:d.items||[],disk_free_bytes:d.disk_free_bytes,error:''};
+   }catch(failure){return{live:false,items:[],disk_free_bytes:null,error:'SIRVIS did not answer: '+failure.message}}},
+
+  /* One model's variants, each with its size and SIRVIS's disk check. */
+  async catalogModel(repoId){
+   try{
+    const r=await fetch(BASE.sirvis+'/api/v1/catalog/'+repoId.split('/').map(encodeURIComponent).join('/'),
+      {signal:AbortSignal.timeout(15000)});
+    const d=await r.json().catch(()=>({}));
+    return r.ok?{live:true,...d}:{live:false,variants:[],error:((d.error||{}).message)||('SIRVIS answered HTTP '+r.status)};
+   }catch(failure){return{live:false,variants:[],error:'SIRVIS did not answer: '+failure.message}}},
  },
 
  ravis:{
@@ -8488,61 +8520,87 @@ async function sirvisModels(){
    query parameters on /api/v1/catalog — the catalog is remote and much larger
    than one page of it, so filtering client-side is a property of the mock and not
    of the design. */
-const DISCOVER={q:'',runtime:'all',installed:'all'};
-function discoverFilter(items){
- const q=DISCOVER.q.trim().toLowerCase();
- return items.filter(x=>
-  (DISCOVER.runtime==='all'||x.runtime===DISCOVER.runtime)
-  &&(DISCOVER.installed==='all'||(DISCOVER.installed==='yes')===x.installed)
-  &&(!q||`${x.family} ${x.variant} ${x.architecture} ${x.quantization} ${x.source}`.toLowerCase().includes(q)));}
+const DISCOVER={q:'',format:'any',results:null,open:null,models:{},pending:{}};
+/* Since SIRVIS M11 (12 September 2026) the search and the format travel to SIRVIS
+   as those query parameters, as the note above said they would, and SIRVIS asks
+   Hugging Face. What came back is kept here between repaints, so a refresh never
+   throws a search away. */
+const sizeText=bytes=>bytes==null?'unknown':(bytes/1024**3).toFixed(bytes<10*1024**3?1:0)+' GB';
+async function discoverSearch(){
+ DISCOVER.q=(($('#discoverQ')||{}).value||'').trim();
+ DISCOVER.results={searching:true,items:[]};DISCOVER.open=null;repaint();
+ DISCOVER.results=await API.sirvis.catalog(DISCOVER.q,DISCOVER.format);
+ repaint();
+}
+async function discoverOpen(repoId){
+ DISCOVER.open=DISCOVER.open===repoId?null:repoId;
+ if(DISCOVER.open&&!DISCOVER.models[repoId]){
+  DISCOVER.models[repoId]={loading:true,variants:[]};repaint();
+  DISCOVER.models[repoId]=await API.sirvis.catalogModel(repoId);
+ }
+ repaint();
+}
+async function discoverDownload(repoId,quantization,confirm){
+ const key=repoId+'@'+quantization;
+ DISCOVER.pending[key]={busy:true};repaint();
+ const out=await API.sirvis.startDownload(repoId,quantization,confirm);
+ if(out.download){
+  delete DISCOVER.pending[key];delete DISCOVER.models[repoId];DISCOVER.open=null;
+  notify(out.download.status==='already_present'?'Already installed · nothing to download':'Queued · follow it under Downloads');
+ }else DISCOVER.pending[key]={error:out.error,details:out.details||{}};
+ repaint();
+}
 /* One row. The disk arithmetic is SIRVIS.md §8's rule rendered per candidate:
    size against free space, and what is left afterwards — checked before the job
    is queued rather than discovered when the last byte fails to land. */
-function discoverRows(items,free){
- if(!items.length)return `<div class="table-row"><span style="grid-column:1/-1;opacity:.6">no catalog entry matches these filters</span></div>`;
- return items.map(x=>{const after=+(free-x.size_gb).toFixed(1),tight=after<0||after<free*0.1;
-  return `<div class="table-row seven"><span>${escapeHtml(x.family)}</span><span class="mono">${escapeHtml(x.variant)}</span><span class="mono" style="opacity:.75">${escapeHtml(x.runtime)} · ${escapeHtml(x.quantization)}</span><span>${x.params_b?x.params_b+' B':'<small style="opacity:.45">unknown</small>'}${x.tools_measured?` <span class="chip${warnUnless(x.tools)}" title="measured">${escapeHtml(x.tools_measured.join('/'))}</span>`:x.tools?' <span class="chip" title="published claim, not measured" style="opacity:.6">claims</span>':''}</span><span>${escapeHtml(x.size_gb)} GB</span><span class="mono"${tight?' style="color:#ffb648"':''}>${after<0?'does not fit':after+' GB left'}</span><span>${x.installed
-   ?'<span class="chip">installed</span>'
-   :(after<0?`<button class="btn" disabled title="insufficient disk" style="opacity:.45;cursor:not-allowed">Download</button>`:control('Download','download'))}</span></div>`}).join('')}
+function discoverRows(){
+ const res=DISCOVER.results;
+ const note=text=>`<div class="table-row"><span style="grid-column:1/-1;opacity:.7">${text}</span></div>`;
+ if(!res)return note('search for a model family, such as <b>qwen3</b> or <b>gemma</b>, or search with the box empty for the most downloaded');
+ if(res.searching)return note('asking SIRVIS, which asks Hugging Face…');
+ if(res.error)return note(`<span style="color:#ffb648">${escapeHtml(res.error)}</span>`);
+ if(!res.items.length)return note('nothing on Hugging Face matches that search in these formats');
+ return res.items.map(x=>`<div class="table-row six"><span class="mono" style="grid-column:1/3">${escapeHtml(x.author)}/<b>${escapeHtml(x.name)}</b></span><span class="mono">${escapeHtml(x.format)}</span><span>${escapeHtml(tokenCount(x.downloads))} downloads</span><span>${x.installed?'<span class="chip">installed</span>':''}</span><span><button class="btn" onclick="discoverOpen('${jsAttr(x.repo_id)}')">${DISCOVER.open===x.repo_id?'Close':'Sizes'}</button></span></div>${DISCOVER.open===x.repo_id?discoverVariants(x.repo_id):''}`).join('');
+}
+function discoverVariants(repoId){
+ const m=DISCOVER.models[repoId]||{loading:true,variants:[]};
+ const step=(label,text)=>`<div class="trace-step" style="padding-left:14px"><b>${label}</b><span>${text}</span></div>`;
+ if(m.loading)return step('sizes','reading the model’s file list…');
+ if(m.error)return step('sizes',`<span style="color:#ffb648">${escapeHtml(m.error)}</span>`);
+ if(m.gated)return step('gated','accepting a licence on Hugging Face comes first, and LM Studio would need a Hugging Face login SIRVIS does not have');
+ if(!m.variants.length)return step('nothing to download','this repository is neither GGUF nor MLX');
+ return m.variants.map(v=>discoverVariant(repoId,v)).join('');
+}
+function discoverVariant(repoId,v){
+ const key=repoId+'@'+v.quantization, pend=DISCOVER.pending[key]||{}, disk=v.disk||{};
+ const warned=(disk.warnings||[]).length, after=disk.remaining_bytes;
+ const click=confirm=>`discoverDownload('${jsAttr(repoId)}','${jsAttr(v.quantization)}',${confirm})`;
+ const action=v.installed?'<span class="chip">installed</span>'
+  :disk.fits===false?'<span class="chip warn">does not fit</span>'
+  :pend.busy?'<span class="chip">starting…</span>'
+  :`<button class="btn${warned?'':' primary'}" onclick="${click(false)}">Download</button>`;
+ const asked=pend.details&&pend.details.confirm_required
+  ?`<div class="trace-step" style="padding-left:14px"><b>before it downloads</b><span>${(pend.details.warnings||[]).map(escapeHtml).join(' · ')} <button class="btn" onclick="${click(true)}">Download anyway</button></span></div>`
+  :pend.error?`<div class="trace-step" style="padding-left:14px"><b>refused</b><span style="color:#ffb648">${escapeHtml(pend.error)}</span></div>`:'';
+ return `<div class="table-row six"><span class="mono" style="grid-column:1/3;padding-left:14px">${escapeHtml(v.quantization||'whole folder')}</span><span>${escapeHtml(sizeText(v.size_bytes))}</span><span class="mono"${warned||disk.fits===false?' style="color:#ffb648"':''}>${after==null?'size unknown':after<0?'does not fit':escapeHtml(sizeText(after))+' left'}</span><span style="opacity:.75">${warned?escapeHtml(warned+(warned>1?' warnings':' warning')):''}</span><span>${action}</span></div>${asked}`;
+}
 async function sirvisDiscover(){
- heading('Discover','Search the catalog, check it against this machine, and queue the download as a job.');
- const [cat,mc]=await Promise.all([API.sirvis.catalog(),API.sirvis.machine()]);
- const free=mc.disk_free_gb;
- const installed=cat.items.filter(x=>x.installed).length;
- const runtimes=[...new Set(cat.items.map(x=>x.runtime))];
- /* Repaints the result rows only, so the search field keeps focus and caret. */
- window.paintDiscover=()=>{const box=$('#discoverRows');if(!box)return;
-  const hits=discoverFilter(cat.items);box.innerHTML=discoverRows(hits,free);
-  $('#discoverCount').textContent=`${hits.length} of ${cat.items.length}`};
- const chip=(group,val,label)=>`<button class="mode-chip${DISCOVER[group]===val?' on':''}" onclick="DISCOVER.${group}='${jsAttr(val)}';selectOne(this,'[data-filter=${group}] .mode-chip');paintDiscover()">${label}</button>`;
+ heading('Discover','Search Hugging Face through SIRVIS, check a model against this disk, and hand the download to LM Studio.');
+ const res=DISCOVER.results, live=!!(res&&res.live);
+ const chip=(val,label)=>`<button class="mode-chip${DISCOVER.format===val?' on':''}" onclick="DISCOVER.format='${jsAttr(val)}';discoverSearch()">${label}</button>`;
  $('#content').innerHTML=kpis([
-   ['Catalog',String(cat.items.length),'entries on this page','sirvis',false],
-   ['Installed',`${installed} / ${cat.items.length}`,'already on disk','sirvis',false],
-   /* The catalogue above is a stored transcription and `false` is correct for
-      it. This one is not: the disk figure comes from SIRVIS's live machine
-      read, and it is what decides whether a row can be downloaded at all. */
-   ['Disk free',free+' GB',safe(stamp(SERVICES.sirvis.age)),'sirvis',mc.live],
-   ['Smallest',Math.min(...cat.items.filter(x=>!x.installed).map(x=>x.size_gb))+' GB',
-    'of what is not installed','sirvis',false]])
- +`<div class="card full"><h3>Catalog <span class="chip" id="discoverCount">${escapeHtml(cat.items.length)} of ${escapeHtml(cat.items.length)}</span></h3>${cell(`
-   <div class="profile-row"><input id="discoverQ" placeholder="Search family, architecture, quantization or source…" style="flex:1;min-width:220px" oninput="DISCOVER.q=this.value;paintDiscover()">
-    <span data-filter="runtime">${chip('runtime','all','Any runtime')}${runtimes.map(r=>chip('runtime',r,r)).join('')}</span>
-    <span data-filter="installed">${chip('installed','all','Any state')}${chip('installed','no','Not installed')}${chip('installed','yes','Installed')}</span></div>
-   <div class="table-row head seven"><span>Family</span><span>Variant</span><span>Runtime · quant</span><span>Params · tools</span><span>Size</span><span>Disk after</span><span>Action</span></div>
-   <div id="discoverRows">${discoverRows(cat.items,free)}</div>
-   <small class="mono dim">the disk check runs before the job is queued: ${free} GB free, and each row says what would be left. A build that does not fit cannot be started — SIRVIS never auto-deletes a model to make room for another one.<br>the tools column reads two different ways on purpose: an installed build shows <b>calls made / attempted</b> from a real run, and a catalogue entry shows <b>claims</b>, which is the publisher's word and nothing more. On this machine those two disagree about four builds, so the distinction is not pedantry.</small>
-   ${explains('what a catalogue entry cannot tell you',`
-   <div class="table-row head"><span>Question</span><span style="grid-column:2/-1">Answered by</span></div>
-   <div class="table-row"><span>Will it download?</span><span style="grid-column:2/-1;opacity:.75">this page — size against ${free} GB of free disk</span></div>
-   <div class="table-row"><span>Will it load?</span><span style="grid-column:2/-1;opacity:.75">a load attempt against ${escapeHtml(mc.memory_gb)} GB of memory on ${escapeHtml(mc.model||mc.chip||'this machine')}</span></div>
-   <div class="table-row"><span>Will it be any good at your work?</span><span style="grid-column:2/-1;opacity:.75">a benchmark run, per role — nothing on this page predicts it</span></div>
-   <div class="table-row"><span>Will it run alongside your other model?</span><span style="grid-column:2/-1;opacity:.75">a Runtime set measurement, which is a separate subject again</span></div>
-   <small class="mono dim">file size is a fact about the disk, not about the machine. Parameter count and quantization are the two numbers most often used to guess the other three answers, and guessing them is exactly what SIRVIS exists to stop.</small>`)}`,'sirvis')}</div>
-  
-  <div class="card narrow"><h3>Sources</h3>${cell([...new Set(cat.items.map(x=>x.source))].map(s=>`
-   <div class="trace-step"><b>${s}</b><span>${escapeHtml(cat.items.filter(x=>x.source===s).length)} entries</span></div>`).join('')
-   +`<small class="mono dim">the catalog provider is a field, not an assumption: LM Studio's index first, others later. A build's source travels with it into the evidence record, because the same family from two publishers is not guaranteed to be the same weights.</small>`,'sirvis')}</div>`;
- paintDiscover()}
+   ['Results',live?String(res.items.length):'—',live?'from Hugging Face, most downloaded first':'nothing searched yet','sirvis',live],
+   ['Installed',live?String(res.items.filter(x=>x.installed).length):'—','of these results, already on disk','sirvis',live],
+   ['Disk free',live&&res.disk_free_bytes!=null?sizeText(res.disk_free_bytes):'—','where LM Studio keeps models','sirvis',live],
+   ['Downloads by','LM Studio','SIRVIS keeps the record','sirvis',live]])
+ +`<div class="card full live"><h3>Search</h3>${cell(`
+   <div class="profile-row"><input id="discoverQ" value="${escapeHtml(DISCOVER.q)}" placeholder="A model family: qwen3, gemma, llama…" style="flex:1;min-width:220px" onkeydown="if(event.key==='Enter')discoverSearch()">
+    <button class="btn primary" onclick="discoverSearch()">Search</button>
+    <span data-filter="format">${chip('any','GGUF and MLX')}${chip('gguf','GGUF')}${chip('mlx','MLX')}</span></div>
+   <div class="table-row head six"><span style="grid-column:1/3">Model</span><span>Format</span><span>Popularity</span><span>Here</span><span>Sizes</span></div>
+   ${discoverRows()}
+   <small class="mono dim">Each size comes from the model's own file list, and the disk is checked before anything is queued: a download that does not fit cannot start, and one that would leave little room asks first. SIRVIS never deletes a model to make room. A gated model is shown and not offered, because LM Studio would need a Hugging Face login.</small>`,'sirvis')}</div>`;
+}
 
 /* Benchmarks — the job queue. `state` is the closed contract enum consumers switch
    on; `detail` carries the internal phase and is display-only. A partial result is
@@ -9087,41 +9145,33 @@ async function sirvisRecommendations(){
    ${CLARVIS_DEADLINES.map(([name,does,s])=>`<div class="table-row"><span class="mono">${name}</span><span style="opacity:.75">${does}</span><span style="grid-column:3/-1" class="mono">${s}s</span></div>`).join('')}
    <small class="mono dim">these belong to Clarvis, not to routing: missing one substitutes a written fallback line rather than failing the request. That is also why they matter — the cost of a slow model is not an error, it is the character quietly becoming a static bank, which is the product switching its own thesis off. The tightest is ${CLARVIS_DEADLINES[0][2]}s, and the slowest recommended build reaches first token in 0.26s.</small>`,'sirvis')}</div>`}
 
-/* Downloads — persistent jobs. A browser reload must not lose one, and a failure
-   states what actually went wrong: "insufficient disk after download" is a fact
-   about this machine, not a generic error. */
+/* Downloads — carried by LM Studio, recorded by SIRVIS (M11, 12 September 2026).
+   A reload is a fresh read of SIRVIS's rows, so it loses nothing, and a failure
+   says what went wrong in LM Studio's or SIRVIS's own words. */
+function downloadRow(x){
+ const pct=x.progress==null?null:Math.round(x.progress*100);
+ const total=x.total_bytes||x.expected_bytes;
+ const moved=x.downloaded_bytes!=null?`${sizeText(x.downloaded_bytes)} of ${sizeText(total)}`:sizeText(total);
+ const speed=x.status==='downloading'&&x.bytes_per_second?` · ${(x.bytes_per_second/1024**2).toFixed(1)} MB/s`:'';
+ const note=x.detail||((x.warnings||[]).length?'warned first: '+x.warnings.join(' · '):'');
+ return `<div class="table-row six"><span class="mono" style="grid-column:1/3">${escapeHtml(x.repo_id)}<span class="dim" style="opacity:.6"> ${escapeHtml(x.quantization)}</span></span><span class="chip${warnUnless(x.status!=='failed')}">${escapeHtml(x.status.replace('_',' '))}</span><span class="mono">${escapeHtml(moved+speed)}</span><span style="grid-column:5/-1"><div class="bar" style="margin:0"><i style="--w:${pct==null?0:pct}%"></i></div><small class="mono" style="opacity:.6">${escapeHtml(pct==null?'waiting for LM Studio':pct+'%')}${note?' · '+escapeHtml(note):''}</small></span></div>`;
+}
 async function sirvisDownloads(){
- heading('Downloads','Persistent jobs. Closing this tab does not cancel a download, and a failure says why.');
+ heading('Downloads','LM Studio carries each download and SIRVIS keeps the record, so a reload loses nothing and a failure says why.');
  const d=await API.sirvis.downloads();
- const by=s=>d.items.filter(x=>x.status===s).length;
+ const count=(...statuses)=>d.items.filter(x=>statuses.includes(x.status)).length;
  const failed=d.items.find(x=>x.status==='failed');
- const pct=x=>Math.round(x.bytes/x.total*100);
+ const speed=d.items.filter(x=>x.status==='downloading').reduce((sum,x)=>sum+(x.bytes_per_second||0),0);
  $('#content').innerHTML=kpis([
-   ['Disk free',d.disk_free_gb+' GB',safe(stamp(SERVICES.sirvis.age)),'sirvis',false],
-   ['Downloading',String(by('downloading')),'resumable · survives reload','sirvis',false],
-   ['Completed',String(by('completed')),'verified and installed','sirvis',false],
-   ['Failed',String(by('failed')),failed?failed.error:'none','sirvis',false]])
- +`<div class="card full"><h3>Jobs</h3>${cell(`
-   <div class="table-row head five"><span>Variant</span><span>Status</span><span>Transferred</span><span style="grid-column:4/-1">Progress</span></div>
-   ${d.items.map(x=>`<div class="table-row five"><span>${escapeHtml(x.variant)}</span><span class="chip${warnUnless(x.status==='completed'||x.status==='already_present')}">${escapeHtml(x.status)}</span><span class="mono">${escapeHtml(x.bytes)} / ${escapeHtml(x.total)} GB</span><span style="grid-column:4/-1"><div class="bar" style="margin:0"><i style="--w:${pct(x)}%"></i></div><small class="mono" style="opacity:.55">${x.error||pct(x)+'%'}</small></span></div>`).join('')}
-   <small class="mono dim"><b>already_present</b> is its own status, not a completed download: nothing was transferred, and reporting it as complete would make the disk figure above unexplainable.</small>
-   ${explains('what survives a reload, and what a failure records',`
-   <div class="trace-step"><b>owner</b><span>SIRVIS, not the browser</span></div>
-   <div class="trace-step"><b>on reload</b><span>jobs continue</span></div>
-   <div class="trace-step"><b>on cancel</b><span>idempotent</span></div>
-   <small class="mono dim">a download is a job in the service with an id, not a fetch in this tab. That is the difference between a progress bar and a progress <i>report</i>.</small>`)}
-   ${/* **Only when a download has actually failed.** This block read
-        `failed.variant`, `.bytes` and `.total` unconditionally, which was safe
-        only because the fabricated job list always contained one. It is an
-        explanation of what a failure records, and with no failure there is
-        nothing to explain. */
-     failed?explains('what a failed download records',`
-   <div class="trace-step"><b>variant</b><span>${escapeHtml(failed.variant)}</span></div>
-   <div class="trace-step"><b>transferred</b><span>${escapeHtml(failed.bytes)} of ${escapeHtml(failed.total)} GB</span></div>
-   <div class="trace-step"><b>error</b><span>${escapeHtml(failed.error)}</span></div>
-   <small class="mono dim">the file downloaded and then did not fit — with ${escapeHtml(d.disk_free_gb)} GB free the next attempt fails the same way, so the honest report is the specific condition rather than "download failed". Retrying it is a user's decision with the numbers in front of them.</small>`):''}`,'sirvis')}</div>
-  
-  `}
+   ['Disk free',d.disk_free_bytes!=null?sizeText(d.disk_free_bytes):'—','where LM Studio keeps models','sirvis',d.live],
+   ['In progress',String(count('queued','downloading','paused')),speed?`${(speed/1024**2).toFixed(1)} MB/s together`:'nothing moving','sirvis',d.live],
+   ['Finished',String(count('completed','already_present')),'on disk','sirvis',d.live],
+   ['Failed',String(count('failed')),failed?failed.detail||'no reason given':'none','sirvis',d.live]])
+ +`<div class="card full${escapeHtml(liveClass(d.live))}"><h3>Downloads</h3>${cell(`
+   <div class="table-row head six"><span style="grid-column:1/3">Model</span><span>Status</span><span>Transferred</span><span style="grid-column:5/-1">Progress</span></div>
+   ${d.items.map(downloadRow).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">no downloads yet · start one from Discover</span></div>'}
+   <small class="mono dim">There is no cancel or pause: LM Studio publishes neither, and a button that only stopped SIRVIS watching would leave the transfer running behind a screen saying it had stopped. <b>already present</b> means nothing was transferred. Nothing here deletes a model, a failed partial download included.</small>`,'sirvis')}</div>`;
+}
 
 /* System — the machine snapshot every result is pinned to. Without it a benchmark
    number is unattributable: the same build on the same runtime measures

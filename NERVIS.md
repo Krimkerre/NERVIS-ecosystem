@@ -522,6 +522,14 @@ Consume actual SIRVIS contracts for machine, runtime and model inventory, state,
 benchmark jobs and results, recommendations, provenance and events. **Never duplicate SIRVIS
 persistence or benchmark logic.**
 
+**Discover and Downloads read SIRVIS M11 live** (since 12 September 2026): Discover searches
+`/api/v1/catalog`, which SIRVIS answers from Hugging Face, and opens a model's variants with their
+sizes and SIRVIS's disk check; Downloads lists `/api/v1/downloads`. Starting a download is the
+button-only operation `sirvis.download.start` on `/api/v1/commands/run`: NERVIS makes the call
+with its `admin`-scoped SIRVIS credential, which this page never holds, and a disk-warning refusal
+comes back with SIRVIS's warnings so the page can ask again with `confirm`. No chat phrase proposes
+a download, and there is no cancel, because LM Studio, which carries the transfer, publishes none.
+
 Views must preserve `MEASURED`, `ESTIMATED`, `UNKNOWN` (and treat `PARTIALLY_MEASURED` as at
 most estimated), plus timestamps, staleness, method, sample count, units and evidence links.
 

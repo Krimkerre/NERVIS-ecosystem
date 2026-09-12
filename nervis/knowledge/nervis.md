@@ -293,7 +293,10 @@ each day, with each day opening into its models and apps. Later still: the API
 Inspector and the lookup that shows which route answered a chat reply were the
 last things NERVIS read from RAVIS anonymously, and now name NERVIS like
 everything else; the shared reader no longer allows a read that leaves its
-credential out.
+credential out. And SIRVIS's Discover and Downloads screens became real: search
+Hugging Face for GGUF or MLX models, see each version's size checked against
+the free disk, and start a download that LM Studio carries out and SIRVIS keeps
+track of, with no cancel because LM Studio offers none.
 
 As of 6 September 2026: chat's own background retrieval, described above,
 went live the same day — before it, a paraphrase sharing no vocabulary with

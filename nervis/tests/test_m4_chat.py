@@ -1173,6 +1173,65 @@ def test_a_confirmed_command_is_carried_out_with_nervis_own_credential() -> None
     assert body["specification"]["suite"] == "performance-basic"
 
 
+def _sirvis_downloads(client: Any, answer: httpx.Response, sent: list[httpx.Request]) -> None:
+    """A SIRVIS that advertises downloads, answers with `answer`, and records what it got."""
+    client.app.state.settings.sirvis_admin_credential = "admin-scoped"
+    entry = client.app.state.registry.get("sirvis")
+    assert entry is not None
+    entry.state = RegistryState.HEALTHY
+    entry.capabilities = {"sirvis.downloads": "available"}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return answer
+
+    client.app.state.probe_client = httpx.AsyncClient(transport=httpx.MockTransport(capture))
+
+
+def test_a_download_is_handed_to_sirvis_with_nervis_admin_credential() -> None:
+    """SIRVIS M11: a download needs `admin`, which this tab never holds. The Discover
+    screen's button names the operation and NERVIS makes the call."""
+    sent: list[httpx.Request] = []
+    client = an_api()
+    _sirvis_downloads(client, httpx.Response(
+        202, json={"download": {"download_id": "dl_1", "status": "queued"}}
+    ), sent)
+
+    answered = client.post("/api/v1/commands/run", json={
+        "operation": "sirvis.download.start", "target": "lmstudio-community/Tiny-GGUF",
+        "quantization": "Q4_K_M", "confirm": False,
+    })
+
+    assert answered.status_code == 200
+    assert answered.json()["download"]["download_id"] == "dl_1"
+    assert sent[0].url.path == "/api/v1/downloads"
+    assert sent[0].headers["authorization"] == "Bearer admin-scoped"
+    assert json.loads(sent[0].content) == {
+        "repo_id": "lmstudio-community/Tiny-GGUF", "quantization": "Q4_K_M", "confirm": False,
+    }
+
+
+def test_a_disk_warning_reaches_the_page_with_what_it_needs_to_ask_again() -> None:
+    """A refusal is usually reported and forgotten. This one is a question: the screen
+    shows SIRVIS's warnings and asks again with `confirm`, so the details travel."""
+    sent: list[httpx.Request] = []
+    client = an_api()
+    warnings = ["it would leave 2.0 GB free, under the 20.0 GB kept in reserve"]
+    _sirvis_downloads(client, httpx.Response(409, json={"error": {
+        "code": "DISK_SPACE", "message": "the disk check has warnings",
+        "details": {"confirm_required": True, "warnings": warnings, "fits": True},
+    }}), sent)
+
+    answered = client.post("/api/v1/commands/run", json={
+        "operation": "sirvis.download.start", "target": "some/model", "quantization": "Q8_0",
+    })
+
+    details = answered.json()["error"]["details"]
+    assert answered.status_code >= 400
+    assert details["confirm_required"] is True and details["warnings"] == warnings
+    assert details["sirvis_code"] == "DISK_SPACE"
+
+
 def test_a_queued_benchmark_joins_the_trace_that_asked_for_it() -> None:
     """§11.2: the run belongs to the trace of the request that submitted it.
 
