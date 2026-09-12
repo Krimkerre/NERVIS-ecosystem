@@ -61,6 +61,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 VENV = ROOT / "ravis" / ".venv"
 RUN = ROOT / ".run"
+# The admin secret the launcher mints for RAVIS (§15.1). One path, because the
+# health check reads it as well as the credential writes.
+RAVIS_ADMIN_TOKEN = RUN / "ravis-admin.token"
 PIDFILE = RUN / "services.json"
 
 SIRVIS_PORT = 8721
@@ -263,9 +266,17 @@ def responds(url: str, timeout: float = 1.5) -> bool:
 
     Any HTTP response counts, a 404 included: the question is "is a server
     listening", and only a connection error or timeout is an absence.
+
+    **Named to RAVIS, since 12 September 2026.** Asked anonymously, each check
+    spent one of the sixty requests a minute RAVIS allows all unnamed callers on
+    the machine between them — measured at three for a start and a status. The
+    launcher presents the admin credential it planted before RAVIS started; every
+    other service is asked as before.
     """
     try:
-        with urllib.request.urlopen(url, timeout=timeout):
+        with urllib.request.urlopen(
+            urllib.request.Request(url, headers=_named_for(url)), timeout=timeout
+        ):
             return True
     except urllib.error.HTTPError:
         return True
@@ -276,6 +287,22 @@ def responds(url: str, timeout: float = 1.5) -> bool:
         # listing the ways a service can be down, and the list would be wrong
         # the first time a new one appeared.
         return False
+
+
+def _named_for(url: str) -> dict[str, str]:
+    """The launcher's identity for RAVIS, or no header for any other service.
+
+    Read from the cache, never minted: `status` and `stop` must not create a
+    credential as a side effect of asking whether something is up, and before the
+    first start there is nothing RAVIS would recognise anyway.
+    """
+    if not url.startswith(f"http://127.0.0.1:{RAVIS_PORT}/"):
+        return {}
+    try:
+        token = RAVIS_ADMIN_TOKEN.read_text(encoding="utf-8").strip()
+    except OSError:
+        return {}
+    return {"authorization": f"Bearer {token}"} if token else {}
 
 
 def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
@@ -736,7 +763,7 @@ def ravis_admin_credential() -> str:
     it. The command line is a different authority: whoever runs the launcher
     already owns the config directory the store lives in.
     """
-    cached = RUN / "ravis-admin.token"
+    cached = RAVIS_ADMIN_TOKEN
     try:
         existing = cached.read_text(encoding="utf-8").strip()
         if existing:
