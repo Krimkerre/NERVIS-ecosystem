@@ -2047,8 +2047,8 @@ that does not exist is worse than a screen on mocks, because it looks finished.
 | SIRVIS **Runtime** | live | `/api/v1/runtime/residency`, and the four session mutations — the first controls on this page that reach a service |
 | RAVIS **Evidence** | live | `/api/v1/evidence` — what SIRVIS said and what RAVIS concluded, with the reason a build was refused |
 | SIRVIS **Recommendations** | live | `POST /api/v1/recommendations` — ranked, excluded with reasons, and the coverage each score rests on |
-| SIRVIS **Discover** | **mocks — no endpoint** | there is no `/api/v1/catalog`. M11 builds it |
-| SIRVIS **Downloads** | mocks | needs SIRVIS M11's catalogue |
+| SIRVIS **Discover** | live | `/api/v1/catalog`, searched on Hugging Face through SIRVIS (M11, 12 Sep), and `/api/v1/catalog/{owner}/{name}` for each version's size and disk check |
+| SIRVIS **Downloads** | live | `/api/v1/downloads`; starting one is NERVIS's button-only `sirvis.download.start`, with SIRVIS's admin scope held by NERVIS |
 
 **Wiring a screen is part of finishing a milestone from now on.** M9, M10 and
 M16 each shipped a producer and wired no consumer, and this table drifted from
@@ -3563,7 +3563,7 @@ halves, both of which landed.
 |---|---|---|---|
 | NERVIS | 15 rows | 14 | M9–M20, M25, M27 |
 | RAVIS | 20 | 9 | M17, M21–M24, M25a, M25b, M26, M27 |
-| SIRVIS | 16 | 9 | M5, M11, M12, M15b, M17–M20, M22b |
+| SIRVIS | 17 | 8 | M5, M12, M15b, M17–M20, M22b |
 | Clarvis | E-C0–E-C7 | 1 | E-C8 |
 
 RAVIS ticks 20 against a version of 0.20.3, which agrees. NERVIS ticks 15 rows
@@ -3576,6 +3576,10 @@ not shipped — but the stage mapping puts `M22` in Stage 10, which is closed.
 Either the version is one behind or a milestone is ticked that should not be, and
 guessing which would replace an honest discrepancy with a confident wrong answer.
 Recorded so somebody who knows can settle it.
+
+Since M11 (12 September 2026) seventeen rows tick against 0.17.0, which agrees.
+The version stood at 0.16.0 before M11 moved it; when the earlier gap closed is
+not recorded.
 
 ### M25 — work NERVIS starts unasked, 1 Sep. NERVIS 0.14.0. **Stage 11 closed**
 
@@ -18269,6 +18273,54 @@ checked.
 Checked: compiles, ruff clean, the dead-code gate passes; the check sends a
 bearer header to RAVIS's address and none to SIRVIS's or NERVIS's. The launcher
 still has no automated tests, as recorded under *Starting the thing*.
+
+## SIRVIS M11: the model browser and downloads — 2026-09-12
+
+SIRVIS §8 asked for a model browser and persistent downloads, and NERVIS's
+Discover and Downloads screens were mock-ups waiting on it. Both are live, with
+SIRVIS at 0.17.0.
+
+Discovery searches Hugging Face rather than LM Studio, which §8 named first:
+LM Studio's REST API downloads by Hugging Face link but publishes no search, and
+every likely address answered "Unexpected endpoint". Hugging Face's public API
+searches without a token, narrows to GGUF or MLX, and lists every file with its
+size. Discover searches it through SIRVIS, shows each version's size and what
+would be left on disk, and marks what LM Studio already has.
+
+Downloads are carried out by LM Studio and recorded by SIRVIS in its own table,
+so a page reload or a SIRVIS restart loses nothing. Before anything is queued
+the disk is checked: a download that does not fit is refused, and one that would
+leave under 20 GB free or use more than half the free space is held with its
+warnings until the person confirms. A version already installed is recorded as
+already present without asking LM Studio, and a model behind a licence on
+Hugging Face is shown but not offered. There is no cancel or pause, because
+LM Studio publishes neither, and nothing deletes a model. Starting a download
+needs SIRVIS's admin scope, so the page asks NERVIS, which holds that
+credential, through a button-only command that no chat phrase can propose.
+
+Live, after committing 09c6b40 and restarting: SIRVIS advertised
+sirvis.catalog.read and sirvis.downloads. A search for "smollm2" returned 30
+models in the dashboard, and opening unsloth/SmolLM2-135M-Instruct-GGUF listed
+seven versions from 84 MB to 258 MB, each with 487 GB left. A request through
+NERVIS for DeepSeek-V3.1's BF16 build — 1,250 GB against 487 GB free — was
+refused with DISK_SPACE before anything reached LM Studio, and the downloads
+list stayed empty. The same check found a misspelled repository reported as the
+catalogue being unavailable: Hugging Face answers a model it does not have with
+401 "Invalid username or password". Fixed in df83f66 and confirmed live as
+MODEL_NOT_FOUND.
+
+Not verified live: a real download from start to finish, which puts a file on
+disk and waits on the operator's go-ahead. The job's life — LM Studio starting
+it, progress across reads, completion, an already-downloaded model and a job
+LM Studio has forgotten — is covered by tests against a recorded LM Studio.
+
+Checked: ruff and mypy clean in SIRVIS and NERVIS, both full suites pass, the
+page's script parses. New SIRVIS tests cover variants per quantization with
+split files counted together, MLX folders, a merged search, the disk check,
+admin scope and confirmation, refusing what does not fit, LM Studio carrying a
+download across reads, already-present and forgotten jobs, installed variants,
+gated models, both capabilities, and a hidden model as not found; new NERVIS
+tests cover the admin credential and a disk warning reaching the page.
 
 ## Starting the thing
 
