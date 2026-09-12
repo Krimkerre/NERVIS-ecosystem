@@ -156,6 +156,11 @@ remembered:
   NERVIS. It calls no real model and spends nothing, and it exits non-zero if any check fails.
   Since RAVIS 0.23.2 the overhead check sits right at its 5 ms line and can land either side of it
   (see §9.8 in `RAVIS.md`).
+- **Long-running**: `caffeinate -i ravis/.venv/bin/python tools/soak_test.py --hours 4` — the
+  running stack under one dashboard's reads, plus chat against a private RAVIS, for hours awake:
+  whether any service stops answering or restarts, and whether memory, open files, threads or
+  read times creep. It samples once a minute into `.run/soak/`, so a run stopped early keeps its
+  record; `--report FILE` reads one back.
 - **Compatibility matrix**: `python3 tools/check_compatibility.py` prints what this NERVIS
   supports its peers at and fails if any peer ships outside that window — printed rather than
   filed, because a table in a document is a copy that goes stale.
