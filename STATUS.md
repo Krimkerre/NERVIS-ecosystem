@@ -17980,8 +17980,10 @@ Checked: ravis doctor reads two declared models from the file. Live, after a
 restart: RAVIS reports claude-haiku-4-5-20251001's tool support as SUPPORTED at
 configured provenance, and one request of a few tokens to ravis/clarvis-chat
 carrying a tool definition was answered by claude-haiku-4-5-20251001, with
-gemini-2.5-flash-lite and gemini-2.5-flash as its fallbacks. Not seen live: a chat
-turn typed into Clarvis after the reload.
+gemini-2.5-flash-lite and gemini-2.5-flash as its fallbacks. Seen live the same
+morning: after the reload, a hello typed into Clarvis reached RAVIS as clarvis and
+was answered by claude-haiku-4-5-20251001, bought from Anthropic directly, where
+the turn before the declaration had gone to gemini-2.5-flash-lite.
 
 ## Starting the thing
 
