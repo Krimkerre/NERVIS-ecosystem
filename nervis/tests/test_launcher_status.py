@@ -46,6 +46,9 @@ def test_status_json_groups_every_service_and_reads_the_rest_only_through_nervis
     monkeypatch.setattr(run, "_system_reading", lambda: {"memory_total_bytes": 24})
     monkeypatch.setattr(run, "_unread_notifications", lambda: 2)
     monkeypatch.setattr(run, "_clarvis_bridges", lambda: 2)
+    # No PID file is read: which process this machine happens to have recorded is not the
+    # question, and a real one would send `ps` after a real process number.
+    monkeypatch.setattr(run, "_recorded", lambda: {})
     monkeypatch.setattr(run.sys, "argv", ["run.py", "status", "--json"])
 
     assert run._run_status() == 0
@@ -76,6 +79,8 @@ def test_status_json_groups_every_service_and_reads_the_rest_only_through_nervis
     assert addresses["CLARVIS"] == run.DASHBOARD + "#/clarvis/Workspace"
     assert addresses["code-server"] == "http://127.0.0.1:8080/"
     assert addresses["Ollama"] is None and addresses["LM Studio"] is None
+    # Not answering is all that is wrong: no process is on record for RAVIS here.
+    assert {service["problem"] for service in body["services"]} == {None}
 
     assert body["dashboard"] == run.DASHBOARD
     assert body["system"] == {"memory_total_bytes": 24}
@@ -103,3 +108,61 @@ def test_a_bridge_counts_only_while_its_lease_is_live(monkeypatch: pytest.Monkey
     assert run._clarvis_bridges() == 1
     monkeypatch.setattr(run, "_from_nervis", lambda _path: None)
     assert run._clarvis_bridges() is None
+
+
+def test_a_silent_process_older_than_the_start_wait_is_named(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The menu shows what `start` found: a service running as a process yet not answering.
+
+    Until 13 September 2026 that sentence reached only the menu bar app's log, and the menu
+    said "not running" — wrong, and the wrong remedy, since a running process has to be
+    stopped before the stack can start it again. The process table, the ages and the PID
+    file are all replaced; nothing here reaches `ps` or a real process.
+    """
+    run = _launcher()
+    monkeypatch.setattr(run, "_services", lambda: [
+        ("SIRVIS", [], "sirvis serve", {}, "http://127.0.0.1:8721/ecosystem/health"),
+        ("RAVIS", [], "ravis serve", {}, "http://127.0.0.1:8731/ecosystem/health"),
+        ("NERVIS", [], "nervis serve", {}, "http://127.0.0.1:8790/ecosystem/health"),
+    ])
+    monkeypatch.setattr(run, "EXTERNAL", [("LM Studio", "http://127.0.0.1:1234/v1/models")])
+    monkeypatch.setattr(run, "responds", lambda url, _timeout=1.5: ":8790" in url)
+    monkeypatch.setattr(run, "_system_reading", lambda: None)
+    monkeypatch.setattr(run, "_unread_notifications", lambda: 0)
+    monkeypatch.setattr(run, "_clarvis_bridges", lambda: 0)
+    monkeypatch.setattr(run, "_recorded", lambda: {
+        "SIRVIS": {"pid": 600, "marker": "sirvis serve"},
+        "RAVIS": {"pid": 700, "marker": "ravis serve"},
+    })
+    alive = {600: "sirvis serve", 700: "ravis serve"}
+    monkeypatch.setattr(run, "_alive", lambda pid, marker: alive.get(pid) == marker)
+    ages: dict[int, float | None] = {600: 12.0, 700: 45.0}
+    monkeypatch.setattr(run, "_process_age", lambda pid: ages.get(pid))
+
+    def problems() -> dict[str, object]:
+        return {service["name"]: service["problem"] for service in run.status_report()["services"]}
+
+    assert problems() == {
+        "SIRVIS": None,  # twelve seconds old may still be booting, and a start reads the menu
+        "RAVIS": "running as process 700 but not answering",
+        "NERVIS": None,  # answering
+        "CLARVIS": None,
+        "LM Studio": None,  # not the launcher's
+    }
+    # Gone, or a recycled number no longer ours: simply not running, with nothing to name.
+    alive.clear()
+    assert set(problems().values()) == {None}
+    # An age that cannot be read — Windows has no `ps` — says nothing rather than guess.
+    alive[700] = "ravis serve"
+    ages[700] = None
+    assert problems()["RAVIS"] is None
+
+
+def test_ps_elapsed_time_is_read_in_each_shape_it_takes() -> None:
+    run = _launcher()
+    assert run._elapsed_seconds("05:03") == 303
+    assert run._elapsed_seconds(" 02:03:04\n") == 7_384
+    assert run._elapsed_seconds("1-02:03:04") == 86_400 + 7_384
+    assert run._elapsed_seconds("") is None
+    assert run._elapsed_seconds("not-a:time") is None

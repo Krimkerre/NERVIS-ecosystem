@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 3060 tests, no network, no live service
+.venv/bin/pytest                      # part of 3062 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 534 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1234 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1236 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 3060 passing across the four, conformance `PASS`.
+Expected: all clean, 3062 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -19294,6 +19294,41 @@ because the SIRVIS that stopped was the old one — the next stop is its first; 
 back, which needs a model that refuses; the probe routing, which needs a Clarvis window; and Hand over
 through the proxy, which is off here.
 
+## The menu bar app names a service running but not answering — 2026-09-13
+
+Asked for straight after the launcher fixes: the sentence `start` prints for a service whose process is
+alive and silent — "RAVIS (process 700) is running but not answering" — reached only `.run/menubar.log`,
+and the menu showed that service as "not running", which is wrong and points at the wrong remedy.
+
+**Reported by `status --json`, not parsed out of `start`'s output.** The menu reads that answer and
+nothing else, and a service can hang long after a start, so each service the launcher owns now carries a
+`problem`: set when it does not answer, its recorded process is alive and still ours by marker, and that
+process is older than `START_WAIT_SECONDS`, the 30 seconds `start` waits (`_problem`, `_process_age` and
+`_elapsed_seconds` in `tools/run.py`). Younger than that it may still be booting, and the menu is read all
+through a start, so an alarm there would be false every time; a process whose age cannot be read — Windows
+has no `ps` — is not named either. The menu draws that line as "not answering" and puts two lines under
+it: "RAVIS is running as process 700 but not answering." and "Quit NERVIS and open it again to restart the
+stack." A service with no process still reads "not running".
+
+`--print-menu` takes a status file, so the state can be looked at without hanging a service, and the
+printout of a file where RAVIS is silent showed exactly those lines, with code-server beside it still
+"not running". **The check itself found a defect:** `--print-menu` wrote "NERVIS menu bar app started" to the
+app's log, so two checks made the next real launch report that the run before it had ended without
+quitting — false evidence in the log kept precisely to say how runs end. It no longer writes the log, and a
+note in the log says which lines came from the checks.
+
+**One more thing the log settled, recorded because it was nearly misreported.** At 22:21:25Z the app
+logged "quit requested" and stopped the stack cleanly; the system log shows an ordinary AppKit terminate,
+voluntary exit. It was first put down here to the build refreshing `/Applications/NERVIS.app` — but the
+build's binaries are stamped 22:25:24Z, four minutes later, so it was not that, and the owner's own Quit is
+the likely source. The app was reopened before asking, which restarted the stack.
+
+Checked: `tests/test_launcher_status.py` gains two tests — a silent process past the wait is named, one
+twelve seconds old is not, nor a vanished or recycled one, nor one whose age cannot be read; and `ps`'s
+elapsed time in each of its shapes. With `_problem`'s report removed the first fails; restored
+byte-identical. ruff finds nothing new in `tools/run.py` (the eleven findings it had before remain). NERVIS
+0.28.8 → 0.28.9.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
@@ -19362,9 +19397,12 @@ and if it stays silent names the service and process ("RAVIS (process 700) is ru
 but not answering. Stop the stack, then start it again."), keeps the record and exits
 1. Old PID files are checked against today's markers, so the first `stop` after
 upgrading still reaches the running stack. Each test was shown to fail with its guard
-broken in a scratch copy — 21 broken copies, each caught. The menu bar app shows such a
+broken in a scratch copy — 21 broken copies, each caught. ~~The menu bar app shows such a
 start only as "Not answering: RAVIS"; the sentence naming the process is in
-`.run/menubar.log`. Still checked only by hand: that the services really detach, the
+`.run/menubar.log`.~~ Since 13 September the menu shows it: `status --json` gives each
+service the launcher owns a `problem` when its recorded process is alive, still ours and
+silent for longer than `start`'s 30-second wait, and the menu reads "not answering" on that
+line with the process and what clears it underneath. Still checked only by hand: that the services really detach, the
 Windows branch, and a live start and stop.
 
 ## Map of the repository

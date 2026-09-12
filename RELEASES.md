@@ -313,7 +313,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.8
+## NERVIS — 0.28.9
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The menu bar app says when a service is running but not answering.** That service's line reads "not
+  answering" rather than "not running", and under it the menu names the process and what clears it: quit
+  NERVIS and open it again. It shows only once the process has been silent longer than a start waits for
+  it, so a service that is still starting is never flagged. Before, the menu said "not running" and the
+  explanation was only in the app's log.
+
+### 0.28.8
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

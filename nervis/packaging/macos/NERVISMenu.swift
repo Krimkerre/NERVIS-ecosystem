@@ -38,6 +38,10 @@ struct StackReport: Decodable {
         let windows: Int?
         /// The page the line opens in the browser, when there is one.
         let address: String?
+        /// For a service the launcher owns that is running but not answering — past the time a
+        /// start waits, so not merely booting — what the launcher found, such as "running as
+        /// process 700 but not answering". Nil otherwise, and from a launcher older than this.
+        let problem: String?
     }
 
     /// NERVIS's own machine reading, trimmed to what the menu shows. Every field is
@@ -143,9 +147,12 @@ final class Launcher: @unchecked Sendable {
         }
     }
 
-    func prepareNow() {
+    /// `recordingRun` is false for `--print-menu`, which is a look at the menu and not a run of
+    /// the app: writing "started" for it made the next real launch report that the run before
+    /// it had ended without quitting — false evidence in the one log kept to say how runs end.
+    func prepareNow(recordingRun: Bool = true) {
         environment = Launcher.loginEnvironment()
-        startLog()
+        if recordingRun { startLog() }
         ready.signal()
     }
 
@@ -832,9 +839,9 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
                              enabled: report != nil && phase != .stopping))
         if let report {
             menu.addItem(NSMenuItem.sectionHeader(title: "Stack"))
-            report.stackSection.forEach { menu.addItem(row(for: $0)) }
+            addLines(for: report.stackSection)
             menu.addItem(NSMenuItem.sectionHeader(title: "Models"))
-            report.runtimes.forEach { menu.addItem(row(for: $0)) }
+            addLines(for: report.runtimes)
         }
         let figures = Figures.lines(cpu: cpuPercent, gpu: gpuPercent, system: report?.system)
         if !figures.isEmpty {
@@ -854,6 +861,26 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
+    /// Each service's line — and under a service that is running but not answering, what the
+    /// launcher found and what clears it, which until 13 September 2026 reached only the log.
+    private func addLines(for services: [StackReport.Service]) {
+        for service in services {
+            menu.addItem(row(for: service))
+            guard !service.answering, let problem = service.problem else { continue }
+            // Quitting stops the stack through the launcher, which reaches the silent process
+            // by its PID file; opening the app again starts everything. Two items rather than
+            // one two-line title, so the menu grows no wider than either sentence.
+            menu.addItem(reading(detail("\(service.name) is \(problem).")))
+            menu.addItem(reading(detail("Quit NERVIS and open it again to restart the stack.")))
+        }
+    }
+
+    /// A line of detail under a service, indented to sit under its name, in the menu's normal
+    /// text colour — readable, where a disabled item's grey was not.
+    private func detail(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: "     " + text, attributes: [.font: NSFont.menuFont(ofSize: 0)])
+    }
+
     /// A service and whether it answers, with a green or red dot — grey for CLARVIS with no
     /// editor window open, since that is normal rather than a fault. Left enabled with no
     /// action, because a disabled item would grey the dot out and lose the one thing the
@@ -862,7 +889,9 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let font = NSFont.menuFont(ofSize: 0)
         let idle = service.group == "editor" ? NSColor.tertiaryLabelColor : NSColor.systemRed
         let dot = service.answering ? NSColor.systemGreen : idle
-        var state = service.answering ? "running" : "not running"
+        // "not answering" when its process is there and silent, so the line agrees with the
+        // detail under it; "not running" when there is no such process.
+        var state = service.answering ? "running" : service.problem == nil ? "not running" : "not answering"
         if service.answering, let windows = service.windows, windows > 1 { state += " · \(windows) windows" }
         let title = NSMutableAttributedString(string: "●  ", attributes: [.foregroundColor: dot, .font: font])
         title.append(NSAttributedString(string: service.name, attributes: [.font: font]))
@@ -945,17 +974,22 @@ enum Preview {
         return (try? png.write(to: URL(fileURLWithPath: path))) != nil
     }
 
-    /// The menu as it would be drawn from one real status answer, printed as text.
+    /// The menu as it would be drawn from one real status answer, printed as text — or from the
+    /// status answer in `reportFile`, so a state that is hard to cause on purpose, such as a
+    /// service running but not answering, can be looked at without causing it.
     @MainActor
-    static func printMenu(launcher: Launcher) {
-        launcher.prepareNow()
-        let result = launcher.runNow(["status", "--json"], capture: true)
+    static func printMenu(launcher: Launcher, reportFile: String? = nil) {
+        launcher.prepareNow(recordingRun: false)
+        let status = reportFile.flatMap { FileManager.default.contents(atPath: $0) }
+            ?? launcher.runNow(["status", "--json"], capture: true).data
         let bar = MenuBar(launcher: launcher)
         // A CPU percentage is the difference between two readings, so it waits a second.
         Thread.sleep(forTimeInterval: 1)
         bar.sampleMachine()
-        bar.report = StackReport.decode(result.data)
-        bar.models = ModelsReport.decode(launcher.runNow(["models", "--json"], capture: true).data)
+        bar.report = StackReport.decode(status)
+        // A report from a file is not this stack's, so its models are not asked for either.
+        bar.models = reportFile == nil
+            ? ModelsReport.decode(launcher.runNow(["models", "--json"], capture: true).data) : nil
         bar.phase = .running
         bar.redraw()
         printItems(bar.menu.items, indent: "  ")
@@ -1025,8 +1059,10 @@ MainActor.assumeIsolated {
     }
 
     let launcher = Launcher(repository: repository)
-    if arguments.contains("--print-menu") {
-        Preview.printMenu(launcher: launcher)
+    if let flag = arguments.firstIndex(of: "--print-menu") {
+        // `--print-menu status.json` draws from that answer instead of asking the launcher.
+        let file = arguments.indices.contains(flag + 1) ? arguments[flag + 1] : nil
+        Preview.printMenu(launcher: launcher, reportFile: file)
         exit(0)
     }
 

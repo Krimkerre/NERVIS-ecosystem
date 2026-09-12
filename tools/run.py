@@ -1153,6 +1153,63 @@ def _still_ours(record: object, current_marker: str) -> int:
     return pid if pid and _alive(pid, marker) else 0
 
 
+#: How long `start` waits for each service to answer — and so how old a silent process must
+#: be before `status --json` calls it hung rather than still booting (`_problem`).
+START_WAIT_SECONDS = 30.0
+
+
+def _elapsed_seconds(etime: str) -> float | None:
+    """`ps`'s elapsed time, `[[dd-]hh:]mm:ss`, in seconds; None when it is not that shape."""
+    days, _, clock = etime.strip().rpartition("-")
+    fields = clock.split(":")
+    if len(fields) not in (2, 3) or not all(part.isdigit() for part in [days or "0", *fields]):
+        return None
+    seconds = 0
+    for field in fields:
+        seconds = seconds * 60 + int(field)
+    return float(int(days or "0") * 86_400 + seconds)
+
+
+def _process_age(pid: int) -> float | None:
+    """How long this process has been running, in seconds; None where that cannot be read.
+
+    Windows has no `ps`. There the answer is None, and `_problem` says nothing rather than
+    guess whether a silent service is hung or still booting.
+    """
+    if WINDOWS:
+        return None
+    listed = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "etime="], capture_output=True, text=True, check=False,
+    )
+    return _elapsed_seconds(listed.stdout)
+
+
+def _problem(
+    name: str, marker: str | None, answering: bool, recorded: dict[str, dict[str, object]],
+) -> str | None:
+    """What is wrong with a service this launcher owns, beyond not answering; else None.
+
+    **Not answering has two causes that want different things done.** A service that is
+    not running starts when the stack does. One that is running and silent — hung, or
+    stuck — has to be stopped first, and `start` will not launch a second copy over it
+    (`_launch`). Until 13 September 2026 the menu bar app showed both as "not running",
+    and the sentence naming the process reached only `.run/menubar.log`, where nobody
+    looking at the menu would find it.
+
+    Named only once the process is older than `start`'s own wait. Younger, it may still be
+    booting, and the menu is read all through a start; an alarm there would be false every
+    time. A process whose age cannot be read is not named, for the same reason. The
+    process must still be ours by `_still_ours`, so a recycled number never is.
+    """
+    if answering or marker is None:
+        return None
+    pid = _still_ours(recorded.get(name), marker)
+    age = _process_age(pid) if pid else None
+    if age is None or age < START_WAIT_SECONDS:
+        return None
+    return f"running as process {pid} but not answering"
+
+
 def _readiness(name: str, answering: bool, booting_pid: int) -> str:
     """`start`'s verdict on one service once its wait is over, in words somebody can act on."""
     if answering:
@@ -1195,7 +1252,7 @@ def start() -> int:
     print("\nWaiting for them to answer…")
     ready = True
     for name, _, _, _, url in _services():
-        deadline = time.monotonic() + 30.0
+        deadline = time.monotonic() + START_WAIT_SECONDS
         while time.monotonic() < deadline and not responds(url):
             time.sleep(0.4)
         answering = responds(url)
@@ -1403,15 +1460,23 @@ def status_report() -> dict[str, object]:
 
     Probed in parallel. One at a time, a stack that is down costs a second per
     service, and the menu asks every time it is opened.
+
+    `problem` is what `_problem` found for a service that is running and silent, so the
+    menu can say so under its line instead of "not running"; None for everything else.
     """
+    owned = _services()
     probes = [
         (name, url, "runtime" if name == "Ollama" else "stack")
-        for name, _, _, _, url in _services()
+        for name, _, _, _, url in owned
     ] + [(name, url, "runtime") for name, url in EXTERNAL]
     with ThreadPoolExecutor(max_workers=len(probes)) as pool:
         answers = list(pool.map(lambda probe: responds(probe[1], 1.0), probes))
+    # Only a service this launcher owns has a marker, and so a process it can vouch for.
+    markers = {name: marker for name, _, marker, _, _ in owned}
+    recorded = _recorded()
     services = [
-        {"name": name, "group": group, "answering": answering, "address": _open_address(name, url)}
+        {"name": name, "group": group, "answering": answering, "address": _open_address(name, url),
+         "problem": _problem(name, markers.get(name), answering, recorded)}
         for (name, url, group), answering in zip(probes, answers)
     ]
     nervis_up = any(service["name"] == "NERVIS" and service["answering"] for service in services)
@@ -1421,7 +1486,8 @@ def status_report() -> dict[str, object]:
     windows = _clarvis_bridges() if nervis_up else None
     at = next((i for i, service in enumerate(services) if service["name"] == "code-server"), len(services))
     services.insert(at, {"name": "CLARVIS", "group": "editor", "answering": bool(windows),
-                              "windows": windows, "address": _open_address("CLARVIS", "")})
+                              "windows": windows, "address": _open_address("CLARVIS", ""),
+                              "problem": None})
     unread = _unread_notifications() if nervis_up else None
     return {
         "services": services,

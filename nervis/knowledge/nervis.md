@@ -1077,6 +1077,13 @@ the memory free at the time, the menu asks. A model loaded any other way shows a
 and SIRVIS loads at most two models at once. Clicking SIRVIS, RAVIS, NERVIS or CLARVIS in the menu opens
 that app's screen in the dashboard in your browser, and code-server opens the browser editor.
 
+A service whose program is still running but has stopped answering is not shown as "not running"
+(since 13 September 2026). Its line reads "not answering", and underneath the menu names the process —
+"RAVIS is running as process 700 but not answering." — and what clears it: quit NERVIS and open it again,
+which stops the stuck process and starts everything fresh. It only says so once the process has been
+silent for longer than a start waits for it, about thirty seconds, so a service that is still starting up
+is never flagged.
+
 The NERVIS mark in the menu bar has a pupil that is solid while the whole stack is running, faint
 when part of it is not, and blinks while there are unread notifications; reading them on the
 Notifications screen stops the blink within about ten seconds. The app holds no code of its own,
