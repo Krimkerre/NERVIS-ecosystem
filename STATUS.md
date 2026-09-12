@@ -17985,6 +17985,28 @@ morning: after the reload, a hello typed into Clarvis reached RAVIS as clarvis a
 was answered by claude-haiku-4-5-20251001, bought from Anthropic directly, where
 the turn before the declaration had gone to gemini-2.5-flash-lite.
 
+## Clarvis's greeting stops naming settings.json, Clarvis 0.15.3 — 2026-09-12
+
+Opened in code-server with nothing in the editor, Clarvis greeted three windows
+in a row with "You were last in settings.json". The project holds no settings.json;
+the file was code-server's own user settings, last saved at 09:19:56 while
+Clarvis was open and named in the greeting at 09:20:50. Clarvis's recent-files
+list already refused the editor's settings — a fix from an earlier live report —
+but only at desktop VS Code's Code/User folder, and code-server keeps them under
+code-server/User, so every setting Clarvis wrote was recorded as the user's work.
+
+Fixed in Clarvis 0.15.3. A saved file counts as what you were working on only if
+it is inside the workspace folder, and the stored list is filtered the same way on
+start, so the stale entry drops out by itself. With no folder open the named
+exclusions apply as before, with code-server's folder added to them.
+
+Checked: Clarvis's check passes, 1,371 tests with types and lint; three probes each
+fail the new tests (files outside the project counting again, a sibling folder
+sharing the project's prefix counting as inside, and code-server's folder no longer
+named). 0.15.3 is installed in code-server and VS Code and both installed bundles
+match the package built from its commit. Not seen live: the next greeting after a
+reload.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

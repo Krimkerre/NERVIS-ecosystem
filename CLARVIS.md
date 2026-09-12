@@ -805,6 +805,16 @@ credential only as the fallback — and only to a RAVIS on a loopback address, f
 so it cannot be sent to another host or another provider. Desktop VS Code is not started by the
 launcher, so there Clarvis stays unnamed unless a key is stored.
 
+**12 September 2026 — the briefing names project files only (Clarvis 0.15.3).** Opened in code-server
+with nothing in the editor, Clarvis kept greeting with "You were last in settings.json". The recent-
+files list already refused the editor's own settings, but only at desktop VS Code's `Code/User/`;
+code-server keeps them under `code-server/User/`, so every setting Clarvis wrote was recorded as the
+user's work and carried into the next window. A saved file now counts as what you were working on
+only if it is inside the workspace folder — one rule for every editor's settings folder rather than a
+list that is always one editor short — and the stored list is filtered the same way on start, so the
+stale entry drops out without anyone clearing it. With no folder open, the named exclusions apply as
+before, and `code-server/User/` is now among them.
+
 **Why this is IMPLEMENTED rather than verified, and what changed on 5 September.**
 Reverifying against §14.8 found the exit's first clause — *"a NERVIS-authored task is offered
 as a build with its origin visible in the prompt"* — failing three separate ways, all the same
