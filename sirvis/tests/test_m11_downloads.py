@@ -349,3 +349,19 @@ def test_both_capabilities_are_advertised_and_a_model_reads_with_its_disk_check(
     assert {"sirvis.catalog.read@1", "sirvis.downloads@1"} <= set(DECLARED)
     assert [variant["disk"]["fits"] for variant in detail["variants"]] == [True, True]
     assert wrong.json()["error"]["code"] == "UNSUPPORTED_PARAMETER"
+
+
+def test_a_model_hugging_face_will_not_show_is_not_found_rather_than_an_outage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Measured 12 September 2026: a misspelled repository answers 401, not 404, and
+    was reported as the catalogue being unavailable."""
+    client, app, _token = an_api(monkeypatch)
+    refusal = httpx.Response(401, json={"error": "Invalid username or password."})
+    app.state.hub_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: refusal), base_url="https://hf.test"
+    )
+
+    answer = client.get("/api/v1/catalog/someone/misspelled-GGUF")
+
+    assert answer.json()["error"]["code"] == "MODEL_NOT_FOUND"

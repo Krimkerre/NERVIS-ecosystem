@@ -8525,7 +8525,9 @@ const DISCOVER={q:'',format:'any',results:null,open:null,models:{},pending:{}};
    as those query parameters, as the note above said they would, and SIRVIS asks
    Hugging Face. What came back is kept here between repaints, so a refresh never
    throws a search away. */
-const sizeText=bytes=>bytes==null?'unknown':(bytes/1024**3).toFixed(bytes<10*1024**3?1:0)+' GB';
+const sizeText=bytes=>bytes==null?'unknown'
+  :bytes<1024**3?Math.max(1,Math.round(bytes/1024**2))+' MB'
+  :(bytes/1024**3).toFixed(bytes<10*1024**3?1:0)+' GB';
 async function discoverSearch(){
  DISCOVER.q=(($('#discoverQ')||{}).value||'').trim();
  DISCOVER.results={searching:true,items:[]};DISCOVER.open=null;repaint();

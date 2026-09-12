@@ -192,8 +192,19 @@ async def _get(client: httpx.AsyncClient, path: str, params: dict[str, str]) -> 
         raise CatalogUnavailableError(
             f"Hugging Face did not answer: {type(failure).__name__}"
         ) from failure
-    if answered.status_code == 404:
-        raise ModelNotFoundError("Hugging Face has no such model", path=path)
+    # A model Hugging Face does not have, or will not show anonymously, answers 401
+    # rather than 404: measured on 12 September 2026, a misspelled repository returned
+    # `401 Invalid username or password.` with no marker saying "not found". On a model
+    # read that means "no such public model", which a person can act on; reported as
+    # the catalogue being unavailable, it sent them looking for an outage.
+    missing = answered.status_code == 404 or (
+        answered.status_code == 401 and path.startswith("/api/models/")
+    )
+    if missing:
+        raise ModelNotFoundError(
+            "Hugging Face has no public model by that name; it may be misspelled or private",
+            path=path,
+        )
     if answered.status_code >= 400:
         raise CatalogUnavailableError(
             f"Hugging Face answered HTTP {answered.status_code}", status=answered.status_code
