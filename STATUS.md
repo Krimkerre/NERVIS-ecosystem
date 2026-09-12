@@ -18223,6 +18223,32 @@ script parses. New test: calls on two local days come back as two rows newest
 first with the right counts, total, costliest model and application, and a
 `since` window counts only what came after it.
 
+## Every read NERVIS makes of RAVIS now names NERVIS — 2026-09-12
+
+NERVIS already presented its RAVIS credential on its health probes, on chat and
+on the dashboard relay. Three reads did not: the API Inspector's two reads of
+RAVIS's route decisions, and the lookup behind each chat reply that shows which
+route answered it. The shared peer reader defaulted its credential to empty and
+none of the three passed one, so each went out as an anonymous caller, sharing
+RAVIS's one allowance of sixty a minute with everything else on the machine.
+The reader now has no default: a caller states which identity it presents, and
+the type checker refuses a call that leaves it out. The Inspector and the route
+lookup pass NERVIS's credential.
+
+Measured live, each time with twenty Inspector reads followed at once by seventy
+direct anonymous reads of RAVIS. Before the fix, forty were answered and thirty
+refused: every Inspector read had spent an anonymous slot. After committing
+15ac2e1 and restarting, fifty-seven were answered — the three missing were the
+launcher's own start-up and status checks, which ask RAVIS whether it is up
+without a credential, a handful of requests each time the stack starts, left as
+they are. With the launcher quiet for a minute, the same test answered exactly
+sixty: nothing NERVIS reads from RAVIS counts as anonymous any more. All twenty
+Inspector reads in each run did reach RAVIS.
+
+Checked: ruff and mypy clean, NERVIS's full suite passes. New test: chat's route
+lookup sends NERVIS's credential to RAVIS; the existing reader tests now state
+an empty credential.
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines
