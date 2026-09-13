@@ -208,6 +208,7 @@ def _seal(monkeypatch: pytest.MonkeyPatch, run: ModuleType, tmp_path: Path) -> N
     monkeypatch.setattr(run, "PIDFILE", tmp_path / "services.json")
     monkeypatch.setattr(run, "MENU_SESSIONS", tmp_path / "menubar-sessions.json")
     monkeypatch.setattr(run, "RAVIS_ADMIN_TOKEN", tmp_path / "ravis-admin.token")
+    monkeypatch.setattr(run, "RAVIS_OWNER_TOKEN", tmp_path / "ravis-owner.token")
     monkeypatch.setattr(run, "WINDOWS", False)
     monkeypatch.setattr(run.os, "kill", _refuse("send a real signal"))
     monkeypatch.setattr(run.subprocess, "run", _refuse("run a real command"))
@@ -232,9 +233,9 @@ def _launcher(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, machine: FakeMach
 def _quiet_start(monkeypatch: pytest.MonkeyPatch, run: ModuleType) -> list[str]:
     """Replace everything `start` does besides deciding what to launch; return what it opened.
 
-    Mounting shares, planting RAVIS's credentials, finding Ollama and code-server and naming the
-    default upstreams are each real work against the machine or its credential store, and none of
-    them is the question these tests ask.
+    Mounting shares, planting RAVIS's credentials, asking Homebrew where Codex is, finding Ollama
+    and code-server and naming the default upstreams are each real work against the machine or its
+    credential store, and none of them is the question these tests ask.
     """
     opened: list[str] = []
     monkeypatch.setattr(run, "ensure_venv", lambda: None)
@@ -242,7 +243,10 @@ def _quiet_start(monkeypatch: pytest.MonkeyPatch, run: ModuleType) -> list[str]:
     monkeypatch.setattr(run, "configured_share", lambda: "")
     monkeypatch.setattr(run, "mount_share", _refuse("mount a share"))
     monkeypatch.setattr(run, "teach_ravis_the_admin_credential", lambda: "(planted)")
+    monkeypatch.setattr(run, "teach_ravis_the_owner_credential", lambda: "(planted)")
     monkeypatch.setattr(run, "teach_ravis_the_credential", lambda: "(taught)")
+    # Homebrew with nothing to say, so launching RAVIS runs no `brew` (`_with_codex_executable`).
+    monkeypatch.setattr(run, "homebrew_codex_link", lambda: "")
     monkeypatch.setattr(run, "dashboard_url", lambda: run.DASHBOARD)
     monkeypatch.setattr(run, "webbrowser", SimpleNamespace(open=opened.append))
     monkeypatch.setattr(run, "ollama_binary", lambda: "")

@@ -358,7 +358,31 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.10
+## NERVIS — 0.28.11
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The launcher's half of Codex in the menu bar** (the Codex engine's increment N1a). Nothing new
+  shows in the menu bar app yet: it draws Codex once RAVIS reports it and the app is rebuilt for it.
+  - `tools/run.py status --json` carries a `codex` entry for the menu's Codex line: Codex's state,
+    what is left of the ChatGPT plan's allowance in each window and when it resets, and the Codex
+    tasks running, each with what its Stop needs. It is read from RAVIS, and an allowance RAVIS
+    doesn't know is never shown as a figure. While RAVIS isn't answering, the entry says Codex's
+    state is not known; a RAVIS that doesn't report Codex yet — every RAVIS today — gives no entry.
+  - Four commands for the menu: `run.py codex sign-in`, which opens the sign-in page and never
+    prints its address; `codex cancel-sign-in`; `codex stop <task> --project <folder> --turn
+    <turn>`; and `codex reprove`, which re-tests Codex's file rules. They work once RAVIS serves
+    sign-in and the re-test, in its next Codex increment, and the task Stop, in the one after.
+  - Starting the stack makes a second RAVIS admin key, the owner's command-line key
+    (`admin.owner_cli`, in `.run/ravis-owner.token`). Only `codex stop` and `codex reprove` use it,
+    and it is never given to NERVIS or to any other service.
+  - Launching RAVIS tells it where Homebrew keeps Codex (`RAVIS_CODEX_EXECUTABLE`, the link Homebrew
+    moves on every upgrade), and which folders Codex tasks may work in and must stay out of
+    (`RAVIS_AGENT_ALLOWED_ROOTS`, `RAVIS_AGENT_DENIED_PATHS` and `RAVIS_AGENT_PROTECTED_REPOSITORIES`,
+    each a JSON list; folders you list yourself are kept, after the launcher's). RAVIS 0.23.8 uses
+    the first and ignores the others until it runs Codex tasks.
+
+### 0.28.10
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

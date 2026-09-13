@@ -46,6 +46,12 @@ def test_status_json_groups_every_service_and_reads_the_rest_only_through_nervis
     monkeypatch.setattr(run, "_system_reading", lambda: {"memory_total_bytes": 24})
     monkeypatch.setattr(run, "_unread_notifications", lambda: 2)
     monkeypatch.setattr(run, "_clarvis_bridges", lambda: 2)
+    # Codex's entry is RAVIS's to give, and only a RAVIS that answers is asked for it. The read
+    # itself is `test_launcher_codex.py`'s; here it is only counted.
+    codex_reads: list[str] = []
+    monkeypatch.setattr(
+        run, "_codex_reading", lambda: codex_reads.append("read") or {"state": "signed_in"}
+    )
     # No PID file is read: which process this machine happens to have recorded is not the
     # question, and a real one would send `ps` after a real process number.
     monkeypatch.setattr(run, "_recorded", lambda: {})
@@ -87,6 +93,11 @@ def test_status_json_groups_every_service_and_reads_the_rest_only_through_nervis
     # The count the icon blinks on, and the screen the menu's item opens.
     assert body["notifications"] == {"unread": 2, "screen": run.NOTIFICATIONS}
     assert run.NOTIFICATIONS.endswith("#/nervis/Notifications")
+    # RAVIS is not answering in this reading, so it was not asked about Codex, and nothing about
+    # Codex is claimed: no state of RAVIS's, no allowance figure, and not "no tasks" either.
+    assert body["codex"]["state"] == "ravis_not_answering"
+    assert body["codex"]["windows"] == [] and body["codex"]["runs"] is None
+    assert codex_reads == []
 
     # With NERVIS down there is nobody to ask for the figures, the count or the Bridges,
     # and none of them is invented.
@@ -96,6 +107,8 @@ def test_status_json_groups_every_service_and_reads_the_rest_only_through_nervis
     assert down["notifications"] is None
     clarvis = next(s for s in down["services"] if s["name"] == "CLARVIS")
     assert clarvis["answering"] is False and clarvis["windows"] is None
+    # RAVIS answers here, so Codex's entry is RAVIS's reading, asked for once.
+    assert down["codex"] == {"state": "signed_in"} and codex_reads == ["read"]
 
 
 def test_a_bridge_counts_only_while_its_lease_is_live(monkeypatch: pytest.MonkeyPatch) -> None:

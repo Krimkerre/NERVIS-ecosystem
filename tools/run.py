@@ -42,6 +42,7 @@ teaches its own output to be ignored.
 
 from __future__ import annotations
 
+import argparse
 import ipaddress
 import json
 import os
@@ -68,6 +69,13 @@ RUN = ROOT / ".run"
 # The admin secret the launcher mints for RAVIS (§15.1). One path, because the
 # health check reads it as well as the credential writes.
 RAVIS_ADMIN_TOKEN = RUN / "ravis-admin.token"
+# **The owner's own RAVIS admin secret, `admin.owner_cli`** (design §3.7; runbook §2.2). Only
+# `codex stop` and `codex reprove` present it, for the menu bar app: stopping a Codex task, and
+# starting the file-rules re-test, which spends a turn of the owner's ChatGPT allowance. It is a
+# second key rather than the one above because NERVIS holds that one for its dashboard controls,
+# and RAVIS lets only this one start the re-test. So it never enters NERVIS's environment, or any
+# other service's (`ravis_owner_credential`).
+RAVIS_OWNER_TOKEN = RUN / "ravis-owner.token"
 PIDFILE = RUN / "services.json"
 
 SIRVIS_PORT = 8721
@@ -451,6 +459,12 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             env.setdefault(
                 "RAVIS_MODEL_CAPABILITIES_PATH", str(ROOT / "ravis" / "operator-capabilities.json")
             )
+            # **Where a Codex task may work, and what it must never touch** (runbook §2.2; design
+            # §3.7). RAVIS acts on these once it runs Codex tasks, and ignores them until then.
+            # The Codex executable is not set here: finding it asks Homebrew, which runs a
+            # program, and this table is also built for every `status --json` the menu bar reads.
+            # It is added only as RAVIS is launched (`_launch`).
+            env.update(_agent_environment(env))
         if package == "sirvis":
             # The same wiring for the second producer. A benchmark mints its own
             # trace, so SIRVIS's own runs form a trace containing only SIRVIS;
@@ -849,6 +863,102 @@ def _with_results(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def _agent_environment(env: Mapping[str, str]) -> dict[str, str]:
+    """The folders RAVIS's Codex tasks may work in and must stay out of, as RAVIS reads them.
+
+    **Each is a JSON list** — the form RAVIS's settings take a list in, and the only one that can
+    carry an entry that is more than a path, such as a folder the owner allows with
+    `allow_protected` (design §3.5.1).
+
+    - `RAVIS_AGENT_ALLOWED_ROOTS`: the coding folder this repository sits in. RAVIS lets a task
+      work in a project inside it, never in the folder itself.
+    - `RAVIS_AGENT_DENIED_PATHS`: this launcher's `.run`, which holds every key it mints; Codex's
+      permission profile keeps a task's commands out of it (§4.9).
+    - `RAVIS_AGENT_PROTECTED_REPOSITORIES`: this repository and its sibling `clarvis` — the owner's
+      decision that Codex never works on the ecosystem itself. RAVIS protects the same two when it
+      is started some other way (F-A12); naming them here keeps them protected if that default
+      ever moves.
+
+    **What the owner declared is kept**, after the launcher's own entries, so listing a folder
+    never drops the coding folder, the `.run` rule or the protection (`_with_owners_entries`).
+    """
+    coding = ROOT.parent
+    ours = {
+        "RAVIS_AGENT_ALLOWED_ROOTS": [str(coding)],
+        "RAVIS_AGENT_DENIED_PATHS": [str(RUN)],
+        "RAVIS_AGENT_PROTECTED_REPOSITORIES": [str(ROOT), str(coding / "clarvis")],
+    }
+    return {
+        name: _with_owners_entries(entries, env.get(name, "")) for name, entries in ours.items()
+    }
+
+
+def _with_owners_entries(ours: list[str], declared: str) -> str:
+    """The launcher's entries, then any the owner declared in the same variable, as one JSON list.
+
+    A declared value that is not a JSON list is passed on as written, so RAVIS's own startup check
+    names the mistake rather than this launcher quietly throwing a stated choice away.
+    """
+    if not declared:
+        return json.dumps(ours)
+    try:
+        listed = json.loads(declared)
+    except ValueError:
+        return declared
+    if not isinstance(listed, list):
+        return declared
+    return json.dumps(ours + [entry for entry in listed if entry not in ours])
+
+
+#: How long `brew --prefix` may take: it answers in about ten milliseconds, so ten seconds is a
+#: Homebrew that is stuck. The same bound RAVIS gives it (`ravis/src/ravis/codex/runtime.py`).
+BREW_TIMEOUT_SECONDS = 10
+
+
+def homebrew_codex_link() -> str:
+    """Homebrew's link to Codex, `<brew --prefix>/bin/codex`, or "" when Homebrew cannot say.
+
+    **The link, never the file it leads to** (owner decision D4; design review N6). Homebrew keeps
+    each Codex version under `Caskroom/codex/<version>/` and re-points this link on every upgrade.
+    RAVIS follows the link at each of its checks, so an upgrade reads as a new build to re-test,
+    where a stored `Caskroom` path would read as Codex gone once that version is removed.
+
+    Homebrew is asked rather than assumed to live in `/opt/homebrew`, which is only where it lives
+    on Apple silicon. Nothing here runs Codex or checks that the link leads anywhere: whether Codex
+    is installed, signed and tested is RAVIS's to find out and report.
+    """
+    brew = shutil.which("brew")
+    if not brew:
+        return ""
+    try:
+        answered = subprocess.run(
+            [brew, "--prefix"], capture_output=True, text=True,
+            timeout=BREW_TIMEOUT_SECONDS, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    prefix = answered.stdout.strip()
+    if answered.returncode != 0 or not prefix:
+        return ""
+    return str(Path(prefix) / "bin" / "codex")
+
+
+def _with_codex_executable(env: dict[str, str]) -> dict[str, str]:
+    """RAVIS's environment with `RAVIS_CODEX_EXECUTABLE` naming Homebrew's link (design §3.7).
+
+    **The prefix is found once per start; the link is followed at every check.** Homebrew's prefix
+    does not move while the stack runs, so the launcher asks for it as RAVIS launches, and RAVIS
+    then only follows the link each time it checks Codex — without running `brew` every time, or
+    needing it on its own PATH. It is not asked while `_services()` merely builds the table, which
+    every `status --json` does. An executable the owner named wins, and Homebrew is then not asked;
+    when Homebrew cannot answer, nothing is set, and RAVIS asks it and reports for itself.
+    """
+    if env.get("RAVIS_CODEX_EXECUTABLE"):
+        return env
+    link = homebrew_codex_link()
+    return {**env, "RAVIS_CODEX_EXECUTABLE": link} if link else env
+
+
 def dashboard_token() -> str:
     """A runtime-scoped token for the dashboard, minted once and kept.
 
@@ -948,19 +1058,33 @@ def clarvis_ravis_credential() -> str:
 
 def _cached_client_secret(filename: str) -> str:
     """A client secret minted once, cached at `0600` under `.run`, reused on every start."""
-    cached = RUN / filename
-    try:
-        existing = cached.read_text(encoding="utf-8").strip()
-        if existing:
-            return existing
-    except OSError:
-        pass
+    return _minted_secret(RUN / filename)
+
+
+def _minted_secret(cached: Path) -> str:
+    """The secret cached at `cached`, minted at `0600` first when there is none yet."""
+    held = _held_secret(cached)
+    if held:
+        return held
     token = secrets.token_urlsafe(32)
-    RUN.mkdir(parents=True, exist_ok=True)
+    cached.parent.mkdir(parents=True, exist_ok=True)
     handle = os.open(cached, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
     with os.fdopen(handle, "w", encoding="utf-8") as out:
         out.write(token + "\n")
     return token
+
+
+def _held_secret(cached: Path) -> str:
+    """The secret cached at `cached`, or "" when there is none. Never mints one.
+
+    The Codex commands read their keys this way. RAVIS learns its admin keys only as the stack
+    starts (`teach_ravis_the_admin_credential`), so a key minted by a command would be refused —
+    and would then be the key the next start taught RAVIS, in place of nothing anybody asked for.
+    """
+    try:
+        return cached.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def ravis_admin_credential() -> str:
@@ -972,19 +1096,19 @@ def ravis_admin_credential() -> str:
     it. The command line is a different authority: whoever runs the launcher
     already owns the config directory the store lives in.
     """
-    cached = RAVIS_ADMIN_TOKEN
-    try:
-        existing = cached.read_text(encoding="utf-8").strip()
-        if existing:
-            return existing
-    except OSError:
-        pass
-    token = secrets.token_urlsafe(32)
-    RUN.mkdir(parents=True, exist_ok=True)
-    handle = os.open(cached, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-    with os.fdopen(handle, "w", encoding="utf-8") as out:
-        out.write(token + "\n")
-    return token
+    return _minted_secret(RAVIS_ADMIN_TOKEN)
+
+
+def ravis_owner_credential() -> str:
+    """The owner's command-line secret for RAVIS, `admin.owner_cli` (design §3.7; F-A3, F-A11).
+
+    Minted and cached like the admin secret above, taught to RAVIS the same way, and read back only
+    by `codex stop` and `codex reprove`. **No service is handed it.** NERVIS keeps `admin.launcher`
+    for its dashboard controls, and RAVIS refuses that one on the file-rules re-test, so the one key
+    that can spend the owner's allowance on a re-test stays with the owner's own command line. Two
+    keys also keep the menu bar's Stops apart from the dashboard's in RAVIS's rate limit and audit.
+    """
+    return _minted_secret(RAVIS_OWNER_TOKEN)
 
 
 def teach_ravis_the_admin_credential() -> str:
@@ -995,7 +1119,22 @@ def teach_ravis_the_admin_credential() -> str:
     two processes writing one JSON document. Nothing is racing here because
     nothing else is up yet.
     """
-    secret = ravis_admin_credential()
+    return _plant_admin_credential("admin.launcher", ravis_admin_credential())
+
+
+def teach_ravis_the_owner_credential() -> str:
+    """Put the owner's command-line secret in RAVIS's store as `admin.owner_cli`.
+
+    The same way, at the same moment and for the same reason as the admin secret above.
+    """
+    return _plant_admin_credential("admin.owner_cli", ravis_owner_credential())
+
+
+def _plant_admin_credential(name: str, secret: str) -> str:
+    """Store one `admin.` credential through `ravis credential`, and say what happened.
+
+    The secret goes in on stdin, never as an argument, where any process listing would show it.
+    """
     if not secret:
         return "could not be minted"
     executable = ROOT / "ravis" / ".venv" / "bin" / "ravis"
@@ -1003,7 +1142,7 @@ def teach_ravis_the_admin_credential() -> str:
         return "ravis is not installed"
     try:
         finished = subprocess.run(
-            [str(executable), "credential", "admin.launcher"],
+            [str(executable), "credential", name],
             input=secret, text=True, capture_output=True, timeout=20,
             # The return code is read below rather than raised on: a refusal
             # here is a line the launcher prints, not a reason to stop starting
@@ -1318,6 +1457,10 @@ def _launch(running: dict[str, bool], recorded: dict[str, dict[str, object]]) ->
             waiting[name] = pid
             print(f"  {name} already started (pid {pid}) and not answering yet; waiting for it")
             continue
+        if name == "RAVIS":
+            # Where Homebrew keeps Codex, asked only now that RAVIS is really being launched
+            # (`_with_codex_executable`).
+            env = _with_codex_executable(env)
         pid = _spawn_detached(command, env, RUN / f"{name.lower()}.log")
         recorded[name] = {"pid": pid, "marker": marker}
         print(f"  {name} started (pid {pid})")
@@ -1411,6 +1554,9 @@ def start() -> int:
     # store before RAVIS reads that store at startup, and writing it afterwards
     # would be a second process editing a JSON file the gateway already holds.
     planted = teach_ravis_the_admin_credential()
+    # The owner's command-line key for Codex, at the same moment for the same reason. No service
+    # is handed it: only `codex stop` and `codex reprove` read it back (`ravis_owner_credential`).
+    owner_key = teach_ravis_the_owner_credential()
     running = status(quiet=True)
     if all(running.values()):
         print("Already running.")
@@ -1439,6 +1585,7 @@ def start() -> int:
     # After RAVIS answers, because storing a credential is a request to it. Both
     # halves already hold the same string — this is the half RAVIS keeps.
     print(f"\nRAVIS admin credential (§15.1): {planted}")
+    print(f"Owner's command-line credential for Codex (admin.owner_cli): {owner_key}")
     print(f"Named callers to RAVIS: {teach_ravis_the_credential()}")
 
     if ollama_binary():
@@ -1674,6 +1821,8 @@ def status_report() -> dict[str, object]:
         "dashboard": DASHBOARD,
         "system": _system_reading() if nervis_up else None,
         "notifications": None if unread is None else {"unread": unread, "screen": NOTIFICATIONS},
+        # Codex's state, allowance and tasks, as RAVIS reports them, for the menu's Codex line.
+        "codex": _codex_entry(services),
     }
 
 
@@ -1923,6 +2072,383 @@ def _release_menu_sessions() -> None:
         print(f"  released {key} for the menu bar" if result["ok"] else f"  could not release {key}: {result['error']}")
 
 
+# ── Codex, for the menu bar app's Codex line ──────────────────────────────────
+#
+# Codex, OpenAI's coding agent, is an optional coding engine for Clarvis that RAVIS runs on the
+# owner's ChatGPT plan (runbook §2.2). **RAVIS owns all of it**: the one Codex process, its home and
+# sign-in, the version pin and the allowance reading. So the launcher asks RAVIS and nothing else.
+# It never reads the ChatGPT app's `~/.codex` or RAVIS's own Codex folder, and never runs a Codex
+# of its own: a menu that did either could show another account's allowance, or spend the owner's
+# plan just to draw a line (the owner's rule, `design/codex-engine/constraints.md`).
+#
+# **The commands** (design §3.7, §7.4) — `run.py codex sign-in`, `cancel-sign-in`, `stop` and
+# `reprove` — each ask RAVIS, print one JSON line and exit with a code the app reads. The codes are
+# the contract's, in the `launcher` sections of `owner-stop.json` and `codex-admin.json` in
+# `ravis/tests/fixtures/relay-contract/`. An answer none of them names exits 1, and the printed
+# error says what it was. **Nothing printed carries a key or the sign-in page's address**: the app
+# logs what it reads.
+#
+# **Not usable yet.** RAVIS serves Codex's state, sign-in and the re-test from M29's second
+# increment (R2), and a task's Stop from its third (R3). Until then RAVIS answers 404, so
+# `status --json` carries no Codex entry and each command exits 1, saying RAVIS does not offer it.
+
+#: The Codex card on RAVIS's dashboard screen, which the menu's Codex line opens.
+CODEX_CARD = f"{DASHBOARD}#/{SCREENS['RAVIS']}"
+#: How long the menu's read of Codex's state may take. RAVIS answers it from a snapshot in about
+#: 50 ms, without waiting on Codex (design §3.3), so this only bounds a RAVIS that is stuck.
+CODEX_READ_TIMEOUT = 1.5
+#: What each task carries into `status --json`: its line in the menu, and the confirmation its Stop
+#: sends back (§3.5.5). A folder name only — RAVIS gives out no path, request text or command.
+CODEX_RUN_FIELDS = (
+    "id", "turn_id", "project", "state", "since", "age_minutes", "waiting_minutes",
+    "attached_windows",
+)
+#: What each allowance window carries: what is left of it, and when it resets.
+CODEX_WINDOW_FIELDS = ("label", "remaining_percent", "resets_at")
+CODEX_RAVIS_DOWN = "RAVIS is not answering, so Codex's state is not known."
+
+
+def _codex_entry(services: list[dict[str, object]]) -> dict[str, object] | None:
+    """Codex's entry in `status --json`: RAVIS's reading while RAVIS answers, else not known.
+
+    Asked of RAVIS only once its probe has answered, like NERVIS's figures, so a RAVIS that is down
+    costs the menu no wait (`_codex_reading` says what the read itself can return).
+    """
+    ravis_up = any(service["name"] == "RAVIS" and service["answering"] for service in services)
+    return _codex_reading() if ravis_up else _codex_unknown(CODEX_RAVIS_DOWN)
+
+
+def _codex_reading() -> dict[str, object] | None:
+    """Codex's state, allowance and tasks as RAVIS reports them, trimmed for the menu bar app.
+
+    **Read from `GET /api/v1/codex`** (design §3.3, §7.1), which any caller may read. The launcher
+    presents NERVIS's client credential because only a *named* caller is given each task's id and
+    turn, and a Stop cannot be sent without both.
+
+    Three outcomes, kept apart because each means something different in the menu:
+    - **a reading**, trimmed by `_codex_block`;
+    - **None, when RAVIS answers 404:** this RAVIS serves no Codex state at all — every RAVIS
+      before M29's second increment. The menu draws no Codex line rather than one about nothing;
+    - **not known** (`_codex_unknown`) for anything else: RAVIS unreachable, stuck past the
+      timeout, or answering with something that is not Codex's state.
+    """
+    status, answer = _ravis_call(
+        "GET", "/api/v1/codex", nervis_ravis_credential(), timeout=CODEX_READ_TIMEOUT
+    )
+    if status == 404:
+        return None
+    if status == 200 and isinstance(answer, dict) and isinstance(answer.get("state"), str):
+        return _codex_block(answer)
+    if status == 0:
+        return _codex_unknown(CODEX_RAVIS_DOWN)
+    return _codex_unknown(
+        f"RAVIS's answer (HTTP {status}) was not Codex's state, so Codex's state is not known."
+    )
+
+
+def _codex_block(reading: dict[str, object]) -> dict[str, object]:
+    """RAVIS's Codex reading, reduced to what the menu draws (design §7.1).
+
+    **Unknown is never a number.** When RAVIS says it does not know the allowance, no window is
+    carried at all, whatever else arrived, so the menu can say "usage unknown" and never "0% left"
+    (§3.3). A field RAVIS left out is None here, never a guess. Nothing of the runtime, of the
+    account beyond its plan, or of the models is carried: the menu shows none of it, and the
+    dashboard's card reads RAVIS for itself.
+    """
+    usage = _mapping(reading.get("usage"))
+    known = usage.get("known") is True
+    return {
+        "state": reading["state"],
+        "reason": _text(reading.get("reason")),
+        "plan": _text(_mapping(reading.get("account")).get("plan")),
+        "usage_known": known,
+        "stale": usage.get("stale") is True,
+        "windows": _picked(usage.get("windows"), CODEX_WINDOW_FIELDS) if known else [],
+        "runs": _picked(reading.get("runs"), CODEX_RUN_FIELDS),
+        "sign_in_waiting": _mapping(reading.get("sign_in")).get("state") == "waiting_for_browser",
+        "address": CODEX_CARD,
+    }
+
+
+def _codex_unknown(reason: str) -> dict[str, object]:
+    """The Codex entry when RAVIS could not tell: its state not known, and nothing drawn as zero.
+
+    Shaped like a reading, so the menu decodes one thing. `runs` is None rather than an empty list:
+    RAVIS being unreachable says nothing about whether Codex is working, and "no tasks" would.
+    `ravis_not_answering` is the one state word this launcher names itself (§7.1); every other
+    state word is RAVIS's own.
+    """
+    return {
+        "state": "ravis_not_answering", "reason": reason, "plan": None, "usage_known": False,
+        "stale": None, "windows": [], "runs": None, "sign_in_waiting": None,
+        "address": CODEX_CARD,
+    }
+
+
+def _mapping(value: object) -> dict[str, object]:
+    """`value` when it is a JSON object, else an empty one, so a missing section reads as absent."""
+    return value if isinstance(value, dict) else {}
+
+
+def _text(value: object) -> str | None:
+    """`value` when it is a string, else None."""
+    return value if isinstance(value, str) else None
+
+
+def _picked(rows: object, fields: tuple[str, ...]) -> list[dict[str, object]] | None:
+    """The objects in `rows`, each cut to `fields` (missing ones None); None if not a list."""
+    if not isinstance(rows, list):
+        return None
+    return [{field: row.get(field) for field in fields} for row in rows if isinstance(row, dict)]
+
+
+def _ravis_call(
+    method: str, path: str, credential: str, body: dict[str, object] | None = None, *,
+    headers: Mapping[str, str] | None = None, timeout: float = 10.0,
+) -> tuple[int, object]:
+    """One JSON call to this machine's RAVIS: (HTTP status, parsed body); status 0 if unreachable.
+
+    The credential goes in the `Authorization` header and nowhere else — not into anything a command
+    prints, and not into an error, which carries RAVIS's own words at most. A write carries a JSON
+    body, as RAVIS's management routes expect.
+    """
+    sent = {
+        **(headers or {}), "authorization": f"Bearer {credential}", "accept": "application/json",
+    }
+    data = None
+    if body is not None:
+        sent["content-type"] = "application/json"
+        data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{RAVIS_PORT}{path}", data=data, headers=sent, method=method
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as reply:
+            return reply.status, _parsed(reply.read())
+    except urllib.error.HTTPError as failure:
+        return failure.code, _parsed(failure.read())
+    except Exception:  # noqa: BLE001 - an unreachable RAVIS is an answer, not a crash
+        return 0, None
+
+
+#: Exit codes the four commands share; the others are named in each command's table below.
+EXIT_FAILED = 1
+EXIT_USAGE = 2
+EXIT_RAVIS_DOWN = 6
+EXIT_REFUSED = 10
+#: RAVIS's error codes (`conventions.json`) and the exit code each command gives for them.
+SIGN_IN_EXITS = {
+    "CODEX_ALREADY_SIGNED_IN": 3, "CODEX_NOT_AVAILABLE": 4, "CODEX_UNTESTED_VERSION": 4,
+    "CODEX_SIGN_IN_PORT_BUSY": 5, "CODEX_RUN_IN_PROGRESS": 7, "FORBIDDEN": EXIT_REFUSED,
+}
+STOP_EXITS = {
+    "CONFIRMATION_MISMATCH": 8, "AGENT_SESSION_NOT_FOUND": 9, "NOTHING_RUNNING": 9,
+    "OWNER_STOP_NOT_ALLOWED": EXIT_REFUSED, "RATE_LIMITED": EXIT_REFUSED, "FORBIDDEN": EXIT_REFUSED,
+}
+REPROVE_EXITS = {
+    "CODEX_RUN_IN_PROGRESS": 7, "REPROOF_NOT_ALLOWED": EXIT_REFUSED, "FORBIDDEN": EXIT_REFUSED,
+}
+#: The re-test's three result words (`codex-admin.json`) and their exit codes.
+REPROOF_RESULTS = {"proven": 0, "failed": 11, "inconclusive": 12}
+#: RAVIS caps the re-test at five minutes; the launcher asks every five seconds for six.
+REPROOF_POLL_SECONDS = 5.0
+REPROOF_WAIT_SECONDS = 360.0
+#: A task id as RAVIS mints it — the same shape NERVIS's Stop route accepts (design §3.8).
+SESSION_ID = re.compile(r"as_[0-9A-Za-z]{10,40}")
+NO_ADMIN_KEY = (
+    "The launcher's RAVIS admin key is not there yet; start the stack so the launcher makes it "
+    "and RAVIS learns it."
+)
+NO_OWNER_KEY = (
+    "The owner's command-line key for Codex is not there yet; stop the stack and start it again "
+    "so the launcher makes it and RAVIS learns it."
+)
+
+
+def codex_sign_in() -> tuple[int, dict[str, object]]:
+    """Start Codex's browser sign-in inside RAVIS, and open the page it names (design §3.4, §3.7).
+
+    Presents the launcher's admin key, as the dashboard's Sign in does through NERVIS. The page's
+    address is opened in the browser and **never printed**: until the sign-in finishes or expires
+    it is a live way into it, and whatever runs this command logs what it prints. Only an `https`
+    page is opened. Asked again while RAVIS already waits on a browser, RAVIS names the same page,
+    and it is opened again.
+    """
+    key = _held_secret(RAVIS_ADMIN_TOKEN)
+    if not key:
+        return EXIT_REFUSED, {"error": NO_ADMIN_KEY}
+    status, answer = _ravis_call(
+        "POST", "/api/v1/codex/sign-in", key, {"method": "browser"}, timeout=20.0
+    )
+    if status not in (200, 202):
+        return _ravis_refusal(status, answer, SIGN_IN_EXITS)
+    sign_in = _mapping(_mapping(answer).get("sign_in"))
+    page, state = sign_in.get("auth_url"), _text(sign_in.get("state"))
+    if not (isinstance(page, str) and page.startswith("https://")):
+        return EXIT_FAILED, {"state": state, "error": "RAVIS named no sign-in page to open."}
+    if not webbrowser.open(page):
+        return EXIT_FAILED, {"state": state, "error": "No browser could be opened for the sign-in."}
+    return 0, {"state": state}
+
+
+def codex_cancel_sign_in() -> tuple[int, dict[str, object]]:
+    """Cancel a sign-in RAVIS is waiting on, with the launcher's admin key (design §3.4).
+
+    Exits 0 once RAVIS has answered, printing whether it cancelled one.
+    """
+    key = _held_secret(RAVIS_ADMIN_TOKEN)
+    if not key:
+        return EXIT_REFUSED, {"error": NO_ADMIN_KEY}
+    status, answer = _ravis_call("DELETE", "/api/v1/codex/sign-in", key)
+    if status != 200:
+        return _ravis_refusal(status, answer, {"FORBIDDEN": EXIT_REFUSED})
+    return 0, {"cancelled": _mapping(answer).get("cancelled") is True}
+
+
+def codex_stop(session: str, project: str, turn: str) -> tuple[int, dict[str, object]]:
+    """Stop one running Codex task for the owner, through RAVIS's owner Stop route (§3.5.5, §7.4).
+
+    **Stop only.** RAVIS interrupts the task, ends its commands and pauses it with its work left in
+    the project. It never approves, answers, starts or steers anything, and neither does this.
+
+    **What it sends:**
+    - the owner's command-line key, never NERVIS's, so RAVIS counts and audits the menu bar apart
+      from the dashboard;
+    - `source: "menu_bar"`, so the Clarvis window attached to the task can say where the stop came
+      from;
+    - the task's folder name and turn as the menu last read them. RAVIS checks both against the
+      task, so a menu that went stale while its confirmation was open gets exit 8 and stops
+      nothing, rather than whatever that id means by then;
+    - a fresh `Idempotency-Key`, so a request that reaches RAVIS twice is carried out once.
+
+    The id is held to RAVIS's own shape before it goes into the address, so nothing else can be
+    addressed through it, and a blank confirmation is not sent at all.
+    """
+    if not (SESSION_ID.fullmatch(session) and project and turn):
+        return EXIT_USAGE, {
+            "error": "Name the task's id, folder and turn exactly as status --json lists them."
+        }
+    key = _held_secret(RAVIS_OWNER_TOKEN)
+    if not key:
+        return EXIT_REFUSED, {"error": NO_OWNER_KEY}
+    status, answer = _ravis_call(
+        "POST", f"/api/v1/agent-sessions/{session}/owner-stop", key,
+        {"source": "menu_bar", "confirm": {"project": project, "turn_id": turn}},
+        headers={"Idempotency-Key": _idempotency_key()},
+    )
+    if status not in (200, 202):
+        return _ravis_refusal(status, answer, STOP_EXITS)
+    return 0, {"state": "stopping"}
+
+
+def codex_reprove() -> tuple[int, dict[str, object]]:
+    """Start the re-test of Codex's file rules, and wait for its result (design §3.4).
+
+    **The one way the re-test starts.** It spends a short Codex turn of the owner's allowance, so
+    RAVIS accepts only the owner's command-line key for it and refuses NERVIS's, and the menu bar
+    app asks the owner first. RAVIS answers at once and runs the test, so the launcher asks every
+    five seconds for up to six minutes — RAVIS caps the test itself at five — and prints the result
+    word: `proven`, `failed` or `inconclusive`.
+    """
+    key = _held_secret(RAVIS_OWNER_TOKEN)
+    if not key:
+        return EXIT_REFUSED, {"error": NO_OWNER_KEY}
+    status, answer = _ravis_call(
+        "POST", "/api/v1/codex/reprove", key, {}, headers={"Idempotency-Key": _idempotency_key()}
+    )
+    if status not in (200, 202):
+        return _ravis_refusal(status, answer, REPROVE_EXITS)
+    return _awaited_reproof(key, answer)
+
+
+def _awaited_reproof(key: str, answer: object) -> tuple[int, dict[str, object]]:
+    """Ask RAVIS about the re-test until it has finished, or six minutes have passed.
+
+    After six minutes the launcher stops asking and says it does not know how the test ended,
+    rather than guessing a result.
+    """
+    deadline = time.monotonic() + REPROOF_WAIT_SECONDS
+    while True:
+        reproof = _mapping(_mapping(answer).get("reproof"))
+        if reproof.get("state") == "finished":
+            return _reproof_result(reproof.get("result"))
+        if time.monotonic() >= deadline:
+            return EXIT_FAILED, {
+                "result": None,
+                "error": "RAVIS had not finished the re-test after six minutes; its Codex card"
+                " shows whether the file rules are proven.",
+            }
+        time.sleep(REPROOF_POLL_SECONDS)
+        status, answer = _ravis_call("GET", "/api/v1/codex/reprove", key)
+        if status != 200:
+            return _ravis_refusal(status, answer, REPROVE_EXITS)
+
+
+def _reproof_result(word: object) -> tuple[int, dict[str, object]]:
+    """The exit code and printed line for the re-test's result word."""
+    if isinstance(word, str) and word in REPROOF_RESULTS:
+        return REPROOF_RESULTS[word], {"result": word}
+    return EXIT_FAILED, {"result": None, "error": "RAVIS finished the re-test without a result."}
+
+
+def _ravis_refusal(
+    status: int, answer: object, exits: Mapping[str, int],
+) -> tuple[int, dict[str, object]]:
+    """The exit code and printed line for an answer that was not the command's success.
+
+    Matched on RAVIS's error code, as the contract asks (`conventions.json`: clients match on the
+    code, never on wording), and printed in RAVIS's own words. A refusal carrying no code — a key
+    RAVIS does not know — is still a refusal; a 404 carrying none is a RAVIS without the route.
+    """
+    if status == 0:
+        return EXIT_RAVIS_DOWN, {"error": "RAVIS is not answering."}
+    error = _mapping(_mapping(answer).get("error"))
+    code, message = error.get("code"), error.get("message")
+    if not isinstance(code, str) and status == 404:
+        return EXIT_FAILED, {"error": "This RAVIS does not offer that yet."}
+    fallback = EXIT_REFUSED if status in (401, 403) else EXIT_FAILED
+    exit_code = exits.get(code, fallback) if isinstance(code, str) else fallback
+    return exit_code, {"error": str(message) if message else f"RAVIS answered HTTP {status}."}
+
+
+def _idempotency_key() -> str:
+    """A fresh key for one request: 32 URL-safe characters, within RAVIS's and NERVIS's rules."""
+    return secrets.token_urlsafe(24)
+
+
+#: `run.py codex <action>` for each action that takes nothing more; `stop` is read on its own.
+CODEX_ACTIONS = {
+    "sign-in": codex_sign_in, "cancel-sign-in": codex_cancel_sign_in, "reprove": codex_reprove,
+}
+
+
+def _run_codex() -> int:
+    """`run.py codex …`: one JSON line on stdout, and the exit code the menu bar app reads."""
+    arguments = _codex_arguments().parse_args(sys.argv[2:])
+    if arguments.action == "stop":
+        code, printed = codex_stop(arguments.id, arguments.project, arguments.turn)
+    else:
+        code, printed = CODEX_ACTIONS[arguments.action]()
+    print(json.dumps(printed))
+    return code
+
+
+def _codex_arguments() -> argparse.ArgumentParser:
+    """What `run.py codex` accepts. A mistake in it exits 2, as the launcher's own usage does."""
+    parser = argparse.ArgumentParser(
+        prog="run.py codex", description="Codex through RAVIS, for the menu bar app."
+    )
+    actions = parser.add_subparsers(dest="action", required=True)
+    actions.add_parser("sign-in", help="start Codex's sign-in in RAVIS and open its page")
+    actions.add_parser("cancel-sign-in", help="cancel a sign-in RAVIS is waiting on")
+    stop = actions.add_parser("stop", help="stop one running Codex task, confirming which")
+    stop.add_argument("id", help="the task's id, as status --json lists it")
+    stop.add_argument("--project", required=True, help="the task's folder, from status --json")
+    stop.add_argument("--turn", required=True, help="the task's turn id, from status --json")
+    actions.add_parser("reprove", help="re-test Codex's file rules, using one short Codex turn")
+    return parser
+
+
 def _run_models() -> int:
     print(json.dumps(models_report()))
     return 0
@@ -1956,11 +2482,17 @@ def _run_status() -> int:
 COMMANDS = {
     "start": start, "stop": stop, "status": _run_status,
     "models": _run_models, "load": _run_load, "unload": _run_unload, "renew": _run_renew,
+    "codex": _run_codex,
 }
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "start"
     if action not in COMMANDS:
-        print(f"usage: {Path(__file__).name} [start|stop|status [--json]|models|load KEY|unload KEY|renew]", file=sys.stderr)
+        print(
+            f"usage: {Path(__file__).name} [start|stop|status [--json]|models|load KEY|unload KEY"
+            "|renew|codex sign-in|codex cancel-sign-in|codex stop ID --project NAME --turn TURN"
+            "|codex reprove]",
+            file=sys.stderr,
+        )
         raise SystemExit(2)
     raise SystemExit(COMMANDS[action]())
