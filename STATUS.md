@@ -19377,11 +19377,15 @@ later session picks the build up: what was decided, what landed today, the incre
 what each waits for, where the specifications now say what, and the known risks. Row 17 of Next
 points here.
 
-**Where the design itself is.** The full design (codex-design.md, 2,356 lines, beside its
-constraints and its review) was written in a session's scratch folder against `94c3565` here and
-Clarvis `90df7be`, and is in neither repository. What a build needs from it is now carried by the
-documents and fixtures below; the parts only the design had — the calibration questions and the live
-test — are summarised in this entry.
+**Where the design itself is.** The full design was written in a session's scratch folder against
+`94c3565` here and Clarvis `90df7be`. What a build needs from it is carried by the documents and
+fixtures below, and the calibration questions and the live test are summarised in this entry — but a
+scratch folder does not survive a restart, and a 25-session build needs the rest (the failure-state
+matrix, the build plan's per-increment tests, the review's reasoning). **So the working record is kept
+in `design/codex-engine/`**: `design/codex-engine/design.md`, `design/codex-engine/review.md` (five
+review passes) and `design/codex-engine/constraints.md` (the owner's decisions and the peer sessions'
+constraints), each headed as a record the canonical documents
+override. Retire the folder when M29, E-C9 and M28 close.
 
 ### The owner's decisions
 
@@ -19645,6 +19649,7 @@ ECOSYSTEM_OVERVIEW.md  conceptual, no contracts
 OPERATOR_RUNBOOK.md    running the stack, and what each failure looks like
 RELEASES.md            release notes per component, enforced by tools/check_releases.py
 AGENTS.md README.md    the rules for anyone editing here, and the front door
+design/codex-engine/   the Codex engine's working design record — overridden by the documents above; retired when M29, E-C9 and M28 close
 nervis/                NERVIS — the FastAPI service, the dashboard (index.html) and chat's knowledge notes
 protocol/              ecosystem-protocol — the MEP surface and the logging vocabulary, shared
 ravis/                 RAVIS, the routing gateway
