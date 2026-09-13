@@ -25,7 +25,53 @@ every entry.
 
 ---
 
-## Clarvis — 0.16.1
+## Clarvis — 0.16.2
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **A command is no longer stopped as "operates on a disk or partition" for mentioning `dd`.**
+  The disk rule matched the word anywhere, including `<dd>` in a `grep` pattern, and a harmless
+  localhost check was stopped twice as CANNOT BE UNDONE. `mkfs`, `fdisk`, `diskutil` and `dd` now
+  stop a command only where the shell would run them — at the start, after `sudo`, `env` and the
+  like, after a path, or inside `$(…)`.
+- **A voice rewrite has to still be the line.** A lead-in ending in `:` must still end in one, and a
+  reply about being asked to rewrite something is refused. The build offer's "This is what I would
+  be handing myself:" came back finished with an invented sentence, and once as a remark about the
+  instruction. That lead-in is now also told it introduces the task shown below it.
+- **Builds check a server in-process.** Nothing a build runs can listen on a port, localhost
+  included, so a check that started a server and curled it failed twice before the run found
+  another way. The agent, the build task and the milestone planner now say so up front, and a
+  refused `bind` or `listen` gets its own note instead of one blaming write access. The sandbox is
+  unchanged: allowing a port was tried and ruled out, because macOS could not keep that port off
+  the network.
+- **A build that runs out of steps says so.** A run that used all its steps with the milestone
+  half done still opened with "Milestone finished" and offered to update the plan. It now says
+  "Stopped at the step limit", leaves `plan.md` as it is, and a stray `STEP:` line no longer
+  reaches the chat after it.
+- **An agreed safety fix is planned from the first milestone.** An answer like "1 but use bcrypt"
+  reached the planner without the finding it settled or what "1" meant, and milestone one was
+  planned as the plain-text password check with the fix put off to milestone two. The planner now
+  gets the finding and the option, an agreed point wins over an earlier interview answer, and a
+  safety point applies from the first milestone that touches it.
+- **`writeFile` can write an empty file, and `applyEdit` can delete text.** Both were refused as a
+  missing argument. An empty path, search string or command is still refused.
+- **Branch flow keeps an old trunk as a step only when that branch exists.** Answering "It's the
+  trunk" for `master` wrote `integration: main` and "`main` kept as a step" about a branch that had
+  never existed.
+- **A new plan declares the repository's own branch as its trunk**, read when the draft is
+  written, so a project on `master` is no longer asked where `master` fits. With no repository it
+  still says `main`.
+- **One slow readiness check no longer means "no model configured".** A check that times out
+  within a minute of one that answered still counts as ready; a real error or an endpoint that
+  never answered does not.
+- **A model that reasons gets three times the deadline** on the opening line, interview questions,
+  the gap review, milestone planning, plan revision and the milestone record, once it has been seen
+  reasoning in the session — including OpenRouter's `reasoning` field, which Clarvis did not read.
+  The dialog rewrite, intent routing, quips and the mid-run scope check keep their deadlines.
+- **Clarvis's copy of RAVIS's relay-contract fixtures matches RAVIS R3** (NERVIS-ecosystem
+  `f5d8a34`), byte for byte.
+
+### 0.16.1
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
