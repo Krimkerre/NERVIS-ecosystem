@@ -999,7 +999,25 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.12
+## RAVIS — 0.23.13
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Codex starts with a file-rules profile now.** Codex 0.154.0 refuses to start when its
+  configuration defines a `[permissions]` profile and nothing chooses one: "config defines
+  `[permissions]` profiles but does not set `default_permissions`". The first restart with
+  calibration switched on hit exactly that. Codex exited at every start, the supervisor kept
+  restarting it, and the Codex card said the process wasn't running. `pin.file_rules_profile`
+  now appends `-c default_permissions="<profile name>"` to every profile RAVIS launches Codex
+  with, calibration's candidate and the pinned profile alike. A profile's own flags still
+  configure only `permissions.<name>`.
+- **A profile name that isn't a plain identifier is refused.** It's written inside a TOML
+  string, so a quote in it could have set something else. Only ASCII letters, digits, `_` and
+  `-`, up to 64 characters, are accepted.
+- **Checked:** `ravis/tests/test_codex_profile_flags.py` (2 tests), plus ruff, strict mypy and the
+  full RAVIS suite (1468).
+
+### 0.23.12
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

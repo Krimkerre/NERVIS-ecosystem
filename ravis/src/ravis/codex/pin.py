@@ -102,8 +102,22 @@ def file_rules_profile(
     if not isinstance(flags, list) or not all(isinstance(flag, str) for flag in flags):
         logger.warning("codex: the pinned file-rules profile has no usable flags; ignoring it")
         return None
+    name = raw["name"]
+    # The name goes inside a TOML string below, so it must be a plain identifier.
+    plain = name.replace("_", "").replace("-", "")
+    if not (0 < len(name) <= 64 and name.isascii() and plain.isalnum()):
+        logger.warning("codex: the pinned file-rules profile's name isn't a plain identifier")
+        return None
     filled = tuple(_filled(flag, folders) for flag in flags)
-    return FileRulesProfile(name=raw["name"], flags=filled)
+    # **`default_permissions` names the profile** (found live, 13 September 2026). Codex 0.154.0
+    # refuses to start when `[permissions]` defines a profile and nothing chooses one: "config
+    # defines `[permissions]` profiles but does not set `default_permissions`". RAVIS started
+    # Codex with calibration's candidate profile, Codex exited at every start, and the supervisor
+    # kept restarting it. The profile's own flags may only configure `permissions.<name>`
+    # (`calibration/plan.py`), so the choice is added here, once, for every profile RAVIS launches
+    # with — calibration's and the pinned one alike.
+    chosen = ("-c", f'default_permissions="{name}"')
+    return FileRulesProfile(name=name, flags=(*filled, *chosen))
 
 
 def _filled(flag: str, folders: Mapping[str, Path]) -> str:
