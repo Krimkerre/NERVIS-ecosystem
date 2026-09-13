@@ -82,15 +82,14 @@ FIXED_FLAGS: tuple[str, ...] = (
     "-c", "features.plugins=false",
     "-c", "sandbox_workspace_write.exclude_slash_tmp=true",
     "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-    # **Let Codex ask for a command's extra permissions** (owner decision, 13 September 2026:
-    # network after approval). Calibration run 1 found that no command, approved or not, reached
-    # the network, and that Codex never asked (K3, K4) and never requested permissions (K8): both
-    # features are off by default. With them on, Codex can ask to run one command with
-    # `additional_permissions` such as `network.enabled`, which arrives as an approval RAVIS relays.
-    # Both are marked "underDevelopment" in Codex 0.154.0's `experimentalFeature/list`, so a new
-    # build's acceptance check and calibration re-test must confirm they still behave.
-    "-c", "features.exec_permission_approvals=true",
-    "-c", "features.request_permissions_tool=true",
+    # Codex's two permission-request features (`exec_permission_approvals`,
+    # `request_permissions_tool`) were switched on in 0.23.14 and withdrawn in 0.23.15: with them
+    # on, calibration still saw no network approval and no permissions request, and the owner chose
+    # an approved-sites allowlist over network through approvals (`agent/sites.py`).
+    # **Codex's network proxy is on**, so commands reach exactly the sites the profile's network
+    # section lists (`agent/calibration_dependent.py`, `DEFAULT_ALLOWED_SITES`) and the ones the
+    # owner allows while tasks run; every other host gets the proxy's fixed "was blocked" line.
+    "-c", "features.network_proxy=true",
 )
 #: The variables passed through from RAVIS's own environment, by exact name (design §4.4).
 PASSED_VARIABLES = ("PATH", "HOME", "LANG", "USER", "LOGNAME", "SHELL")

@@ -178,9 +178,7 @@ DECLARED: dict[str, Capability] = {
     # RAVIS.md §4.1: advertised once `/api/v1/codex` and its routes pass their tests, which
     # they do from M29's second increment (R2). **Never a readiness check**: Codex may still be
     # not installed, paused for re-testing or signed out, and `/api/v1/codex` says which. The
-    # contract's constraints also name the relay, `/api/v1/agent-sessions`; that route and its
-    # own capability, `ravis.agent_sessions@1`, arrive with M29's third increment, so the
-    # `relay` constraint is added back then rather than pointing at nothing now.
+    # `relay` constraint names `/api/v1/agent-sessions`, served since M29's third increment (R3).
     "ravis.codex_runtime@1": Capability(
         version="1.0.0",
         state=AVAILABLE,
@@ -190,6 +188,22 @@ DECLARED: dict[str, Capability] = {
             "backend_id": "ravis/clarvis-codex",
             "roles": ["agent"],
             "state_endpoint": "/api/v1/codex",
+            "relay": "/api/v1/agent-sessions",
+        },
+    ),
+    # RAVIS.md §4.1: the relay's routes pass their contract tests against the shared fixtures,
+    # NERVIS and admin refusals included, from M29's third increment (R3). Also never a readiness
+    # check: a task is refused while Codex isn't ready, and the project-lock routes are R4's.
+    "ravis.agent_sessions@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="Clarvis can create, follow, answer, steer, stop and settle Codex tasks on "
+        "/api/v1/agent-sessions; whether one can start now is /api/v1/codex's answer",
+        constraints={
+            "backend_id": "ravis/clarvis-codex",
+            "roles": ["agent"],
+            "state_endpoint": "/api/v1/codex",
+            "relay": "/api/v1/agent-sessions",
         },
     ),
 }

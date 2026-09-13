@@ -46,6 +46,9 @@ REFUSED_REQUESTS = frozenset({
 })
 #: How many messages one thread's inbox holds before it starts dropping (design §4.4).
 INBOX_CAPACITY = 1000
+#: Put in a thread's inbox after RAVIS declined an MCP elicitation for it: RAVIS's own word, never
+#: one of Codex's methods, so an agent session can say `request.resolved {by: policy_elicitation}`.
+ELICITATION_DECLINED = "ravis/elicitationDeclined"
 
 
 @dataclass(frozen=True)
@@ -178,6 +181,10 @@ class MessageRouter:
             return
         if method == "mcpServer/elicitation/request":
             connection.respond(request_id, {"action": "decline"})
+            # A task's windows learn it was declined by policy (design §4.4, review AL2).
+            declined = self._inbox_for(params)
+            if declined is not None:
+                declined.put(InboxItem(ELICITATION_DECLINED, params))
             return
         inbox = None if method in REFUSED_REQUESTS else self._inbox_for(params)
         if inbox is None:

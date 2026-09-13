@@ -48,6 +48,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from ravis.agent.calibration_dependent import network_profile_flags
+from ravis.agent.sessions import AgentSessions, AgentTimings
 from ravis.codex import refusals
 from ravis.codex.acceptance import HandshakeTimings, VersionCheck, check_version
 from ravis.codex.account import Account, account_from_read, needs_account_id
@@ -113,10 +115,20 @@ from ravis.codex.store import (
     ReproofRecord,
 )
 from ravis.codex.supervisor import CodexSupervisor, LaunchPlan, SupervisorTimings
-from ravis.codex.usage import UNKNOWN, Usage, from_read, is_exhausted, iso, merged, next_reset
+from ravis.codex.usage import (
+    UNKNOWN,
+    Usage,
+    from_read,
+    is_exhausted,
+    iso,
+    merged,
+    next_reset,
+    usage_body,
+)
 from ravis.config import Settings, codex_home, data_directory
 from ravis.credentials import config_directory
 from ravis.ecosystem.capabilities import BUILD_VERSION
+from ravis.storage.database import Database, prepare_database
 
 logger = logging.getLogger("ravis")
 
@@ -147,6 +159,7 @@ class ServiceTimings:
     handshake: HandshakeTimings = HandshakeTimings()
     reproof: ReproofTimings = ReproofTimings()
     calibration: CalibrationTimings = CalibrationTimings()
+    agents: AgentTimings = AgentTimings()
 
 
 @dataclass(frozen=True)
@@ -184,6 +197,8 @@ class CodexService:
         timings: ServiceTimings = ServiceTimings(),
         sign_in_ports: tuple[int, ...] = SIGN_IN_PORTS,
         calibration_slash_tmp: Path = Path("/tmp"),
+        database: Database | None = None,
+        agent_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.settings = settings
         # K2's `/tmp` target; a test names its own folder, as it names its own sign-in ports.
@@ -246,6 +261,16 @@ class CodexService:
         self._stopping = False
         # The accepted build whose acceptance RAVIS's log has already reported.
         self._accepted_logged: str | None = None
+        # Clarvis's Codex tasks (M29's third increment, `agent/`). They run in this service's one
+        # process, so the service is their Codex host; their records live in RAVIS's database.
+        self.agents = AgentSessions(
+            self,
+            database if database is not None else prepare_database(":memory:"),
+            settings,
+            emit=emit,
+            timings=timings.agents,
+            clock=agent_clock,
+        )
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -253,6 +278,8 @@ class CodexService:
         """Read the record, recover from a restart, check the runtime, start the background work."""
         self._record = self._file.load()
         self._recover_after_restart()
+        # First, and whether or not Codex is on: a task a previous RAVIS left must read uncertain.
+        await self.agents.start()
         if self.settings.codex_enabled is False:
             await self.runtime.check()
             self._state_moved("runtime_check")
@@ -277,6 +304,7 @@ class CodexService:
     async def stop(self) -> None:
         """End the process within the launcher's wait, then every background task."""
         self._stopping = True
+        await self.agents.stop()
         await self._supervisor.stop()
         supervisor = self._tasks.get("supervisor")
         if supervisor is not None:
@@ -360,8 +388,18 @@ class CodexService:
             version=report.version,
             home=self._home,
             link_folder=self.runtime.link_folder,
-            profile_flags=self._profile.flags if self._profile is not None else (),
+            profile_flags=self._profile_flags(),
         )
+
+    def _profile_flags(self) -> tuple[str, ...]:
+        """The file-rules profile's flags; the pinned one also gets its network section (sites)."""
+        profile = self._profile
+        if profile is None:
+            return ()
+        if not self._profile_pinned or self.settings.codex_calibration:
+            # Calibration tests the profile as written: no sites of RAVIS's added to it.
+            return tuple(profile.flags)
+        return (*profile.flags, *network_profile_flags(profile.name))
 
     def _process_ready(self) -> None:
         self._account_read = False
@@ -369,6 +407,8 @@ class CodexService:
         self._state_moved("process_ready")
 
     def _process_ended(self, reason: str) -> None:
+        # Every running task's turn died with the process (design §4.4): uncertain, cleaned up.
+        self.agents.codex_process_ended()
         self._account_read = False
         if self._sign_in.waiting and not self._stopping:
             # Lost while RAVIS runs on: say so now, and no restart needs to report it later.
@@ -399,6 +439,8 @@ class CodexService:
     def _apply_message(self, method: str, params: dict[str, Any]) -> None:
         if method == "account/rateLimits/updated" and self._account is not None:
             self._usage = merged(self._usage, params, _now())
+            usage = usage_body(self._usage, _now(), turns_active=True)
+            self.agents.usage_changed(usage["windows"], usage["limit_reached"])
         elif method == "account/login/completed":
             self._login_completed(params)
         elif method == "account/updated":
@@ -633,6 +675,49 @@ class CodexService:
             json.dumps(build.protocol_summary, sort_keys=True),
         )
 
+    # ── What Clarvis's tasks need of Codex (`agent/session.py` → `CodexHost`) ─
+
+    async def request(
+        self, method: str, params: dict[str, Any] | None = None, *, timeout: float
+    ) -> Any:
+        return await self._supervisor.request(method, params, timeout=timeout)
+
+    def hold(self, thread_id: str, inbox: Inbox) -> None:
+        self._router.hold(thread_id, inbox)
+
+    def release(self, thread_id: str) -> None:
+        self._router.release(thread_id)
+
+    def readiness(self) -> tuple[str, str] | None:
+        """None when Codex may take a task; else its state word and why (design §3.5.3, §4.9).
+
+        **Owner decision D2's gate.** A tested or accepted build whose strict file rules aren't
+        `proven` refuses every task with the reason word `strict_file_rules_unproven`, whatever
+        else is true; so does a process running a profile other than the pinned one (calibration
+        mode). Only calibration, or the re-test of an accepted build, proves the rules — so no
+        real task starts before calibration has passed.
+        """
+        state, reason = decide(self._reading())
+        report = self.runtime.report
+        proven = (
+            report.strict_rules == "proven" and self._profile is not None and self._profile_pinned
+        )
+        if not proven and report.verdict in ("tested", "accepted"):
+            paused = state if state != "signed_in" else "untested_version"
+            return paused, "strict_file_rules_unproven"
+        if state != "signed_in":
+            return state, reason
+        return None if proven else ("untested_version", "strict_file_rules_unproven")
+
+    def profile_name(self) -> str | None:
+        return self._profile.name if self._profile is not None else None
+
+    def account_fingerprint(self) -> str | None:
+        return self._account.fingerprint if self._account is not None else None
+
+    def running_sha256(self) -> str | None:
+        return self._supervisor.running_sha256
+
     # ── The state ────────────────────────────────────────────────────────────
 
     def _reading(self) -> Reading:
@@ -661,17 +746,20 @@ class CodexService:
             now=_now(),
         )
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, *, named: bool = True) -> dict[str, Any]:
         """`GET /api/v1/codex`: computed from what the service holds, never waiting on Codex.
 
         `revision` moves whenever anything in the body does, so a reader can tell "unchanged".
+        `runs` names each task's id and turn only for a named caller (`codex-state.json`).
         """
-        body = codex_body(self._reading(), revision=0)
+        body = codex_body(self._reading(), revision=0, runs=self.agents.runs(named=True))
         fingerprint = json.dumps(body, sort_keys=True)
         if fingerprint != self._last_body:
             self._last_body = fingerprint
             self._revision += 1
         body["revision"] = self._revision
+        if not named:
+            body["runs"] = self.agents.runs(named=False)
         return body
 
     def _state_moved(self, reason_code: str) -> None:
@@ -736,8 +824,11 @@ class CodexService:
             raise refusals.not_available("Codex's process is not running yet.")
 
     def _busy(self) -> bool:
-        """A Codex turn is active, or the re-test or a calibration run is running."""
-        return self._turns.count > 0 or self._reproof_running() or self._calibration_running()
+        """A turn is active or a task waits for a settle, or a re-test or calibration runs."""
+        return (
+            self._turns.count > 0 or self.agents.settle_pending()
+            or self._reproof_running() or self._calibration_running()
+        )
 
     async def _login_start(self) -> dict[str, Any]:
         try:
@@ -933,7 +1024,7 @@ class CodexService:
 
     def _reproof_refusal(self) -> refusals.CodexRefusalError | None:
         """Why the re-test can't run now. An allowance used up is 409, never 429 (C1's notes)."""
-        if self._turns.count or self._calibration_running():
+        if self._turns.count or self.agents.settle_pending() or self._calibration_running():
             return refusals.run_in_progress("re-test")
         report = self.runtime.report
         if report.verdict != "accepted":
@@ -1047,7 +1138,7 @@ class CodexService:
 
     def _calibration_refusal(self, needs_model: bool) -> refusals.CodexRefusalError | None:
         """Why a run can't start now; the process and the account are checked in that order."""
-        if self._turns.count or self._reproof_running() or self._calibration_running():
+        if self._busy():
             return refusals.run_in_progress("calibration")
         if self._calibration_problem is not None or self._calibration_profile is None:
             return refusals.not_ready(

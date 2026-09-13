@@ -41,6 +41,8 @@ from ravis.admission import (
     cors_headers,
     is_preflight,
 )
+from ravis.agent.routes import owner_router as agent_owner_router
+from ravis.agent.routes import router as agent_router
 from ravis.api.management import management_router
 from ravis.api.management.codex import router as codex_router
 from ravis.api.management.codex_calibration import router as calibration_router
@@ -113,6 +115,10 @@ def create_app(settings: Settings) -> Any:
     api.include_router(management_router)
     api.include_router(credentials_router)
     api.include_router(codex_router)
+    # Codex tasks (M29's third increment): the owner's stop-only route on its own router, and
+    # every other agent-session route behind the Clarvis client check (`agent/routes.py`).
+    api.include_router(agent_owner_router)
+    api.include_router(agent_router)
     if settings.codex_calibration:
         # Dev-only, with the owner present: without the setting these paths don't exist at all.
         api.include_router(calibration_router)
@@ -468,8 +474,11 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     )
     # Codex, the optional coding engine (runbook §2.2, M29). Building it runs nothing: the
     # lifespan starts it, and `/v1/models` reads the runtime check it keeps (`api.state.codex`).
-    # After the publisher, because it publishes Codex's state changes and its audit.
-    api.state.codex_service = CodexService(settings, emit=api.state.events.emit)
+    # After the publisher, because it publishes Codex's state changes and its audit; given the
+    # database, because Clarvis's Codex tasks are kept there (migration 8).
+    api.state.codex_service = CodexService(
+        settings, emit=api.state.events.emit, database=api.state.database
+    )
     api.state.codex = api.state.codex_service.runtime
     api.state.ecosystem = ravis_surface(
         service_id=api.state.service_id,

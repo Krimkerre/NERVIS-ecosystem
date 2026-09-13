@@ -28,6 +28,7 @@
     "fileChange": "{files: [{path, change: add | delete | update | rename, moved_to?, added, removed}], reason, grant_root?, outside_workspace: [...]}",
     "permissions": "{read, write, network, reason, outside_workspace, denied}",
     "question": "{questions: [{id, header, question, options, allow_other}]}",
+    "site": "{host, protocol: http | https | null}: a site Codex's network proxy blocked a command from reaching, asked of the owner; not one of Codex's requests",
     "paths": "relative to the root; outside paths are absolute and listed"
   },
   "allowed_decisions_rules": [
@@ -35,7 +36,9 @@
     "Codex's acceptForSession and a permissions grant with scope session are never offered in this delivery",
     "writes outside the root, or a denied path, offer only skip and stop",
     "a secret question is never offered: RAVIS answers it empty itself and emits request.resolved {by: policy_secret}",
-    "a question offers answer and stop (derived from Clarvis's rendering: each option, typing when allow_other, Stop the run)"
+    "a question offers answer and stop (derived from Clarvis's rendering: each option, typing when allow_other, Stop the run)",
+    "a request asking for network access (a command's networkApprovalContext or additionalPermissions.network, or a permission grant's network) offers only skip and stop: approvals never open the network on Codex 0.154.0, and internet access comes from the owner's approved-sites allowlist",
+    "a site request offers allow_site and keep_blocked: one is open at a time, each host is asked once per task, it never pauses the task, and it stays open after the turn ends until the owner decides or the task ends; allow_site adds exactly that host to Codex's allowlist while it runs (never a wildcard, an IP address or a local name) and emits site.allowed"
   ],
   "request_view_examples": [
     {
@@ -48,7 +51,7 @@
         "command": "npm install left-pad",
         "cwd": "web",
         "reason": "The build needs this package.",
-        "network": {"host": "registry.npmjs.org", "protocol": "https"},
+        "network": null,
         "escalation": null,
         "gate_hint": null
       },
@@ -105,6 +108,15 @@
         ]
       },
       "allowed_decisions": ["answer", "stop"]
+    },
+    {
+      "id": "rq_01J9ZKB2C3D4E5F6G7H8J9K0L1",
+      "kind": "site",
+      "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+      "item_id": "call_fixture_command_2",
+      "opened_at": "2026-09-13T01:43:00Z",
+      "payload": {"host": "pypi.org", "protocol": "https"},
+      "allowed_decisions": ["allow_site", "keep_blocked"]
     }
   ],
   "stop_responses": {
@@ -168,7 +180,8 @@
                   "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
                   "active_turn_id": null,
                   "model": "gpt-6-astra",
-                  "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                  "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                  "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
                 },
                 "branch": {
                   "name": "clarvis/add-utc",
@@ -232,7 +245,8 @@
                   "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
                   "active_turn_id": null,
                   "model": "gpt-6-astra",
-                  "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                  "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                  "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
                 },
                 "branch": {
                   "name": "clarvis/add-utc",
@@ -292,7 +306,8 @@
                   "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
                   "active_turn_id": null,
                   "model": "gpt-6-astra",
-                  "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                  "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                  "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
                 },
                 "branch": {
                   "name": "clarvis/add-utc",
@@ -989,7 +1004,8 @@
                 "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
                 "active_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
                 "model": "gpt-6-astra",
-                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
               },
               "branch": {
                 "name": "clarvis/add-utc",
@@ -1006,7 +1022,7 @@
                     "command": "npm install left-pad",
                     "cwd": "web",
                     "reason": "The build needs this package.",
-                    "network": {"host": "registry.npmjs.org", "protocol": "https"},
+                    "network": null,
                     "escalation": null,
                     "gate_hint": null
                   },
@@ -1841,6 +1857,39 @@
               }
             }
           }
+        },
+        {
+          "name": "keep a blocked site blocked",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/requests/rq_01J9ZKB2C3D4E5F6G7H8J9K0L1/answer",
+            "headers": {"Content-Type": "application/json", "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA", "Idempotency-Key": "rq_01J9ZKB2C3D4E5F6G7H8J9K0L1:win-desktop-1c9e4d"},
+            "body": {"decision": {"kind": "keep_blocked"}}
+          },
+          "response": {"status": 200, "body": {"resolved": true, "decision_kind": "keep_blocked"}}
+        },
+        {
+          "name": "allow a blocked site",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/requests/rq_01J9ZKB2C3D4E5F6G7H8J9K0L1/answer",
+            "headers": {"Content-Type": "application/json", "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA", "Idempotency-Key": "rq_01J9ZKB2C3D4E5F6G7H8J9K0L1:win-desktop-1c9e4d"},
+            "body": {"decision": {"kind": "allow_site"}}
+          },
+          "response": {"status": 200, "body": {"resolved": true, "decision_kind": "allow_site"}}
+        },
+        {
+          "name": "allow a site Codex didn't add",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/requests/rq_01J9ZKB2C3D4E5F6G7H8J9K0L1/answer",
+            "headers": {"Content-Type": "application/json", "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA", "Idempotency-Key": "rq_01J9ZKB2C3D4E5F6G7H8J9K0L1:win-desktop-1c9e4d"},
+            "body": {"decision": {"kind": "allow_site"}}
+          },
+          "response": {"status": 409, "body": {"error": {"code": "SITE_NOT_ADDED", "message": "Codex didn't add that site, so it stays blocked.", "retryable": false, "details": {"host": "pypi.org", "reason": "overridden"}, "request_id": "fixture-request-id", "trace_id": "fixture-trace-id"}}}
         }
       ]
     },
@@ -1925,7 +1974,7 @@
           },
           "response": {
             "status": 422,
-            "body": {"$unfixed": "the design gives 422 and no code (conventions.json open_points)"}
+            "body": {"error": {"code": "INVALID_REQUEST_BODY", "message": "mode must be one of agent, auto, unattended.", "retryable": false, "details": {}, "request_id": "fixture-request-id", "trace_id": "fixture-trace-id"}}
           }
         }
       ]
@@ -2143,7 +2192,8 @@
                 "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
                 "active_turn_id": null,
                 "model": "gpt-6-astra",
-                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
               },
               "branch": {
                 "name": "clarvis/add-utc",
@@ -2194,7 +2244,8 @@
                 "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
                 "active_turn_id": null,
                 "model": "gpt-6-astra",
-                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
               },
               "branch": {
                 "name": "clarvis/add-utc",

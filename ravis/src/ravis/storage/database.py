@@ -148,6 +148,120 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX IF NOT EXISTS usage_record_at ON usage_record (at);
         """,
     ),
+    (
+        8,
+        "Codex agent sessions and the project lock, per RAVIS.md §15.1.2 and §17 (M29)",
+        """
+        -- Codex tasks RAVIS brokers for Clarvis (design §4.10). Separate records, never
+        -- `routing_session`. **Metadata only**: ids, states, kinds, counts, timestamps, and the
+        -- workspace's real path and folder name, which Codex must run in (the narrow exception
+        -- to §9.7). Never prompt, agent, approval or command text, output or diffs: those pass
+        -- through RAVIS's memory while relayed and are never written here.
+        CREATE TABLE IF NOT EXISTS agent_session (
+            id                   TEXT PRIMARY KEY,
+            application_id       TEXT NOT NULL,
+            workspace_root       TEXT NOT NULL,
+            workspace_root_hash  TEXT NOT NULL,
+            workspace_name       TEXT NOT NULL,
+            -- The validated git folder, or NULL for a root without git (`.clarvis/` then).
+            git_dir              TEXT,
+            clarvis_task_id      TEXT NOT NULL,
+            engine               TEXT NOT NULL DEFAULT 'codex',
+            codex_thread_id      TEXT,
+            active_turn_id       TEXT,
+            last_turn_id         TEXT,
+            model                TEXT,
+            mode                 TEXT NOT NULL,
+            file_rules           TEXT NOT NULL,
+            state                TEXT NOT NULL,
+            -- sha256 of the session token; the token itself is never stored.
+            token_sha256         TEXT NOT NULL,
+            trace_id             TEXT NOT NULL,
+            runtime_sha256       TEXT,
+            account_fingerprint  TEXT,
+            branch_name          TEXT,
+            head_commit_at_start TEXT,
+            max_steps            INTEGER,
+            -- The highest event id handed out, reserved ahead in blocks, so ids keep rising
+            -- across a RAVIS restart (C1's notes).
+            last_event_id        INTEGER NOT NULL DEFAULT 0,
+            created_at           TEXT NOT NULL,
+            updated_at           TEXT NOT NULL,
+            ended_at             TEXT
+        );
+        CREATE INDEX IF NOT EXISTS agent_session_root ON agent_session (workspace_root_hash);
+        CREATE INDEX IF NOT EXISTS agent_session_ended ON agent_session (ended_at);
+        -- One row per request Codex asked of a task: its kind and how it ended. No payload.
+        CREATE TABLE IF NOT EXISTS agent_request (
+            id               TEXT PRIMARY KEY,
+            session_id       TEXT NOT NULL,
+            turn_id          TEXT,
+            codex_request_id TEXT,
+            kind             TEXT NOT NULL,
+            -- A site ask's host (Codex's proxy blocked it); NULL for every other kind. Never a URL.
+            host             TEXT,
+            opened_at        TEXT NOT NULL,
+            resolved_at      TEXT,
+            resolved_by      TEXT,
+            decision_kind    TEXT
+        );
+        CREATE INDEX IF NOT EXISTS agent_request_session ON agent_request (session_id);
+        CREATE TABLE IF NOT EXISTS agent_turn (
+            id         TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            kind       TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            ended_at   TEXT,
+            status     TEXT,
+            uncertain  INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (session_id, id)
+        );
+        -- The processes attributed to a task (design §4.5), which survive a restart so they can
+        -- be killed then. Filled by M29's fourth increment (R4); created here with the rest.
+        CREATE TABLE IF NOT EXISTS agent_process (
+            session_id        TEXT NOT NULL,
+            turn_id           TEXT,
+            pid               INTEGER NOT NULL,
+            start_time        TEXT NOT NULL,
+            comm              TEXT NOT NULL,
+            attribution       TEXT NOT NULL,
+            recorded_at       TEXT NOT NULL,
+            confirmed_gone_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS agent_process_session ON agent_process (session_id);
+        -- One writer per project (design §6.3). A row exists only while the lock is held;
+        -- `root_hash` is unique, so two holders can never both insert one.
+        CREATE TABLE IF NOT EXISTS project_lock (
+            id                    TEXT PRIMARY KEY,
+            workspace_root        TEXT NOT NULL,
+            root_hash             TEXT NOT NULL UNIQUE,
+            holder_kind           TEXT NOT NULL,
+            holder_session_id     TEXT,
+            holder_window_id      TEXT,
+            holder_host           TEXT,
+            holder_pid            INTEGER,
+            holder_pid_start      TEXT,
+            lease_sha256          TEXT,
+            state                 TEXT NOT NULL,
+            waiting_on_you        INTEGER NOT NULL DEFAULT 0,
+            heartbeat_at          TEXT NOT NULL,
+            acquired_at           TEXT NOT NULL,
+            taken_over_from       TEXT,
+            transfer_token_sha256 TEXT,
+            transfer_expires_at   TEXT
+        );
+        -- A retried request's first answer (design §3.5.1): ids and states only, kept 24 hours.
+        CREATE TABLE IF NOT EXISTS agent_idempotency (
+            scope         TEXT NOT NULL,
+            key           TEXT NOT NULL,
+            body_sha256   TEXT NOT NULL,
+            status        INTEGER NOT NULL,
+            response_json TEXT NOT NULL,
+            created_at    TEXT NOT NULL,
+            PRIMARY KEY (scope, key)
+        );
+        """,
+    ),
 ]
 
 

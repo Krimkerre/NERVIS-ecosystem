@@ -18,10 +18,10 @@
 Everything here is computed from values the Codex service already holds, so the route answers in
 well under the 1.5 s the launcher and NERVIS allow it, and never waits for the Codex process.
 
-**`runs` is empty in this increment, and that is true, not a placeholder.** It lists live agent
-sessions and Clarvis-engine project locks (design §3.3); neither can exist until M29's third and
-fourth increments build them, so there is nothing to list. The contract's per-caller rule — each
-run's `id` and `turn_id` only for a named caller — arrives with the rows it applies to.
+**`runs`** lists live agent sessions and Clarvis-engine project locks (design §3.3), from
+`agent/sessions.py`: each task's folder name, state and times for everyone, and its `id` and
+current or last `turn_id` only for a named caller — the pair the owner Stop's confirmation sends
+back. Clarvis-engine locks arrive with M29's fourth increment's routes.
 """
 
 from __future__ import annotations
@@ -164,7 +164,9 @@ def reset_phrase(moment: datetime, now: datetime) -> str:
     return f"{DAYS[local.weekday()]} {local.day} {MONTHS[local.month - 1]} {clock}"
 
 
-def codex_body(reading: Reading, *, revision: int) -> dict[str, Any]:
+def codex_body(
+    reading: Reading, *, revision: int, runs: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """The whole `GET /api/v1/codex` body, in `codex-state.json`'s shape and key order."""
     state, reason = decide(reading)
     signed_in = reading.account is not None
@@ -183,8 +185,7 @@ def codex_body(reading: Reading, *, revision: int) -> dict[str, Any]:
             reading.now,
             turns_active=reading.process.active_turns > 0,
         ),
-        # See the module docstring: nothing can be running yet, so nothing is listed.
-        "runs": [],
+        "runs": runs or [],
         "models": [_model_block(model) for model in reading.models] if signed_in else [],
         "sign_in": reading.sign_in,
     }

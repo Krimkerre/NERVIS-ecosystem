@@ -92,8 +92,7 @@ def test_one_app_server_starts_with_the_designed_command_home_and_environment(
         "-c", "features.plugins=false",
         "-c", "sandbox_workspace_write.exclude_slash_tmp=true",
         "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-        "-c", "features.exec_permission_approvals=true",
-        "-c", "features.request_permissions_tool=true",
+        "-c", "features.network_proxy=true",
     ]
     environment = start["env"]
     home = tmp_path / "codex-home"
@@ -505,17 +504,18 @@ def test_state_changes_are_published_with_their_reason(tmp_path: Path) -> None:
     assert all(set(change) == {"from", "to", "reason_code"} for change in changes)
 
 
-def test_the_codex_runtime_capability_is_declared_without_a_relay_that_isnt_built(
+def test_both_codex_capabilities_are_declared_with_the_relay_that_serves_them(
     tmp_path: Path,
 ) -> None:
+    """`codex-state.json` → `capabilities`: declared since M29's third increment built the relay,
+    and never a readiness check — declared even with Codex switched off."""
     rig = codex_rig(tmp_path, codex_enabled=False)
 
     with TestClient(rig.app) as client:
         declared = client.get("/ecosystem/capabilities").json()["capabilities"]
 
     by_id = {capability["id"]: capability for capability in declared}
-    assert by_id["ravis.codex_runtime"]["state"] == "available"
-    assert by_id["ravis.codex_runtime"]["constraints"] == {
-        "backend_id": "ravis/clarvis-codex", "roles": ["agent"], "state_endpoint": "/api/v1/codex",
-    }
-    assert "ravis.agent_sessions" not in by_id
+    shown = json.loads((FIXTURES / "codex-state.json").read_text())["capabilities"]
+    for expected in shown:
+        assert by_id[expected["id"]]["state"] == "available"
+        assert by_id[expected["id"]]["constraints"] == expected["constraints"]

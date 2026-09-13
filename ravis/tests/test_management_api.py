@@ -81,11 +81,12 @@ def test_a_read_endpoint_does_not_accept_a_write() -> None:
 def test_every_write_this_surface_serves_is_one_it_declares() -> None:
     """The mutation surface, asserted rather than described.
 
-    RAVIS serves fourteen writes: two on a provider credential, one on a provider's
+    RAVIS serves twenty-eight writes: two on a provider credential, one on a provider's
     enabled flag, one on its model filter, one on a pool's membership, one
-    curating every pool, one lifting a tool-refusal suppression, and seven for
+    curating every pool, one lifting a tool-refusal suppression, seven for
     Codex (sign-in, its cancellation, sign-out, account confirmation, accepting
-    and revoking a build, and the file-rules re-test). Each is
+    and revoking a build, and the file-rules re-test), and fourteen on Codex tasks
+    (the agent-session relay, the owner Stop among them). Each is
     deliberate; what is not acceptable is another appearing without anybody
     noticing, which is exactly what happened to the fifth -- it shipped while
     the module said "Reads only. No endpoint here mutates", and without the
@@ -128,6 +129,25 @@ def test_every_write_this_surface_serves_is_one_it_declares() -> None:
         "POST /api/v1/codex/sign-out",
         "POST /api/v1/codex/account/confirm",
         "POST /api/v1/codex/accept-version",
+        # Added deliberately, 13 September 2026 (M29's third increment, RAVIS.md §15.1.2):
+        # the agent-session relay. Every one but the owner Stop needs a Clarvis client
+        # credential, and every one with `{sid}` that task's token; the owner Stop takes only
+        # the owner's admin applications, stops and does nothing else. Each is tested in
+        # `tests/test_agent_sessions_*.py`, with the route table in the identity file.
+        "POST /api/v1/agent-sessions",
+        "POST /api/v1/agent-sessions/{sid}/turns",
+        "POST /api/v1/agent-sessions/{sid}/steer",
+        "POST /api/v1/agent-sessions/{sid}/interrupt",
+        "POST /api/v1/agent-sessions/{sid}/requests/{rid}/answer",
+        "POST /api/v1/agent-sessions/{sid}/presence",
+        "POST /api/v1/agent-sessions/{sid}/mode",
+        "POST /api/v1/agent-sessions/{sid}/leftover",
+        "POST /api/v1/agent-sessions/{sid}/settle-claim",
+        "POST /api/v1/agent-sessions/{sid}/settle",
+        "POST /api/v1/agent-sessions/{sid}/cancel",
+        "DELETE /api/v1/agent-sessions/{sid}",
+        "POST /api/v1/agent-sessions/{sid}/reissue-token",
+        "POST /api/v1/agent-sessions/{sid}/owner-stop",
         "DELETE /api/v1/codex/accept-version/{sha256}",
         # The file-rules re-test: the one write that starts Codex work, so only the
         # owner's command-line credential may call it, never NERVIS's (F-A3).

@@ -2,6 +2,109 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From R3 (ecosystem, RAVIS 0.23.15, 13 Sep 2026) — the agent-session relay
+Built: migration 8 and `ravis/src/ravis/agent/`; every `/api/v1/agent-sessions` route and the stop-only
+owner route on its own router; SSE with the two replay buffers and cursor expiry; identity, tokens,
+roots, durable idempotency, allowed decisions, the unanswered policy, the step cap, redaction, presence,
+the action lock; `runs` in `GET /api/v1/codex`; `ravis.agent_sessions@1` and the `relay` constraint.
+Calibration `cal_d2185ed08f50` decided (all in `agent/calibration_dependent.py`, the one place):
+- Every mode uses the measured granular policy (`mode_mapping`). Non-ephemeral threads (K13).
+- **No network through approvals; approved sites instead** (the owner's final decision, after two reversals
+  the same day). `NETWORK_GRANTS_OFFERED = False`: a request carrying `networkApprovalContext` or
+  `additionalPermissions.network.enabled`, or a grant asking for network, offers only skip/stop (both fields
+  parsed defensively; no `applyNetworkPolicyAmendment` path). **Approvals never open the network on 0.154.0**,
+  in `untrusted` and `on-request` alike: K3 failed in `cal_d2185ed08f50`; again in `cal_f4552084e0e0` with
+  `exec_permission_approvals` and `request_permissions_tool` on (no network approval asked, no
+  `additionalPermissions`, no permissions request); and with `features.network_proxy` and `domains={}`
+  (`cal_8cfcf81b2d04`) Codex sent only plain command approvals (`availableDecisions`: accept,
+  acceptWithExecpolicyAmendment, cancel) — after an accept **the proxy blocked local addresses outright**
+  ("local/private network addresses are blocked", `baseline_policy`) and **an unlisted domain without a
+  prompt**, with the fixed line `Network access to "<host>" was blocked: domain is not on the allowlist for the
+  current sandbox mode.`; `thread/start` said `networkAccess: true`, then `thread/settings/updated` showed
+  `activePermissionProfile: null`, `networkAccess: false`. **A fixed allowlist works model-free**:
+  `network={enabled=true, mode="limited", domains={"host"="allow"}}` with `features.network_proxy=true` → HTTP
+  200 (`domains={}`, or `mode="full"` with none → 403; unknown network keys ignored). The decision: an
+  approved-sites allowlist pre-populated with likely hosts (registries, GitHub), plus a per-site ask. **Built
+  in R3** (`agent/sites.py`): the blocked line on a completed command → `site.blocked {turn_id, item_id, host,
+  protocol}` and a `site` request (`{host, protocol}`; `allow_site` / `keep_blocked`) through the answer
+  route, one open at a time, each host once per task, never pausing the task or counted by the policy, open
+  past the turn's end, resolved `turn_ended` when the task ends, audited `ravis.agent_session.site_decided`
+  with the host only (stored on `agent_request.host`). **Applied live** (verified model-free):
+  `SiteAllowlist.add` sends `config/batchWrite {edits:[{keyPath:"permissions.<profile>.network.domains",
+  mergeStrategy:"upsert", value:{host:"allow"}}], reloadUserConfig:true}` over RAVIS's one connection; anything
+  but `status:"ok"` (`okOverridden` included, or an error) is 409 `SITE_NOT_ADDED` (request stays open);
+  idempotent per host; exact plain hosts only (never a wildcard, IP, `localhost`, `*.local`); then
+  `site.allowed {request_id, host}`. `features.network_proxy=true` is in `FIXED_FLAGS`, and the pinned
+  profile gets `network={enabled=true, mode="limited", domains={DEFAULT_ALLOWED_SITES}}` at launch (not in
+  calibration mode). **Unverified:** an added site reaching a turn already running, and a live write not
+  being overridden by the launch-time `domains`. The two permission-request
+  features were withdrawn from `FIXED_FLAGS` again. Calibration's K3 criterion, K7/K8 and K6 come in a
+  separate calibration increment.
+- K7 (an interrupt leaves the request open): every way a turn ends answers and publishes each open request
+  itself — Stop, owner Stop, step cap, the policy, a crash, and a turn Codex ended on its own.
+- K12 (events out of order): a file-change approval waits up to 2 s for its item; one whose item never
+  said what it writes is offered only skip/stop. K8: nothing relies on a permissions request arriving.
+Decided here (recorded in `conventions.json` → `open_points`): a replayed create/reissue returns the same
+token in the same run (memory only), a reissue-style new token after a restart; settle `idle` releases
+the lock and its file, `transfer` keeps both, `end` archives; malformed bodies are 422
+`INVALID_REQUEST_BODY`; the folder reasons; the `deltas_skipped` frame (no id, `{session_id, after}`); no
+recent-items list in the snapshot (fixtures followed). `interrupt` on a task not running answers 202
+with its current state. `runs[].state`: `starting`/`stopping` → `running`, `stopped` →
+`completed_needs_review` with `paused_reason: "stopped"`.
+For R4 (the seams are `agent/locks.py` and `agent/cleanup.py`):
+- The transfer route must set the row's `transfer_token_sha256`, `transfer_expires_at` and
+  `state: transferring`; R3 validates exactly those and treats `transferring` as not holding (409
+  `PROJECT_LOCKED`). When a window takes the lock with a token, R3's session still holds a descriptor on
+  RAVIS's lock file: abandon it (`HeldLockFile.abandon`) and let the window replace the file.
+- C3's asks left for R4: `LOCK_TRANSFER_INVALID` on `POST /project-locks`; who rewrites the checkout lock
+  file at a window's token take; nested-root takeover; the lock file's `leftover` entry shape (R3 writes
+  `leftover: []` and shows processes as `{pid, comm, started_at}`); a lock file missing while
+  `takeover_allowed` is served; the transfer, GET and takeover routes with `root_hash` and confirmation.
+- R3 builds only the narrowest adoption (a gone previous RAVIS's file is replaced). Superseded rows are read
+  (409 `LOCK_SUPERSEDED`), never written. Restart: live tasks become `uncertain` and their processes are
+  ended by sandbox root; recording `agent_process` rows, the 2 s sampling and restart kills are R4's.
+- Not built: `paused_for_update` (a binary swap with a turn only waiting), `ravis.project_lock.taken_over`,
+  the 90-day `thread/delete` sweep, interrupting turns at shutdown (they die with Codex's process).
+For C3: `SessionView.codex.account_fingerprint` is the sha256 fingerprint of the account the task was
+created under. `GET /api/v1/codex` still shows only its strength and `fingerprint_matches`, so comparing
+a checkpoint with the *current* account needs that hash added there (a contract change).
+For C2a/C2b: a `session.state` settle state follows every turn unless a queued steer starts the follow-on
+turn; `feedback` echoes the text as sent; secret questions and elicitations are never offered.
+Fixtures changed: `agent-sessions.json` (the account fingerprint in every session view; the invalid
+mode example's code; the `site` kind, rules, example and answers; network examples back to none), `event-stream.json` (the fingerprint in the snapshots), `conventions.json` (folder
+reasons, `INVALID_REQUEST_BODY`'s reach, the open points decided, `SITE_NOT_ADDED`) and the
+manifest; `event-stream.json` also gained `site.blocked` and `site.allowed`. Clarvis's copy
+needs the same.
+
+## From C2a (clarvis 29a5d4f, af46119, ceb383c — 13 Sep 2026)
+Built: `CodingRun` surface (engine, run, interject, drainInterjections, result, blocked, branches, stillMissing,
+codexSession); `chooseEngine` (Codex only for exactly `ravis/codex` in user settings, loopback RAVIS, trusted folder);
+chat run builds either engine, palette never Codex, answer path refuses Codex. Stop releases every question in the same
+tick before the interrupt; late answers never sent. Steer via relay, kept and redelivered when it can't. Each Codex
+message → one text event (STEP matching unchanged). File changes recorded once per item+path. Clarvis's own writing
+runs now take the lock file then RAVIS's lease (15 s heartbeats); fence trips only on revoked lease or a lock file
+naming another window. ChatService.ts: only a panel-ping hook and a reattach delegate added; stop()/stopFromChat()
+untouched. Behaviour change once installed: two editors can't build one project at once; folders without git get
+`.clarvis/`. Until C2b, Codex's requests are declined where RAVIS allows declining and questions wait.
+For R3 (RAVIS relay):
+- Emit a `session.state` needing a save (e.g. `completed_needs_review`) after every turn, failed ones included; the
+  runner settles only on that.
+- Include `branch` in snapshots and session views.
+- Echo steered text exactly in `feedback` events.
+- Make turn-failure `error.message` owner-readable (kinds other than `step_cap` not fixed yet).
+- A 422 from the lock routes leaves Clarvis's engine on the lock file alone.
+- The settle sends `checkpoint_saved: true` before C3's checkpoint exists.
+- The fixtures' file-change item has no `moved_to`.
+Open in Clarvis: C2a — reconcile a gone window (F-A9), the command group kill, wiring "carry on" to `continueTurn`;
+C2b — approvals UI (after calibration); C3 — checkpoint, switching, `continueOn`, takeover with confirmation.
+Not run: `npm run test:host` (network lookup of VS Code's version); `src/test/engineChoice.spec.ts` written for it.
+
+## Coordination (13 Sep 2026) — the peer's hasGit fix in Clarvis
+- The owner approved nervis-ecosystem-fc's `hasGit` fix, to start after C3 lands. On my "C3 landed" message it edits
+  `src/planning/workspaceResearch.ts` (read `hasGit` from unfiltered entries, keep the '.clarvis' line), its test, and a
+  short signed-off plan.md entry; explicit paths; no bump/RELEASES/package/install without checking with me.
+- Before launching the next Clarvis agent after C3 (C2b), wait for its "landed" message, and `git pull`/check clarvis HEAD.
+
 ## Rename: `ravis/codex` → `ravis/clarvis-codex` (13 Sep 2026; RAVIS 0.23.11, NERVIS 0.28.15, Clarvis 0.16.1)
 - Owner decision: the Codex engine's model id matches the Clarvis pools, `ravis/clarvis-agent` and `ravis/clarvis-chat`.
   No alias for the old id; nothing installed depends on it for a running task.

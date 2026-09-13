@@ -293,8 +293,19 @@ resets: an allowance, never a cost, and unknown rather than zero. With an admin 
 account; `/api/v1/codex/version-check` and `/api/v1/codex/accept-version` check and accept a
 Codex build RAVIS hasn't tested. The file-rules re-test, `/api/v1/codex/reprove`, starts only from
 the menu bar with the owner's own credential. RAVIS runs one Codex process for this, and only for a
-tested or accepted build. Running Codex tasks is not built yet, and the pinned Homebrew Codex
-0.154.0 stays paused for tasks until calibration proves its file rules. Calibration is built (RAVIS
+tested or accepted build, and the pinned Homebrew Codex 0.154.0 stays paused for tasks until its
+file rules are proven.
+
+**It runs Codex tasks for Clarvis** (RAVIS 0.23.15). A Clarvis window starts a task on
+`/api/v1/agent-sessions` in a project inside the coding folder — never the ecosystem's own
+repositories or the coding folder itself — follows it on the task's event stream, answers Codex's
+approvals and questions, steers it, stops it and saves its work. The task keeps running with no
+editor open, and another window can reattach to it. Only a Clarvis credential holding the task's
+token may do any of that; NERVIS and admin credentials are refused. The menu bar and the dashboard
+can only stop a task, after confirming its folder and turn. A question nobody answers pauses the
+task after 30 minutes with no editor open, or 2 hours with one; RAVIS never approves anything
+itself. Codex's commands reach only sites the owner approved: when one is blocked, Clarvis asks whether to allow it (allowing adds it while Codex runs; package registries and GitHub are allowed from the start). Tasks stay refused while the file rules are
+unproven. Calibration is built (RAVIS
 0.23.10) but has not been run: it exists only while RAVIS runs with `RAVIS_CODEX_CALIBRATION=1`,
 the owner starts it from a terminal with `tools/run.py codex calibrate` on two throwaway git
 projects, and it asks sixteen questions of Codex using the plan's allowance. Only a full run in

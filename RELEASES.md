@@ -999,7 +999,61 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.14
+## RAVIS — 0.23.15
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Clarvis can run a coding task on Codex through RAVIS** (M29's third increment, R3). A Clarvis
+  window creates a task on `/api/v1/agent-sessions`, follows it on the task's resumable event stream,
+  answers Codex's approvals and questions with the decisions RAVIS allows, steers it, stops it and
+  saves its work; the task keeps running with no editor open and another window can reattach. Only a
+  Clarvis credential holding the task's token may do any of it: NERVIS, the launcher and every admin
+  credential are refused on every route, a valid token or not. The menu bar and the dashboard get
+  one route of their own, `owner-stop`, which stops a task after confirming its folder and turn and
+  does nothing else.
+- **Tasks stay paused until the file rules are proven.** Creating a task, and every turn, is refused
+  with 409 `CODEX_NOT_READY` while the running Codex build's strict file rules aren't proven.
+- **Built to calibration run `cal_d2185ed08f50`.** Every mode uses the granular approval policy it
+  measured. Because an interrupted Codex turn leaves its open request unresolved (K7), RAVIS answers
+  and publishes every open request itself whenever a turn ends. A file change is offered only once
+  its item says what it would write (K12). All of it sits in `agent/calibration_dependent.py`.
+- **Codex tasks reach the internet through approved sites, never through approvals.** Calibration
+  proved that on Codex 0.154.0 an approval never opens the network, so a network approval is
+  offered only skip or stop. When Codex's network proxy blocks a site a command tried to reach,
+  RAVIS asks the owner through Clarvis — one site at a time, each once per task, storing only the
+  host — with a `site` request, a `site.blocked` event and the decisions `allow_site` and
+  `keep_blocked`. Codex now starts with its network proxy on and a default list of package
+  registries, GitHub and JavaScript runtimes (`DEFAULT_ALLOWED_SITES`). Allowing a site adds that
+  exact host to Codex's list while it runs (`config/batchWrite`), with no restart and no task
+  losing progress, and sends `site.allowed` so Clarvis can have Codex retry; a write Codex
+  overrides or refuses is 409 `SITE_NOT_ADDED`, and the site stays blocked. Never a wildcard, an IP
+  address or a local name. Not yet verified: that an added site reaches a turn already running.
+- **Withdrawn: Codex's two permission-request features** (`features.exec_permission_approvals` and
+  `features.request_permissions_tool`, added to `FIXED_FLAGS` in 0.23.14). With them on, the K3,
+  K4 and K8 re-test (`cal_f4552084e0e0`) still saw no network approval, no `additionalPermissions`
+  and no permissions request; with the network proxy also on (`cal_8cfcf81b2d04`) Codex sent only
+  plain command approvals, and after an accept the proxy blocked local addresses outright and an
+  unlisted domain without a prompt. The features only added Codex's "under-development features"
+  warning, so they're gone.
+- **New records, metadata only.** Migration 8 adds the agent-session, turn, request, process,
+  project-lock and kept-answer tables, backed up first to `ravis.db.v7.bak`. No prompt, approval,
+  command or output text is stored; relayed content lives in memory and is gone 30 minutes after a
+  task ends.
+- **Not in this release:** the `/api/v1/project-locks` routes, restart reconciliation and process
+  recording (R4). `GET /api/v1/codex` now lists running tasks (`runs`), with ids and turns only for
+  a named caller, and `ravis.agent_sessions@1` is declared.
+- **The contract fixtures changed:** the account fingerprint in every session view, the invalid-mode
+  refusal's code, the open points this increment decided, the `site` request kind with its event,
+  examples and `SITE_NOT_ADDED`, and the `site.allowed` event, and a network approval offered only skip or stop. Clarvis's copy needs the same.
+- **The test suite can no longer open the checkout's own `ravis.db`.** A full run from `ravis/`
+  built apps with the default relative `database_path`, opened the live RAVIS's database and
+  migrated it to schema 8, which the running RAVIS refused (restored from `ravis.db.v7.bak`).
+  `tests/conftest.py` now points every default at an in-memory database before any test is
+  collected and fails a run that creates the checkout's file; the tests that built apps with
+  defaults name `:memory:`; `tests/test_no_checkout_database.py` guards both.
+- **Checked:** ruff, strict mypy and the full RAVIS suite (1528).
+
+### 0.23.14
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

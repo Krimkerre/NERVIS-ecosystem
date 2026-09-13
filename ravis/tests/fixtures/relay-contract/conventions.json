@@ -216,7 +216,7 @@
     "INVALID_REQUEST_BODY": {
       "status": [422],
       "retryable": false,
-      "where": "a Codex admin route (sign-in, sign-out, account/confirm, accept-version, reprove) whose body is not a JSON object or lacks a field the route needs"
+      "where": "a Codex admin route (sign-in, sign-out, account/confirm, accept-version, reprove), or since R3 an agent-session route, whose body is not a JSON object, lacks a field the route needs, or names a value the route doesn't take (a mode, a turn kind, a settle next)"
     },
     "LEASE_REVOKED": {
       "status": [409],
@@ -299,6 +299,11 @@
       "retryable": false,
       "where": "turns and DELETE on a session that still needs a settle"
     },
+    "SITE_NOT_ADDED": {
+      "status": [409],
+      "retryable": false,
+      "where": "answer allow_site when Codex didn't add the site to its allowlist (it answered okOverridden, refused or didn't answer, or the host isn't a plain public host name); the site stays blocked and the request open"
+    },
     "SIGN_IN_METHOD_NOT_SUPPORTED": {
       "status": [422],
       "retryable": false,
@@ -375,7 +380,7 @@
       "protected_repository": "is, contains or lies inside NERVIS-ecosystem or clarvis",
       "allowed_roots_entry": "is an agent_allowed_roots entry itself"
     },
-    "details_reason_other": "the design fixes no other reason values; RAVIS's relay increment adds them here",
+    "details_reason_other": "RAVIS's relay increment (R3) adds: not_a_folder (missing or not a folder), home (the home folder itself), private_folder (inside ~/.config, ~/.local/share, ~/.ssh, ~/.aws, ~/Library or ~/.codex), outside_allowed_roots, denied_path (is, holds or lies inside a denied path such as .run), lock_file_unwritable (the checkout lock file couldn't be written)",
     "protected_repositories_default": "RAVIS's own checkout and its sibling clarvis, even when RAVIS starts without the launcher",
     "owner_decision": "the ecosystem's own repositories stay refused; allowing one later needs an exact allow_protected listing and calibration K5c proving deny beats write inside a root",
     "binding": "a session stores the realpath, and no later call can change it"
@@ -418,13 +423,13 @@
     "queued_steer_without_the_lock": "starts nothing; RAVIS emits feedback {text, how: not_delivered}, and Clarvis keeps the text in the checkpoint's latestFeedback"
   },
   "open_points": [
-    "A replayed create, transfer or reissue-token must return the original token, while RAVIS stores only token hashes and its idempotency record keeps ids and states only. RAVIS's relay increment decides how a replay returns a token it did not keep.",
+    "Decided by RAVIS's relay increment (R3): a replayed create or reissue-token returns the original token within the same RAVIS run, where it is kept in memory beside the record for its 24 hours and never written to disk. After a RAVIS restart the token is gone, so the replay is answered as reissue-token would be: a new token once no window has been attached for 60 s, else 409 WINDOW_ATTACHED. A replayed transfer is R4's.",
     "CODEX_NOT_READY's details.reason is a sentence in the endpoint table and the fixed word strict_file_rules_unproven in the safety-box rule. These fixtures use that word for unproven file rules and the state's reason sentence otherwise.",
-    "The design gives a 422 without a code for an invalid mode; that example says so instead of naming one. RAVIS's second increment (R2) fixed the rest of this family: a sign-in method other than browser is SIGN_IN_METHOD_NOT_SUPPORTED, a malformed Codex admin body is INVALID_REQUEST_BODY, and DELETE accept-version answers the full GET body.",
+    "An invalid mode, like any malformed agent-session body (an unknown turn kind, settle next or interrupt reason, a missing field), is 422 INVALID_REQUEST_BODY since RAVIS's relay increment (R3). RAVIS's second increment (R2) fixed the rest of this family: a sign-in method other than browser is SIGN_IN_METHOD_NOT_SUPPORTED, a malformed Codex admin body is INVALID_REQUEST_BODY, and DELETE accept-version answers the full GET body.",
     "GET /api/v1/codex/reprove returns the last result; only its state and result word are fixed.",
     "The transcript's turn entries follow Codex's thread/turns/list summary view and are fixed against calibration's transcripts.",
-    "The deltas_skipped marker in a resumed stream, a question's options and its answers map, and the type key on a normalised stream item have no fixed shape yet; the fixtures show one plausible form of each.",
-    "Whether a session settled with next: idle keeps its project lock is not stated; the idle view here shows it released, and turns show how a lockless session takes it back.",
-    "The shared lock rule's module is named both codex/lock_rule.py and agent/lock_rule.py in the design; RAVIS.md §18 follows the build plan's agent/. R2 did not build it, so the increment that does settles the name. The cases are the contract either way."
+    "Decided by R3: the deltas_skipped marker is a frame with no id (so it never moves a cursor), event deltas_skipped, data {session_id, after: <the cursor>}, sent before the replayed events. A question's options are its labels as strings, and a window's answers map is {question id: answer text}. A normalised stream item carries its kind under type. The snapshot carries no list of recent completed items (the design's last 200): R3 follows these fixtures, and a window rebuilds progress from the settle's git reconciliation.",
+    "Decided by R3: a session settled with next: idle releases its project lock and its checkout lock file (lock: null), and a turn takes the lock back atomically; next: transfer keeps both, reserved for the destination's transfer token (R4 mints it); next: end archives the thread and releases.",
+    "Settled by calibration's harness (Cal): the shared lock rule is codex/lock_rule.py and the checkout lock file codex/lock_file.py. R3's project-lock seam is agent/locks.py and its process clean-up seam agent/cleanup.py; M29's fourth increment (R4) fills both."
   ]
 }

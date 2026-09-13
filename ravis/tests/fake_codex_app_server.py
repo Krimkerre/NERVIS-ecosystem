@@ -38,6 +38,7 @@ from typing import Any
 
 # Run as a program, so its own folder is on sys.path: calibration's half lives beside it.
 import fake_codex_calibration as calibration
+import fake_codex_relay as relay
 
 SCENARIO = json.loads(Path(os.environ["FAKE_CODEX_SCENARIO"]).read_text())
 CONTROL = Path(os.environ["FAKE_CODEX_CONTROL"])
@@ -261,16 +262,19 @@ def scripted_turn(thread_id: str, turn_id: str, prompt: str, params: dict[str, A
     notify("turn/started", {"threadId": thread_id, "turn": turn})
     script = SCENARIO.get("turn_script", "obedient")
     stop = state["interrupts"][turn_id]
+    error = None
     if prompt.startswith("This is RAVIS's calibration"):
         calibration.turn(API, thread_id, turn_id, prompt, params, stop)
+    elif prompt.startswith("RELAY"):
+        error = relay.turn(API, thread_id, turn_id, prompt, stop)
     elif script == "loops":
         loop_forever(thread_id, turn_id, stop)
     elif script == "sleeps":
         stop.wait(120)
     else:
         obey(thread_id, turn_id, prompt, script, stop)
-    status = "interrupted" if stop.is_set() else "completed"
-    ended = {"id": turn_id, "status": status, "items": [], "error": None}
+    status = "interrupted" if stop.is_set() else "failed" if error else "completed"
+    ended = {"id": turn_id, "status": status, "items": [], "error": error}
     notify("turn/completed", {"threadId": thread_id, "turn": ended})
 
 
@@ -382,6 +386,8 @@ API = types.SimpleNamespace(
     answered=answered, server_ids=server_ids,
 )
 HANDLERS.update(calibration.handlers(API))
+# The agent-session relay's half, registered last: its `turn/steer` can be told to refuse.
+HANDLERS.update(relay.handlers(API))
 
 
 def initialize(request_id: Any, params: dict[str, Any]) -> None:
@@ -444,7 +450,10 @@ def respond(request_id: Any, method: str, params: dict[str, Any]) -> None:
 
 def carry_out(command: dict[str, Any]) -> None:
     action = command["do"]
-    if action == "crash":
+    simple = SIMPLE_COMMANDS.get(action)
+    if simple is not None:
+        simple(command)
+    elif action == "crash":
         os._exit(command.get("status", 1))
     elif action == "stop_answering":
         state["silent"] = {"*"}
@@ -454,8 +463,18 @@ def carry_out(command: dict[str, Any]) -> None:
         complete_login(command)
     elif action == "set_account":
         set_account(command)
-    elif action == "set_rate_limits":
-        state["rate_limits"] = command["rate_limits"]
+
+
+def interrupt_turns(_command: dict[str, Any]) -> None:
+    """Codex ending its turns by itself, without RAVIS asking."""
+    for event in state["interrupts"].values():
+        event.set()
+
+
+SIMPLE_COMMANDS: dict[str, Callable[[dict[str, Any]], None]] = {
+    "set_rate_limits": lambda command: state.update(rate_limits=command["rate_limits"]),
+    "interrupt_turns": interrupt_turns,
+}
 
 
 def set_account(command: dict[str, Any]) -> None:

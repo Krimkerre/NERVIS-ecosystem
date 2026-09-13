@@ -66,7 +66,8 @@
           "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
           "active_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
           "model": "gpt-6-astra",
-          "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+          "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+          "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
         },
         "branch": {
           "name": "clarvis/add-utc",
@@ -83,7 +84,7 @@
               "command": "npm install left-pad",
               "cwd": "web",
               "reason": "The build needs this package.",
-              "network": {"host": "registry.npmjs.org", "protocol": "https"},
+              "network": null,
               "escalation": null,
               "gate_hint": null
             },
@@ -210,7 +211,7 @@
             "command": "npm install left-pad",
             "cwd": "web",
             "reason": "The build needs this package.",
-            "network": {"host": "registry.npmjs.org", "protocol": "https"},
+            "network": null,
             "escalation": null,
             "gate_hint": null
           },
@@ -235,6 +236,26 @@
         "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
         "text": "Use datetime.timezone.utc, not pytz.",
         "how": "steered"
+      }
+    },
+    {
+      "event": "site.blocked",
+      "data": "{turn_id, item_id, host, protocol: http | https | null}: Codex's network proxy blocked a command from reaching a site, and a site request asks the owner",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+        "item_id": "call_fixture_command_2",
+        "host": "pypi.org",
+        "protocol": "https"
+      }
+    },
+    {
+      "event": "site.allowed",
+      "data": "{request_id, host}: the owner allowed a blocked site and Codex added it, so the blocked step can be retried",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "request_id": "rq_01J9ZKB2C3D4E5F6G7H8J9K0L1",
+        "host": "pypi.org"
       }
     },
     {
@@ -338,7 +359,8 @@
                 "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
                 "active_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
                 "model": "gpt-6-astra",
-                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
               },
               "branch": {
                 "name": "clarvis/add-utc",
@@ -355,7 +377,7 @@
                     "command": "npm install left-pad",
                     "cwd": "web",
                     "reason": "The build needs this package.",
-                    "network": {"host": "registry.npmjs.org", "protocol": "https"},
+                    "network": null,
                     "escalation": null,
                     "gate_hint": null
                   },
@@ -389,7 +411,7 @@
                   "command": "npm install left-pad",
                   "cwd": "web",
                   "reason": "The build needs this package.",
-                  "network": {"host": "registry.npmjs.org", "protocol": "https"},
+                  "network": null,
                   "escalation": null,
                   "gate_hint": null
                 },
@@ -432,7 +454,7 @@
                   "command": "npm install left-pad",
                   "cwd": "web",
                   "reason": "The build needs this package.",
-                  "network": {"host": "registry.npmjs.org", "protocol": "https"},
+                  "network": null,
                   "escalation": null,
                   "gate_hint": null
                 },

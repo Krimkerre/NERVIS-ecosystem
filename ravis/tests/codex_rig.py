@@ -31,6 +31,9 @@ from tests.codex_fakes import (
     write_pin,
 )
 
+from ravis.agent.cleanup import CleanupTimings
+from ravis.agent.session import SessionTimings
+from ravis.agent.sessions import AgentTimings
 from ravis.app import create_app
 from ravis.codex.acceptance import HandshakeTimings
 from ravis.codex.account import account_fingerprint
@@ -75,6 +78,16 @@ FAST = ServiceTimings(
         stop_cap_seconds=2.0, processes_start_seconds=8.0, term_wait_seconds=0.2,
         confirm_seconds=2.0, heartbeat_seconds=0.2,
     ),
+    agents=AgentTimings(
+        tick_seconds=0.05, heartbeat_seconds=0.2, stream_heartbeat_seconds=0.3,
+        session=SessionTimings(
+            thread_start_seconds=3.0, turn_start_seconds=3.0, steer_seconds=1.0,
+            interrupt_seconds=1.0, interrupt_wait_seconds=1.0, archive_seconds=2.0,
+            turns_list_seconds=1.0, file_item_wait_seconds=0.3,
+            cleanup=CleanupTimings(terminals_seconds=1.0, term_wait_seconds=0.2,
+                                   confirm_seconds=1.5),
+        ),
+    ),
 )
 
 SIGNED_IN = {"type": "chatgpt", "email": "owner@example.com", "planType": "plus"}
@@ -98,6 +111,7 @@ SECRETS = {
     "admin.owner_cli": "owner-cli-secret",
     "client.nervis": "nervis-client-secret",
     "client.clarvis": "clarvis-client-secret",
+    "client.other": "other-client-secret",
 }
 
 
@@ -156,6 +170,7 @@ def codex_rig(
     extra_entries: tuple[dict[str, Any], ...] = (),
     app_server: bool = True,
     experimental_schema: Mapping[str, str] = EXPERIMENTAL_SCHEMA,
+    agent_clock: Callable[[], float] = time.monotonic,
     **settings: Any,
 ) -> CodexRig:
     """A RAVIS whose Codex is the fakes. `tested=False` pins nothing, so the build is untested.
@@ -201,6 +216,9 @@ def codex_rig(
         sign_in_ports=sign_in_ports or free_ports(2),
         # Calibration's K2 writes (or is refused writing) into `/tmp`; a test's stays its own.
         calibration_slash_tmp=tmp_path / "slash-tmp",
+        # Clarvis's Codex tasks keep their rows in the app's own database, as in RAVIS.
+        database=app.app.state.database,
+        agent_clock=agent_clock,
     )
     app.app.state.codex_service = rig.service
     app.app.state.codex = rig.service.runtime

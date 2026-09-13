@@ -13,6 +13,7 @@ import os
 import pathlib
 import shutil
 from dataclasses import dataclass, field
+from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -375,6 +376,29 @@ class Settings(BaseSettings):
     # project (owner decision (b)). The launcher passes this checkout and its sibling `clarvis`;
     # RAVIS also refuses the checkout it runs from, so the rule holds without the launcher.
     agent_protected_repositories: list[str] = []
+
+    # ── Codex agent sessions (M29's third increment, R3; RAVIS.md §15.1.2) ─────
+    # The client applications whose credential may start, read, steer, stop and answer Codex
+    # tasks on `/api/v1/agent-sessions` (design §3.5.1). Only Clarvis by default. NERVIS and the
+    # launcher stay refused even if someone lists them, and so does every admin credential.
+    agent_client_applications: list[str] = ["clarvis"]
+    # The admin applications that may use the stop-only owner route (§3.5.5): the menu bar's
+    # `owner_cli` and NERVIS's `launcher`. Kept apart so each has its own rate limit and audit name.
+    agent_owner_stop_applications: list[str] = ["owner_cli", "launcher"]
+    # Where a Codex task's project may be (§3.5.1): a folder strictly inside one of these. An
+    # entry may instead be `{"path": …, "allow_protected": true}`, which would allow exactly that
+    # folder even though it is a protected repository — documented, not used (owner decision
+    # (b)). JSON lists, as the launcher passes them (N1a's notes).
+    agent_allowed_roots: list[str | dict[str, Any]] = ["~/Documents/coding"]
+    # Folders no task may be in or contain, and whose appearance in a command hides its output:
+    # the launcher passes its `.run`, which holds every key it mints.
+    agent_denied_paths: list[str] = []
+    # How many Codex tasks may be live at once (409 CODEX_SESSION_LIMIT, design §3.5.3).
+    agent_session_limit: int = 3
+    # The unanswered-request policy (design §4.8): how long one of Codex's requests may wait with
+    # a Clarvis panel attached, and with none, before RAVIS declines it and pauses the task.
+    agent_unanswered_attached_seconds: float = 7200.0
+    agent_unanswered_detached_seconds: float = 1800.0
 
     database_path: str = "ravis.db"
     log_level: str = "INFO"

@@ -1,0 +1,219 @@
+"""Migration 8's tables, as the relay reads and writes them (design §4.10; RAVIS.md §17).
+
+Shaped like `sessions.py`'s `SessionStore`: one class over the shared `Database`, an injected
+clock, rows in and out as plain dicts. **Metadata only** — ids, states, kinds, counts, timestamps
+and the workspace's real path and name. Nothing a caller passes can put text of a prompt, an
+approval, a command or its output here: each write names its columns, and every column is one of
+those kinds.
+
+**Retention** (settled defaults, design §4.10), applied by `enforce_retention` at start and hourly:
+sessions, their turns and requests 30 days after the session ended; process rows 24 hours after
+they were confirmed gone; kept answers after 24 hours. A lock row exists only while it is held.
+
+Timestamps are ISO-8601 UTC strings (`2026-09-13T01:12:00Z`), which sort as they compare.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from ravis.codex.lock_file import iso
+from ravis.storage.database import Database
+
+SESSION_COLUMNS = frozenset({
+    "id", "application_id", "workspace_root", "workspace_root_hash", "workspace_name", "git_dir",
+    "clarvis_task_id", "engine", "codex_thread_id", "active_turn_id", "last_turn_id", "model",
+    "mode", "file_rules", "state", "token_sha256", "trace_id", "runtime_sha256",
+    "account_fingerprint", "branch_name", "head_commit_at_start", "max_steps", "last_event_id",
+    "created_at", "updated_at", "ended_at",
+})
+LOCK_COLUMNS = frozenset({
+    "id", "workspace_root", "root_hash", "holder_kind", "holder_session_id", "holder_window_id",
+    "holder_host", "holder_pid", "holder_pid_start", "lease_sha256", "state", "waiting_on_you",
+    "heartbeat_at", "acquired_at", "taken_over_from", "transfer_token_sha256",
+    "transfer_expires_at",
+})
+SESSIONS_KEPT = timedelta(days=30)
+PROCESSES_KEPT = timedelta(hours=24)
+ANSWERS_KEPT = timedelta(hours=24)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _columns(fields: dict[str, Any], allowed: frozenset[str]) -> list[str]:
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ValueError(f"not columns of this table: {sorted(unknown)}")
+    return list(fields)
+
+
+class AgentStore:
+    """The relay's rows. Safe from any thread: the database gives each its own connection."""
+
+    def __init__(self, database: Database, now: Callable[[], datetime] = _utc_now) -> None:
+        self._database = database
+        self._now = now
+
+    def stamp(self) -> str:
+        return iso(self._now())
+
+    def _execute(self, sql: str, values: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        cursor = self._database.connection.execute(sql, values)
+        return [dict(row) for row in cursor.fetchall()]
+
+    # ── Sessions ─────────────────────────────────────────────────────────────
+
+    def insert_session(self, row: dict[str, Any]) -> None:
+        names = _columns(row, SESSION_COLUMNS)
+        marks = ", ".join("?" for _ in names)
+        self._execute(
+            f"INSERT INTO agent_session ({', '.join(names)}) VALUES ({marks})",
+            tuple(row[name] for name in names),
+        )
+
+    def update_session(self, session_id: str, **fields: Any) -> None:
+        fields.setdefault("updated_at", self.stamp())
+        names = _columns(fields, SESSION_COLUMNS)
+        assignments = ", ".join(f"{name} = ?" for name in names)
+        self._execute(
+            f"UPDATE agent_session SET {assignments} WHERE id = ?",
+            (*(fields[name] for name in names), session_id),
+        )
+
+    def session(self, session_id: str) -> dict[str, Any] | None:
+        rows = self._execute("SELECT * FROM agent_session WHERE id = ?", (session_id,))
+        return rows[0] if rows else None
+
+    def live_sessions(self) -> list[dict[str, Any]]:
+        return self._execute(
+            "SELECT * FROM agent_session WHERE ended_at IS NULL ORDER BY created_at"
+        )
+
+    # ── Turns and requests ───────────────────────────────────────────────────
+
+    def insert_turn(self, session_id: str, turn_id: str, kind: str) -> None:
+        self._execute(
+            "INSERT OR IGNORE INTO agent_turn (id, session_id, kind, started_at) "
+            "VALUES (?, ?, ?, ?)",
+            (turn_id, session_id, kind, self.stamp()),
+        )
+
+    def end_turn(self, session_id: str, turn_id: str, status: str, *, uncertain: bool) -> None:
+        self._execute(
+            "UPDATE agent_turn SET ended_at = ?, status = ?, uncertain = ? "
+            "WHERE session_id = ? AND id = ? AND ended_at IS NULL",
+            (self.stamp(), status, int(uncertain), session_id, turn_id),
+        )
+
+    def mark_uncertain(self, session_id: str) -> None:
+        """A turn a previous RAVIS was running: its outcome is unknown (design §4.4)."""
+        self._execute(
+            "UPDATE agent_turn SET ended_at = ?, status = 'uncertain', uncertain = 1 "
+            "WHERE session_id = ? AND ended_at IS NULL",
+            (self.stamp(), session_id),
+        )
+        self._execute(
+            "UPDATE agent_request SET resolved_at = ?, resolved_by = 'turn_ended' "
+            "WHERE session_id = ? AND resolved_at IS NULL",
+            (self.stamp(), session_id),
+        )
+
+    def insert_request(
+        self, request_id: str, session_id: str, turn_id: str | None, codex_id: str, kind: str,
+        *, host: str | None = None,
+    ) -> None:
+        self._execute(
+            "INSERT INTO agent_request "
+            "(id, session_id, turn_id, codex_request_id, kind, host, opened_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (request_id, session_id, turn_id, codex_id, kind, host, self.stamp()),
+        )
+
+    def resolve_request(self, request_id: str, by: str, decision_kind: str) -> None:
+        self._execute(
+            "UPDATE agent_request SET resolved_at = ?, resolved_by = ?, decision_kind = ? "
+            "WHERE id = ? AND resolved_at IS NULL",
+            (self.stamp(), by, decision_kind, request_id),
+        )
+
+    def request(self, request_id: str) -> dict[str, Any] | None:
+        rows = self._execute("SELECT * FROM agent_request WHERE id = ?", (request_id,))
+        return rows[0] if rows else None
+
+    # ── Kept answers (idempotency) ───────────────────────────────────────────
+
+    def kept_answer(self, scope: str, key: str) -> dict[str, Any] | None:
+        horizon = iso(self._now() - ANSWERS_KEPT)
+        rows = self._execute(
+            "SELECT * FROM agent_idempotency WHERE scope = ? AND key = ? AND created_at >= ?",
+            (scope, key, horizon),
+        )
+        return rows[0] if rows else None
+
+    def keep_answer(
+        self, scope: str, key: str, body_sha256: str, status: int, response_json: str
+    ) -> None:
+        self._execute(
+            "INSERT OR REPLACE INTO agent_idempotency "
+            "(scope, key, body_sha256, status, response_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (scope, key, body_sha256, status, response_json, self.stamp()),
+        )
+
+    # ── Project locks ────────────────────────────────────────────────────────
+
+    def locks(self) -> list[dict[str, Any]]:
+        return self._execute("SELECT * FROM project_lock ORDER BY acquired_at")
+
+    def lock_for_root(self, root_hash: str) -> dict[str, Any] | None:
+        rows = self._execute("SELECT * FROM project_lock WHERE root_hash = ?", (root_hash,))
+        return rows[0] if rows else None
+
+    def lock_for_session(self, session_id: str) -> dict[str, Any] | None:
+        rows = self._execute(
+            "SELECT * FROM project_lock WHERE holder_session_id = ?", (session_id,)
+        )
+        return rows[0] if rows else None
+
+    def insert_lock(self, row: dict[str, Any]) -> None:
+        """Raises `sqlite3.IntegrityError` when the root is held already: `root_hash` is unique."""
+        names = _columns(row, LOCK_COLUMNS)
+        marks = ", ".join("?" for _ in names)
+        self._execute(
+            f"INSERT INTO project_lock ({', '.join(names)}) VALUES ({marks})",
+            tuple(row[name] for name in names),
+        )
+
+    def update_lock(self, lock_id: str, **fields: Any) -> None:
+        names = _columns(fields, LOCK_COLUMNS)
+        assignments = ", ".join(f"{name} = ?" for name in names)
+        self._execute(
+            f"UPDATE project_lock SET {assignments} WHERE id = ?",
+            (*(fields[name] for name in names), lock_id),
+        )
+
+    def delete_lock(self, lock_id: str) -> None:
+        self._execute("DELETE FROM project_lock WHERE id = ?", (lock_id,))
+
+    # ── Retention ────────────────────────────────────────────────────────────
+
+    def enforce_retention(self) -> None:
+        """Delete what the design keeps no longer (see the module docstring)."""
+        now = self._now()
+        ended = iso(now - SESSIONS_KEPT)
+        old = "SELECT id FROM agent_session WHERE ended_at IS NOT NULL AND ended_at < ?"
+        self._execute(f"DELETE FROM agent_turn WHERE session_id IN ({old})", (ended,))
+        self._execute(f"DELETE FROM agent_request WHERE session_id IN ({old})", (ended,))
+        self._execute("DELETE FROM agent_session WHERE ended_at IS NOT NULL AND ended_at < ?",
+                      (ended,))
+        self._execute(
+            "DELETE FROM agent_process "
+            "WHERE confirmed_gone_at IS NOT NULL AND confirmed_gone_at < ?",
+            (iso(now - PROCESSES_KEPT),),
+        )
+        self._execute("DELETE FROM agent_idempotency WHERE created_at < ?",
+                      (iso(now - ANSWERS_KEPT),))

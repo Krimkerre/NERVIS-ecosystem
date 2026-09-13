@@ -91,8 +91,11 @@ async def _json_object(request: Request) -> dict[str, Any]:
 
 @router.get("")
 async def read_codex(request: Request) -> dict[str, Any]:
-    """Codex's state, allowance and tasks, from memory: always 200 while RAVIS is up."""
-    return _service(request).snapshot()
+    """Codex's state, allowance and tasks, from memory: always 200 while RAVIS is up.
+
+    Task ids and turn ids only for a named caller (`codex-state.json` → `runs_rules`).
+    """
+    return _service(request).snapshot(named=not request.state.identity.is_anonymous)
 
 
 @router.post("/sign-in", dependencies=[Depends(require_admin)])
