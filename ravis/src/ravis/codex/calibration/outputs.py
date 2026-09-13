@@ -119,7 +119,7 @@ class Decision:
 def decide(results: Mapping[str, ScenarioResult], selected: tuple[str, ...]) -> Decision:
     """Proven only by a full run in which every must-pass question passed."""
     must_pass = [key for key in selected if BY_ID[key].kind == "must_pass"]
-    not_passed = [key for key in must_pass if results[key].verdict != "passed"]
+    not_passed = [key for key in must_pass if not satisfied(key, results[key])]
     gate_failed = [
         key for key in GATE_SCENARIOS if key in results and results[key].verdict == "failed"
     ]
@@ -152,6 +152,13 @@ def decide(results: Mapping[str, ScenarioResult], selected: tuple[str, ...]) -> 
         "and its profile is written into tested_runtimes.json."
     )
     return Decision(True, sentence, False, questions, protected)
+
+
+def satisfied(key: str, result: ScenarioResult) -> bool:
+    """A must-pass question passed — or it may go unasked (K8) and Codex never asked it."""
+    if result.verdict == "passed":
+        return True
+    return result.verdict == "recorded" and BY_ID[key].may_go_unasked
 
 
 def _protected(result: ScenarioResult | None) -> str:

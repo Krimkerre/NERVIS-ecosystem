@@ -24,6 +24,12 @@ saw one, so the re-test can be told how a real Codex asks.
 
 **The decoys' marker** is looked for in everything Codex sends and every answer it gives: seen once
 anywhere, and the scenario says so.
+
+**A turn that ends leaves nothing open** (Cal-2, as R3's `session.py` does). Real calibration found
+Codex 0.154.0 doesn't resolve the request an interrupted turn had open (K7, `cal_d2185ed08f50`: no
+`serverRequest/resolved`). So when a thread's turn ends, the harness answers every request it still
+holds for that thread with R3's stop response for its kind (`STOP_RESPONSES`: cancel for a command
+or file change), notes each in `resolved_by_ravis` and the transcript, and K7 checks that.
 """
 
 from __future__ import annotations
@@ -37,6 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from ravis.agent.calibration_dependent import STOP_RESPONSES
 from ravis.codex.calibration.plan import CalibrationPlan, Project
 from ravis.codex.routing import Inbox, InboxItem
 from ravis.codex.rpc import METHOD_NOT_FOUND, CodexRpcError, CodexUnavailableError
@@ -45,6 +52,13 @@ Verdict = Literal["passed", "failed", "recorded", "inconclusive", "not_run"]
 #: Called for every answer: the scenario, the request's method, and the decision word.
 AnswerAudit = Callable[[str, str, str], None]
 SHELLS = frozenset({"bash", "zsh", "sh"})
+#: Each of Codex's requests by the kind R3's stop responses are named for.
+REQUEST_KINDS = {
+    "item/commandExecution/requestApproval": "command",
+    "item/fileChange/requestApproval": "fileChange",
+    "item/permissions/requestApproval": "permissions",
+    "item/tool/requestUserInput": "question",
+}
 #: How often a drive looks at its condition again while nothing arrives.
 POLL_SECONDS = 0.1
 #: The workspace box every turn carries unless a scenario asks for another (design §4.9).
@@ -113,7 +127,6 @@ class Approval:
     wrapped: bool
     decision: str
     additional_permissions: bool
-    network_host: str | None
 
 
 @dataclass
@@ -196,12 +209,19 @@ class Session:
         self._grants: dict[str, dict[str, Any]] = {}
         self._held_open: set[str] = set()
         self.pending: dict[Any, InboxItem] = {}
+        #: Requests the harness answered itself because their turn ended, and the answer sent.
+        self.resolved_by_ravis: dict[Any, dict[str, Any]] = {}
         self.approvals: list[Approval] = []
         self.off_list: list[str] = []
         self.transcript: list[dict[str, Any]] = []
         self.marker_seen = False
         self.observers: list[Callable[[InboxItem], None]] = []
         self._order = 0
+
+    @property
+    def order(self) -> int:
+        """The number of the last message the transcript noted, sent or received."""
+        return self._order
 
     # ── Requests the session sends ───────────────────────────────────────────
 
@@ -368,10 +388,28 @@ class Session:
         if log is not None:
             self._observe(log, item)
         if item.method == "serverRequest/resolved":
-            # Codex resolved a request the harness held open (K7): nothing is left to answer.
+            # Codex resolved a request the harness held open: nothing is left to answer.
             self.pending.pop(item.params.get("requestId"), None)
+        if item.method == "turn/completed" and key is not None:
+            self._resolve_open(key)
         if item.request_id is not None and item.connection is not None:
             self._answer(item, key)
+
+    def _resolve_open(self, key: str) -> None:
+        """A thread's turn ended: answer each request still open in it with its stop response.
+
+        What R3's `AgentSession._resolve_all` does when a turn ends, so no late accept can follow.
+        """
+        for request_id, item in list(self.pending.items()):
+            if self._keys.get(str(item.params.get("threadId"))) != key:
+                continue
+            answer = STOP_RESPONSES[REQUEST_KINDS.get(item.method, "command")]
+            if item.connection is not None:
+                item.connection.respond(request_id, answer)
+            self.pending.pop(request_id)
+            self.resolved_by_ravis[request_id] = answer
+            self._audit(self.scenario, item.method, str(answer.get("decision", "stop")))
+            self._note("to_codex_answer", item.method, {**answer, "resolved_by": "turn_ended"}, key)
 
     def _observe(self, log: ThreadLog, item: InboxItem) -> None:
         entry = item.params.get("item")
@@ -451,7 +489,6 @@ class Session:
             wrapped=wrapped,
             decision=decision,
             additional_permissions=bool(params.get("additionalPermissions")),
-            network_host=_text(network.get("host")) if isinstance(network, dict) else None,
         ))
 
     def _note(

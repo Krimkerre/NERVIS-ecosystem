@@ -1045,7 +1045,33 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.15
+## RAVIS — 0.23.16
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Calibration now checks what the owner decided, so the next full run can prove the file rules**
+  (Cal-2). The first real run (`cal_d2185ed08f50`) failed K3 and K7 and left K8 inconclusive, against
+  rules the owner has since replaced. This release rewrites those three questions to the decided
+  behaviour; K6 is unchanged.
+- **K3 now proves the approved-sites allowlist**, in one running task: a site on the default list
+  (`registry.npmjs.org`) answers; `example.com` is refused with the proxy's fixed line, and RAVIS's
+  site detection names it; calibration adds `example.com` exactly as the owner's "allow" does, and
+  the same task then reaches it with no restart; a loopback address and `example.org`, never added,
+  stay refused. The Codex site list is written back afterwards, so the next run finds `example.com`
+  refused again; if it can't be, the owner is told how to remove it.
+- **K7 passes when a stopped turn leaves nothing open.** Codex doesn't resolve the request an
+  interrupted turn had open, so calibration answers it with cancel when the turn ends, as a task
+  does. K7 passes once the turn ended interrupted within the cap and nothing was left unanswered.
+- **K8 records a Codex that never asks for permissions** instead of calling it inconclusive, and that
+  no longer keeps a full run from proving the rules. If Codex does ask, the empty grant must still
+  grant nothing.
+- **The candidate profile works without an override file.** It is the syntax Codex 0.154.0 accepted
+  — the `.run` deny nested under the project roots, since Codex refuses `"**/.run"` on its own — with
+  its network section built from R3's default sites. A full pass pins this profile.
+- **Checked:** ruff, strict mypy and the full RAVIS suite (1543); each new check broken in turn and
+  caught.
+
+### 0.23.15
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

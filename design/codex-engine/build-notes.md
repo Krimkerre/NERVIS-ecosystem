@@ -2,6 +2,39 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From Cal-2 (ecosystem, RAVIS 0.23.16, 13 Sep 2026) — calibration matched to the real run
+Changed: `calibration/plan.py` (`CANDIDATE_PROFILE`, `ScenarioSpec.may_go_unasked`), `outputs.satisfied`,
+`harness.py` (`Session._resolve_open`, `order`), K3 moved to the new `scenarios_network.py`, K7 in
+`scenarios_turns.py`, K8 in `scenarios.py`; `tests/fake_codex_calibration.py` and
+`tests/test_codex_calibration_findings.py`.
+- **Profile:** byte-identical to the working `clarvis_run-profile-allowlist.json`:
+  `":project_roots"={"."="write", ".run"="deny", "**/.run"="deny"}` (as `cal_d2185ed08f50` ran it, with
+  K5, K5a and K5c passing) and `network=` taken from R3's `network_profile_flags` value. No override file.
+  The structured `glob_pattern` form was not tried.
+- **K3 (a–e):** one `untrusted` thread, five `curl`s. The drive stops at command 2's `item/completed`;
+  `SiteAllowlist.add("example.com")` runs only if `blocked_hosts` named it; only then is command 3's
+  approval answered. `asked_again_after_adding` compares transcript order (inconclusive if Codex ran it
+  unasked). Before the turn `config/read {includeLayers:true}` reads the user layer's
+  `permissions.clarvis_run.network.domains`; afterwards a `config/batchWrite` `replace` writes it back
+  (`{}` when there was none). Unreadable layers → not put back → `owner_question`. An add answered
+  `okOverridden` fails K3 with `(overridden)`.
+- **K7:** on `turn/completed` the harness answers each request it holds for that thread with
+  `STOP_RESPONSES[kind]` (`resolved_by_ravis`). K7 passes when the turn ended `interrupted` within the cap
+  and nothing is left open, checked before `close` (which cancels whatever remains). Codex letting go
+  itself also counts; `serverRequest/resolved` isn't required.
+- **K8:** never asked → `recorded` (`permissions_asked: false`); `decide` accepts `recorded` only for a
+  spec with `may_go_unasked`, which is K8 alone.
+- **The fake:** the relay half still answers `config/batchWrite` (registered last), so the calibration
+  half wraps `api.log` and applies each `config_written` edit whose `batch_write_status` is `ok`. No
+  network approvals any more; an interrupt leaves the request open and logs `answered_after_interrupt`.
+  New faults: `loopback_open`, `listed_site_blocked`, `site_block_line_changed`, `site_add_not_live`,
+  `add_opens_every_site`, `retry_runs_unasked`, `site_left_from_an_earlier_run`, `never_asks_permissions`.
+Still unverified until the next real run: an added site reaching a loaded thread (K3 c), and Codex
+answering the add `ok` rather than `okOverridden` while its launch flags carry `domains`.
+For R4: K6 untouched. For whoever touches launch flags: a pinned profile now carries its own network
+section, and `service._profile_flags` appends `network_profile_flags` again outside calibration — an
+identical second override that calibration itself doesn't exercise.
+
 ## From R3 (ecosystem, RAVIS 0.23.15, 13 Sep 2026) — the agent-session relay
 Built: migration 8 and `ravis/src/ravis/agent/`; every `/api/v1/agent-sessions` route and the stop-only
 owner route on its own router; SSE with the two replay buffers and cursor expiry; identity, tokens,

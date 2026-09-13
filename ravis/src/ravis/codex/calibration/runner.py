@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ravis.codex.calibration import scenarios as files
+from ravis.codex.calibration import scenarios_network as network
 from ravis.codex.calibration import scenarios_turns as turns
 from ravis.codex.calibration.harness import ScenarioContext, ScenarioResult
 from ravis.codex.calibration.outputs import (
@@ -76,7 +77,7 @@ logger = logging.getLogger("ravis")
 Scenario = Callable[[ScenarioContext], Awaitable[ScenarioResult]]
 RUNNERS: dict[str, Scenario] = {
     "K10": files.k10, "K5a": files.k5a, "K5": files.k5, "K5c": files.k5c, "K1": files.k1,
-    "K2": files.k2, "K2b": files.k2b, "K3": turns.k3, "K4": turns.k4, "K8": files.k8,
+    "K2": files.k2, "K2b": files.k2b, "K3": network.k3, "K4": turns.k4, "K8": files.k8,
     "K9": files.k9, "K11": turns.k11, "K12": turns.k12, "K7": turns.k7, "K6": turns.k6,
     "K13": turns.k13,
 }

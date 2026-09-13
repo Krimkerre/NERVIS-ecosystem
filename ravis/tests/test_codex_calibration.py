@@ -79,12 +79,13 @@ def projects(tmp_path: Path, *names: str) -> tuple[Path, ...]:
 
 @contextmanager
 def calibrating(
-    tmp_path: Path, *faults: str
+    tmp_path: Path, *faults: str, **scenario: Any
 ) -> Iterator[tuple[CodexRig, TestClient, Path, Path]]:
-    """A RAVIS in calibration mode on a pinned, unproven build, signed in."""
+    """A RAVIS in calibration mode on a pinned, unproven build, signed in; `scenario` adds keys."""
     confirmed_record()
     rig = codex_rig(
-        tmp_path, scenario={**SIGNED_IN_SCENARIO, "calibration_faults": list(faults)},
+        tmp_path,
+        scenario={**SIGNED_IN_SCENARIO, "calibration_faults": list(faults), **scenario},
         codex_calibration=True, codex_calibration_output=str(tmp_path / "out"),
     )
     (tmp_path / "slash-tmp").mkdir()
@@ -306,8 +307,17 @@ def _left_nothing_behind(tmp_path: Path, rig: CodexRig, a: Path, b: Path, out: P
         ("untrusted_skips_file_approval", "K1", "passed", "on-request"),
         ("approved_escapes_box", "K2", "failed", "wrote to"),
         ("thread_tmpdir_ignored", "K2b", "recorded", "didn't give"),
-        ("network_open", "K3", "failed", "without approval"),
+        # K3, each of (a)–(e) broken in turn (Cal-2).
+        ("network_open", "K3", "failed", "local address"),
+        ("loopback_open", "K3", "failed", "local address"),
+        ("listed_site_blocked", "K3", "failed", "on the approved list"),
+        ("site_block_line_changed", "K3", "failed", "fixed line"),
+        ("site_left_from_an_earlier_run", "K3", "failed", "before it was added"),
+        ("site_add_not_live", "K3", "failed", "that same task"),
+        ("add_opens_every_site", "K3", "failed", "never added"),
+        ("retry_runs_unasked", "K3", "inconclusive", "without waiting for approval"),
         ("empty_grant_grants", "K8", "failed", "empty permission grant"),
+        ("never_asks_permissions", "K8", "recorded", "never asked"),
         ("git_blocked", "K9", "recorded", "couldn't commit"),
         ("interrupt_ignored", "K7", "failed", "didn't end"),
         ("stop_kills_other_project", "K6", "failed", "also stopped project B"),

@@ -1526,6 +1526,18 @@ Malformed bodies are 422 `INVALID_REQUEST_BODY`. Every task and turn stays refus
 routes, restart reconciliation and per-task process recording are the fourth increment's (R4); R3
 reaches them through `agent/locks.py` and `agent/cleanup.py`.
 
+**Calibration, as rewritten in Cal-2 (0.23.16, 13 September 2026).** Of the dev-only calibration
+route's sixteen questions, three now check what the first real run found and the owner decided. K3
+proves the approved-sites allowlist in one running task: a default site answers; `example.com` is
+refused with the proxy's fixed line, which `agent/sites.py` detects; calibration adds it through
+`SiteAllowlist.add` and the same task reaches it with no restart; loopback and `example.org`, never
+added, stay refused; and the Codex site list is written back afterwards. K7 passes when an
+interrupted turn ends within the cap and nothing it had open is left unanswered — calibration
+answers it with the stop response when the turn ends, as a task does. K8 records a Codex that never
+sends a permissions request, which doesn't keep a full run from proving the rules. The candidate
+profile is the syntax Codex 0.154.0 accepted, with R3's default sites as its network section, and a
+full pass pins it. K6 is unchanged.
+
 **The project lock, for both engines.**
 
 | Route | Who | What |

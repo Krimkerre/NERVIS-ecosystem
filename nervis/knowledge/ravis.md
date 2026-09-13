@@ -305,12 +305,16 @@ token may do any of that; NERVIS and admin credentials are refused. The menu bar
 can only stop a task, after confirming its folder and turn. A question nobody answers pauses the
 task after 30 minutes with no editor open, or 2 hours with one; RAVIS never approves anything
 itself. Codex's commands reach only sites the owner approved: when one is blocked, Clarvis asks whether to allow it (allowing adds it while Codex runs; package registries and GitHub are allowed from the start). Tasks stay refused while the file rules are
-unproven. Calibration is built (RAVIS
-0.23.10) but has not been run: it exists only while RAVIS runs with `RAVIS_CODEX_CALIBRATION=1`,
-the owner starts it from a terminal with `tools/run.py codex calibrate` on two throwaway git
-projects, and it asks sixteen questions of Codex using the plan's allowance. Only a full run in
-which every must-pass question passes marks the file rules proven; a failure of the decoy-file
-questions keeps them unproven and sends the decision back to the owner.
+unproven. Calibration exists only while RAVIS runs with `RAVIS_CODEX_CALIBRATION=1`; the owner
+starts it from a terminal with `tools/run.py codex calibrate` on two throwaway git projects, and it
+asks sixteen questions of Codex using the plan's allowance. Only a full run in which every
+must-pass question passes marks the file rules proven; a failure of the decoy-file questions keeps
+them unproven and sends the decision back to the owner. The first real run (13 September) passed
+the file-rule questions but failed the network and stop questions, against rules the owner has
+since replaced. Since RAVIS 0.23.16 those questions check what was decided — commands reach only
+approved sites, a site allowed while a task runs reaches that task with no restart, a stopped turn
+leaves nothing unanswered, and a Codex that never asks for permissions is recorded rather than held
+against the run — so the next full run can prove the rules, with no override profile.
 
 **A dead NERVIS never makes RAVIS report itself unready.** This regressed
 once for real: a readiness check that read the event publisher's own

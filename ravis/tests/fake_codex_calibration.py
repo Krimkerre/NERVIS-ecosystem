@@ -10,17 +10,29 @@ module. It acts out what calibration asks of a real Codex, closely enough that e
   are recognised by shape (`cat`, `head -c`, `printf … >`, `mkdir -p`, `curl`, `git commit`,
   `sh -c`) and carried out for real, but only on files under the test's own folder.
 - **Pretend turns.** Numbered commands are asked about one at a time, with `additionalPermissions`
-  for the escalated ones, a network approval for `curl`, `serverRequest/resolved` after each answer;
-  a file to create asks for a file-change approval; a permissions line asks for a grant; a word to
-  remember is remembered on the thread and answered back after a resume.
+  for the escalated ones and `serverRequest/resolved` after each answer; a file to create asks for a
+  file-change approval; a permissions line asks for a grant; a word to remember is remembered on the
+  thread and answered back after a resume. **An interrupted turn leaves its open request
+  unresolved**, as Codex 0.154.0 does (K7): no `serverRequest/resolved`, and an answer RAVIS sends
+  afterwards is logged as `answered_after_interrupt`.
+- **A pretend network proxy** (Cal-2), as Codex 0.154.0's behaves with `features.network_proxy`:
+  `curl` gets through to a site the profile's `domains={…}` lists (read back from the command line,
+  `*.` wildcards included) or one written into the user configuration since — never contacting it —
+  while any other host gets Codex's fixed "not on the allowlist" line, and a local address its
+  "local/private network addresses" line. `config/batchWrite` is answered by the relay half; each
+  write it logs (`config_written`) is applied here when its status is `ok`, reaching threads already
+  running, and `config/read` with `includeLayers` shows the written sites in a user layer.
 - **Real long-running processes for K6**, `sh -c 'sleep 600; true'` each tagged with its project's
   `WRITABLE_ROOT_0=<root>` or listed as a background terminal, all ended when the fake exits.
 
 **Faults** (`calibration_faults` in the scenario) switch one behaviour to the failing one:
 `plugins_on`, `exec_leaks`, `decoy_readable_escalated`, `roots_from_cwd`, `deny_loses_to_write`,
 `untrusted_skips_file_approval`, `never_asks_file_approval`, `approved_escapes_box`,
-`thread_tmpdir_ignored`, `network_open`, `empty_grant_grants`, `git_blocked`, `interrupt_ignored`,
-`stop_kills_other_project`, `resume_forgets`, `profile_rejected`.
+`thread_tmpdir_ignored`, `network_open`, `loopback_open`, `listed_site_blocked`,
+`site_block_line_changed`, `site_add_not_live`, `add_opens_every_site`, `retry_runs_unasked`,
+`site_left_from_an_earlier_run`, `empty_grant_grants`, `never_asks_permissions`, `git_blocked`,
+`interrupt_ignored`, `stop_kills_other_project`, `resume_forgets`, `profile_rejected`. The relay
+half's `batch_write_status` makes Codex report a configuration write overridden.
 """
 
 from __future__ import annotations
@@ -34,6 +46,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -106,23 +119,23 @@ def may_write(api: Any, thread: dict[str, Any], path: Path, approved: bool) -> b
     return within
 
 
-def run(api: Any, thread: dict[str, Any], text: str, *, escalated: bool, approved: bool,
-        network: bool) -> tuple[int, str]:
+def run(api: Any, thread: dict[str, Any], text: str, *, escalated: bool, approved: bool
+        ) -> tuple[int, str]:
     """Carry out one command's text in the pretend sandbox: (exit code, output)."""
     if " && " in text:
-        results = [run(api, thread, part, escalated=escalated, approved=approved, network=network)
+        results = [run(api, thread, part, escalated=escalated, approved=approved)
                    for part in text.split(" && ")]
         return max(code for code, _ in results), "".join(output for _, output in results)
     words = shlex.split(text)
     cwd = Path(thread["cwd"])
     kind = _kind(words)
     if kind == "shell":
-        return run(api, thread, words[2], escalated=escalated, approved=approved, network=network)
+        return run(api, thread, words[2], escalated=escalated, approved=approved)
     if kind == "read":
         return _read(api, thread, (cwd / words[-1]).resolve(), escalated)
     if kind == "write":
         return _write(api, thread, cwd, words, approved)
-    return _other(api, words, network)
+    return _other(api, thread, words)
 
 
 def _kind(words: list[str]) -> str:
@@ -168,22 +181,92 @@ def _tmpdir(api: Any, thread: dict[str, Any]) -> str:
     return os.environ.get("TMPDIR", "")
 
 
-def _other(api: Any, words: list[str], network: bool) -> tuple[int, str]:
+def _other(api: Any, thread: dict[str, Any], words: list[str]) -> tuple[int, str]:
     if words and words[0] == "curl":
-        return _curl(api, words, network)
+        return _curl(api, thread, words)
     if words and words[0] == "git":
         return (128, "Operation not permitted") if "git_blocked" in faults(api) else (0, "")
     return 0, ""
 
 
-def _curl(api: Any, words: list[str], network: bool) -> tuple[int, str]:
-    if not (network or "network_open" in faults(api)):
-        return 6, "Could not resolve host"
+# ── The pretend network proxy ────────────────────────────────────────────────
+
+SITE_BLOCKED = ('Network access to "{host}" was blocked: domain is not on the allowlist for the '
+                "current sandbox mode.")
+LOCAL_BLOCKED = ('Network access to "{host}" was blocked: local/private network addresses are '
+                 "blocked by the sandbox policy.")
+PROFILE_DOMAINS = re.compile(r"domains=\{([^}]*)\}")
+ALLOWED = re.compile(r'"([^"]+)"\s*=\s*"allow"')
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def profile_sites() -> set[str]:
+    """The sites the profile's network section lists, read back from the fake's command line."""
+    return {site for group in PROFILE_DOMAINS.findall(" ".join(sys.argv))
+            for site in ALLOWED.findall(group)}
+
+
+def user_sites(api: Any) -> dict[str, str]:
+    """The sites written into the user configuration while the fake runs (`config/batchWrite`)."""
+    earlier = {"example.com": "allow"} if "site_left_from_an_earlier_run" in faults(api) else {}
+    sites: dict[str, str] = api.state.setdefault("user_sites", earlier)
+    return sites
+
+
+def _curl(api: Any, thread: dict[str, Any], words: list[str]) -> tuple[int, str]:
     url = next(word for word in words if word.startswith("http"))
-    if not url.startswith("http://127.0.0.1"):
-        return 0, "200"  # an outside host is never contacted by a test
-    with urllib.request.urlopen(url, timeout=3) as answer:  # noqa: S310 — the test's own listener
-        return 0, answer.read().decode()
+    host = urllib.parse.urlsplit(url).hostname or ""
+    found = faults(api)
+    if host in LOCAL_HOSTS:
+        if not {"loopback_open", "network_open"} & found:
+            return -1, LOCAL_BLOCKED.format(host=host)
+        with urllib.request.urlopen(url, timeout=3) as answer:  # noqa: S310 — the test's own listener
+            return 0, answer.read().decode()
+    if "network_open" in found or _site_allowed(api, thread, host):
+        return 0, ""  # an outside host is never contacted by a test
+    if "site_block_line_changed" in found:
+        return -1, "curl: (56) CONNECT tunnel failed, response 403"
+    return -1, SITE_BLOCKED.format(host=host)
+
+
+def _site_allowed(api: Any, thread: dict[str, Any], host: str) -> bool:
+    found = faults(api)
+    if "add_opens_every_site" in found and api.state.get("sites_written"):
+        return True
+    listed = set() if "listed_site_blocked" in found else profile_sites()
+    # A thread sees sites written while it runs, unless the fault keeps it to those it started with.
+    added = thread.get("sites_at_start", {}) if "site_add_not_live" in found else user_sites(api)
+    sites = listed | {site for site, word in added.items() if word == "allow"}
+    return any(host == site or (site.startswith("*.") and host.endswith(site[1:]))
+               for site in sites)
+
+
+def _apply_config_writes(api: Any) -> None:
+    """Let the pretend proxy see the sites RAVIS writes.
+
+    The relay half answers `config/batchWrite` (it is registered last) and logs each write as
+    `config_written`; this wraps the shared log so each write Codex would take — status `ok` — is
+    applied to the sites the proxy allows.
+    """
+    logged = api.log
+
+    def log(kind: str, **facts: Any) -> None:
+        logged(kind, **facts)
+        if kind == "config_written" and api.scenario.get("batch_write_status", "ok") == "ok":
+            for edit in (facts.get("params") or {}).get("edits", []):
+                _apply_site_edit(api, edit)
+
+    api.log = log
+
+
+def _apply_site_edit(api: Any, edit: dict[str, Any]) -> None:
+    if not str(edit.get("keyPath", "")).endswith(".network.domains"):
+        return
+    sites = user_sites(api)
+    if edit.get("mergeStrategy") == "replace":
+        sites.clear()
+    sites.update(edit.get("value") or {})
+    api.state["sites_written"] = True
 
 
 # ── Asking RAVIS ─────────────────────────────────────────────────────────────
@@ -191,15 +274,16 @@ def _curl(api: Any, words: list[str], network: bool) -> tuple[int, str]:
 
 def ask_until(api: Any, method: str, params: dict[str, Any], stop: threading.Event
               ) -> dict[str, Any] | None:
-    """Ask RAVIS and wait for the answer; a stopped turn resolves the request instead."""
+    """Ask RAVIS and wait for the answer; a stopped turn stops waiting and leaves it open."""
     request_id = f"srv-{next(api.server_ids)}"
     api.send({"id": request_id, "method": method, "params": params})
     deadline = time.monotonic() + 30.0
     with api.answered:
         while request_id not in api.answers:
             if stop.is_set() and "interrupt_ignored" not in faults(api):
-                api.notify("serverRequest/resolved",
-                           {"threadId": params["threadId"], "requestId": request_id})
+                # As Codex 0.154.0 does (K7): no `serverRequest/resolved`; a later answer is noted.
+                threading.Thread(target=_late_answer, args=(api, method, request_id),
+                                 daemon=True).start()
                 return None
             if time.monotonic() > deadline:
                 return None
@@ -209,12 +293,25 @@ def ask_until(api: Any, method: str, params: dict[str, Any], stop: threading.Eve
     return answer.get("result") if isinstance(answer.get("result"), dict) else None
 
 
+def _late_answer(api: Any, method: str, request_id: str) -> None:
+    """Log the answer RAVIS sends for a request its interrupted turn left open, if one comes."""
+    deadline = time.monotonic() + 10.0
+    with api.answered:
+        while request_id not in api.answers:
+            if time.monotonic() > deadline:
+                return
+            api.answered.wait(0.05)
+        answer = api.answers.pop(request_id)
+    api.log("answered_after_interrupt", method=method, result=answer.get("result"))
+
+
 # ── Turns ────────────────────────────────────────────────────────────────────
 
 
 def turn(api: Any, thread_id: str, turn_id: str, prompt: str, params: dict[str, Any],
          stop: threading.Event) -> None:
     thread = api.state["threads"][thread_id]
+    thread.setdefault("sites_at_start", dict(user_sites(api)))
     lines = prompt.splitlines()
     escalated = {int(n) for line in lines if (m := ESCALATE.match(line))
                  for n in re.findall(r"\d+", m.group(1))}
@@ -227,7 +324,7 @@ def turn(api: Any, thread_id: str, turn_id: str, prompt: str, params: dict[str, 
         if numbered is None or stop.is_set():
             continue
         index = int(numbered.group(1))
-        if index in grants:
+        if index in grants and "never_asks_permissions" not in faults(api):
             _ask_grant(context, grants[index])
         _command(context, numbered.group(2), index in escalated)
 
@@ -294,10 +391,9 @@ def _command(context: dict[str, Any], text: str, escalated: bool) -> None:
     if decision not in ("accept", "acceptForSession"):
         api.notify("item/completed", {**base, "item": {**item, "status": "declined"}})
         return
-    network = text.startswith("curl") and _network_approval(context, item, text)
     if text in LONG_RUNNING:
         _spawn(context, item, text)
-    code, output = run(api, thread, text, escalated=escalated, approved=True, network=network)
+    code, output = run(api, thread, text, escalated=escalated, approved=True)
     done = {**item, "status": "completed" if code == 0 else "failed", "exitCode": code,
             "aggregatedOutput": output}
     api.notify("item/completed", {**base, "item": done, "completedAtMs": 0})
@@ -310,6 +406,8 @@ def _approval(context: dict[str, Any], item: dict[str, Any], text: str, escalate
         return "accept"
     if isinstance(policy, dict) and escalated:
         return "accept"  # granular sandbox_approval:false: runs in the box, unasked
+    if "retry_runs_unasked" in faults(api) and text.endswith("/index.html"):
+        return "accept"  # K3's second request for the site it adds, run without asking
     if policy == "on-request" and not escalated:
         return "accept"
     params = {"threadId": context["thread_id"], "turnId": context["turn_id"],
@@ -321,19 +419,6 @@ def _approval(context: dict[str, Any], item: dict[str, Any], text: str, escalate
     if decision == "acceptForSession":
         thread["session_grants"].add(text)
     return decision if isinstance(decision, str) else None
-
-
-def _network_approval(context: dict[str, Any], item: dict[str, Any], text: str) -> bool:
-    if "network_open" in faults(context["api"]):
-        return True
-    host = re.search(r"https?://([^/:]+)", text)
-    params = {"threadId": context["thread_id"], "turnId": context["turn_id"],
-              "itemId": item["id"], "startedAtMs": 0, "command": text,
-              "cwd": context["thread"]["cwd"],
-              "networkApprovalContext": {"host": host.group(1) if host else "", "protocol": "http"}}
-    answer = ask_until(context["api"], "item/commandExecution/requestApproval", params,
-                       context["stop"]) or {}
-    return answer.get("decision") == "accept"
 
 
 def _spawn(context: dict[str, Any], item: dict[str, Any], text: str) -> None:
@@ -382,11 +467,19 @@ def end_processes() -> None:
 # ── Calibration-only methods ─────────────────────────────────────────────────
 
 
-def _config_read(api: Any, _params: dict[str, Any]) -> dict[str, Any]:
+def _config_read(api: Any, params: dict[str, Any]) -> dict[str, Any]:
     on = "plugins_on" in faults(api)
     origin = "user" if on else "sessionFlags"
-    return {"config": {"features": {"plugins": on}},
-            "origins": {"features.plugins": {"name": {"type": origin}, "version": "x"}}}
+    body: dict[str, Any] = {
+        "config": {"features": {"plugins": on}},
+        "origins": {"features.plugins": {"name": {"type": origin}, "version": "x"}},
+    }
+    if params.get("includeLayers"):
+        sites = dict(user_sites(api))
+        config = {"permissions": {"clarvis_run": {"network": {"domains": sites}}}} if sites else {}
+        body["layers"] = [{"name": {"type": "user", "file": "<CODEX_HOME>/config.toml",
+                                    "profile": None}, "version": "fake", "config": config}]
+    return body
 
 
 def _archive(api: Any, params: dict[str, Any]) -> dict[str, Any] | str:
@@ -450,6 +543,7 @@ METHODS = {
 
 
 def handlers(api: Any) -> dict[str, Any]:
+    _apply_config_writes(api)
     return {method: functools.partial(handler, api) for method, handler in METHODS.items()}
 
 
@@ -458,5 +552,5 @@ def command_exec(api: Any, params: dict[str, Any]) -> dict[str, Any]:
     thread = {"cwd": params.get("cwd"), "roots": [params.get("cwd")],
               "leaks": "exec_leaks" in faults(api)}
     text = shlex.join(str(part) for part in params.get("command", []))
-    code, output = run(api, thread, text, escalated=False, approved=False, network=False)
+    code, output = run(api, thread, text, escalated=False, approved=False)
     return {"exitCode": code, "stdout": "" if code else output, "stderr": output if code else ""}

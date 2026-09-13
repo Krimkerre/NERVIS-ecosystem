@@ -1,4 +1,4 @@
-"""The questions about turns and processes: K3, K4, K11, K12, K7, K6 and K13 (design §10.4).
+"""The questions about turns and processes: K4, K11, K12, K7, K6 and K13 (design §10.4).
 
 **K6 is the one that signals processes.** It uses `process_table.py`: a snapshot of the process
 table, each of the app-server's descendants attributed to project A or B by the design's rules, and
@@ -7,9 +7,12 @@ runs, and ends B's the same way whatever happened. Only processes that were the 
 descendants in the snapshot are ever signalled, each individually and only while its start time
 still matches; never a process group.
 
-**K3's loopback listener** is RAVIS's own, on 127.0.0.1 and a port the system picks, for the length
-of the scenario: a command reaching it proves loopback was open. The outside host is `example.com`,
-contacted only by Codex's command on a real run and never by a test.
+**K7 is judged on RAVIS's side** (Cal-2). Codex 0.154.0 ends an interrupted turn within moments but
+never resolves the request it had open (`cal_d2185ed08f50`), so K7 passes when the turn ends
+`interrupted` within the cap and nothing is left open: RAVIS answered the request itself — the
+harness's stop response when the turn ends, as R3's task does — or Codex let go of it. Codex's own
+`serverRequest/resolved` isn't required. K3, the network, has its own module
+(`scenarios_network.py`).
 """
 
 from __future__ import annotations
@@ -47,69 +50,7 @@ K6_COMMANDS = (
 )
 
 
-# ── K3: the network ──────────────────────────────────────────────────────────
-
-
-class LoopbackListener:
-    """A one-line HTTP listener on 127.0.0.1 that notes each path asked for."""
-
-    def __init__(self) -> None:
-        self.paths: list[str] = []
-        self.port = 0
-        self._server: asyncio.Server | None = None
-
-    async def __aenter__(self) -> LoopbackListener:
-        self._server = await asyncio.start_server(self._answer, "127.0.0.1", 0)
-        self.port = self._server.sockets[0].getsockname()[1]
-        return self
-
-    async def __aexit__(self, *_: object) -> None:
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
-
-    async def _answer(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        with contextlib.suppress(OSError, asyncio.IncompleteReadError, TimeoutError):
-            async with asyncio.timeout(5):
-                line = await reader.readline()
-            words = line.decode("latin-1").split()
-            self.paths.append(words[1] if len(words) > 1 else "")
-            writer.write(b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok")
-            await writer.drain()
-        writer.close()
-
-
-async def k3(ctx: ScenarioContext) -> ScenarioResult:
-    """Loopback and an outside host unreachable without approval; reachable for the approved one."""
-    session = ctx.session("K3")
-    async with LoopbackListener() as listener:
-        base = f"http://127.0.0.1:{listener.port}"
-        outside = "curl -sS -m 5 -o /dev/null https://example.com"
-        commands = [
-            Listed(f"curl -sS -m 5 {base}/k3-unapproved", network="decline"),
-            Listed(f"curl -sS -m 5 {base}/k3-approved", network="accept"),
-            Listed(outside, network="decline"),
-        ]
-        try:
-            capped = await _turn(session, ctx, "K3", commands)
-        finally:
-            await session.close()
-    asked = [a.network_host for a in session.approvals if a.method == "network"]
-    findings = {"network_approvals_asked": len(asked), "loopback_paths_reached": listener.paths}
-    if "/k3-unapproved" in listener.paths:
-        return session.result("failed", "Loopback was reachable without approval.", **findings)
-    if session.threads["A"].commands.get(outside, {}).get("exit_code") == 0:
-        detail = "An outside host was reachable without approval."
-        return session.result("failed", detail, **findings)
-    if isinstance(capped, str):
-        return session.result("inconclusive", capped, **findings)
-    if "/k3-approved" not in listener.paths:
-        return session.result(
-            "failed", "Even the approved command couldn't reach the network.", **findings
-        )
-    return session.result(
-        "passed", "The network was reachable only for the command it was approved for.", **findings
-    )
+# ── One turn of listed commands (K4) ─────────────────────────────────────────
 
 
 async def _turn(
@@ -265,7 +206,7 @@ def _in_order(session: Session, key: str) -> dict[str, Any]:
 
 
 async def k7(ctx: ScenarioContext) -> ScenarioResult:
-    """A stopped turn ends `interrupted`, soon, with its open request resolved."""
+    """A stopped turn ends `interrupted`, soon, and nothing it had open is left unanswered."""
     session = ctx.session("K7")
     command = Listed("sleep 30")
     timings = ctx.timings
@@ -279,25 +220,45 @@ async def k7(ctx: ScenarioContext) -> ScenarioResult:
             return session.result("inconclusive", "Codex never asked, so no request was open.")
         open_requests = list(session.pending)
         seconds = await session.interrupt("A", wait=timings.stop_cap_seconds)
+        # Looked at before `close`, which cancels whatever is still open whatever K7 finds.
+        left_open = [request for request in open_requests if request in session.pending]
     except CodexRpcError as refusal:
         return session.result("inconclusive", f"Codex refused a request: {refusal.message}")
     finally:
         await session.close()
+    return _k7_verdict(ctx, session, open_requests, left_open, seconds)
+
+
+def _k7_verdict(
+    ctx: ScenarioContext,
+    session: Session,
+    open_requests: list[Any],
+    left_open: list[Any],
+    seconds: float | None,
+) -> ScenarioResult:
     log = session.threads["A"]
-    resolved = all(request in log.resolved for request in open_requests)
-    findings = {"seconds_to_end": seconds, "open_request_resolved": resolved,
-                "status": log.turn_status}
+    answered = {
+        str(request): session.resolved_by_ravis[request]
+        for request in open_requests if request in session.resolved_by_ravis
+    }
+    findings = {
+        "seconds_to_end": seconds, "status": log.turn_status, "answered_by_ravis": answered,
+        "resolved_by_codex": [str(request) for request in open_requests if request in log.resolved],
+        "left_open": len(left_open),
+    }
+    cap = ctx.timings.stop_cap_seconds
     if seconds is None:
-        return session.result(
-            "failed", f"The turn didn't end within {timings.stop_cap_seconds:g} s.", **findings
-        )
+        return session.result("failed", f"The turn didn't end within {cap:g} s.", **findings)
     if log.turn_status != "interrupted":
         return session.result("failed", f"The turn ended {log.turn_status}.", **findings)
-    if not resolved:
-        return session.result("failed", "The open approval wasn't resolved.", **findings)
+    if left_open:
+        return session.result(
+            "failed", "The turn ended with its approval still open: nothing answered it.",
+            **findings,
+        )
+    who = "RAVIS answered its open request" if answered else "Codex let go of its open request"
     return session.result(
-        "passed", f"The turn ended {seconds:.1f} s after it was stopped, its request resolved.",
-        **findings,
+        "passed", f"The turn ended {seconds:.1f} s after it was stopped, and {who}.", **findings
     )
 
 
