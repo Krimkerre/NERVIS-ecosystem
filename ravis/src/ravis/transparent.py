@@ -244,7 +244,7 @@ def merged_catalogue(
     `model_owners` already serves better.
 
     `agent_backends` come straight after the pools, in the pools' own shape and
-    with no extra key either (§5.0.1 item 5): `ravis/codex`, for a caller that
+    with no extra key either (§5.0.1 item 5): `ravis/clarvis-codex`, for a caller that
     asked, and nothing for anyone else (`api/openai/agent_backends.py`).
     """
     pools: list[dict[str, Any]] = [

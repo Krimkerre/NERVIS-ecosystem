@@ -317,7 +317,7 @@
           "response": {
             "status": 200,
             "body": {
-              "backend_id": "ravis/codex",
+              "backend_id": "ravis/clarvis-codex",
               "execution": "delegated_agent",
               "roles": ["agent"],
               "state": "signed_out",
@@ -407,7 +407,7 @@
           "response": {
             "status": 200,
             "body": {
-              "backend_id": "ravis/codex",
+              "backend_id": "ravis/clarvis-codex",
               "execution": "delegated_agent",
               "roles": ["agent"],
               "state": "signed_in",
@@ -599,7 +599,7 @@
           "response": {
             "status": 200,
             "body": {
-              "backend_id": "ravis/codex",
+              "backend_id": "ravis/clarvis-codex",
               "execution": "delegated_agent",
               "roles": ["agent"],
               "state": "untested_version",
@@ -744,7 +744,7 @@
           "response": {
             "status": 200,
             "body": {
-              "backend_id": "ravis/codex",
+              "backend_id": "ravis/clarvis-codex",
               "execution": "delegated_agent",
               "roles": ["agent"],
               "state": "untested_version",

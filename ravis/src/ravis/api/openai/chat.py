@@ -707,7 +707,7 @@ def _inspect(body: bytes, request: Request) -> dict[str, Any] | JSONResponse:
     # The Codex engine first, straight after parsing and before anything else reads
     # the request, so no disabled-provider or upstream check, no routing, no route
     # event and no session touch ever happens for it (runbook §2.2). Before the
-    # shape check too: a body naming `ravis/codex` hears the one thing that matters
+    # shape check too: a body naming `ravis/clarvis-codex` hears the one thing that matters
     # about it, not a complaint about its `messages`.
     refusal = agent_backend_refusal(parsed)
     if refusal is None:

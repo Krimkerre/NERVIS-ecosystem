@@ -163,6 +163,8 @@ NERVIS menu bar / dashboard ◀── GET /api/v1/codex (metadata only: state, a
 
 ### 3.1 The `ravis/codex` catalogue entry
 
+> **Renamed, 13 September 2026:** the id is now `ravis/clarvis-codex` (owner decision, to match `ravis/clarvis-agent` and `ravis/clarvis-chat`; RAVIS 0.23.11, NERVIS 0.28.15, Clarvis 0.16.1; no alias). This design keeps the id it was written with; `build-notes.md` → *Rename* says what changed.
+
 **What `/v1/models` lists.** Exactly `{"id": "ravis/codex", "object": "model", "owned_by": "ravis"}`, in **both** builders:
 - `merged_catalogue` (`transparent.py:245-264`);
 - `ModelRegistry.as_openai_list` (`registry.py:173-185`).

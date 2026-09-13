@@ -45,7 +45,7 @@ const KEY_ROW = { name: "openai", label: "OpenAI", configured: true, source: "ke
 /* `GET /api/v1/codex` in codex-state.json's shape, with what a case changes. */
 function codex(state, reason, extra = {}) {
   return {
-    backend_id: "ravis/codex", execution: "delegated_agent", roles: ["agent"], state, reason,
+    backend_id: "ravis/clarvis-codex", execution: "delegated_agent", roles: ["agent"], state, reason,
     revision: 1, runtime: RUNTIME, account: null,
     usage: { known: false, source: null, observed_at: null, stale: false,
              allowance_not_cost: true, windows: [] },
@@ -530,10 +530,79 @@ async function theOverviewCarriesOneLine() {
   }
 }
 
+/* 9 — RAVIS → Pools: a read-only Clarvis Codex row beside the two Clarvis pools. The owner
+   looked for Codex there, didn't find it and took it for unbuilt (13 September 2026). */
+const POOLS_READ = { items: [
+  { pool_id: "ravis/auto", requirements: { required: [], minimum_context: 0 }, member_count: 5, available: true },
+  { pool_id: "ravis/clarvis-agent", requirements: { required: ["tool_use"], minimum_context: 32768 },
+    member_count: 2, available: true },
+  { pool_id: "ravis/clarvis-chat", requirements: { required: [], minimum_context: 0 }, member_count: 3, available: true },
+  { pool_id: "ravis/local", requirements: { required: [], minimum_context: 0 }, member_count: 1, available: true },
+] };
+
+async function poolsScreen(state, codexStatus = 200) {
+  const page = world({ state, codexStatus, reads: { "/api/v1/relay/ravis/api/v1/pools": POOLS_READ } });
+  await quiet();
+  page.exported.state.app = "ravis";
+  page.exported.state.view = "Pools";
+  await run(page, "ravisPools()");
+  const content = page.elements.get("sel:#content");
+  const html = content ? content.innerHTML : "";
+  const start = html.indexOf('<div class="table-row five codex-pool">');
+  const ends = ['<div class="table-row five">', "<b>Reason</b> is filled"]
+    .map((mark) => html.indexOf(mark, start + 1)).filter((at) => at > start);
+  const row = start < 0 ? "" : html.slice(start, ends.length ? Math.min(...ends) : html.length);
+  return { html, row, at: start };
+}
+
+async function codexSitsBesideTheClarvisPools() {
+  const paused = await poolsScreen(codex("untested_version", "The file rules are not yet proven.",
+    { account: ACCOUNT, usage: knownUsage(44, 80) }));
+  if (!paused.row) {
+    failures.push("RAVIS → Pools draws no Clarvis Codex row.");
+    return;
+  }
+  expect("the Pools screen's Codex row, paused", paused.row,
+    ["Clarvis Codex", "ravis/clarvis-codex", "read-only", "coding tasks through your ChatGPT plan, not chats",
+     "no fallback", "44% left", ">paused<", 'aria-describedby="codex-allowance-tip"'],
+    ["POOLEDIT", "ravis/codex<", "80% left · "]);
+  /* By each pool's own row link: "ravis/local" is also named in every pool picker's note. */
+  const chat = paused.html.indexOf("POOLEDIT.toggle('clarvis-chat')");
+  const local = paused.html.indexOf("POOLEDIT.toggle('local')");
+  if (!(chat >= 0 && chat < paused.at && paused.at < local)) {
+    failures.push("the Codex row is not placed straight after the Clarvis pools.");
+  }
+  if (!paused.html.includes("published stable ids") || /<strong[^>]*>5<\/strong>/.test(paused.html)) {
+    failures.push("the Pools tile counted Codex as a pool.");
+  }
+  const source = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  if (!source.includes(".table-row.codex-pool:hover .kpi-tip")) {
+    failures.push("the Codex row's tooltip does not open on hover: no .table-row.codex-pool:hover .kpi-tip rule.");
+  }
+
+  const signedOut = (await poolsScreen(codex("signed_out", "Codex is signed out."))).row;
+  expect("the Pools screen's Codex row, signed out", signedOut,
+    [">signed out<", "go('ravis','Credentials')"]);
+  if (/\d\s*%/.test(signedOut)) failures.push("the Codex row, signed out: draws a percentage RAVIS did not give.");
+
+  for (const [label, status, words] of [["RAVIS not answering", 0, "RAVIS"], ["a RAVIS from before Codex", 404, "report Codex"]]) {
+    const row = (await poolsScreen(codex("signed_in", "x", { account: ACCOUNT, usage: knownUsage(44, 80) }), status)).row;
+    if (!row) failures.push(`the Codex row, ${label}: not drawn; it should say why it has nothing.`);
+    expect(`the Codex row, ${label}`, row, ["Clarvis Codex", "<span>—</span>", words], ["% left", 'class="chip']);
+  }
+
+  const tag = ' <vxs onerror=vxjs>" vxatr=vxjs';
+  const poisoned = (await poolsScreen(codex("untested_version" + tag, "In" + tag, { account: ACCOUNT,
+    usage: { ...knownUsage(44, 80), windows: windowsLeft(44, 80).map((w) => ({ ...w, label: w.label + tag })) } }))).row;
+  if (!poisoned.includes("vxs")) failures.push("the injection probe never reached the Pools screen's Codex row.");
+  if (/<vxs|"\s*vxatr=/.test(poisoned)) failures.push("RAVIS's text broke out of the Pools screen's Codex row.");
+}
+
 async function main() {
   await everyStateDrawsItsWords();
   await theAllowanceSitsBesideSpend();
   await theOverviewCarriesOneLine();
+  await codexSitsBesideTheClarvisPools();
   await signingInFromTheButton();
   await aRestartDuringTheSignInIsSaid();
   await cancelSendsDelete();
@@ -555,7 +624,9 @@ async function main() {
     "two clicks, the link never travels through the relay, and nothing RAVIS sends injects; " +
     "RAVIS → Dashboard's row is Decisions, Local, Spend, Codex, whose tile shows each window's " +
     "allowance and reset, unknown with no percentage, stale with its age, no money, and goes " +
-    "absent without RAVIS; the Overview carries its line; and a stored key's dot is not escaped"
+    "absent without RAVIS; the Overview carries its line; RAVIS → Pools draws a read-only Clarvis " +
+    "Codex row after the Clarvis pools with its state, tightest window and sign-in link, and says " +
+    "why when RAVIS doesn't answer; and a stored key's dot is not escaped"
   );
 }
 

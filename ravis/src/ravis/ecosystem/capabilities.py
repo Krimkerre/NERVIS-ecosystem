@@ -187,7 +187,7 @@ DECLARED: dict[str, Capability] = {
         reason="Codex's state, sign-in, account, version and file-rules re-test routes are "
         "served; whether Codex can take work is /api/v1/codex's answer, not this",
         constraints={
-            "backend_id": "ravis/codex",
+            "backend_id": "ravis/clarvis-codex",
             "roles": ["agent"],
             "state_endpoint": "/api/v1/codex",
         },

@@ -25,7 +25,19 @@ every entry.
 
 ---
 
-## Clarvis — 0.16.0
+## Clarvis — 0.16.1
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **The Codex engine's id is now `ravis/clarvis-codex`**, named like the two Clarvis pools,
+  `ravis/clarvis-agent` and `ravis/clarvis-chat`. It was `ravis/codex`. To run a build on Codex,
+  choose `ravis/clarvis-codex` as the coding model; the old id is no longer recognised, and there is
+  no alias for it.
+- **Clarvis's copy of RAVIS's contract fixtures carries the new id**, byte for byte the same as
+  RAVIS's. Nothing else changed: the `X-Clarvis-Engines: codex` header, the Codex engine's files and
+  every route are as they were.
+
+### 0.16.0
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -358,7 +370,29 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.14
+## NERVIS — 0.28.15
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Codex is on RAVIS → Pools now**, as a read-only **Clarvis Codex · `ravis/clarvis-codex`** row
+  straight after the two Clarvis pools. The owner looked for Codex there and took it for unbuilt. The
+  row says what Codex is — it runs coding tasks through your ChatGPT plan, not chats, and has no
+  fallback — and shows its state as a chip ("paused"), what is left of the tightest allowance window
+  ("44% left") with its reset, and the link to Credentials when signed out. Its question mark opens
+  the same details as the Dashboard's Codex tile.
+- **It is not a pool**, so it can't be picked or curated, and the Pools tile doesn't count it. It is
+  composed on the dashboard from RAVIS's `GET /api/v1/codex`, not from the pools list. When RAVIS
+  doesn't answer, the row shows "—" and why.
+- The Codex engine's id is `ravis/clarvis-codex` everywhere the dashboard and its knowledge files
+  name it (it was `ravis/codex`). NERVIS's own control routes, `/api/v1/ravis/codex/…`, keep their
+  paths.
+- **The morning digest no longer loads a local model by surprise.** It asked `ravis/free-api` for
+  at most 300 tokens, and the free reasoning model spent all 300 thinking and returned no text, so
+  on 12 and 13 September the digest fell back to `ravis/local` and loaded a model nobody asked
+  for. It now allows 1000 tokens (`DIGEST_MAX_TOKENS`), enough to think and still write the note;
+  the fallback is left for a free tier that is down. A test holds the budget at 1000 or more.
+
+### 0.28.14
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -965,7 +999,23 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.10
+## RAVIS — 0.23.11
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **The Codex engine's id is `ravis/clarvis-codex` now**, renamed from `ravis/codex` so it sits with
+  `ravis/clarvis-agent` and `ravis/clarvis-chat` (owner decision, 13 September 2026). `/v1/models`
+  lists the new id, still only for a client sending `X-Clarvis-Engines: codex`. A chat or embeddings
+  request naming it, or any id under `ravis/clarvis-codex/`, gets the same 400, and its message names
+  the new id. `GET /api/v1/codex` and `ravis.codex_runtime@1` report it as `backend_id`, and the
+  Clarvis conformance check sends it.
+- **There is no alias.** `ravis/codex` is now an ordinary model name RAVIS doesn't know. The Clarvis
+  0.16.0 installed in code-server still uses it until Clarvis 0.16.1 is installed.
+- **The contract fixtures and their manifest carry the new id.** Route paths, error codes, the
+  `X-Clarvis-Engines: codex` header value and the capability names are unchanged. The new id is
+  listed after RAVIS's next restart.
+
+### 0.23.10
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

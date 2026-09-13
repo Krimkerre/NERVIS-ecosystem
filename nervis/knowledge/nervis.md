@@ -291,7 +291,13 @@ Overview gained a one-line Codex summary; and the provider key rows on Providers
 Credentials stopped showing a stray character code where the dot before a stored key
 belongs. The Codex tile was then made compact at the owner's request: the figure and the
 tightest window's reset stay on the tile, and the details open in a tooltip on hover or
-keyboard focus.
+keyboard focus. After that, RAVIS → Pools gained a read-only **Clarvis Codex** row straight after
+the two Clarvis pools, because the owner looked for Codex there and thought it wasn't
+built. Codex is not a pool, so nothing on the row can be picked; it says Codex runs
+coding tasks through the ChatGPT plan, not chats, and has no fallback, and shows its
+state, what's left of the tightest allowance window and, when signed out, the way to
+Credentials. The same day the Codex engine's id was renamed from ravis/codex to
+ravis/clarvis-codex, to match the Clarvis pools.
 
 As of 12 September 2026: the dashboard no longer reads RAVIS straight from the
 browser. Every open tab used to share RAVIS's one anonymous allowance of sixty
@@ -750,6 +756,10 @@ service changing state, and unattended work when somebody has switched it on —
 note when a service has stayed unreachable or degraded for a while, and a
 once-a-day digest of what the event hub recorded. **Nothing files a note when a
 task finishes**; that kind of note does not exist yet.
+
+Since 13 September 2026 the digest gives the free pool room to answer: it used to
+allow 300 tokens, a free reasoning model spent them all thinking, and the digest
+fell back to a local model and loaded it on 12 and 13 September. It allows 1000 now.
 
 Each note says what happened, why you are being told, how severe it is and when
 it landed. Unread notes show a count in the badge at the top-right of the frame,

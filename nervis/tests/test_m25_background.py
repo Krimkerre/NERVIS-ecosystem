@@ -358,3 +358,38 @@ def test_unattended_thinking_falls_back_to_this_machine() -> None:
 
     assert asked == ["ravis/free-api", "ravis/local"]
     assert text == REPLY and cost == "42 tokens"
+
+
+def test_unattended_thinking_leaves_a_reasoning_model_room_to_answer() -> None:
+    """Found 13 September 2026: at 300 tokens, the free pool's reasoning model spent the
+    whole budget thinking and returned no text, so every morning's digest fell back to
+    `ravis/local` and loaded a local model nobody asked for. The free pool is asked with
+    room to finish, so the fallback is for a free tier that is down, not one cut off.
+    """
+    from nervis.app import _ask_ravis
+    from test_m4_chat import an_api
+
+    budgets: list[int] = []
+
+    class _Reply:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {"model": "cohere/north-mini-code:free",
+                    "choices": [{"message": {"content": REPLY}}],
+                    "usage": {"total_tokens": 900}}
+
+    class _Client:
+        @staticmethod
+        async def post(url: str, **kwargs: Any) -> Any:
+            del url
+            budgets.append(kwargs["json"]["max_tokens"])
+            return _Reply()
+
+    app = an_api().app
+    app.state.settings.ravis_client_credential = "secret"
+    app.state.probe_client = _Client()
+    asyncio.run(_ask_ravis(app)("ravis/free-api", "s", "brief", FACTS))
+
+    assert budgets and budgets[0] >= 1000, budgets

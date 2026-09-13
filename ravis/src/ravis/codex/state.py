@@ -34,7 +34,7 @@ from ravis.codex.account import Account, plan_name
 from ravis.codex.runtime import RuntimeReport
 from ravis.codex.usage import UNKNOWN, Usage, is_exhausted, iso, next_reset, usage_body
 
-BACKEND_ID = "ravis/codex"
+BACKEND_ID = "ravis/clarvis-codex"
 #: English day and month names, so a reason reads the same whatever this Mac's locale is: a Dutch
 #: locale once turned `ps` dates into "zo 13 sep." (C1's notes).
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")

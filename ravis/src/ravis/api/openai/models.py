@@ -26,7 +26,7 @@ async def list_models(request: Request) -> dict[str, Any]:
     stops being true, Clarvis reports RAVIS offline and the cause is invisible
     from the client side.
 
-    That holds for `ravis/codex` too: whether it is listed is the Codex runtime
+    That holds for `ravis/clarvis-codex` too: whether it is listed is the Codex runtime
     check's kept answer and one request header, never a check made here
     (`agent_backends.py`).
     """

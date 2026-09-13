@@ -2,6 +2,23 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## Rename: `ravis/codex` → `ravis/clarvis-codex` (13 Sep 2026; RAVIS 0.23.11, NERVIS 0.28.15, Clarvis 0.16.1)
+- Owner decision: the Codex engine's model id matches the Clarvis pools, `ravis/clarvis-agent` and `ravis/clarvis-chat`.
+  No alias for the old id; nothing installed depends on it for a running task.
+- Renamed: RAVIS's `CODEX_BACKEND_ID` and `codex/state.py`'s `BACKEND_ID`, the listing, the 400 refusal (message and
+  the `ravis/clarvis-codex/…` prefix), conformance's 24th check, `ravis.codex_runtime@1`'s `backend_id`, the
+  relay-contract fixtures and `codex-contract.sha256`; the dashboard's gate fixture and the knowledge files. Clarvis's
+  constant, fixtures copy, tests, `plan.md` M15 and `docs/CURRENT_STATE.md` follow in Clarvis 0.16.1.
+- Unchanged: package and folder paths (`ravis.codex`, `ravis/src/ravis/codex/`, `src/engine/codex/`), the
+  `X-Clarvis-Engines: codex` header value, capability names, error codes and route paths — NERVIS's
+  `/api/v1/ravis/codex/…` control routes included. The notes below keep the old id where they record what was built
+  and verified then; `design.md`, `constraints.md` and `review.md` keep it too.
+- **Not live until restarts and a reinstall:** RAVIS lists only the new id after its next restart. The Clarvis 0.16.0
+  installed in code-server still uses `ravis/codex` until 0.16.1 is packaged and installed; meanwhile its old id
+  is neither listed nor refused by a restarted RAVIS, so choosing Codex there won't work.
+- Same commit: RAVIS → Pools gained a read-only Clarvis Codex row (the owner looked for Codex there), composed in
+  `nervis/index.html` from `GET /api/v1/codex` with the Codex tile's helpers; `nervis/tools/codex_check.js` asserts it.
+
 ## From C1 (clarvis 9274815, 13 Sep 2026)
 For C2a (Clarvis runner):
 - An idempotency key belongs to one attempt: a new settle claim needs a new settle key.

@@ -1017,6 +1017,11 @@ def _events_since_digest(api: FastAPI) -> list[dict[str, Any]]:
     return []
 
 
+#: The reply budget for one unattended note. Enough for a free reasoning model to
+#: think and still write a heading and two or three sentences (see `_asked_once`).
+DIGEST_MAX_TOKENS = 1000
+
+
 def _ask_ravis(api: FastAPI) -> Any:
     """The RAVIS call, as the callable `think` takes.
 
@@ -1066,7 +1071,12 @@ async def _asked_once(
                 {"role": "system", "content": brief},
                 {"role": "user", "content": facts},
             ],
-            "max_tokens": 300,
+            # **1000, not 300** (13 September 2026). `ravis/free-api` served a
+            # reasoning model that spent all 300 on thinking and returned no text,
+            # so every morning's digest fell back to `ravis/local` and loaded a
+            # model nobody asked for (12 and 13 September). Titles hit the same
+            # wall at 24 and were raised to 400; a note is longer than a title.
+            "max_tokens": DIGEST_MAX_TOKENS,
             "user": session,
         },
         headers={

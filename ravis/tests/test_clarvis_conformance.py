@@ -17,7 +17,7 @@ from ravis.compatibility.clarvis.conformance import run_suite
 EXPECTED_CHECKS = {
     "/v1/models cached response",
     # The Codex engine's id refused before anything runs (design §3.2: the 24th check).
-    "ravis/codex is refused as a chat model",
+    "ravis/clarvis-codex is refused as a chat model",
     "chat stream",
     "[DONE] terminator",
     # Reads `ReadStream.malformed_frames`, which had been counted on every

@@ -334,7 +334,7 @@ class Settings(BaseSettings):
     # ── Codex, the optional coding engine (runbook §2.2, §15.1.2 — M29) ───────
     # Whether RAVIS offers Codex. Unset means "if it is installed": the startup
     # check (`codex/runtime.py`) decides once, by whether the executable below
-    # leads to a file. `false` switches it off — `ravis/codex` is never listed and
+    # leads to a file. `false` switches it off — `ravis/clarvis-codex` is never listed and
     # nothing is run. `true` lists it even when the executable is missing, so a
     # client can learn why it cannot start.
     codex_enabled: bool | None = None

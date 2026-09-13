@@ -65,7 +65,7 @@ change"* no longer describe the code as it is. §3.1's record of 23 August is un
 records the fact; it does not decide whether this is an acceptable exception or should move out of
 Clarvis.
 
-**13 September 2026 — Codex tasks.** Clarvis recognises `ravis/codex` (confirmed by RAVIS's
+**13 September 2026 — Codex tasks.** Clarvis recognises `ravis/clarvis-codex` (confirmed by RAVIS's
 `/api/v1/codex`) and runs it through RAVIS's agent-session relay, not through chat completions. No
 `ProviderId` is added. Runbook §2.2 records the decision. **Decided, not built:** it lands as E-C9
 (§5.5, §8), and until then Clarvis contains no Codex code.
@@ -93,7 +93,7 @@ regression requirement, not an ecosystem proposal.
 | Clarvis builds the API path itself: `${baseUrl}/v1/models`, `${baseUrl}/v1/chat/completions`. A configured base URL must **not** end in `/v1`. | `src/model/OpenAiCompatibleProvider.ts:117`, `:164` |
 | The `custom` provider declares `needsKey: false` and `needsUrl: true`, and its default model is the placeholder `local-model` — which it will send before a model is chosen. | `src/model/providers.ts:102-110` |
 | A custom OpenAI-compatible base URL is a first-class configuration, asked for rather than guessed. | setting `clarvis.chat.baseUrl.custom`; `needsUrl` in `src/model/providers.ts` |
-| **Tool support is probed, not asserted from model-family heuristics.** `supportsTools()` sends a real one-tool, one-token request — "the only honest test". Model-family recognition exists for *defaults only* (`plan.md` M8j). **Planned with E-C9, not built:** `ravis/codex` is not probed; RAVIS's `/api/v1/codex` is its probe. | `src/model/OpenAiCompatibleProvider.ts:162` |
+| **Tool support is probed, not asserted from model-family heuristics.** `supportsTools()` sends a real one-tool, one-token request — "the only honest test". Model-family recognition exists for *defaults only* (`plan.md` M8j). **Planned with E-C9, not built:** `ravis/clarvis-codex` is not probed; RAVIS's `/api/v1/codex` is its probe. | `src/model/OpenAiCompatibleProvider.ts:162` |
 | `[DONE]` and `reasoning_content` are already handled at the provider layer. Reasoning leaking into visible or spoken output is treated as a **defect**. | `src/model/OpenAiCompatibleProvider.ts`, `src/model/reasoning.ts` |
 | Provider credentials use VS Code `SecretStorage` / `context.secrets` — never settings, workspace state, logs, NERVIS or telemetry. BYO-key; no Clarvis account. | `src/extension.ts`, `src/model/ModelService.ts` |
 | Capabilities are probed and features degrade when unavailable. | `src/model/` |
@@ -283,7 +283,7 @@ Clarvis probes rather than trusting family names. **Do not add static ecosystem 
 Clarvis that bypasses this principle.** RAVIS's `clarvis-agent` pool must satisfy the probe
 rather than asking Clarvis to trust the pool's name.
 
-`ravis/codex` is the one engine Clarvis recognises by id, confirmed by RAVIS's `/api/v1/codex`. A
+`ravis/clarvis-codex` is the one engine Clarvis recognises by id, confirmed by RAVIS's `/api/v1/codex`. A
 404 there refuses the run. *(Decided 13 September 2026; not built, E-C9.)*
 
 ## 5.3 Credential boundary
@@ -312,11 +312,13 @@ observation, workspace memory, direct-provider settings or safe teardown.
 M15 and in RAVIS's contract fixtures; not built (E-C9).** Clarvis gains a second coding engine,
 OpenAI's Codex, which RAVIS runs. This is what Clarvis owes that arrangement. RAVIS's side is
 `RAVIS.md` §15.1.2, and the shapes are the fixtures in `ravis/tests/fixtures/relay-contract/`, of
-which Clarvis keeps a hash-checked copy in `src/test/fixtures/`.
+which Clarvis keeps a hash-checked copy in `src/test/fixtures/`. The engine's id is `ravis/clarvis-codex`,
+named like the Clarvis pools; it was `ravis/codex` until the owner renamed it on 13 September 2026
+(Clarvis 0.16.1, RAVIS 0.23.11), with no alias.
 
-- **Selection.** Codex runs only when the effective coding model is exactly `ravis/codex` — chosen
+- **Selection.** Codex runs only when the effective coding model is exactly `ravis/clarvis-codex` — chosen
   in user scope, or recorded by Clarvis as the override for one unsettled task — the base URL is
-  loopback, and the workspace is trusted. `ravis/codex/<x>` is refused, and so is `ravis/codex` set
+  loopback, and the workspace is trusted. `ravis/clarvis-codex/<x>` is refused, and so is `ravis/clarvis-codex` set
   by a repository's `.vscode/settings.json`. Clarvis 0.17.0 and later sends `X-Clarvis-Engines:
   codex` when listing models, and only then does RAVIS list the id. It is never a chat model: read-only
   answers refuse it, and RAVIS's `/v1` answers it with 400.
@@ -1146,11 +1148,11 @@ next handoff that records it would be.
 
 ### E-C9 — Codex tasks through RAVIS *(paired with RAVIS M29 and NERVIS M28)*
 
-Choose `ravis/codex` as the coding model and a build runs as a Codex task in RAVIS: progress,
+Choose `ravis/clarvis-codex` as the coding model and a build runs as a Codex task in RAVIS: progress,
 approvals and questions in the chat, steering, Stop and the milestone machinery unchanged. The task
 survives a closed window and is reattached from either host. Manual switching to Clarvis's own
 engine and back continues on the same branch through a checkpoint in the git folder, under RAVIS's
-project lock.
+project lock. (The id was `ravis/codex` until Clarvis 0.16.1; renamed by the owner on 13 September 2026.)
 
 **Exit** (against `FakeRavisRelay` from the shared fixtures, then live):
 - **Stop:** clears the question at once and never lets a late answer start a step; nothing is saved

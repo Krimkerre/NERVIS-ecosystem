@@ -455,7 +455,7 @@ async def _check_models_endpoint(result: ConformanceResult) -> None:
 
 
 async def _check_codex_refusal(result: ConformanceResult) -> None:
-    """`ravis/codex` is refused as a chat model, and no upstream is asked (runbook §2.2).
+    """`ravis/clarvis-codex` is refused as a chat model, and no upstream is asked (runbook §2.2).
 
     The Codex engine's id is not a model, and a Clarvis that sends it to chat completions must
     hear a 400 before anything runs. The status is the point: Clarvis's tool probe keeps a 4xx
@@ -470,13 +470,13 @@ async def _check_codex_refusal(result: ConformanceResult) -> None:
     ) as client:
         response = await client.post(
             "/v1/chat/completions",
-            json={"model": "ravis/codex", "stream": True, "messages": [
+            json={"model": "ravis/clarvis-codex", "stream": True, "messages": [
                 {"role": "user", "content": "hello"}
             ]},
         )
     code = response.json().get("error", {}).get("code") if response.content else None
     result.record(
-        "ravis/codex is refused as a chat model",
+        "ravis/clarvis-codex is refused as a chat model",
         response.status_code == 400
         and code == "agent_backend_not_a_chat_model"
         and upstream.served == [],

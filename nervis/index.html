@@ -613,6 +613,13 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
 .card.kpi:hover .kpi-tip,.card.kpi:focus-within .kpi-tip{visibility:visible;opacity:1}
 .card.kpi:hover,.card.kpi:focus-within{z-index:30}
 .card .kpi-tip small{font-size:11px;color:#8ea0b2}
+/* The same tooltip on a table row: Clarvis Codex's read-only row on RAVIS → Pools. The mark
+   sits in the row's last cell instead of the card's corner, the panel opens under the row,
+   and the card holding the row is lifted so the cards after it don't paint over the panel. */
+.table-row.codex-pool{position:relative;align-items:center}
+.table-row.codex-pool .kpi-tip-mark{position:static;display:inline-flex;margin-left:6px;vertical-align:-3px}
+.table-row.codex-pool:hover .kpi-tip,.table-row.codex-pool:focus-within .kpi-tip{visibility:visible;opacity:1}
+.card:has(.table-row.codex-pool:hover),.card:has(.table-row.codex-pool:focus-within){z-index:30}
 .entry b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .entry small{font:10px/1 "SFMono-Regular",Consolas,monospace;color:#6f8093;
   font-variant-numeric:tabular-nums}
@@ -10211,9 +10218,48 @@ function poolRow(x,inv){
   </div>`;
 }
 
+/* ── Clarvis Codex on RAVIS → Pools, read-only ─────────────────────────────────
+   The owner looked for Codex on this screen, didn't find it, and took it for unbuilt
+   (13 September 2026). **It is not a pool**: no invariants, no members, no fallback, and
+   RAVIS's pools API rightly doesn't list it. So the row is composed here, from RAVIS's
+   `GET /api/v1/codex` — the read the Codex tile uses — and sits beside the two Clarvis
+   pools because its id, `ravis/clarvis-codex`, is named like theirs. It offers nothing to
+   click but the sign-in link and the tooltip: no picker, no curation. The figure, the
+   one line and the tooltip are the Codex tile's own helpers. */
+function codexPoolRow(codex){
+ const head=`<span><b>Clarvis Codex</b> · <span class="mono">ravis/clarvis-codex</span> <small class="dim">read-only</small></span><span style="opacity:.75">runs coding tasks through your ChatGPT plan, not chats · no fallback</span>`;
+ if(!codex.live)return `<div class="table-row five codex-pool">${head}<span>—</span><span>—</span><span style="opacity:.7">${escapeHtml(codexUnreadWords())}</span></div>`;
+ const tight=codexTightest(codex.usage);
+ return `<div class="table-row five codex-pool">${head}<span>${codexPoolAllowance(codex,tight)}</span><span>${codexPoolChip(codex.state)}</span><span>${codexTip(codex)}</span></div>`;
+}
+
+/* The tightest window's figure and reset, or the tile's words when there's no figure:
+   not read yet, or the link to Credentials when signed out. */
+function codexPoolAllowance(codex,tight){
+ const words=codexTileWords(codex,tight);
+ return tight?`<b>${escapeHtml(tight.remaining_percent)}% left</b> · ${words}`:words;
+}
+
+/* The state as a short chip ("paused"), in the tone the Credentials card gives it. */
+function codexPoolChip(word){
+ const [words,tone]=CODEX_STATES[word]||[String(word),'dim'];
+ return `<span class="chip${tone?' '+tone:''}">${escapeHtml(CODEX_SHORT[word]||words)}</span>`;
+}
+
+/* The pool rows with Codex's placed after the last Clarvis pool, or last when none is published. */
+function poolRowsWithCodex(items,inv,codex){
+ const rows=items.map(x=>poolRow(x,inv));
+ const clarvis=items.map(x=>x.pool_id).findLastIndex(id=>/^ravis\/clarvis-/.test(id));
+ rows.splice(clarvis<0?rows.length:clarvis+1,0,codexPoolRow(codex));
+ return rows.join('');
+}
+
 async function ravisPools(){
  heading('Pools','A pool is its invariants. Membership is counted from the builds that satisfy them, not written down.');
  const [p,mdl]=await Promise.all([API.ravis.pools(),API.ravis.models()]);
+ /* After the pools, not beside them: when Codex's read fails, its row says why from
+    RAVIS's last outcome, which a pools read finishing later would overwrite. */
+ const codex=await API.ravis.codex();
  const down=p.items.filter(x=>!x.available);
  /* By id, not by position. The mock listed clarvis-agent first; the API
     publishes §5's thirteen in their own order and items[0] is ravis/auto, so
@@ -10276,8 +10322,8 @@ async function ravisPools(){
     it rendered under a PROTOTYPE badge against a live RAVIS. */
  +`<div class="card full${escapeHtml(liveClass(p.live))}"><h3>Pools</h3>${cell(`
    <div class="table-row head five"><span>Pool</span><span>Invariants</span><span>Members</span><span>Available</span><span>Reason</span></div>
-   ${p.items.map(x=>poolRow(x,inv)).join('')}
-   <small class="mono dim"><b>Reason</b> is filled only when a pool cannot serve — it is why a request to it would be refused, so an empty column is every pool being able to answer. The invariant column is the contract a caller gets by naming the pool. <b>${escapeHtml(agent.pool_id||'no pool')}</b> means ${escapeHtml(((agent.requires||{}).required||[]).join(' and ')||'no capability')} REQUIRED${(agent.requires||{}).minimum_context?` and context at least ${escapeHtml(agent.requires.minimum_context/1024)}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
+   ${poolRowsWithCodex(p.items,inv,codex)}
+   <small class="mono dim"><b>Clarvis Codex</b> is not a pool and is not counted as one: it is Codex's state as RAVIS reports it, listed here because its id sits with the Clarvis pools. Its question mark holds the details. <b>Reason</b> is filled only when a pool cannot serve — it is why a request to it would be refused, so an empty column is every pool being able to answer. The invariant column is the contract a caller gets by naming the pool. <b>${escapeHtml(agent.pool_id||'no pool')}</b> means ${escapeHtml(((agent.requires||{}).required||[]).join(' and ')||'no capability')} REQUIRED${(agent.requires||{}).minimum_context?` and context at least ${escapeHtml(agent.requires.minimum_context/1024)}K`:''} — for every member, every fallback, and every future member. Nothing here is typed in: change what is installed and every count in this table moves.</small>`,'ravis')}</div>
   ${down.map(x=>`<div class="card wide${liveClass(p.live)}"><h3>${x.pool_id} unavailable</h3>${cell(`
    <div class="trace-step"><b>requires</b><span>${escapeHtml(inv(x.requires))}</span></div>
    <div class="trace-step"><b>members</b><span>${escapeHtml(x.members)}</span></div>

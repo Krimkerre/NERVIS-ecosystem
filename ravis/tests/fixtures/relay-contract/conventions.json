@@ -74,7 +74,7 @@
     "X-Clarvis-Engines": {
       "value": "codex",
       "sent_by": "Clarvis 0.17.0 or later, on listModels to a loopback base URL",
-      "effect": "lets GET /v1/models list ravis/codex"
+      "effect": "lets GET /v1/models list ravis/clarvis-codex"
     }
   },
   "identifiers": {

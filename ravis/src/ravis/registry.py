@@ -171,7 +171,7 @@ class ModelRegistry:
         scrambles the intended order (§5.0.1).
 
         `agent_backends` come straight after the pools and in the pools' own
-        shape — `ravis/codex`, for a caller that asked (`api/openai/agent_backends.py`).
+        shape — `ravis/clarvis-codex`, for a caller that asked (`api/openai/agent_backends.py`).
         This is the builder used when no upstream is declared; `merged_catalogue`
         is the other, and the two list it the same way.
         """

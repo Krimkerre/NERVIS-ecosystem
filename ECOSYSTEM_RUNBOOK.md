@@ -135,7 +135,8 @@ works without it.
   stop one through RAVIS's owner Stop route, as the menu bar may through the launcher.
 
 **Identifiers.**
-- Catalogue id `ravis/codex`, listed only with `X-Clarvis-Engines: codex`, never a pool member or
+- Catalogue id `ravis/clarvis-codex` (renamed from `ravis/codex` on 13 September 2026, owner decision, to
+  match the Clarvis pools; no alias), listed only with `X-Clarvis-Engines: codex`, never a pool member or
   fallback; `/v1` refuses it with 400 `agent_backend_not_a_chat_model`.
 - `GET /api/v1/codex` (any caller).
 - Admin, for UX and audit: `/api/v1/codex/sign-in`, `/sign-out`, `/account/confirm`,

@@ -1,4 +1,4 @@
-"""`ravis/codex` on the OpenAI-compatible surface — RAVIS M29, increment R1.
+"""`ravis/clarvis-codex` on the OpenAI-compatible surface — RAVIS M29, increment R1.
 
 The contract is `tests/fixtures/relay-contract/openai-refusal.json`, read here rather than copied.
 The id is listed only for a client that asks, in both catalogue builders, from a kept answer and
@@ -36,7 +36,7 @@ EMBEDDINGS_REFUSAL = next(
 )
 ASKED = {"X-Clarvis-Engines": "codex"}
 #: The listing contract's entry, exactly: no key beyond these three.
-ENTRY = {"id": "ravis/codex", "object": "model", "owned_by": "ravis"}
+ENTRY = {"id": "ravis/clarvis-codex", "object": "model", "owned_by": "ravis"}
 #: Where the entry sits: straight after the pools.
 AFTER_THE_POOLS = len(DEFAULT_POOLS)
 
@@ -84,7 +84,7 @@ def test_with_no_upstream_the_registry_leaves_codex_out_otherwise(
 ) -> None:
     listing = TestClient(_app(codex_enabled=enabled)).get("/v1/models", headers=headers).json()
 
-    assert "ravis/codex" not in _ids(listing)
+    assert "ravis/clarvis-codex" not in _ids(listing)
 
 
 def test_with_an_upstream_the_merged_catalogue_lists_codex_between_the_pools_and_its_models() -> (
@@ -110,7 +110,7 @@ def test_with_an_upstream_the_merged_catalogue_leaves_codex_out_without_the_head
 
     listing = TestClient(app).get("/v1/models").json()
 
-    assert "ravis/codex" not in _ids(listing)
+    assert "ravis/clarvis-codex" not in _ids(listing)
 
 
 def test_the_management_model_list_never_carries_codex() -> None:
@@ -118,7 +118,7 @@ def test_the_management_model_list_never_carries_codex() -> None:
     response = TestClient(_app(codex_enabled=True)).get("/api/v1/models", headers=ASKED)
 
     assert response.status_code == 200
-    assert "ravis/codex" not in response.text
+    assert "ravis/clarvis-codex" not in response.text
 
 
 def test_listing_reads_the_kept_answer_and_starts_no_program(
@@ -143,7 +143,7 @@ def test_listing_reads_the_kept_answer_and_starts_no_program(
     not_found = client.get("/v1/models", headers=ASKED).json()
 
     assert found["data"][AFTER_THE_POOLS] == ENTRY
-    assert "ravis/codex" not in _ids(not_found)
+    assert "ravis/clarvis-codex" not in _ids(not_found)
     assert started == []
     assert runtime.report.state == "checking"
 
@@ -181,7 +181,15 @@ def test_chat_answers_the_contracts_400_before_any_routing_upstream_call_or_even
     assert list(app.app.state.events._pending) == []
 
 
-@pytest.mark.parametrize("model", ["ravis/codex-mini", "ravis/codexes", "openai/ravis/codex"])
+@pytest.mark.parametrize(
+    "model",
+    [
+        "ravis/clarvis-codex-mini",
+        "ravis/clarvis-codexes",
+        "openai/ravis/clarvis-codex",
+        "ravis/codex",  # the old id: no alias, so it is an ordinary unknown name now
+    ],
+)
 def test_a_model_merely_named_like_the_engine_is_left_to_routing(model: str) -> None:
     app = _routed_app(RecordingUpstream(), codex_enabled=True)
 

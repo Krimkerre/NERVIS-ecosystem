@@ -273,12 +273,15 @@ it.
 can declare a request as background — a conversation title, say — and RAVIS
 excludes paid providers unless told otherwise.
 
-**It does not treat Codex as a chat model.** ravis/codex names the Codex coding engine that
+**It does not treat Codex as a chat model.** ravis/clarvis-codex names the Codex coding engine that
 Clarvis will run through RAVIS, and it is not a pool. A chat or embeddings request naming it, or
-any id under ravis/codex/, is refused with a 400 that says so before anything runs, whether or
+any id under ravis/clarvis-codex/, is refused with a 400 that says so before anything runs, whether or
 not Codex is set up. It appears in `/v1/models` only for a Clarvis that asks for it (0.17.0 and
 later) while Codex is installed. RAVIS checks the Codex on this Mac once when it starts — the
 Homebrew build, OpenAI's signature and the pinned version — and writes what it found to its log.
+The id was ravis/codex until 13 September 2026, when the owner renamed it to sit with the
+ravis/clarvis-agent and ravis/clarvis-chat pools (RAVIS 0.23.11); the old name is not kept as an
+alias.
 
 **It reports Codex's state and the ChatGPT plan's allowance, and signs Codex in.** `GET
 /api/v1/codex` answers any caller from memory with one state — checking, not installed, not

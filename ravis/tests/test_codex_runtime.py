@@ -418,7 +418,9 @@ def test_the_check_runs_once_at_startup_and_listing_reads_what_it_kept(
         listings = [client.get("/v1/models", headers=ASKED).json() for _ in range(3)]
 
     assert runtime.report.state == "untested_version"
-    assert all("ravis/codex" in [entry["id"] for entry in body["data"]] for body in listings)
+    assert all(
+        "ravis/clarvis-codex" in [entry["id"] for entry in body["data"]] for body in listings
+    )
     assert [run.arguments for run in codex.runs()].count("--version") == 1
 
 

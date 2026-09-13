@@ -8,7 +8,7 @@
     "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
     "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
   },
-  "refused_ids": "model == \"ravis/codex\" or model starting \"ravis/codex/\", whether or not Codex is enabled",
+  "refused_ids": "model == \"ravis/clarvis-codex\" or model starting \"ravis/clarvis-codex/\", whether or not Codex is enabled",
   "where": "agent_backend_refusal(parsed), inside chat's request inspection and from embeddings, before the disabled-provider check, the upstream check, routing, events and sessions: no route decision or route event is recorded",
   "why_400": [
     "Clarvis's chat probe caches no tools, which is true for this id",
@@ -26,20 +26,20 @@
   "residual": "an old Clarvis whose user types the id by hand still makes an empty branch before the 400",
   "examples": [
     {
-      "name": "chat with ravis/codex",
+      "name": "chat with ravis/clarvis-codex",
       "request": {
         "caller": "client.clarvis",
         "method": "POST",
         "path": "/v1/chat/completions",
         "headers": {"Content-Type": "application/json"},
-        "body": {"model": "ravis/codex", "messages": [{"role": "user", "content": "hello"}]},
+        "body": {"model": "ravis/clarvis-codex", "messages": [{"role": "user", "content": "hello"}]},
         "codex_enabled": true
       },
       "response": {
         "status": 400,
         "body": {
           "error": {
-            "message": "ravis/codex is the Codex coding engine, not a chat model. It runs inside Clarvis 0.17.0 or later when chosen as the coding model. Nothing was run.",
+            "message": "ravis/clarvis-codex is the Codex coding engine, not a chat model. It runs inside Clarvis 0.17.0 or later when chosen as the coding model. Nothing was run.",
             "type": "agent_backend_not_a_chat_model",
             "param": null,
             "code": "agent_backend_not_a_chat_model"
@@ -48,20 +48,20 @@
       }
     },
     {
-      "name": "chat with a ravis/codex/ sub-id",
+      "name": "chat with a ravis/clarvis-codex/ sub-id",
       "request": {
         "caller": "client.clarvis",
         "method": "POST",
         "path": "/v1/chat/completions",
         "headers": {"Content-Type": "application/json"},
-        "body": {"model": "ravis/codex/gpt-6-astra", "messages": [{"role": "user", "content": "hello"}]},
+        "body": {"model": "ravis/clarvis-codex/gpt-6-astra", "messages": [{"role": "user", "content": "hello"}]},
         "codex_enabled": true
       },
       "response": {
         "status": 400,
         "body": {
           "error": {
-            "message": "ravis/codex is the Codex coding engine, not a chat model. It runs inside Clarvis 0.17.0 or later when chosen as the coding model. Nothing was run.",
+            "message": "ravis/clarvis-codex is the Codex coding engine, not a chat model. It runs inside Clarvis 0.17.0 or later when chosen as the coding model. Nothing was run.",
             "type": "agent_backend_not_a_chat_model",
             "param": null,
             "code": "agent_backend_not_a_chat_model"
@@ -70,20 +70,20 @@
       }
     },
     {
-      "name": "chat with ravis/codex while Codex is disabled: still refused",
+      "name": "chat with ravis/clarvis-codex while Codex is disabled: still refused",
       "request": {
         "caller": "client.clarvis",
         "method": "POST",
         "path": "/v1/chat/completions",
         "headers": {"Content-Type": "application/json"},
-        "body": {"model": "ravis/codex", "messages": [{"role": "user", "content": "hello"}]},
+        "body": {"model": "ravis/clarvis-codex", "messages": [{"role": "user", "content": "hello"}]},
         "codex_enabled": false
       },
       "response": {
         "status": 400,
         "body": {
           "error": {
-            "message": "ravis/codex is the Codex coding engine, not a chat model. It runs inside Clarvis 0.17.0 or later when chosen as the coding model. Nothing was run.",
+            "message": "ravis/clarvis-codex is the Codex coding engine, not a chat model. It runs inside Clarvis 0.17.0 or later when chosen as the coding model. Nothing was run.",
             "type": "agent_backend_not_a_chat_model",
             "param": null,
             "code": "agent_backend_not_a_chat_model"
@@ -92,20 +92,20 @@
       }
     },
     {
-      "name": "embeddings with ravis/codex",
+      "name": "embeddings with ravis/clarvis-codex",
       "request": {
         "caller": "client.clarvis",
         "method": "POST",
         "path": "/v1/embeddings",
         "headers": {"Content-Type": "application/json"},
-        "body": {"model": "ravis/codex", "input": "hello"},
+        "body": {"model": "ravis/clarvis-codex", "input": "hello"},
         "codex_enabled": true
       },
       "response": {
         "status": 400,
         "body": {
           "error": {
-            "message": "ravis/codex is the Codex coding engine, not a chat model. It runs inside Clarvis 0.17.0 or later when chosen as the coding model. Nothing was run.",
+            "message": "ravis/clarvis-codex is the Codex coding engine, not a chat model. It runs inside Clarvis 0.17.0 or later when chosen as the coding model. Nothing was run.",
             "type": "agent_backend_not_a_chat_model",
             "param": null,
             "code": "agent_backend_not_a_chat_model"
@@ -126,13 +126,13 @@
       },
       "response": {
         "status": 200,
-        "entry_after_the_pools": {"id": "ravis/codex", "object": "model", "owned_by": "ravis"}
+        "entry_after_the_pools": {"id": "ravis/clarvis-codex", "object": "model", "owned_by": "ravis"}
       }
     },
     {
       "name": "without the header",
       "request": {"caller": "client.clarvis", "method": "GET", "path": "/v1/models", "codex_enabled": true},
-      "response": {"status": 200, "ids_exclude": ["ravis/codex"]}
+      "response": {"status": 200, "ids_exclude": ["ravis/clarvis-codex"]}
     },
     {
       "name": "with the header, Codex disabled",
@@ -143,12 +143,12 @@
         "headers": {"X-Clarvis-Engines": "codex"},
         "codex_enabled": false
       },
-      "response": {"status": 200, "ids_exclude": ["ravis/codex"]}
+      "response": {"status": 200, "ids_exclude": ["ravis/clarvis-codex"]}
     },
     {
       "name": "the management list",
       "request": {"caller": "client.clarvis", "method": "GET", "path": "/api/v1/models"},
-      "response": {"status": 200, "ids_exclude": ["ravis/codex"]}
+      "response": {"status": 200, "ids_exclude": ["ravis/clarvis-codex"]}
     }
   ]
 }

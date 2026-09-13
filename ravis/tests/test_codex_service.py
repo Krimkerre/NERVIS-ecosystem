@@ -514,6 +514,6 @@ def test_the_codex_runtime_capability_is_declared_without_a_relay_that_isnt_buil
     by_id = {capability["id"]: capability for capability in declared}
     assert by_id["ravis.codex_runtime"]["state"] == "available"
     assert by_id["ravis.codex_runtime"]["constraints"] == {
-        "backend_id": "ravis/codex", "roles": ["agent"], "state_endpoint": "/api/v1/codex",
+        "backend_id": "ravis/clarvis-codex", "roles": ["agent"], "state_endpoint": "/api/v1/codex",
     }
     assert "ravis.agent_sessions" not in by_id

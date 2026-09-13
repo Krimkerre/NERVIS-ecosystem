@@ -601,7 +601,7 @@ class CodexRuntime:
 
     @property
     def enabled(self) -> bool:
-        """Whether `ravis/codex` is offered at all (RAVIS.md §4.3; runbook §2.2).
+        """Whether `ravis/clarvis-codex` is offered at all (RAVIS.md §4.3; runbook §2.2).
 
         The setting, when it is set. Otherwise, whether the executable led to a file when the
         last check looked — so before the check has looked, and when it found nothing, the answer

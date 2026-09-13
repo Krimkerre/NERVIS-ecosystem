@@ -42,7 +42,7 @@ def _openai_error(message: str, error_type: str, status: int) -> JSONResponse:
 async def create_embeddings(request: Request) -> JSONResponse:
     """Refuse the Codex engine by name, then embed with the configured local model.
 
-    `ravis/codex` gets the same 400 as on chat completions, before anything else —
+    `ravis/clarvis-codex` gets the same 400 as on chat completions, before anything else —
     even before "no embedding model is configured", because what is true of that id
     does not depend on how this route is configured (runbook §2.2).
     """
