@@ -235,6 +235,10 @@ class VirtualModelPool:
     # model. Per pool, because the same marker that disqualifies a model here
     # is what qualifies it next door.
     excluded: tuple[str, ...] = ()
+    # **Models the owner has ruled out of this pool, whatever their evidence.** Unlike
+    # `excluded`, checked before a measurement can admit a build and applied to the fallback
+    # that otherwise takes every candidate, so nothing brings one back. Substring match.
+    owner_excluded: tuple[str, ...] = ()
     # Whether a picker should offer this pool.
     #
     # The ID stays addressable either way — §5 requires it and a client may name
@@ -374,7 +378,8 @@ class VirtualModelPool:
         # 41 of them and `ravis/local` held `text-embedding-nomic-embed-text`.
         # No pool wants these and every pool had them, which makes it a property
         # of routing rather than of any one pool's taste.
-        routable = [model for model in candidates if self._is_routable(model)]
+        kept = [model for model in candidates if not self.owner_excludes(model)]
+        routable = [model for model in kept if self._is_routable(model)]
         measured = evidence or {}
         if (not self.default_tier and self.max_price_per_million is None
                 and not self.curated and not self.excluded and not measured):
@@ -398,7 +403,7 @@ class VirtualModelPool:
                 # resolves to nothing rather than to everything, and the engine
                 # refuses — the same shape as `ravis/local` declining to relax.
                 return tuple(matched)
-        return tuple(matched) or tuple(candidates)
+        return tuple(matched) or tuple(kept)
 
     def _is_routable(self, model: str) -> bool:
         """Whether this model can answer a chat completion at all.
@@ -453,6 +458,11 @@ class VirtualModelPool:
         if verdict == CapabilityState.UNSUPPORTED.value:
             return False
         return self._is_curated(model)
+
+    def owner_excludes(self, model: str) -> bool:
+        """Whether the owner has ruled this model out of this pool."""
+        lowered = model.lower()
+        return any(marker in lowered for marker in self.owner_excluded)
 
     def _is_curated(self, model: str) -> bool:
         """Whether this pool wants this model.
@@ -778,6 +788,11 @@ GENERAL_PURPOSE_EXCLUSIONS: tuple[str, ...] = (
     "-vl-", "vision",
 )
 
+#: Models the owner ruled out of coding work (13 September 2026): `openai/gpt-4.1-mini` skipped
+#: ticking plan steps in a Clarvis build whose tests passed. It stays in the chat pools, and an
+#: explicit direct address (`ravis/openrouter/openai/gpt-4.1-mini`) still reaches it.
+OWNER_EXCLUDED_FROM_CODING: tuple[str, ...] = ("gpt-4.1-mini",)
+
 # The required defaults from §5. `ravis/clarvis-chat` and `ravis/clarvis-agent`
 # are the two whose IDs must stay stable — Clarvis names them in configuration.
 DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
@@ -948,6 +963,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
     ),
     VirtualModelPool(
         pool_id="ravis/coding",
+        owner_excluded=OWNER_EXCLUDED_FROM_CODING,
         evidence_role="agent",
         label="Coding",
         description="Optimized for writing and reasoning about code",
@@ -1030,6 +1046,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
     ),
     VirtualModelPool(
         pool_id="ravis/agent",
+        owner_excluded=OWNER_EXCLUDED_FROM_CODING,
         evidence_role="agent",
         label="Agent",
         description=(
@@ -1093,6 +1110,7 @@ DEFAULT_POOLS: tuple[VirtualModelPool, ...] = (
     ),
     VirtualModelPool(
         pool_id="ravis/clarvis-agent",
+        owner_excluded=OWNER_EXCLUDED_FROM_CODING,
         evidence_role="clarvis-agent",
         label="Clarvis Agent",
         description=(

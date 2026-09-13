@@ -309,6 +309,9 @@ class RoutingEngine:
         """
         policy = policy or RoutingPolicy()
         refusals = refusals or {}
+        # **The owner's exclusions go first**, before membership, measurement, an operator's
+        # picks or the fallback, so nothing downstream can bring one back.
+        barred, candidates = _without_owner_exclusions(pool, candidates)
         decision = RouteDecision(
             requested=pool.pool_id,
             pool_id=pool.pool_id,
@@ -347,6 +350,7 @@ class RoutingEngine:
                 pool, candidates, requirements, unavailable, remote, effective,
                 by_default, refusals, measured,
             )
+            decision.excluded += _owner_excluded(barred)
             decision.reason = (
                 f"no candidate satisfies {pool.pool_id}; the pool is unavailable"
             )
@@ -355,6 +359,7 @@ class RoutingEngine:
             pool, candidates, requirements, unavailable, remote, effective, by_default,
             refusals, measured,
         )
+        decision.excluded += _owner_excluded(barred)
         eligible = _rank(
             pool, candidates, residency, memory, requirements, unavailable, remote,
             effective, observed or {}, refusals, policy, sticky,
@@ -489,6 +494,19 @@ def _describe_requirements(pool: VirtualModelPool) -> list[str]:
     if pool.requirements.minimum_context:
         described.append(f"minimum context {pool.requirements.minimum_context}")
     return described
+
+
+def _without_owner_exclusions(
+    pool: VirtualModelPool, candidates: dict[str, ModelCapabilities]
+) -> tuple[list[str], dict[str, ModelCapabilities]]:
+    """The models the owner ruled out of this pool, and the candidates without them."""
+    barred = sorted(model for model in candidates if pool.owner_excludes(model))
+    return barred, {model: known for model, known in candidates.items() if model not in barred}
+
+
+def _owner_excluded(models: list[str]) -> list[ExcludedCandidate]:
+    """The owner's exclusions, named in the route's explanation rather than silently absent."""
+    return [ExcludedCandidate(model, ["ruled out of this pool by the owner"]) for model in models]
 
 
 def _exclusions(

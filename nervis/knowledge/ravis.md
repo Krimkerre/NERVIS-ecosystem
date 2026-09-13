@@ -181,6 +181,14 @@ rather than picking a model.
   from reading one and shares no members with the pool above
 - `ravis/clarvis-chat`, `ravis/clarvis-agent` — Clarvis's two roles
 
+**The owner can rule a model out of a pool, and that outranks everything else a pool weighs**,
+including a passing measurement, an operator's picks and the everything-fallback (RAVIS 0.24.1).
+Today one model is ruled out: `openai/gpt-4.1-mini` never serves the coding pools
+(`ravis/clarvis-agent`, `ravis/coding`, `ravis/agent`), because it skipped ticking plan steps in a
+Clarvis build on 13 September 2026. It still serves the chat pools, and an explicit address like
+`ravis/openrouter/openai/gpt-4.1-mini` still reaches it. The route explanation says "ruled out of
+this pool by the owner".
+
 A pool's constraint holds when things fail, not only when they are chosen. If
 the local model behind `ravis/local` is unreachable — or accepts the connection
 and never answers — RAVIS refuses the request rather than reaching for a cloud

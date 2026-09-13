@@ -1052,7 +1052,23 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.24.0
+## RAVIS — 0.24.1
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **`openai/gpt-4.1-mini` is ruled out of coding work** (owner, 13 September 2026). During a
+  Clarvis build walkthrough its tests passed, but it skipped ticking plan steps. The three coding
+  pools, `ravis/clarvis-agent`, `ravis/coding` and `ravis/agent`, never pick it now. It still
+  serves the chat pools, and an explicit direct address such as
+  `ravis/openrouter/openai/gpt-4.1-mini` still reaches it, because a direct pick is the caller's
+  deliberate choice and RAVIS can't tell a coding request from a chat one by the id alone.
+- **The owner's word outranks everything else a pool weighs.** A new per-pool `owner_excluded` list
+  is checked before a measurement can admit a build, so a passing trial can't bring the model back.
+  It also applies to the fallback that otherwise takes every candidate, and to an operator's picks.
+  The route's explanation names the model as "ruled out of this pool by the owner" instead of
+  leaving it silently absent. Checked by `ravis/tests/test_pool_owner_exclusion.py`.
+
+### 0.24.0
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
