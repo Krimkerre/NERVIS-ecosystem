@@ -25,7 +25,52 @@ every entry.
 
 ---
 
-## Clarvis — 0.15.4
+## Clarvis — 0.16.0
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Feedback on a drafted plan changes the plan.** Keep Refining added a note and redrew the
+  same plan, so "remove cloud sync" sat under the cloud-sync scope and step it contradicted,
+  and the build was still told `Scope: …cloud sync`. The model now rewrites only the sections
+  the feedback affects, those replace the old ones in the draft as it currently reads, and
+  Clarvis says which changed. Anything said at the approval question that is not one of its
+  buttons is taken the same way; it used to end planning unapproved. A change to §0 or Branch
+  flow, a section the draft does not have, a reply cut off before it finished, or one that
+  would leave nothing to build is refused, and the draft stays as it was. With no model the
+  feedback goes under Notes, and that is said.
+- **Approve writes the draft as it reads in the editor.** A hand edit used to be thrown away:
+  Approve wrote the text that had been generated. An edit made while a revision is being
+  written wins, and the revision is not applied.
+- **Milestone one is built from the written plan.md**, the way every later milestone already
+  was, so a step deleted from the draft by hand is not built. A build is offered only when
+  milestone one has steps and at least one check, and steps without a check are named in the
+  offer. Only Start Building starts it — any other reply, a question included, used to start
+  the build.
+- **Stop pauses planning, and cancelling never decides.** Cancelling a finding accepted it with
+  its first fix; Stop at "Go with that?" put the options back; Stop at a finding, the name
+  picker or a follow-up recorded a default and asked the next question; and "stop" typed while
+  a model was working answered "Nothing to stop". Each of these now pauses, with nothing
+  decided and nothing started. The drafted plan is saved with the interview, so carrying on
+  goes back to the same draft rather than running the review again. A model call already
+  running when Stop is pressed is not cut off: it finishes within its own time limit and is
+  ignored.
+- **A review that did not finish no longer reads as a clean one.** No model, a timeout, a
+  failed call and an unreadable reply all came back as "no findings", and a refusal was parsed
+  as a milestone's only step. A stage that did not finish now asks Try Again or Go On Without
+  It, and the draft says what is missing. **Operator note:** the review prompt now asks for an
+  explicit `NO-FINDINGS`, so a model that answers a clean review with silence shows as a
+  review that did not finish.
+- **A number picks an option only on its own.** `1 but keep offline support` was read as
+  button 1 — at the approval question, Approve — and `1.5` as option 1. Both are now read as
+  what was typed.
+- No summary document opens beside plan.md once the plan is approved.
+- Checked: types, lint and 1,447 tests, including the whole stretch from the review to the
+  offer to build driven end to end under `node --test` for the first time; each of 20 new
+  guards, removed from the compiled code, fails its test. **Not yet walked live:** the revision
+  and `NO-FINDINGS` prompts against a real model, and the draft read-back and Stop in VS Code
+  and code-server.
+
+### 0.15.4
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
