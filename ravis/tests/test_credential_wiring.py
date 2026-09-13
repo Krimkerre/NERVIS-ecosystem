@@ -298,7 +298,7 @@ def _cors(origin: str, settings: Settings | None = None):
 
     from ravis.app import create_app
 
-    with TestClient(create_app(settings or Settings())) as client:
+    with TestClient(create_app(settings or Settings(database_path=":memory:"))) as client:
         return client.get("/api/v1/providers/credentials", headers={"Origin": origin})
 
 
@@ -332,7 +332,7 @@ def test_a_request_with_no_origin_is_untouched() -> None:
 
     from ravis.app import create_app
 
-    with TestClient(create_app(Settings())) as client:
+    with TestClient(create_app(Settings(database_path=":memory:"))) as client:
         assert client.get("/api/v1/providers/credentials").status_code == 200
 
 
@@ -380,7 +380,7 @@ def test_a_provider_with_no_key_is_still_reachable_in_principle() -> None:
 
     from ravis.app import create_app
 
-    with TestClient(create_app(Settings())) as client:
+    with TestClient(create_app(Settings(database_path=":memory:"))) as client:
         items = client.get("/api/v1/providers/credentials").json()["items"]
 
     anthropic = next(i for i in items if i["name"] == "anthropic")
@@ -504,7 +504,7 @@ def test_the_credentials_screen_offers_a_row_for_openai() -> None:
 
     from ravis.app import create_app
 
-    with TestClient(create_app(Settings())) as client:
+    with TestClient(create_app(Settings(database_path=":memory:"))) as client:
         items = client.get("/api/v1/providers/credentials").json()["items"]
 
     openai = next(i for i in items if i["name"] == "openai")

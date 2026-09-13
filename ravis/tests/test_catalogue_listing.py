@@ -42,7 +42,7 @@ def _isolated(tmp_path, monkeypatch) -> None:
 
 
 def a_client(catalogue: list[str]) -> TestClient:
-    client = TestClient(create_app(Settings()))
+    client = TestClient(create_app(Settings(database_path=":memory:")))
     client.__enter__()
     _as_admin(client)
 
@@ -185,7 +185,7 @@ def test_saving_a_credential_re_reads_the_catalogue() -> None:
         registry = _Registry()
         spec = _Spec()
 
-    client = TestClient(create_app(Settings()))
+    client = TestClient(create_app(Settings(database_path=":memory:")))
     client.__enter__()
     _as_admin(client)
     client.app.app.state.transparents = {"demo": _Built()}  # type: ignore[attr-defined]
@@ -205,7 +205,7 @@ def test_saving_a_credential_re_reads_the_catalogue() -> None:
 def test_a_credential_for_a_provider_with_no_upstream_reports_no_catalogue() -> None:
     """`None`, not zero. Nothing was refreshed because nothing is declared, and
     "no catalogue to read" is a different fact from "the catalogue is empty"."""
-    client = TestClient(create_app(Settings()))
+    client = TestClient(create_app(Settings(database_path=":memory:")))
     client.__enter__()
     _as_admin(client)
     client.app.app.state.transparents = {}  # type: ignore[attr-defined]

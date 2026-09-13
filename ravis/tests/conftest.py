@@ -18,6 +18,31 @@ import pytest
 from ravis.config import Settings
 from ravis.credentials import KEYRING_SWITCH
 
+#: The checkout's own database, which the RAVIS running on this Mac uses.
+CHECKOUT_DATABASE = Path(__file__).resolve().parents[1] / "ravis.db"
+
+# **No test ever opens a relative `ravis.db`** (found 13 September 2026). `Settings()`'s default
+# `database_path` is `ravis.db`, relative to the working directory, and several tests build the
+# app with defaults. Run from `ravis/`, a full suite opened the live RAVIS's own database — and once
+# migration 8 existed, migrated it past what the running RAVIS could read, taking RAVIS down.
+# Set here, at import, so it holds before any test module is even collected; a test that names
+# its own `database_path` still gets what it names.
+os.environ["RAVIS_DATABASE_PATH"] = ":memory:"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _never_the_checkouts_database() -> Any:
+    """Fail the run if it created the checkout's `ravis.db` (`tests/test_no_checkout_database.py`).
+
+    Only creation is checked: where the file already exists, the live RAVIS writes to it on its
+    own, so a changed modification time would say nothing about the suite.
+    """
+    existed = CHECKOUT_DATABASE.exists()
+    yield
+    assert existed or not CHECKOUT_DATABASE.exists(), (
+        f"the test run created {CHECKOUT_DATABASE}; a test opened a relative database path"
+    )
+
 
 @pytest.fixture(autouse=True)
 def _never_the_operators_own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
