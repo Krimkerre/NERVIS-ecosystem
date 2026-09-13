@@ -5362,8 +5362,9 @@ async function nervis(){
  const view=NERVIS_VIEWS[state.view];
  if(view)return view();
  heading('Ecosystem overview','What each service reports, when it said so, and how sure it is.',control('Run diagnostics','diagnose',' primary'));
- const [svc,inst,tr,ev,usage,obs,recent]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances(),
-   API.nervis.trace(),API.nervis.events(),API.ravis.usage(),API.ravis.observations(),API.ravis.decisions(200)]);
+ const [svc,inst,tr,ev,usage,obs,recent,codex]=await Promise.all([API.nervis.services(),API.nervis.clarvisInstances(),
+   API.nervis.trace(),API.nervis.events(),API.ravis.usage(),API.ravis.observations(),API.ravis.decisions(200),
+   API.ravis.codex()]);
  const measured=throughput(obs,recent);
  /* From the rows NERVIS just published, not from the fallback `SERVICES` map
     and not against a hardcoded four. §5.1 declares six entries and the map
@@ -5381,6 +5382,7 @@ async function nervis(){
    /* `true` was written here literally, so the tile counted mock rows as
       reachable services on a page with nothing running. */
    ['Services',`${reach.live} / ${reach.expected}`,reach.note,'nervis',svc.live]])
+ +codexOverviewCard(codex)
  +`<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span title="The Minimal Ecosystem Protocol major version this peer publishes — the wire-format contract NERVIS negotiates before anything else. A number outside NERVIS's supported range would mark the whole peer incompatible, separately from any one capability being unavailable. Shown as '—' for a peer with no protocol surface, like a local runtime or code-server.">Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${escapeHtml(r.label)}</span><span class="mono">${escapeHtml(r.build_version)}</span><span class="mono">${escapeHtml(r.protocol_version?'proto '+r.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(r.capability)}${r.capability_source==='adapted'?' <i style="font-style:normal;opacity:.6">· adapted</i>':''}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':escapeHtml(r.state)}</span></div>`).join('')}
@@ -6768,7 +6770,7 @@ function voiceKeyCard(data){
  const label={file:'stored by NERVIS',environment:'environment variable',absent:'not set'}; return `
   <div class="card full live"><h3>Fish Audio key</h3>${cell(`
    <div class="table-row" style="grid-template-columns:auto 1.6fr auto auto;align-items:center;gap:8px">
-    <span class="mono" style="opacity:.75">${escapeHtml(cred.configured?'&#9679; '+(label[cred.source]||cred.source):'&#9675; not set')}</span>
+    <span class="mono" style="opacity:.75">${cred.configured?'&#9679; '+escapeHtml(label[cred.source]||cred.source):'&#9675; not set'}</span>
     <span><input id="voiceKey" type="password" autocomplete="off"
       placeholder="${cred.configured?'replace the stored key…':'paste the Fish Audio API key…'}"
       style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"></span>
@@ -9457,12 +9459,145 @@ async function resetSpend(){
  render();
 }
 
-function liveRavisDashboard(decisions, usage, prof){
- const active=prof.items.find(x=>x.default)||prof.items[0];
+/* ── Codex's ChatGPT plan allowance, on RAVIS → Dashboard and the Overview ──────
+
+   A tile in the headline row, directly beside Spend, where the active profile's
+   tile was: the owner's layout, 13 September 2026. The active profile is still
+   shown on RAVIS → Settings.
+
+   **Beside Spend, and never a money figure.** It is what is left of the ChatGPT
+   plan's usage windows — no currency, no `money()`, and the tile says so, because
+   a percentage next to a price is easily read as a discount. **Unknown is never
+   0%**: until RAVIS has read the allowance there are no windows, and the tile says
+   unknown. A reading RAVIS marks stale says so, with its age. The tightest window
+   leads, because it is the one that stops Codex first; every window is listed
+   under it with its reset. Read from RAVIS's public `GET /api/v1/codex`, the same
+   read the Credentials card uses. */
+const CODEX_DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const CODEX_MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function codexTile(codex){
+ if(!codex.live)return ['Codex','—',codexUnreadWords(),'ravis',false];
+ const tight=codexTightest(codex.usage);
+ return ['Codex',codexFigure(codex,tight),codexFigureNote(codex,tight),'ravis',true,codexTileDetail(codex)];
+}
+
+function codexUnreadWords(){
+ const status=(OUTCOME.ravis||{}).status;
+ if(status===404||status===405)return "this RAVIS doesn't report Codex; RAVIS 0.23.9 does";
+ return readFailure('ravis')||'RAVIS did not answer the read of Codex’s state';
+}
+
+function codexUsage(codex){return codex.usage||{}}
+
+/* The window with the least left, among those RAVIS gave a figure for. */
+function codexTightest(usage){
+ const windows=(usage&&usage.known&&Array.isArray(usage.windows)?usage.windows:[])
+  .filter(w=>w&&typeof w.remaining_percent==='number');
+ return windows.reduce((least,w)=>least&&least.remaining_percent<=w.remaining_percent?least:w,null);
+}
+
+function codexFigure(codex,tight){
+ if(tight)return `${tight.remaining_percent}% left`;
+ if(codex.account)return 'unknown';
+ return (CODEX_STATES[codex.state]||[String(codex.state)])[0];
+}
+
+function codexFigureNote(codex,tight){
+ if(tight)return `${tight.label||'a window'} · resets ${codexReset(tight.resets_at)}${codexUsage(codex).stale?' · stale':''}`;
+ if(codex.account)return 'the plan’s allowance hasn’t been read yet';
+ return codex.reason||'';
+}
+
+function codexTileDetail(codex){
+ return `<div style="margin-top:8px;font-size:12px;line-height:1.55">
+   <div>${codexStateChip(codex.state)} ${escapeHtml(codex.reason||'')}</div>
+   ${codexPlanLine(codex.account)}
+   ${codexWindowRows(codex)}
+   ${codexStaleLine(codexUsage(codex))}
+   <small class="mono dim" style="display:block;margin-top:4px">${codexTileFoot(codex)}</small>
+  </div>`;
+}
+
+function codexPlanLine(account){
+ if(!account)return '';
+ const plan=account.plan?`ChatGPT ${codexPlanName(account.plan)} plan`:'ChatGPT plan not named';
+ return `<div class="mono dim">${escapeHtml(plan)}${account.email_hint==null?'':' · '+escapeHtml(account.email_hint)}</div>`;
+}
+
+function codexWindowRows(codex){
+ const usage=codexUsage(codex);
+ if(!codex.account)return '';
+ const windows=usage.known&&Array.isArray(usage.windows)?usage.windows:[];
+ if(!windows.length)return '<div>allowance: <b>unknown</b> — RAVIS hasn’t read it yet, so no figure is shown</div>';
+ return windows.map(codexWindowRow).join('');
+}
+
+function codexWindowRow(w){
+ const left=typeof w.remaining_percent==='number'?`${w.remaining_percent}% left`:'unknown';
+ return `<div>${escapeHtml(w.label||'a window')}: <b>${escapeHtml(left)}</b> · resets ${escapeHtml(codexReset(w.resets_at))}</div>`;
+}
+
+function codexStaleLine(usage){
+ if(!usage.stale)return '';
+ return `<div><span class="chip warn">stale</span> last read ${escapeHtml(codexAgo(usage.observed_at))} — may be out of date</div>`;
+}
+
+function codexTileFoot(codex){
+ const signIn=!codex.account&&codexCanSignIn(codex)
+  ?' · <a href="#" onclick="go(\'ravis\',\'Credentials\');return false" style="color:inherit">sign in on RAVIS → Credentials</a>':'';
+ return 'your ChatGPT plan’s allowance, not money'+signIn;
+}
+
+/* The local clock, 24-hour, and the day too when it isn't today; then how long. A
+   reset already past says so rather than counting down from a negative. */
+function codexReset(iso){
+ const at=new Date(Date.parse(iso));
+ const ms=at.getTime()-Date.now();
+ if(!isFinite(ms))return 'at a time RAVIS did not give';
+ if(ms<=0)return 'now — waiting for a new reading';
+ return `${codexClock(at)} (in ${codexIn(ms)})`;
+}
+
+function codexClock(at){
+ const hm=String(at.getHours()).padStart(2,'0')+':'+String(at.getMinutes()).padStart(2,'0');
+ if(at.toDateString()===new Date().toDateString())return hm;
+ return `${CODEX_DAYS[at.getDay()]} ${at.getDate()} ${CODEX_MONTHS[at.getMonth()]} ${hm}`;
+}
+
+/* Minutes rounded up, as `resumesIn` does, so the last half minute never reads "0 min". */
+function codexIn(ms){
+ const minutes=Math.ceil(ms/60000);
+ if(minutes<60)return `${minutes} min`;
+ const hours=Math.floor(minutes/60);
+ return hours<48?`${hours} h ${minutes%60} min`:`${Math.round(hours/24)} days`;
+}
+
+function codexAgo(iso){
+ const minutes=Math.floor((Date.now()-Date.parse(iso))/60000);
+ if(!isFinite(minutes))return 'at a time RAVIS did not give';
+ return minutes<60?`${minutes} min ago`:`${Math.floor(minutes/60)} h ${minutes%60} min ago`;
+}
+
+/* The Overview's one line (NERVIS.md §6): the state, and what is left in the tightest
+   window, in a card owned by RAVIS so it goes absent with RAVIS. */
+function codexOverviewCard(codex){
+ return `<div class="card full${liveClass(codex.live)}"><h3>Codex</h3>${cell(codexOverviewLine(codex),'ravis')}</div>`;
+}
+
+function codexOverviewLine(codex){
+ if(!codex.live)return `<div class="trace-step"><b>state</b><span>${escapeHtml(codexUnreadWords())}</span></div>`;
+ const tight=codexTightest(codex.usage);
+ const stale=codexUsage(codex).stale?' · stale':'';
+ const said=tight
+  ?`${tight.remaining_percent}% left in the ${tight.label||'tightest window'} · resets ${codexReset(tight.resets_at)}${stale}`
+  :(codex.account?'allowance unknown':(codex.reason||''));
+ return `<div class="trace-step"><b>${codexStateChip(codex.state)}</b><span>${escapeHtml(said)} · <a href="#" onclick="go('ravis','Dashboard');return false" style="color:inherit">RAVIS → Dashboard</a></span></div>`;
+}
+
+function liveRavisDashboard(decisions, usage, codex){
  const share=usage.local_share;
  $('#content').innerHTML=kpis([
-   ['Active profile',active?active.label:'—',
-     active?`${active.profile_id} · rev ${active.revision}`:'','ravis',true],
    ['Decisions',`${usage.routed} / ${usage.decisions_recorded}`,
      usage.no_route?`${usage.no_route} refused as no-route`:'none refused','ravis',true],
    ['Local',share==null?'—':Math.round(share*100)+'%',
@@ -9476,7 +9611,8 @@ function liveRavisDashboard(decisions, usage, prof){
       total alone, because a sum without the calls behind it invites being
       read as a bill. */
    ['Spend',spendFigure(usage),spendNote(usage),'ravis',true,
-     `<button class="btn" style="margin-top:8px" onclick="resetSpend()" title="Count from now. Nothing is deleted, and the budget keeps its own window.">Reset to 0</button>`]])
+     `<button class="btn" style="margin-top:8px" onclick="resetSpend()" title="Count from now. Nothing is deleted, and the budget keeps its own window.">Reset to 0</button>`],
+   codexTile(codex)])
  +(decisions.length
    ? decisionCard(decisions[0])+funnelCard(decisions[0])+attemptsCard(decisions[0])
      +recentDecisionsCard(decisions.slice(0,8))
@@ -9488,12 +9624,12 @@ function liveRavisDashboard(decisions, usage, prof){
 async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
  heading('Route intelligence','Hard constraints eliminate, then preferences rank. Every route explains itself.',control('Simulate request','reroute',' primary'));
  const since=await API.ravis.spendCountedSince();
- const [decisions,usage,prof]=await Promise.all([API.ravis.decisions(25),
-   API.ravis.usage(since),API.ravis.profiles()]);
+ const [decisions,usage,codex]=await Promise.all([API.ravis.decisions(25),
+   API.ravis.usage(since),API.ravis.codex()]);
  /* Live when RAVIS answers at all — the counts are real even before anything
     has routed, and "nothing has routed yet" is a better first screen than four
     invented figures. */
- if(usage.live)return liveRavisDashboard(decisions.items,usage,prof);
+ if(usage.live)return liveRavisDashboard(decisions.items,usage,codex);
  $('#content').innerHTML=banner('RAVIS has recorded no route decision',
   'Nothing has been routed through RAVIS yet, or it is not answering. Send a request and '
   +'this screen explains exactly which model was chosen and why every other candidate was '
@@ -10713,7 +10849,7 @@ async function ravisCredentials(){
     the same models behind a service account and a different credential shape. */
  const row=i=>`<div class="table-row" style="grid-template-columns:1.1fr auto 1.6fr auto auto;align-items:center;gap:8px">
    <span class="mono"><b>${escapeHtml(i.label||i.name)}</b>${i.routable===false?' <span class="chip warn" title="no adapter or upstream is declared for this provider">unroutable</span>':''}</span>
-   <span class="mono" style="opacity:.75">${escapeHtml(i.configured?'&#9679; '+label[i.source]:'&#9675; not set')}</span>
+   <span class="mono" style="opacity:.75">${i.configured?'&#9679; '+escapeHtml(label[i.source]||i.source):'&#9675; not set'}</span>
    <span><input id="${domId('cred',i.name)}" type="password" autocomplete="off"
      placeholder="${i.configured?'replace the stored key\u2026':'paste the API key\u2026'}"
      style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"></span>

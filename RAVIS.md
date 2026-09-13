@@ -1581,7 +1581,9 @@ them. There is **no Profiles screen**, and **no Models page** of its own; the Po
 the model list beside the pools. The dashboard shows **no estimated savings**; the word appears
 nowhere in the page. And there is **no live Clarvis compatibility page**: the Diagnostics screen
 lists the suite's checks under *not run from here*, because `ravis conformance clarvis` is a CLI
-command whose result reaches no endpoint a browser can read.
+command whose result reaches no endpoint a browser can read. **Since 13 September 2026 the Dashboard
+shows no current profile:** at the owner's request its headline row is decisions, local share, spend
+and Codex's plan allowance, and the active profile is shown on the Settings screen.
 
 ## 15.4 CLI
 

@@ -284,7 +284,12 @@ Codex in to the ChatGPT plan. **Sign in with ChatGPT** opens OpenAI's page in a 
 tab; the card follows the sign-in by itself, then shows the account as a hint with
 Sign out, asks This is my account when the account changed, and offers Try again when
 a sign-in didn't finish. NERVIS forwards those calls to RAVIS with its RAVIS admin
-credential; the browser never holds it.
+credential; the browser never holds it. Later that day RAVIS → Dashboard's Active
+profile tile gave way to a **Codex** tile beside Spend, showing how much of the plan's
+allowance is left in each window and when it resets (unknown is never shown as 0%); the
+Overview gained a one-line Codex summary; and the provider key rows on Providers and
+Credentials stopped showing a stray character code where the dot before a stored key
+belongs.
 
 As of 12 September 2026: the dashboard no longer reads RAVIS straight from the
 browser. Every open tab used to share RAVIS's one anonymous allowance of sixty

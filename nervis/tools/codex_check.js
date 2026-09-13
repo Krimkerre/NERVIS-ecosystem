@@ -38,6 +38,9 @@ const ACCOUNT = { signed_in: true, auth_mode: "chatgpt", plan: "plus", email_hin
                   fingerprint: "strong", fingerprint_matches: true, plan_changed: false };
 const RESTARTED = { state: "failed", started_at: null, expires_at: null,
                     error: "RAVIS restarted during sign-in" };
+/* One provider key row, configured, so the Credentials screen draws its ● dot. */
+const KEY_ROW = { name: "openai", label: "OpenAI", configured: true, source: "keychain",
+                  file_is_private: true, routable: true };
 
 /* `GET /api/v1/codex` in codex-state.json's shape, with what a case changes. */
 function codex(state, reason, extra = {}) {
@@ -64,7 +67,7 @@ function answer(status, body) {
 /* A recorded RAVIS behind NERVIS. `ravis.state` is what the relayed `GET /api/v1/codex`
    answers; `ravis.control["POST /sign-in"]` and its siblings answer NERVIS's control
    routes. Every Codex call is logged, with how many tabs were open when it was sent. */
-function world({ state, codexStatus = 200, control = {} }) {
+function world({ state, codexStatus = 200, control = {}, reads = {} }) {
   const ravis = { state, codexStatus, control };
   const sent = [];
   const tabs = [];
@@ -72,9 +75,12 @@ function world({ state, codexStatus = 200, control = {} }) {
     const address = String(url);
     const method = (init.method || "GET").toUpperCase();
     if (address.endsWith("/api/v1/relay/ravis/api/v1/providers/credentials")) {
-      return answer(200, { items: [] });
+      return answer(200, { items: [KEY_ROW] });
     }
+    const read = Object.keys(reads).find((path) => address.includes(path));
+    if (read) return answer(200, reads[read]);
     if (address.endsWith("/api/v1/relay/ravis/api/v1/codex")) {
+      if (ravis.codexStatus === 0) return Promise.reject(new TypeError("fetch failed"));
       return answer(ravis.codexStatus, ravis.state);
     }
     if (address.includes("/codex")) {
@@ -104,8 +110,13 @@ function world({ state, codexStatus = 200, control = {} }) {
 
 const run = (page, code) => vm.runInContext(code, page.context);
 const settle = () => new Promise((done) => setTimeout(done, 30));
+/* The page draws its default screen, the Overview, as it loads. That draw awaits its own
+   reads, and finishing after the screen under test it overwrote #content with the
+   Overview; so each screen is drawn only once the load's draw has had time to land. */
+const quiet = () => new Promise((done) => setTimeout(done, 250));
 
 async function credentials(page) {
+  await quiet();
   page.exported.state.app = "ravis";
   page.exported.state.view = "Credentials";
   await run(page, "ravisCredentials()");
@@ -181,6 +192,11 @@ async function everyStateDrawsItsWords() {
     if (!html.includes("Provider keys") || !html.includes("ChatGPT subscription (Codex)")) {
       failures.push(`${label}: the Credentials screen or its Codex card did not render, so nothing below proves anything.`);
       continue;
+    }
+    /* The ● before a stored key is markup the page writes, not RAVIS's text: escaped,
+       it read "&#9679; macOS Keychain" on screen (13 September 2026). */
+    if (!html.includes("&#9679; macOS Keychain") || html.includes("&amp;#9679;")) {
+      failures.push(`${label}: a stored key's row does not draw its dot: the entity was escaped into text.`);
     }
     expect(label, slotOf(page), present, absent);
     run(page, "CODEX_SIGN_IN.stop()");
@@ -366,8 +382,122 @@ async function nothingInjects() {
   }
 }
 
+/* 8 — the allowance: a tile beside Spend on RAVIS → Dashboard, and a line on the Overview. */
+const USAGE_READ = { routed: 3, decisions_recorded: 3, no_route: 0, local_share: 0.5, executed: 2,
+  cost_available: false, cost_detail: "nothing has been priced yet", calls_priced: 0,
+  calls_unpriced: 0, spend_window: "24h" };
+const windowsLeft = (primary, weekly) => [
+  { id: "primary", label: "5-hour window", duration_minutes: 300, used_percent: 100 - primary,
+    remaining_percent: primary, resets_at: later(2 * 3600 + 10 * 60) },
+  { id: "secondary", label: "weekly window", duration_minutes: 10080, used_percent: 100 - weekly,
+    remaining_percent: weekly, resets_at: later(4 * 86400) },
+];
+const knownUsage = (primary, weekly, extra = {}) => ({ known: true, source: "notification",
+  observed_at: later(-120), stale: false, allowance_not_cost: true, limit_reached: null,
+  spend_control_reached: null, windows: windowsLeft(primary, weekly), individual_limit: null,
+  credits: null, ...extra });
+
+async function dashboard(state, codexStatus = 200) {
+  const page = world({ state, codexStatus, reads: { "/api/v1/relay/ravis/api/v1/usage": USAGE_READ } });
+  await quiet();
+  page.exported.state.app = "ravis";
+  page.exported.state.view = "Dashboard";
+  await run(page, "ravis()");
+  const content = page.elements.get("sel:#content");
+  const html = content ? content.innerHTML : "";
+  const tiles = html.split('<div class="card kpi').slice(1).map((chunk) => {
+    const own = chunk.split('<div class="card ')[0];
+    return { title: (own.match(/<h3>([^<]*)<\/h3>/) || [])[1], html: own };
+  });
+  return { html, tiles, codex: (tiles.find((tile) => tile.title === "Codex") || { html: "" }).html };
+}
+
+async function overview(state, codexStatus = 200) {
+  const page = world({ state, codexStatus });
+  await quiet();
+  page.exported.state.app = "nervis";
+  page.exported.state.view = "Overview";
+  await run(page, "nervis()");
+  const content = page.elements.get("sel:#content");
+  const html = content ? content.innerHTML : "";
+  const card = html.split("<h3>Codex</h3>")[1];
+  return card == null ? null : card.split('<div class="card ')[0];
+}
+
+async function theAllowanceSitsBesideSpend() {
+  const signedIn = codex("signed_in", "Codex is signed in with a ChatGPT Plus plan.",
+    { account: ACCOUNT, usage: knownUsage(62, 80) });
+  const shown = await dashboard(signedIn);
+  const titles = shown.tiles.map((tile) => tile.title);
+  if (JSON.stringify(titles) !== JSON.stringify(["Decisions", "Local", "Spend", "Codex"])) {
+    failures.push(`RAVIS → Dashboard's headline tiles are ${JSON.stringify(titles)}; the owner's layout is Decisions, Local, Spend, Codex.`);
+  }
+  if (shown.html.includes("Active profile")) failures.push("RAVIS → Dashboard still draws the Active profile tile.");
+  if (!shown.html.includes("resetSpend()")) failures.push("the Spend tile lost its Reset to 0.");
+  expect("the Codex tile, signed in", shown.codex,
+    ["62% left", "5-hour window · resets", "(in 2 h 10 min)", "weekly window: <b>80% left</b>",
+     "signed in", "ChatGPT Plus plan", "not money"], ["stale", "unknown"]);
+  if (/[$€£]|spent|cost|priced/i.test(shown.codex.replace(/<[^>]*>/g, ""))) {
+    failures.push("the Codex tile carries money wording, beside a tile that is money.");
+  }
+
+  const cases = [
+    ["signed in, allowance not read yet",
+     codex("signed_in", "Codex is signed in.", { account: ACCOUNT }), ["unknown", "no figure is shown"]],
+    ["signed out", codex("signed_out", "Codex is signed out."),
+     ["signed out", "Codex is signed out.", "go('ravis','Credentials')"]],
+    ["not installed", codex("not_installed", "The Homebrew link does not lead to a file."),
+     ["not installed", "does not lead to a file"]],
+  ];
+  for (const [label, state, present] of cases) {
+    const tile = (await dashboard(state)).codex;
+    expect(`the Codex tile, ${label}`, tile, present);
+    if (/\d\s*%/.test(tile)) failures.push(`the Codex tile, ${label}: draws a percentage RAVIS did not give.`);
+  }
+
+  const usedUp = (await dashboard(codex("quota_exhausted", "The allowance is used up until 04:30.",
+    { account: ACCOUNT, usage: knownUsage(0, 80) }))).codex;
+  expect("the Codex tile, used up", usedUp, ["0% left", "allowance used up", "used up until 04:30"]);
+
+  const stale = (await dashboard(codex("signed_in", "Codex is signed in.",
+    { account: ACCOUNT, usage: knownUsage(62, 80, { stale: true, observed_at: later(-42 * 60) }) }))).codex;
+  expect("the Codex tile, stale", stale, ["62% left", "stale", "last read 42 min ago", "may be out of date"]);
+
+  for (const [label, status] of [["a RAVIS from before Codex", 404], ["RAVIS not answering the read", 0]]) {
+    const tile = (await dashboard(codex("signed_in", "x"), status)).codex;
+    if (!tile) failures.push(`the Codex tile, ${label}: not drawn at all; it should be drawn absent.`);
+    if (/% left/.test(tile)) failures.push(`the Codex tile, ${label}: still draws an allowance.`);
+    if (status === 404) expect(`the Codex tile, ${label}`, tile, ["report Codex"]);
+  }
+
+  const tag = ' <vxs onerror=vxjs>" vxatr=vxjs';
+  const poisoned = await dashboard(codex("signed_in" + tag, "In" + tag, {
+    account: { ...ACCOUNT, email_hint: HINT + tag, plan: "plus" + tag },
+    usage: { ...knownUsage(62, 80), stale: true, observed_at: "then" + tag,
+             windows: windowsLeft(62, 80).map((w) => ({ ...w, label: w.label + tag, resets_at: "soon" + tag })) } }));
+  if (!poisoned.codex.includes("vxs")) failures.push("the injection probe never reached the Codex tile.");
+  if (/<vxs|"\s*vxatr=/.test(poisoned.codex)) failures.push("RAVIS's text broke out of the Codex tile's markup.");
+}
+
+async function theOverviewCarriesOneLine() {
+  const line = await overview(codex("signed_in", "Codex is signed in.", { account: ACCOUNT, usage: knownUsage(62, 80) }));
+  if (line == null) {
+    failures.push("the Overview draws no Codex line.");
+    return;
+  }
+  expect("the Overview's Codex line", line, ["signed in", "62% left in the 5-hour window", "resets"]);
+  const unknown = await overview(codex("signed_in", "Codex is signed in.", { account: ACCOUNT }));
+  expect("the Overview's Codex line, allowance unknown", unknown || "", ["allowance unknown"], ["%"]);
+  const down = await overview(codex("signed_in", "x", { account: ACCOUNT, usage: knownUsage(62, 80) }), 0);
+  if (down == null || /% left/.test(down)) {
+    failures.push("with RAVIS not answering, the Overview's Codex line is missing or still draws an allowance.");
+  }
+}
+
 async function main() {
   await everyStateDrawsItsWords();
+  await theAllowanceSitsBesideSpend();
+  await theOverviewCarriesOneLine();
   await signingInFromTheButton();
   await aRestartDuringTheSignInIsSaid();
   await cancelSendsDelete();
@@ -386,7 +516,10 @@ async function main() {
     "buttons RAVIS accepts, the tab opens inside the click and closes on a refusal or a " +
     "non-https address, the waiting sign-in shows its link, time left and Cancel and redraws " +
     "when it ends, every write goes through NERVIS with the control header, Sign out takes " +
-    "two clicks, the link never travels through the relay, and nothing RAVIS sends injects"
+    "two clicks, the link never travels through the relay, and nothing RAVIS sends injects; " +
+    "RAVIS → Dashboard's row is Decisions, Local, Spend, Codex, whose tile shows each window's " +
+    "allowance and reset, unknown with no percentage, stale with its age, no money, and goes " +
+    "absent without RAVIS; the Overview carries its line; and a stored key's dot is not escaped"
   );
 }
 

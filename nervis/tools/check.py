@@ -114,6 +114,15 @@ if "undefined" in _code:
     fail.append("the literal string 'undefined' appears in index.html "
                 "outside a comment and outside an `=== undefined` comparison")
 
+# 3b. An HTML entity handed to `escapeHtml` is drawn as its own text: `&#9679;` became
+#     `&amp;#9679;`, and RAVIS's Providers and Credentials rows read "&#9679; macOS
+#     Keychain" where a dot belonged (found 13 September 2026). Markup the page writes
+#     itself stays outside the escaper and only the data inside it goes through, so an
+#     entity inside an `escapeHtml(...)` call is always this mistake.
+for match in re.finditer(r"escapeHtml\([^)]*&#?\w+;", _prose):
+    fail.append("an HTML entity is passed through escapeHtml, which draws it as text "
+                f"instead of the character: {match.group(0)[:90]}")
+
 # 4. a duplicate key in the API object is legal JavaScript: the LAST one wins and
 #    the earlier ones are discarded in silence. A region edit produced exactly
 #    that once — four methods defined three times over, with the stale copy

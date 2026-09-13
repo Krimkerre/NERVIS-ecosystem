@@ -429,7 +429,13 @@ Since this list was written, fourteen of them became automated:
   Cancel, and to redraw when a look finds the sign-in over; every write to carry the
   control header; Sign out to take two clicks and never `confirm()`; the link never to
   travel through the relay; and nothing RAVIS sends to inject markup, the address in the
-  `href` included. Listed in `tools/dashboard_gates.txt`.
+  `href` included. It also renders RAVIS → Dashboard and the Overview against recorded
+  allowances, and fails unless the headline row is Decisions, Local, Spend, Codex with no
+  Active profile tile; the Codex tile shows each window's remaining allowance and reset,
+  *unknown* with no percentage, *stale* with its age and no money wording, and draws absent
+  for a RAVIS that doesn't answer or predates Codex; and the Overview's line shows the
+  tightest window and goes absent with RAVIS. And it fails when a stored key's ● is escaped
+  into text, which `check.py` also refuses page-wide. Listed in `tools/dashboard_gates.txt`.
 - **`node tools/empty_world_check.js`** renders all 36 screens against services
   that are **up and hold nothing** — the fresh-install world, which is neither
   of the two the other checks cover. Six screens threw in it. **Runs in CI.**
@@ -503,7 +509,7 @@ wolf trains you to ignore it. It was replaced with a real per-namespace check in
 ### Before you commit
 
 ```bash
-python3 tools/check.py                              # parse · braces · duplicate API methods
+python3 tools/check.py                              # parse · braces · duplicate API methods · entities escaped
 node tools/render_check.js                          # all 36 screens render with nothing up
 node tools/complexity_check.js                      # every function under 13
 node tools/liveness_check.js                        # the hardcoded-card ratchet

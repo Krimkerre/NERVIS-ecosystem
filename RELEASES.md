@@ -358,7 +358,27 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.12
+## NERVIS — 0.28.13
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **How much of your ChatGPT plan Codex has left, on the dashboard.** RAVIS → Dashboard's headline
+  row is now Decisions, Local, Spend and **Codex**. The Codex tile takes the Active profile tile's
+  place; the active profile is still shown on RAVIS → Settings.
+  - It leads with what is left in the window that runs out first ("62% left"), then lists each
+    window — the 5-hour and the weekly one — with what is left and when it resets, in this Mac's
+    time and as "in 2 h 10 min". It also shows Codex's state with RAVIS's reason, and the plan.
+  - An allowance RAVIS hasn't read yet reads **unknown**, never 0%. A reading RAVIS marks stale
+    says **stale** and how long ago it was read. The tile shows no money: it is the plan's
+    allowance, and says so.
+  - Signed out, it names the state and links to RAVIS → Credentials to sign in.
+- **A Codex line on the Overview**, under the headline tiles: Codex's state and what is left in
+  the tightest window, with its reset. Tile and line both go absent while RAVIS isn't answering.
+- **Fixed: the provider key rows** on RAVIS → Providers and RAVIS → Credentials showed the code
+  `&#9679;` as text before a stored key's source, where a dot belonged. The page check now refuses
+  that mistake anywhere in the dashboard.
+
+### 0.28.12
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
