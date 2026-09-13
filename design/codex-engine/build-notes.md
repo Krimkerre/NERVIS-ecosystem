@@ -2,6 +2,34 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From R4 (ecosystem, RAVIS 0.24.0 and NERVIS 0.28.16, 13 Sep 2026) — the project lock, clean-up, restarts
+Built: `agent/lock_routes.py` and `lock_api.py` (the six routes), `group_kill.py`, `attribution.py`,
+`reconcile.py`; `cleanup.py` and `locks.py` rebuilt on them; migration 9 (`ravis_instance`, `agent_thread`,
+one `agent_process` row per task process); shutdown interrupts; `paused_for_update`; the 90-day
+`thread/delete` sweep; `account.fingerprint_sha256` in `GET /api/v1/codex` for named callers.
+**K6's attribution rule** (K6 found nothing in `cal_d2185ed08f50`): every command is `/bin/zsh -lc` under
+`sandbox-exec`, which replaces itself, so no `WRITABLE_ROOT` ever shows; `processId` isn't a pid; terminals
+list `osPid: null`; `ps -E` shows no other process's environment on macOS. So a process gathers claims —
+a terminal's `osPid`, a sandbox argument (`-DWRITABLE_ROOT_<n>=<root>`), an earlier look by pid+start
+(survives reparenting), its parent, or, for a command root (a descendant of RAVIS's app-server whose parent
+has no task), its `lsof` folder inside a root whose turn started before it (1 s slack). One claim:
+attributed; two: ambiguous (reported, keeps the task `leftover`, signalled only by the owner's **Stop
+them**); none: unattributed. Residual gap: a command root that `cd`s into *another running* task's root
+before its first look. K6 passes the scenario's start as both turns' start; the fake's K6 processes run
+in the thread's folder, in their own session, with no sandbox argument and `osPid: null`.
+For C3/C2a (Clarvis): the decisions are in `project-locks.json` → `decided_in_r4` and `conventions.json` →
+`open_points`. The lock file's `leftover` entry is `{pid, start, comm}` (`lock-rule-cases.json` →
+`lock_file_leftover`); a window finding a gone RAVIS holder may end exactly those, individually, never by
+group. Leases and transfer tokens are `lk_…` and `tt_…`; release answers `{lock: null}`; a takeover that
+can't confirm the kill is 409 `PROCESSES_NOT_CONFIRMED_GONE {leftover}`; every agent-session and lock route
+is 503 `CODEX_RUNTIME_UNAVAILABLE` (retryable) until restart reconciliation has run. Account fingerprints:
+RAVIS serves the bare sha256 hex in both `SessionView` and `GET /api/v1/codex`, while the fixtures'
+examples show `sha256:…` (already so in R3) — compare the two RAVIS values as they come.
+Not built or unverified: shutdown's interrupts (1.5 s) and kills (1 + 1 s) are shorter than the design's
+5 s, so RAVIS ends inside the launcher's six seconds; whatever they cut off, the next start ends. No real
+Codex was sampled: K6's rule is proven against recorded `ps`/`lsof` formats and a K6-shaped table, and
+needs the next calibration run.
+
 ## From Cal-2 (ecosystem, RAVIS 0.23.16, 13 Sep 2026) — calibration matched to the real run
 Changed: `calibration/plan.py` (`CANDIDATE_PROFILE`, `ScenarioSpec.may_go_unasked`), `outputs.satisfied`,
 `harness.py` (`Session._resolve_open`, `order`), K3 moved to the new `scenarios_network.py`, K7 in

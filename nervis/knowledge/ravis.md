@@ -316,6 +316,17 @@ approved sites, a site allowed while a task runs reaches that task with no resta
 leaves nothing unanswered, and a Codex that never asks for permissions is recorded rather than held
 against the run — so the next full run can prove the rules, with no override profile.
 
+**It keeps one writer per project for both engines, and cleans up after Codex** (RAVIS 0.24.0).
+Clarvis's own coding runs take the project lock through `/api/v1/project-locks`. A window can take a
+project over from another window that is gone, unresponsive or waiting — never from a Codex task,
+which is joined instead — and RAVIS stops whatever that window had running first. Switching a task
+between Codex and Clarvis's own engine hands the lock over. RAVIS knows which of Codex's processes
+belong to which task by the folder each command runs in, and a Stop ends only that task's; a process
+that could belong to two tasks is reported, never killed. After a restart RAVIS ends only what it
+recorded, and leaves a project an editor still holds alone until that editor lets go. A new Codex
+build no longer waits behind a question nobody answers: ten minutes after it appears, such a task
+is paused.
+
 **A dead NERVIS never makes RAVIS report itself unready.** This regressed
 once for real: a readiness check that read the event publisher's own
 dropped-event count made a dead collector look like a RAVIS problem, which

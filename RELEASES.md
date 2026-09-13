@@ -416,7 +416,14 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.15
+## NERVIS — 0.28.16
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **NERVIS accepts RAVIS 0.24.** Its supported window for RAVIS now runs to 0.24.999, so a RAVIS on
+  0.24.0 isn't shown as an incompatible peer. Nothing else changed.
+
+### 0.28.15
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -1045,7 +1052,49 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.16
+## RAVIS — 0.24.0
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Clarvis's own coding runs take the project lock through RAVIS** (M29's fourth increment, R4).
+  `/api/v1/project-locks` now answers: a window takes a free project with a lease, heartbeats it with
+  the command it has running, and releases it only once its processes are confirmed gone. A project
+  a Codex task holds is refused with the task to join instead, and so is a folder inside or around a
+  locked one. NERVIS and admin credentials are refused on every lock route, as on the task routes.
+- **Taking a project over from another window follows the rules, and stops what it was running.**
+  Only a Clarvis window can be taken over, only for the exact folder it holds, without confirmation
+  only when it is gone, and never while it is alive and working. RAVIS first cuts the old window off
+  — its next heartbeat is told it lost the lock — then stops its running command with the whole
+  process group and every child, and hands over only once that is confirmed. If it can't confirm,
+  the project stays locked and names what is still running.
+- **Switching a task between Codex and Clarvis's own engine hands the lock over.** A transfer
+  reserves the project for the other engine for 15 minutes; RAVIS stops writing its lock file so the
+  window can put its own in place; an expired transfer releases nothing.
+- **RAVIS knows which of Codex's processes belong to which task.** Calibration showed the sandbox's
+  arguments never appear in the process table, so RAVIS now looks every two seconds at the processes
+  under its own Codex process, and gives each command to the project whose folder it runs in while
+  that project's turn runs; a command's children stay its own wherever they go. Each process is
+  recorded by its pid and start time, in the database and in the project's lock file, so a Stop, a
+  restart or a window can end exactly those. A process two tasks could claim is reported, never
+  killed. Calibration's K6 uses the same rule.
+- **A restart recovers cleanly.** Before answering any task or lock route, RAVIS ends only the
+  processes it recorded, marks interrupted tasks uncertain, and settles each lock: a lock file naming
+  RAVIS's previous run is rewritten and kept; one naming a Clarvis window is left untouched, and the
+  Codex task waits (`LOCK_SUPERSEDED`) until that window lets go or registers its lock — after which a
+  window can save the task's work.
+- **Shutdown interrupts running turns** and ends what their commands left. **A new Codex build no
+  longer waits on a question nobody answers:** ten minutes after it appears, a turn only waiting for
+  an answer is paused (`paused_for_update`), and no new task starts until the new build runs.
+- **Codex's own history of a task is deleted after 90 days unused**, unless a Clarvis checkpoint in
+  the project still names it.
+- `GET /api/v1/codex` gives named callers the current account's fingerprint (`fingerprint_sha256`),
+  so Clarvis can tell whether a saved task was started under the same account.
+- **Migration 9** records RAVIS's own runs, one row per task process, and Codex threads past their
+  task's records. It backs the database up first (`ravis.db.v8.bak`).
+- **Checked:** ruff, strict mypy and the full RAVIS suite (1582); each new guard broken in turn and
+  caught.
+
+### 0.23.16
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
