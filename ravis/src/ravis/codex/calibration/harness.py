@@ -89,7 +89,7 @@ class CalibrationTimings:
     settle_seconds: float = 3.0
     #: K7: how long a stopped turn may take to say it ended.
     stop_cap_seconds: float = 15.0
-    #: K6: how long the four long-running commands in each project may take to start.
+    #: K6: how long each project's long-running processes may take to start.
     processes_start_seconds: float = 90.0
     term_wait_seconds: float = 2.0
     confirm_seconds: float = 3.0
@@ -523,6 +523,9 @@ class ScenarioContext:
     profile_name: str
     timings: CalibrationTimings
     audit: AnswerAudit
+    #: Where RAVIS's start-up write of the default sites stands for the running process
+    #: (`state.SITES_*`, Cal-3): K3 checks the list Codex really started with.
+    default_sites: Callable[[], str]
 
     def session(self, scenario: str) -> Session:
         return Session(scenario, self.codex, self.plan, self.profile_name, self.timings, self.audit)

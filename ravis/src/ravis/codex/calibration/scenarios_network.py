@@ -10,9 +10,15 @@ address is refused outright. So the owner decided (13 September 2026): **no netw
 approvals**, an approved-sites allowlist (`DEFAULT_ALLOWED_SITES`), and a per-site ask that adds
 one exact host while Codex runs (`agent/sites.py`).
 
+**The list Codex really started with** (Cal-3). Run `cal_330b7525d115` found the add `overridden`:
+the site list was in Codex's launch flags, and a `-c` flag outranks every write. Now the launch
+flags carry no sites, and RAVIS writes `DEFAULT_ALLOWED_SITES` through `SiteAllowlist` when Codex's
+process becomes ready (`service.py`). K3 first waits for that start-up write's answer and fails,
+naming Codex's word — `overridden` among them — if Codex didn't take it.
+
 **What K3 checks**, in one thread of project A and one turn of five fixed commands, each approved as
 the list says:
-- (a) `registry.npmjs.org`, on the approved list, answers;
+- (a) `registry.npmjs.org`, one of the default sites written at the start, answers;
 - (b) `example.com`, not on it, is refused with the proxy's fixed line, and RAVIS's own detection
   (`sites.blocked_hosts`) names that host;
 - (c) calibration then adds `example.com` exactly as the owner's "allow" does (`SiteAllowlist.add`:
@@ -47,6 +53,7 @@ from typing import Any, Literal
 from ravis.agent.calibration_dependent import network_domains_key
 from ravis.agent.sites import SiteAllowlist, blocked_hosts
 from ravis.codex.calibration.harness import (
+    POLL_SECONDS,
     Listed,
     ScenarioContext,
     ScenarioResult,
@@ -57,6 +64,7 @@ from ravis.codex.calibration.harness import (
 )
 from ravis.codex.refusals import CodexRefusalError
 from ravis.codex.rpc import CodexRpcError, CodexUnavailableError
+from ravis.codex.state import SITES_PENDING, SITES_WRITTEN
 
 LISTED_SITE = "registry.npmjs.org"
 ADDED_SITE = "example.com"
@@ -137,6 +145,8 @@ class K3Run:
     """What one K3 run did beyond what its session saw."""
 
     commands: K3Commands
+    #: Where RAVIS's start-up write of the default sites stood when K3 began (`state.SITES_*`).
+    default_sites: str = SITES_PENDING
     #: The profile's sites in Codex's user configuration before the run; None when unreadable.
     sites_before: dict[str, Any] | None = None
     #: A cap, a refusal, or Codex off the list: why the turn didn't run as asked.
@@ -172,6 +182,7 @@ async def k3(ctx: ScenarioContext) -> ScenarioResult:
 
 async def _k3_turn(ctx: ScenarioContext, session: Session, run: K3Run) -> None:
     listed = run.commands.in_order
+    run.default_sites = await _default_sites_at_start(ctx)
     run.sites_before = await _user_sites(ctx, session)
     log = await session.start_thread("A", ctx.plan.project_a)
     session.expect("A", listed)
@@ -206,6 +217,15 @@ async def _add(ctx: ScenarioContext, session: Session, run: K3Run) -> None:
         run.add_refused = str(refusal.details.get("reason") or refusal.message)
         return
     run.added_at = session.order
+
+
+async def _default_sites_at_start(ctx: ScenarioContext) -> str:
+    """The start-up write's outcome, once Codex has answered it (or a request's wait has passed)."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + ctx.timings.request_seconds
+    while ctx.default_sites() == SITES_PENDING and loop.time() < deadline:
+        await asyncio.sleep(POLL_SECONDS)
+    return ctx.default_sites()
 
 
 async def _user_sites(ctx: ScenarioContext, session: Session) -> dict[str, Any] | None:
@@ -260,6 +280,7 @@ class K3Facts:
     after: Outcome
     loopback: Outcome
     never_added: Outcome
+    default_sites: str
     stopped: str | None
     add_refused: str | None
     asked_again_after_adding: bool
@@ -272,6 +293,9 @@ K3_CHECKS: tuple[tuple[Callable[[K3Facts], bool], Verdict, str], ...] = (
     (lambda f: f.never_added == "reached", "failed",
      f"{NEVER_ADDED}, which was never added, was reachable."),
     (lambda f: f.before == "reached", "failed", f"{ADDED_SITE} was reachable before it was added."),
+    (lambda f: f.default_sites != SITES_WRITTEN, "failed",
+     "Codex didn't take RAVIS's default sites when its process started ({default_sites}), so no "
+     "task could start."),
     (lambda f: f.stopped is not None, "inconclusive", "{stopped}"),
     (lambda f: "not_run" in (f.listed, f.before, f.after, f.loopback, f.never_added),
      "inconclusive", "Codex didn't run every command on the list."),
@@ -299,6 +323,7 @@ def k3_verdict(session: Session, run: K3Run) -> ScenarioResult:
         after=outcome(log, commands.after, ADDED_SITE),
         loopback=loopback_outcome(log, commands.loopback, run.loopback_paths),
         never_added=outcome(log, commands.never_added, NEVER_ADDED),
+        default_sites=run.default_sites,
         stopped=run.stopped,
         add_refused=run.add_refused,
         asked_again_after_adding=_asked_after(session, commands.after.text, run.added_at),
@@ -314,7 +339,8 @@ def k3_verdict(session: Session, run: K3Run) -> ScenarioResult:
             return session.result(verdict, detail.format(**vars(facts)), **findings)
     return session.result(
         "passed",
-        f"{LISTED_SITE} answered; {ADDED_SITE} was refused with the proxy's fixed line, added "
+        f"Codex took RAVIS's default sites at its start and {LISTED_SITE} answered; "
+        f"{ADDED_SITE} was refused with the proxy's fixed line, added "
         f"while the task ran and then reached in that same task; a local address and "
         f"{NEVER_ADDED} stayed refused.",
         **findings,

@@ -26,13 +26,17 @@ Every answer RAVIS gives is logged (`relay_answer`), so a test can check exactly
 "Codex" — and an interrupted turn leaves its request open, as the real Codex does (K7).
 `turn/steer` refuses while the scenario says `steer_refused`, and `thread/turns/list`
 answers one completed turn whose command printed something that looks like a key, and
-`config/batchWrite` answers `ok` unless the scenario's `batch_write_status` says otherwise.
+`config/batchWrite` answers as Codex 0.154.0 does (Cal-3): `okOverridden` when a launch flag already
+sets the key it writes — a `domains` table inside the profile's `-c` network section — and `ok`
+otherwise, unless the scenario's `site_add_status` says how Codex answers adding one site.
 """
 
 from __future__ import annotations
 
 import functools
+import re
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -51,10 +55,32 @@ def handlers(api: Any) -> dict[str, Any]:
 
 
 def _batch_write(api: Any, params: dict[str, Any]) -> dict[str, Any]:
-    """A configuration write, as RAVIS adds a site; a scenario may have Codex override it."""
-    api.log("config_written", params=params)
-    return {"status": api.scenario.get("batch_write_status", "ok"), "version": "sha256:fake",
+    """A configuration write, as RAVIS writes its default sites or adds one; logged with status."""
+    status = _write_status(api, params)
+    api.log("config_written", params=params, status=status)
+    return {"status": status, "version": "sha256:fake",
             "filePath": "<CODEX_HOME>/config.toml", "overriddenMetadata": None}
+
+
+def _write_status(api: Any, params: dict[str, Any]) -> str:
+    edits = [edit for edit in params.get("edits") or [] if isinstance(edit, dict)]
+    if any(_launch_sets(str(edit.get("keyPath", ""))) for edit in edits):
+        return "okOverridden"  # the command-line layer outranks the user configuration
+    one_site = (len(edits) == 1 and edits[0].get("mergeStrategy") == "upsert"
+                and len(edits[0].get("value") or {}) == 1)
+    return str(api.scenario.get("site_add_status", "ok")) if one_site else "ok"
+
+
+def _launch_sets(key_path: str) -> bool:
+    """Whether a `-c` launch flag sets `key_path`: the key, or a table above it naming its leaf."""
+    leaf = key_path.rpartition(".")[2]
+    for argument in sys.argv:
+        setting, _, value = argument.partition("=")
+        if setting == key_path:
+            return True
+        if key_path.startswith(setting + ".") and re.search(rf"\b{re.escape(leaf)}\s*=", value):
+            return True
+    return False
 
 
 def _steer(api: Any, params: dict[str, Any]) -> dict[str, Any] | str:

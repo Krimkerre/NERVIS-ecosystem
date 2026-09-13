@@ -31,6 +31,8 @@ it would write.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -62,14 +64,15 @@ MODES = tuple(APPROVAL_POLICY)
 #: (`networkApprovalContext`, or `additionalPermissions.network.enabled`) may only be skipped or
 #: stopped, and a grant never carries network; both fields are still parsed, defensively. **Internet
 #: access comes from an approved-sites allowlist instead** — the proxy's `network={enabled=true,
-#: mode="limited", domains={…}}`, which worked without a model — with a per-site ask of the owner
-#: for a blocked host (`sites.py`).
+#: mode="limited"}` at launch, and the sites written into Codex's own configuration once it runs —
+#: with a per-site ask of the owner for a blocked host (`sites.py`).
 NETWORK_GRANTS_OFFERED = False
 
 #: **The sites Codex's commands may reach from the start** (the owner's decision, 13 September
-#: 2026), written into the pinned file-rules profile's `network.domains` when RAVIS starts Codex;
-#: the owner adds more through the per-site ask (`sites.py`). Verified without a model on 0.154.0:
-#: an exact host matches only itself (`github.com` doesn't cover `api.github.com`), and
+#: 2026). RAVIS writes them into the profile's `network.domains` in its own Codex home each time
+#: Codex's process becomes ready (`SiteAllowlist.allow_defaults`, Cal-3); the owner adds more
+#: through the per-site ask (`sites.py`). Verified without a model on 0.154.0: an exact host
+#: matches only itself (`github.com` doesn't cover `api.github.com`), and
 #: `*.githubusercontent.com` matches `raw.` and `objects.githubusercontent.com` but not
 #: `github.com`. A site ask never adds a wildcard; these two are the only ones, and they are the
 #: owner's.
@@ -92,11 +95,17 @@ DEFAULT_ALLOWED_SITES: tuple[str, ...] = (
     # JavaScript runtimes
     "nodejs.org", "deno.land", "jsr.io",
 )
-#: **Unverified:** that a site added while Codex runs (`config/batchWrite` with `reloadUserConfig`)
-#: reaches a thread in the middle of a turn — verified for the next `command/exec` only — and that
-#: the write isn't overridden by the `domains` RAVIS passes at launch. Calibration checks both;
-#: until then an override comes back as `okOverridden`, which `sites.py` reports to the owner as not
-#: added.
+#: **Never a site list at launch** (Cal-3; run `cal_330b7525d115`, RAVIS 0.24.1). A `-c` flag is
+#: Codex's command-line layer, and it outranks the user configuration: with `domains={…}` among the
+#: launch flags, every `config/batchWrite` to `permissions.<profile>.network.domains` came back
+#: `okOverridden` and the added site stayed blocked. Verified without a model on Codex 0.154.0: with
+#: no `domains` at launch the same upsert answers `ok`, the site answers at once, and a host never
+#: written stays blocked. So the launch flags carry the proxy only, and the sites are written after.
+#: **Unverified:** that a site added while Codex runs reaches a thread in the middle of a turn —
+#: verified for the next `command/exec` only; calibration's K3 checks it.
+
+#: A profile's site table inside a TOML inline table: its values are `"host"="allow"`, never braces.
+_DOMAINS = r"\bdomains\s*=\s*\{[^{}]*\}"
 
 
 def network_domains_key(profile: str) -> str:
@@ -104,13 +113,27 @@ def network_domains_key(profile: str) -> str:
     return f"permissions.{profile}.network.domains"
 
 
-def network_profile_flags(
-    profile: str, sites: tuple[str, ...] = DEFAULT_ALLOWED_SITES
-) -> tuple[str, str]:
-    """The `-c` pair giving a profile its network section: the proxy, limited to these sites."""
-    domains = ", ".join(f'"{site}"="allow"' for site in sites)
-    return ("-c", f'permissions.{profile}.network={{enabled=true, mode="limited", '
-                  f"domains={{{domains}}}}}")
+def network_profile_flags(profile: str) -> tuple[str, str]:
+    """The `-c` pair giving a profile its network section: the proxy on, limited, no sites."""
+    return ("-c", f'permissions.{profile}.network={{enabled=true, mode="limited"}}')
+
+
+def without_network_domains(flags: Sequence[str], profile: str) -> list[str]:
+    """A profile's `-c` flags with any site list taken out, so a site write is never overridden.
+
+    A stored or owner-named profile may still carry `domains={…}` inside its network section, or a
+    flag of its own for `permissions.<profile>.network.domains`: the first is cut out of the
+    setting, the second pair dropped. Nothing else in a flag changes.
+    """
+    kept: list[str] = []
+    for option, value in zip(flags[::2], flags[1::2], strict=False):
+        if value.startswith(network_domains_key(profile) + "="):
+            continue
+        # The table after another key, before another, or alone — in that order.
+        for pattern in (rf",\s*{_DOMAINS}", rf"{_DOMAINS}\s*,\s*", _DOMAINS):
+            value = re.sub(pattern, "", value)
+        kept += [option, value]
+    return kept
 
 # ── The thread's box (calibration K2b, K5, K13) ──────────────────────────────────────────────────
 

@@ -322,7 +322,13 @@ the file-rule questions but failed the network and stop questions, against rules
 since replaced. Since RAVIS 0.23.16 those questions check what was decided — commands reach only
 approved sites, a site allowed while a task runs reaches that task with no restart, a stopped turn
 leaves nothing unanswered, and a Codex that never asks for permissions is recorded rather than held
-against the run — so the next full run can prove the rules, with no override profile.
+against the run — so the next full run can prove the rules, with no override profile. The fifth run
+still failed two questions, and RAVIS 0.24.2 fixed both. Allowed sites were being ignored: RAVIS
+used to hand Codex its site list as a start-up option, and Codex lets a start-up option outrank any
+site added later. Now RAVIS writes the default sites into Codex's own settings each time Codex
+starts, and no task starts until Codex has taken them; if it doesn't, Codex's state says why and
+RAVIS tries again at the next start. The stop question could never see all its commands, so each
+project now runs one command that keeps its long-running processes alive together.
 
 **It keeps one writer per project for both engines, and cleans up after Codex** (RAVIS 0.24.0).
 Clarvis's own coding runs take the project lock through `/api/v1/project-locks`. A window can take a

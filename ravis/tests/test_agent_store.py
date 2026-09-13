@@ -250,6 +250,6 @@ def test_only_an_exact_public_host_can_be_allowed_and_the_defaults_are_the_owner
     wildcards = [site for site in DEFAULT_ALLOWED_SITES if site.startswith("*.")]
     assert wildcards == ["*.crates.io", "*.githubusercontent.com"]
     assert all(plain_site(site) == site for site in DEFAULT_ALLOWED_SITES if site not in wildcards)
-    flag, value = network_profile_flags("clarvis_run", ("pypi.org", "*.crates.io"))
-    assert (flag, value) == ("-c", 'permissions.clarvis_run.network={enabled=true, mode="limited", '
-                                   'domains={"pypi.org"="allow", "*.crates.io"="allow"}}')
+    # The proxy only: the sites are written once Codex runs, never at launch (Cal-3).
+    assert network_profile_flags("clarvis_run") == (
+        "-c", 'permissions.clarvis_run.network={enabled=true, mode="limited"}')

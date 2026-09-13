@@ -17,7 +17,10 @@ design's format 3 names, and one seam it needs:
   file-rules re-test refuses to start, since there is nothing it could prove. The flags may name
   four folders by placeholder — `{user_home}`, `{ravis_config}`, `{codex_home}` and
   `{reproof_decoys}` — which RAVIS fills in for this Mac; any other brace is left alone, because
-  TOML inline tables are written with braces too.
+  TOML inline tables are written with braces too. **A site list in the profile is taken out
+  before launch** (Cal-3): `domains` in a `-c` flag outranks the sites RAVIS writes once Codex
+  runs, and made every write `okOverridden` (`agent/calibration_dependent.py`,
+  `without_network_domains`).
 """
 
 from __future__ import annotations
@@ -30,6 +33,8 @@ from importlib import resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any
+
+from ravis.agent.calibration_dependent import without_network_domains
 
 logger = logging.getLogger("ravis")
 
@@ -108,7 +113,8 @@ def file_rules_profile(
     if not (0 < len(name) <= 64 and name.isascii() and plain.isalnum()):
         logger.warning("codex: the pinned file-rules profile's name isn't a plain identifier")
         return None
-    filled = tuple(_filled(flag, folders) for flag in flags)
+    # A stored profile from before Cal-3 may still list sites; they never reach the launch flags.
+    filled = tuple(_filled(flag, folders) for flag in without_network_domains(flags, name))
     # **`default_permissions` names the profile** (found live, 13 September 2026). Codex 0.154.0
     # refuses to start when `[permissions]` defines a profile and nothing chooses one: "config
     # defines `[permissions]` profiles but does not set `default_permissions`". RAVIS started

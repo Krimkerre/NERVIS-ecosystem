@@ -61,6 +61,7 @@ from ravis.codex.calibration.plan import (
     CALIBRATION_FOLDER,
     CalibrationRequestError,
     ProfileFileError,
+    checked_profile,
     new_run_id,
     profile_under_test,
     protected_repositories,
@@ -98,6 +99,9 @@ from ravis.codex.sign_in import (
     callback_port,
 )
 from ravis.codex.state import (
+    SITES_NOT_NEEDED,
+    SITES_PENDING,
+    SITES_WRITTEN,
     ModelFacts,
     ProcessFacts,
     Reading,
@@ -236,6 +240,10 @@ class CodexService:
         self._calibration_problem: str | None = None
         #: Whether the profile the process runs with is the pinned one (the re-test needs that).
         self._profile_pinned = False
+        #: Where the default sites stand for the running process (`state.SITES_*`, Cal-3), and which
+        #: process that is: a write answered after its process ended is ignored.
+        self._default_sites = SITES_PENDING
+        self._process_generation = 0
         self._account: Account | None = None
         self._account_read = False
         self._usage: Usage = UNKNOWN
@@ -374,7 +382,8 @@ class CodexService:
             self._calibration_problem = str(problem)
             return pinned
         self._calibration_profile, self._calibration_problem = raw, None
-        self._profile_pinned = raw == document.get("file_rules_profile")
+        # Compared as checked, so a pinned profile that still lists sites is the same profile.
+        self._profile_pinned = raw == _checked_or_none(document.get("file_rules_profile"))
         return file_rules_profile({"file_rules_profile": raw}, folders)
 
     def _launch_plan(self) -> LaunchPlan | None:
@@ -394,7 +403,10 @@ class CodexService:
         )
 
     def _profile_flags(self) -> tuple[str, ...]:
-        """The file-rules profile's flags; the pinned one also gets its network section (sites)."""
+        """The file-rules profile's flags; the pinned one also gets its network section.
+
+        Never a site list (Cal-3): the sites are written once the process is ready.
+        """
         profile = self._profile
         if profile is None:
             return ()
@@ -406,12 +418,41 @@ class CodexService:
     def _process_ready(self) -> None:
         self._account_read = False
         self._refresh_wanted.set()
+        self._process_generation += 1
+        self._default_sites = SITES_PENDING
+        self._background(self._write_default_sites(self._process_generation))
         self._state_moved("process_ready")
+
+    async def _write_default_sites(self, generation: int) -> None:
+        """Give a ready Codex the owner's default sites (Cal-3); no task starts until it took them.
+
+        The same upsert the owner's "allow" sends (`SiteAllowlist.allow_defaults`), so sites added
+        earlier stay in Codex's `config.toml`. Not taken — overridden, refused or unanswered — and
+        Codex stays not ready, saying why, until the next start writes them again.
+        """
+        if self._profile is None:
+            # No profile, so nowhere to write them; tasks are refused for that already.
+            outcome = SITES_NOT_NEEDED
+        else:
+            refused = await self.agents.context.sites.allow_defaults()
+            outcome = SITES_WRITTEN if refused is None else refused
+        if generation != self._process_generation:
+            return  # that process has ended; the next one writes its own
+        self._default_sites = outcome
+        if outcome not in (SITES_WRITTEN, SITES_NOT_NEEDED):
+            logger.error(
+                "codex: Codex didn't take RAVIS's default sites (%s); no task can start until "
+                "its next start writes them",
+                outcome,
+            )
+        self._state_moved("default_sites")
 
     def _process_ended(self, reason: str) -> None:
         # Every running task's turn died with the process (design §4.4): uncertain, cleaned up.
         self.agents.codex_process_ended()
         self._account_read = False
+        self._process_generation += 1
+        self._default_sites = SITES_PENDING
         if self._sign_in.waiting and not self._stopping:
             # Lost while RAVIS runs on: say so now, and no restart needs to report it later.
             self._sign_in.fail(f"Codex's process stopped during sign-in ({reason}); start again.")
@@ -758,6 +799,7 @@ class CodexService:
             sign_in=self._sign_in.public_view(),
             home_fingerprint=self._home_fingerprint,
             now=_now(),
+            default_sites=self._default_sites,
         )
 
     def snapshot(self, *, named: bool = True) -> dict[str, Any]:
@@ -1200,6 +1242,7 @@ class CodexService:
             context=ScenarioContext(
                 codex=_Harness(self._supervisor, self._router), plan=plan,
                 profile_name=str(profile.get("name")), timings=self._timings.calibration,
+                default_sites=lambda: self._default_sites,
                 audit=lambda scenario, method, decision: self._emit(
                     "ravis.codex.calibration_approval_answered", trace_id=trace,
                     data={"run_id": run_id, "scenario": scenario, "method": method,
@@ -1281,6 +1324,14 @@ def _not_accepted_reason(verdict: str | None, version: str | None) -> str:
             "re-test."
         )
     return f"Codex {version} hasn't been accepted; check the version and accept it first."
+
+
+def _checked_or_none(raw: object) -> dict[str, Any] | None:
+    """A stored profile as calibration checks it (any site list taken out), or None if it isn't."""
+    try:
+        return checked_profile(raw)
+    except ProfileFileError:
+        return None
 
 
 def _mapping(value: object) -> dict[str, Any]:

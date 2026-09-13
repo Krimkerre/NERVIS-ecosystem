@@ -23,10 +23,12 @@ module. It acts out what calibration asks of a real Codex, closely enough that e
   write it logs (`config_written`) is applied here when its status is `ok`, reaching threads already
   running, and `config/read` with `includeLayers` shows the written sites in a user layer.
 - **Real long-running processes for K6**, shaped like Codex 0.154.0's (K6's transcripts,
-  `cal_d2185ed08f50`): `sh -c 'sleep 600; true'` started in the thread's folder, in a session of its
-  own, with no sandbox parameter in its arguments (the real wrapper replaces itself); the ones
-  Codex keeps as background terminals are listed with `osPid: null`, as Codex lists them. All are
-  ended when the fake exits.
+  `cal_d2185ed08f50` and `cal_330b7525d115`): K6's one command per project (Cal-3) is one command
+  root — a `/bin/sh` that waits — started in the thread's folder, in a session of its own, with no
+  sandbox parameter in its arguments (the real wrapper replaces itself), and several children under
+  it: two `sleep`s and a second shell with a `sleep` of its own, as `script` runs its command. That
+  is five processes, K6's expected count. The command is a background terminal, listed with
+  `osPid: null` as Codex lists them. All are ended when the fake exits.
 
 **Faults** (`calibration_faults` in the scenario) switch one behaviour to the failing one:
 `plugins_on`, `exec_leaks`, `decoy_readable_escalated`, `roots_from_cwd`, `deny_loses_to_write`,
@@ -35,7 +37,8 @@ module. It acts out what calibration asks of a real Codex, closely enough that e
 `site_block_line_changed`, `site_add_not_live`, `add_opens_every_site`, `retry_runs_unasked`,
 `site_left_from_an_earlier_run`, `empty_grant_grants`, `never_asks_permissions`, `git_blocked`,
 `interrupt_ignored`, `stop_kills_other_project`, `resume_forgets`, `profile_rejected`. The relay
-half's `batch_write_status` makes Codex report a configuration write overridden.
+half's `site_add_status` makes Codex report adding one site overridden, and it reports every site
+write overridden while the launch flags carry a site list, as Codex does.
 """
 
 from __future__ import annotations
@@ -61,13 +64,11 @@ ESCALATE = re.compile(r"^Ask for escalated permissions when you run commands (.+
 GRANT = re.compile(r"^Before running command (\d+), ask for permission to read (\S+) with")
 CREATE = re.compile(r"Create the file (\S+) containing the line (\S+),")
 REMEMBER = re.compile(r"Remember the word (\S+)\.")
-#: K6's long-running commands, and whether Codex keeps each as a background terminal.
-LONG_RUNNING = {
-    "sleep 600 &": False,
-    "script -q /dev/null sleep 600": True,
-    "python3 -m http.server 0 --bind 127.0.0.1": True,
-    "sleep 600": True,
-}
+#: K6's one listed command per project (`scenarios_turns.K6_COMMAND`), and the process tree the fake
+#: runs for it: a waiting shell over two `sleep`s and a shell with its own `sleep`, like `script`.
+K6_COMMAND = ("sleep 600 & script -q /dev/null sleep 600 & "
+              "python3 -c 'import time; time.sleep(600)' & wait")
+K6_TREE = "sleep 600 & /bin/sh -c 'sleep 600; true' & sleep 600 & wait"
 PROCESSES: list[dict[str, Any]] = []
 
 
@@ -241,6 +242,9 @@ def _site_allowed(api: Any, thread: dict[str, Any], host: str) -> bool:
     # A thread sees sites written while it runs, unless the fault keeps it to those it started with.
     added = thread.get("sites_at_start", {}) if "site_add_not_live" in found else user_sites(api)
     sites = listed | {site for site, word in added.items() if word == "allow"}
+    if "listed_site_blocked" in found:
+        # The default sites RAVIS wrote at the start (Cal-3) are refused too; a one-site add isn't.
+        sites -= api.state.get("default_sites", set())
     return any(host == site or (site.startswith("*.") and host.endswith(site[1:]))
                for site in sites)
 
@@ -249,14 +253,14 @@ def _apply_config_writes(api: Any) -> None:
     """Let the pretend proxy see the sites RAVIS writes.
 
     The relay half answers `config/batchWrite` (it is registered last) and logs each write as
-    `config_written`; this wraps the shared log so each write Codex would take — status `ok` — is
-    applied to the sites the proxy allows.
+    `config_written` with the status it answered; this wraps the shared log so each write Codex
+    took — status `ok` — is applied to the sites the proxy allows.
     """
     logged = api.log
 
     def log(kind: str, **facts: Any) -> None:
         logged(kind, **facts)
-        if kind == "config_written" and api.scenario.get("batch_write_status", "ok") == "ok":
+        if kind == "config_written" and facts.get("status") == "ok":
             for edit in (facts.get("params") or {}).get("edits", []):
                 _apply_site_edit(api, edit)
 
@@ -267,9 +271,13 @@ def _apply_site_edit(api: Any, edit: dict[str, Any]) -> None:
     if not str(edit.get("keyPath", "")).endswith(".network.domains"):
         return
     sites = user_sites(api)
+    value = edit.get("value") or {}
     if edit.get("mergeStrategy") == "replace":
         sites.clear()
-    sites.update(edit.get("value") or {})
+    elif len(value) > 1:
+        # An upsert of many sites is RAVIS's start-up write of the defaults.
+        api.state.setdefault("default_sites", set()).update(value)
+    sites.update(value)
     api.state["sites_written"] = True
 
 
@@ -395,7 +403,7 @@ def _command(context: dict[str, Any], text: str, escalated: bool) -> None:
     if decision not in ("accept", "acceptForSession"):
         api.notify("item/completed", {**base, "item": {**item, "status": "declined"}})
         return
-    if text in LONG_RUNNING:
+    if text == K6_COMMAND:
         _spawn(context, item, text)
     code, output = run(api, thread, text, escalated=escalated, approved=True)
     done = {**item, "status": "completed" if code == 0 else "failed", "exitCode": code,
@@ -426,19 +434,20 @@ def _approval(context: dict[str, Any], item: dict[str, Any], text: str, escalate
 
 
 def _spawn(context: dict[str, Any], item: dict[str, Any], text: str) -> None:
-    """As Codex runs one: in the thread's folder, its own session, no sandbox parameter shown."""
-    terminal = LONG_RUNNING[text]
+    """As Codex runs one: in the thread's folder, its own session, no sandbox parameter shown.
+
+    The command's `wait` keeps it in the foreground, so the turn goes on until it is stopped.
+    """
     thread = context["thread"]
-    process = subprocess.Popen(["/bin/sh", "-c", "sleep 600; true"],
+    process = subprocess.Popen(["/bin/sh", "-c", K6_TREE],
                                cwd=Path(thread["cwd"]).resolve(), start_new_session=True)
-    record = {"thread_id": context["thread_id"], "process": process, "terminal": terminal,
+    record = {"thread_id": context["thread_id"], "process": process, "terminal": True,
               "processId": str(uuid.uuid4()), "command": text, "itemId": item["id"]}
     PROCESSES.append(record)
     context["api"].log("spawned", pid=process.pid)
     _start_reaper()
-    if text == "sleep 600":
-        while process.poll() is None and not context["stop"].wait(0.05):
-            continue
+    while process.poll() is None and not context["stop"].wait(0.05):
+        continue
 
 
 _REAPER: list[threading.Thread] = []

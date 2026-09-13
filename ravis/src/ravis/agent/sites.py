@@ -24,6 +24,11 @@ no task losing progress. Anything but `status: "ok"` — `okOverridden` included
 `SITE_NOT_ADDED`, and the site stays blocked. A site is added once however often it's allowed, and
 only an exact plain host name: never a wildcard, an IP address, `localhost` or a local name.
 **Unverified:** that an added site reaches a turn already running (`calibration_dependent.py`).
+
+**The default sites are written the same way** (Cal-3): each time Codex's process becomes ready,
+the Codex service calls `allow_defaults`, one upsert of every `DEFAULT_ALLOWED_SITES` entry. An
+upsert merges, so sites the owner added earlier stay in `config.toml`. The launch flags never carry
+a site list, because a `-c` flag outranks the file and made every write `okOverridden`.
 """
 
 from __future__ import annotations
@@ -34,7 +39,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ravis.agent import refusals
-from ravis.agent.calibration_dependent import network_domains_key
+from ravis.agent.calibration_dependent import DEFAULT_ALLOWED_SITES, network_domains_key
 from ravis.codex.rpc import CodexRpcError, CodexUnavailableError
 
 #: Codex's proxy's fixed line for a host that isn't on the list.
@@ -108,22 +113,32 @@ class SiteAllowlist:
             raise refusals.site_not_added(host, "not_a_plain_hostname")
         if site in self._added:
             return
-        profile = self._profile_name()
-        if profile is None:
-            raise refusals.site_not_added(site, "no_file_rules_profile")
-        result = await self._write(site, profile)
-        status = result.get("status") if isinstance(result, dict) else None
-        if status != "ok":
-            reason = "overridden" if status == "okOverridden" else "not_written"
-            raise refusals.site_not_added(site, reason)
+        refused = await self._upsert({site: "allow"})
+        if refused is not None:
+            raise refusals.site_not_added(site, refused)
         self._added.add(site)
 
-    async def _write(self, site: str, profile: str) -> Any:
-        edit = {"keyPath": network_domains_key(profile), "mergeStrategy": "upsert",
-                "value": {site: "allow"}}
+    async def allow_defaults(self) -> str | None:
+        """Write every default site into Codex's list: None once Codex took them, else why not.
+
+        The reason is the one word `add` refuses with — `overridden`, `not_written`,
+        `codex_did_not_answer` or `no_file_rules_profile`.
+        """
+        return await self._upsert({site: "allow" for site in DEFAULT_ALLOWED_SITES})
+
+    async def _upsert(self, sites: dict[str, str]) -> str | None:
+        """One `config/batchWrite` upsert of `sites`, reloaded: None when Codex answered `ok`."""
+        profile = self._profile_name()
+        if profile is None:
+            return "no_file_rules_profile"
+        edit = {"keyPath": network_domains_key(profile), "mergeStrategy": "upsert", "value": sites}
         try:
-            return await self._request("config/batchWrite",
-                                       {"edits": [edit], "reloadUserConfig": True},
-                                       timeout=self._seconds)
+            result = await self._request("config/batchWrite",
+                                         {"edits": [edit], "reloadUserConfig": True},
+                                         timeout=self._seconds)
         except (CodexRpcError, CodexUnavailableError):
-            raise refusals.site_not_added(site, "codex_did_not_answer") from None
+            return "codex_did_not_answer"
+        status = result.get("status") if isinstance(result, dict) else None
+        if status == "ok":
+            return None
+        return "overridden" if status == "okOverridden" else "not_written"

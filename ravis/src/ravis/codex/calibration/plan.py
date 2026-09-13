@@ -33,9 +33,13 @@ Codex is started with.
 refuses `"**/.run"` as a `filesystem` key of its own, so a folder inside every project is written
 nested under `:project_roots` — `":project_roots"={"."="write", ".run"="deny", "**/.run"="deny"}`,
 exactly as run `cal_d2185ed08f50` used it with K5, K5a and K5c passing. And the profile carries its
-network section — the proxy, limited to R3's `DEFAULT_ALLOWED_SITES`, built by R3's own
-`network_profile_flags` — because calibration starts Codex with the profile as written, and K3
-proves those sites reachable. So a run needs no override file, and a full pass pins this profile.
+network section — the proxy on and limited, built by R3's own `network_profile_flags` — because
+calibration starts Codex with the profile as written. **It carries no sites** (Cal-3): a site list
+in a launch flag outranked every site RAVIS wrote and made each write `okOverridden` (run
+`cal_330b7525d115`). RAVIS writes `DEFAULT_ALLOWED_SITES` into Codex's own configuration once the
+process is ready, and K3 proves them reachable. So a run needs no override file, and a full pass
+pins this profile. Any profile checked here — the owner's file, the pinned one, the candidate — has
+a site list taken out (`without_network_domains`), so none is ever launched or pinned with one.
 """
 
 from __future__ import annotations
@@ -48,7 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from ravis.agent.calibration_dependent import network_profile_flags
+from ravis.agent.calibration_dependent import network_profile_flags, without_network_domains
 from ravis.codex.lock_file import git_dir_for
 
 Kind = Literal["must_pass", "record", "own_consequence"]
@@ -113,8 +117,8 @@ def network_section(profile: str) -> str:
 
 
 #: The `clarvis_run` profile to try when neither the owner nor the pin names one (design §4.9):
-#: the one Codex 0.154.0 accepted, with R3's sites (module docstring). K5 still fails in Codex's
-#: own words if a later build rejects it.
+#: the one Codex 0.154.0 accepted, with R3's network section and no sites (module docstring). K5
+#: still fails in Codex's own words if a later build rejects it.
 CANDIDATE_PROFILE: dict[str, Any] = {
     "name": "clarvis_run",
     "flags": [
@@ -379,4 +383,4 @@ def checked_profile(raw: object) -> dict[str, Any]:
                 f"The setting {value.split('=', 1)[0]!r} isn't part of permissions.{name}; a "
                 "profile may configure nothing else."
             )
-    return {"name": name, "flags": list(flags)}
+    return {"name": name, "flags": without_network_domains(flags, name)}

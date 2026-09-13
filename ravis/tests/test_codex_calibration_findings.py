@@ -6,8 +6,12 @@ outside host. The rules held:
 - **K3 proves the approved-sites allowlist**: a listed site answers; an unlisted one is refused with
   the proxy's fixed line, which RAVIS's detection names; adding it the way the owner's "allow" does,
   while the turn runs, reaches that same thread; loopback and a never-added site stay refused; and
-  the site list is written back afterwards. Codex reporting the add overridden fails K3. (Each of
-  (a)–(e) broken alone is in `test_codex_calibration.py`'s fault table.)
+  the site list is written back afterwards. Codex reporting the add overridden fails K3, and so does
+  a launch that carries a site list again (Cal-3): the fake then overrides every site write, as
+  Codex did in run `cal_330b7525d115`. (Each of (a)–(e) broken alone is in
+  `test_codex_calibration.py`'s fault table.)
+- **K6 runs one command per project** whose long-runners all exist at once (Cal-3), waits for the
+  processes that command starts, and never for more.
 - **K7 passes only when nothing is left open**: Codex doesn't resolve an interrupted turn's request,
   so RAVIS answers it with cancel when the turn ends; left unanswered, K7 fails.
 - **K8 records a Codex that never asks for permissions**, and that doesn't keep a full run from
@@ -17,6 +21,8 @@ outside host. The rules held:
 
 from __future__ import annotations
 
+import subprocess
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -29,8 +35,14 @@ from ravis.codex.calibration.harness import ScenarioResult, Session
 from ravis.codex.calibration.outputs import decide
 from ravis.codex.calibration.plan import CANDIDATE_PROFILE, SCENARIOS, checked_profile
 from ravis.codex.calibration.scenarios_network import LISTED_SITE
+from ravis.codex.calibration.scenarios_turns import K6_COMMANDS, K6_PROCESSES_PER_PROJECT
+from ravis.codex.service import CodexService
 
 SITES_KEY = "permissions.clarvis_run.network.domains"
+DEFAULTS = {site: "allow" for site in DEFAULT_ALLOWED_SITES}
+#: The launch flag run 5 started Codex with, in spirit: the network section with a site list.
+SITES_AT_LAUNCH = ("-c", 'permissions.clarvis_run.network={enabled=true, mode="limited", '
+                         'domains={"registry.npmjs.org"="allow"}}')
 
 
 def only(view: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -55,13 +67,18 @@ def test_k3_proves_the_allowlist_and_a_site_added_while_the_task_runs(tmp_path: 
                         "loopback": "blocked", "never_added": "blocked"}
     assert (findings["added_live"], findings["asked_again_after_adding"]) == (True, True)
     assert (findings["site_list_put_back"], findings["loopback_paths_reached"]) == (True, [])
-    # Exactly one exact host upserted live, then the list written back as it was — nothing else.
-    writes = [record["params"] for record in rig.server.records("config_written")]
+    assert findings["default_sites"] == "written"
+    # The default sites written when Codex became ready, exactly one exact host upserted live, then
+    # the list written back as it was before K3 — the defaults — and nothing else, each taken.
+    writes = [(record["params"], record["status"])
+              for record in rig.server.records("config_written")]
     assert writes == [
-        {"edits": [{"keyPath": SITES_KEY, "mergeStrategy": "upsert",
-                    "value": {"example.com": "allow"}}], "reloadUserConfig": True},
-        {"edits": [{"keyPath": SITES_KEY, "mergeStrategy": "replace", "value": {}}],
-         "reloadUserConfig": True},
+        ({"edits": [{"keyPath": SITES_KEY, "mergeStrategy": "upsert", "value": DEFAULTS}],
+          "reloadUserConfig": True}, "ok"),
+        ({"edits": [{"keyPath": SITES_KEY, "mergeStrategy": "upsert",
+                     "value": {"example.com": "allow"}}], "reloadUserConfig": True}, "ok"),
+        ({"edits": [{"keyPath": SITES_KEY, "mergeStrategy": "replace", "value": DEFAULTS}],
+          "reloadUserConfig": True}, "ok"),
     ]
 
 
@@ -73,18 +90,93 @@ def test_k3_adds_only_a_site_ravis_detection_named(tmp_path: Path) -> None:
     scenario, findings = only(view)
     assert (scenario["verdict"], findings["before"]) == ("failed", "failed"), scenario
     assert findings["added_live"] is False
-    assert rig.server.records("config_written") == []
+    # Only the default sites written at the start: nothing added, so nothing put back.
+    assert len(rig.server.records("config_written")) == 1
 
 
 def test_k3_fails_when_codex_reports_the_added_site_overridden(tmp_path: Path) -> None:
-    with calibrating(tmp_path, batch_write_status="okOverridden") as (rig, client, a, b):
+    with calibrating(tmp_path, site_add_status="okOverridden") as (rig, client, a, b):
         start(client, rig, a, b, ["K3"])
         view = finished(client, rig)
 
     scenario, findings = only(view)
     assert (scenario["verdict"], "(overridden)" in scenario["detail"]) == ("failed", True), scenario
+    assert (findings["default_sites"], findings["add_refused"]) == ("written", "overridden")
     assert (findings["added_live"], findings["after"]) == (False, "blocked")
     assert view["result"]["strict_rules_proven"] is False
+
+
+def test_k3_fails_saying_overridden_when_the_launch_flags_carry_sites_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Run 5's bug put back: a site list among the launch flags, which the fake, like Codex, lets
+    # outrank every site write.
+    launched = CodexService._profile_flags
+    monkeypatch.setattr(CodexService, "_profile_flags",
+                        lambda self: (*launched(self), *SITES_AT_LAUNCH))
+
+    with calibrating(tmp_path) as (rig, client, a, b):
+        start(client, rig, a, b, ["K3"])
+        view = finished(client, rig)
+
+    scenario, findings = only(view)
+    # Judged by the start-up write first: the list Codex really started with.
+    started_without = "default sites when its process started (overridden)"
+    assert (scenario["verdict"], started_without in scenario["detail"]) == (
+        "failed", True), scenario
+    assert (findings["default_sites"], findings["add_refused"]) == ("overridden", "overridden")
+    assert findings["added_live"] is False
+    assert {record["status"] for record in rig.server.records("config_written")} == {
+        "okOverridden"}
+
+
+# ── K6: one command per project, every long-runner alive at once ────────────
+
+
+def test_k6_waits_for_no_more_processes_than_its_one_command_starts() -> None:
+    [command] = K6_COMMANDS
+    *jobs, last = command.split(" & ")
+    assert last == "wait" and len(jobs) == 3, command
+    # No listener: the sandbox refuses to let a command bind a socket.
+    assert "http.server" not in command and "--bind" not in command
+    # The shell that waits, each background job, and the child `script` runs under its terminal.
+    started = 1 + sum(2 if job.startswith("script ") else 1 for job in jobs)
+    assert 0 < K6_PROCESSES_PER_PROJECT <= started
+
+
+def test_k6_passes_when_stopping_a_ends_all_of_as_processes_and_none_of_bs(
+    tmp_path: Path,
+) -> None:
+    with calibrating(tmp_path) as (rig, client, a, b):
+        start(client, rig, a, b, ["K6"])
+        view = finished(client, rig)
+        spawned = rig.server.records("spawned")
+
+    scenario, findings = only(view)
+    assert scenario["verdict"] == "passed", scenario
+    expected = K6_PROCESSES_PER_PROJECT
+    assert Counter(entry["project"] for entry in findings["attribution"]) == {
+        "A": expected, "B": expected}
+    assert findings["found_per_project"] == {"A": expected, "B": expected}
+    assert (findings["a_survivors"], findings["b_stopped_with_a"]) == ([], [])
+    assert findings["unattributed_commands"] == []
+    # One command root per project, and B's ended afterwards too.
+    assert len(spawned) == 2
+    for record in spawned:
+        assert subprocess.run(["ps", "-p", str(record["pid"])], capture_output=True).returncode == 1
+
+
+def test_k6_fails_when_stopping_a_also_stops_bs_processes(tmp_path: Path) -> None:
+    with calibrating(tmp_path, "stop_kills_other_project") as (rig, client, a, b):
+        start(client, rig, a, b, ["K6"])
+        view = finished(client, rig)
+
+    scenario, findings = only(view)
+    assert (scenario["verdict"], "also stopped project B" in scenario["detail"]) == (
+        "failed", True), scenario
+    assert findings["found_per_project"] == {"A": K6_PROCESSES_PER_PROJECT,
+                                             "B": K6_PROCESSES_PER_PROJECT}
+    assert findings["b_stopped_with_a"]
 
 
 # ── K7: what an interrupted turn leaves open ────────────────────────────────
@@ -154,15 +246,16 @@ def test_k8_records_a_codex_that_never_asks_and_a_full_run_can_still_prove(
 # ── The candidate profile ───────────────────────────────────────────────────
 
 
-def test_the_candidate_profile_is_the_syntax_codex_accepted_with_r3s_sites() -> None:
+def test_the_candidate_profile_is_the_syntax_codex_accepted_with_r3s_network_and_no_sites() -> None:
     [option, setting] = CANDIDATE_PROFILE["flags"]
 
     assert option == "-c" and checked_profile(CANDIDATE_PROFILE) == CANDIDATE_PROFILE
     # Codex refuses "**/.run" as a filesystem key of its own: the project's folder is nested.
     assert '":project_roots"={"."="write", ".run"="deny", "**/.run"="deny"}' in setting
     assert setting.count('"**/.run"') == 1
-    # The network section is R3's own, with every approved site, and K3's listed site among them.
+    # The network section is R3's own — the proxy only. The sites, K3's listed one among them, are
+    # written once Codex runs, so a launch flag never outranks them (Cal-3).
     section = network_profile_flags("clarvis_run")[1].split("=", 1)[1]
     assert f"network={section}, filesystem=" in setting
-    assert all(f'"{site}"="allow"' in setting for site in DEFAULT_ALLOWED_SITES)
+    assert "domains" not in setting
     assert LISTED_SITE in DEFAULT_ALLOWED_SITES

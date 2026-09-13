@@ -1515,7 +1515,11 @@ approval grants network, because on Codex 0.154.0 none ever opens it; both live 
 `agent/calibration_dependent.py`, the one place a later calibration changes. Internet access comes
 from an approved-sites allowlist instead: a site Codex's network proxy blocked is asked of the owner
 as a `site` request (`agent/sites.py`), and allowing it adds that exact host to Codex's list while
-Codex runs. Codex starts with its network proxy on and a default list of registries and GitHub. Codex's two permission-request features, switched on in 0.23.14, were
+Codex runs. Codex starts with its network proxy on and no site list; as soon as its process is
+ready, and again after every restart, RAVIS writes a default list of registries and GitHub into
+Codex's own configuration in RAVIS's Codex home, through the same write an allowed site uses
+(Cal-3, 0.24.2). Until Codex has taken that list no task starts, and `GET /api/v1/codex` says why.
+Codex's two permission-request features, switched on in 0.23.14, were
 withdrawn. Because an interrupted Codex turn leaves its open request unresolved
 (K7), RAVIS answers and publishes every open request itself whenever a turn ends, however it ends;
 a file change is offered only once its item says what it would write (K12). A replayed create or
@@ -1537,6 +1541,21 @@ answers it with the stop response when the turn ends, as a task does. K8 records
 sends a permissions request, which doesn't keep a full run from proving the rules. The candidate
 profile is the syntax Codex 0.154.0 accepted, with R3's default sites as its network section, and a
 full pass pins it. K6 is unchanged there; R4 changed it (below).
+
+**Calibration fixed again in Cal-3 (0.24.2, 13 September 2026).** The fifth real run
+(`cal_330b7525d115`, RAVIS 0.24.1) passed every file-rule question, K7 and K13, and failed two, each
+for a confirmed cause. **K3's live add came back `okOverridden`**, because the site list was in the
+launch flags: a `-c` flag is Codex's command-line layer, which outranks every `config/batchWrite` to
+`permissions.<profile>.network.domains`. Checked without a model on Codex 0.154.0: launched with
+the network section and no `domains`, the same upsert answers `ok`, the site answers at once, and
+an unwritten host stays blocked. So no launch flag and no pinned or candidate profile carries a
+site list (a stored one has it taken out), and the default sites are written when Codex becomes
+ready, as described above. K3 waits for that start-up write's answer and fails naming Codex's word
+if it wasn't taken. **K6 could never see all its commands**: the sandbox forbids the listener
+`python3 -m http.server`, `script -q /dev/null sleep 600` held the turn in the foreground, and
+`sleep 600 &` ended at once. Each project now runs one command, `sleep 600 & script -q /dev/null
+sleep 600 & python3 -c 'import time; time.sleep(600)' & wait`, and K6 waits for the five processes it
+makes: the waiting shell, `sleep`, `script` and its child, and `python3`.
 
 **The project lock, for both engines.**
 

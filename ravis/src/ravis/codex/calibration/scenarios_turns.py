@@ -9,6 +9,14 @@ way whatever happened. The first real run (`cal_d2185ed08f50`) found nothing by 
 arguments: `sandbox-exec` replaces itself with the command, so they never show. A process no rule
 finds, or both projects claim, is reported and never signalled; nothing is ever signalled by group.
 
+**One command per project, its long-runners all alive at once** (Cal-3). Run `cal_330b7525d115`
+attributed every process it saw, with none unattributed, but K6 waited for four processes per
+project that could never exist together: `python3 -m http.server 0 --bind 127.0.0.1` failed at once,
+because the sandbox forbids listening on a socket (a sandbox rule, not a defect); `script -q
+/dev/null sleep 600` ran in the foreground for 600 s, so the turn's later commands never started;
+and `sleep 600 &` ended at once, leaving its `sleep` reparented away from Codex. So each project
+runs one listed command that starts three long-runners in the background and waits for them.
+
 **K7 is judged on RAVIS's side** (Cal-2). Codex 0.154.0 ends an interrupted turn within moments but
 never resolves the request it had open (`cal_d2185ed08f50`), so K7 passes when the turn ends
 `interrupted` within the cap and nothing is left open: RAVIS answered the request itself — the
@@ -47,14 +55,23 @@ from ravis.codex.process_table import (
 )
 from ravis.codex.rpc import CodexRpcError, CodexUnavailableError
 
-#: K6's long-running commands, as the process table shows them.
-OUR_COMMANDS = re.compile(r"sleep 600|http\.server")
-K6_COMMANDS = (
-    "sleep 600 &",
-    "script -q /dev/null sleep 600",
-    "python3 -m http.server 0 --bind 127.0.0.1",
+#: K6's long-runners: a plain background process, one under a terminal of its own, and a
+#: script-language one. No listener: the sandbox refuses to let a command bind a socket.
+K6_LONG_RUNNERS = (
     "sleep 600",
+    "script -q /dev/null sleep 600",
+    "python3 -c 'import time; time.sleep(600)'",
 )
+#: The one listed command each project runs: every long-runner in the background, then `wait`, so
+#: all of them exist together and the shell stays their parent.
+K6_COMMAND = "".join(f"{runner} & " for runner in K6_LONG_RUNNERS) + "wait"
+K6_COMMANDS = (K6_COMMAND,)
+#: How many of a project's processes K6 waits to see before it stops A: the shell that waits,
+#: `sleep`, `script` and the `sleep` it runs as its child, and `python3`. Never more than the one
+#: command starts (`test_codex_calibration_findings.py` checks that).
+K6_PROCESSES_PER_PROJECT = 5
+#: K6's long-running commands, as the process table shows them.
+OUR_COMMANDS = re.compile(r"sleep 600|time\.sleep\(600\)")
 
 
 # ── One turn of listed commands (K4) ─────────────────────────────────────────
@@ -284,7 +301,7 @@ async def k6(ctx: ScenarioContext) -> ScenarioResult:
             await session.start_thread(project.label, project)
             session.expect(project.label, commands)
             await session.start_turn(project.label, command_prompt("K6", commands))
-        found, started = await _wait_for_processes(ctx, session, len(commands), began)
+        found, started = await _wait_for_processes(ctx, session, K6_PROCESSES_PER_PROJECT, began)
         return await _stop_a(ctx, session, found, started)
     except (CodexRpcError, CodexUnavailableError) as refusal:
         return session.result("inconclusive", f"Codex refused a request: {refusal}")
@@ -352,6 +369,8 @@ async def _stop_a(
     b_rows = [entry.row for entry in attributed.values() if entry.owner == "B"]
     strays = [row for row in unattributed if OUR_COMMANDS.search(row.args)]
     findings: dict[str, Any] = {
+        "expected_per_project": K6_PROCESSES_PER_PROJECT,
+        "found_per_project": {"A": len(a_rows), "B": len(b_rows)},
         "attribution": [
             {"project": entry.owner, "rule": entry.rule, "comm": entry.row.comm}
             for entry in attributed.values()

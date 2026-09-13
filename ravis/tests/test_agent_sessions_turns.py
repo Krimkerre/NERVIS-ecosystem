@@ -175,7 +175,8 @@ def test_a_blocked_site_is_asked_of_the_owner_one_at_a_time_and_added_while_code
             200, {"resolved": True, "decision_kind": "allow_site"})
         retried = task.answer(site["id"], {"kind": "allow_site"}, key="k-allow")
         assert retried.json() == allowed.json()
-        assert [record["params"] for record in rig.server.records("config_written")] == [{
+        # After the default sites RAVIS wrote when Codex became ready (Cal-3), the one site added.
+        assert [record["params"] for record in rig.server.records("config_written")][1:] == [{
             "edits": [{"keyPath": "permissions.clarvis_run.network.domains",
                        "mergeStrategy": "upsert", "value": {"pypi.org": "allow"}}],
             "reloadUserConfig": True,
@@ -199,7 +200,7 @@ def test_a_blocked_site_is_asked_of_the_owner_one_at_a_time_and_added_while_code
 
 
 def test_a_site_codex_didnt_add_stays_blocked_and_the_owner_is_told(tmp_path: Path) -> None:
-    rig = ready_rig(tmp_path, scenario={"batch_write_status": "okOverridden"})
+    rig = ready_rig(tmp_path, scenario={"site_add_status": "okOverridden"})
     root, git_dir = project(rig)
     script = f"RELAY\nrun curl https://pypi.org => {BLOCKED.format('pypi.org')}\nsay done"
     with serving(rig) as relay:

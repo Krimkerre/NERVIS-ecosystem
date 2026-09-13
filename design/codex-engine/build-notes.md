@@ -2,6 +2,50 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From Cal-3 (ecosystem, RAVIS 0.24.2, 13 Sep 2026) — sites written at ready, K6 one command
+Run 5 (`cal_330b7525d115`, RAVIS 0.24.1) passed every file-rule check, K7 and K13; two failed, each with a
+confirmed cause.
+- **K3: `add_refused: "overridden"`, `added_live: false`**, example.com still blocked after the add
+  (listed site reached, example.com blocked before, loopback and never-added blocked). Cause:
+  `network_profile_flags` put `network={…, domains={…}}` in the launch flags; that `-c` (CLI) layer covers
+  `permissions.clarvis_run.network.domains`, so `config/batchWrite` to it answers `okOverridden`. Verified
+  model-free on 0.154.0 with a throwaway app-server launched with `permissions.clarvis_run={extends=
+  ":workspace", network={enabled=true, mode="limited"}, filesystem={…}}` (no `domains`),
+  `features.network_proxy=true`, `default_permissions="clarvis_run"`: npm and example.com blocked; upsert
+  `{"registry.npmjs.org":"allow"}` with `reloadUserConfig` → `ok`, npm 200, example.com blocked; upsert
+  `{"example.com":"allow"}` → `ok`, both 200, example.org blocked.
+- **Built:** `network_profile_flags(profile)` is `network={enabled=true, mode="limited"}` only;
+  `calibration_dependent.without_network_domains` strips a `domains={…}` table (or a `…network.domains=`
+  pair) and is applied in `pin.file_rules_profile` (every launch) and `plan.checked_profile` (owner file,
+  pin, candidate; so `write_pin_entry` never pins one). `service._profile_pinned` compares checked forms.
+  `SiteAllowlist._upsert` is the one write; `add` and the new `allow_defaults` use it. `CodexService.
+  _process_ready` bumps a process generation, sets `state.SITES_PENDING` and writes the defaults in the
+  background (`SITES_NOT_NEEDED` with no profile); a stale answer is ignored; not `ok` → the refusal word
+  (`overridden`, `not_written`, `codex_did_not_answer`), `logger.error`, and `state._sites_row` makes a
+  running, account-read process `runtime_down` with a plain reason, so `readiness()` refuses tasks with
+  that state and sentence (no fixture change: the conventions allow the state's sentence). `_process_ended`
+  resets to pending; the next ready retries. `ScenarioContext.default_sites` exposes it; K3 waits up to
+  `request_seconds` for it and fails `({default_sites})` before its other checks, after the
+  reached-too-much failures.
+- **K6: attribution worked** (zero unattributed: `script` A/B and `sleep` B by `command_cwd`, `sleep` A/B by
+  `parent`) but it waited for `len(K6_COMMANDS)` = 4 per project, never possible: `python3 -m http.server`
+  fails at once (the sandbox forbids binding, a sandbox rule), `script -q /dev/null sleep 600` holds the
+  turn 600 s so later commands never start, `sleep 600 &` exits leaving `sleep` reparented. **Built:** one
+  command, `K6_COMMAND` = `sleep 600 & script -q /dev/null sleep 600 & python3 -c 'import time;
+  time.sleep(600)' & wait`; `K6_PROCESSES_PER_PROJECT = 5` (shell, sleep, script + child, python3);
+  findings add `expected_per_project` and `found_per_project`. Pass rule unchanged.
+- **Fakes:** the relay half answers a batchWrite `okOverridden` when any argv `-c` setting is the key or a
+  table above it naming its leaf (`domains=`), else `ok`, except `site_add_status` for a one-site upsert
+  (replaces `batch_write_status`); `config_written` logs the status and the calibration half applies only
+  `ok`. K6's fake: one root `/bin/sh -c "sleep 600 & /bin/sh -c 'sleep 600; true' & sleep 600 & wait"` per
+  project, foreground until stopped, a background terminal.
+- Tests: `test_codex_default_sites.py` (stripping; defaults at every start and never at launch; overridden
+  → not ready, 409, logged, retried) and in `test_codex_calibration_findings.py` K3 with launch sites
+  (fails `overridden`), K6 pass, fail, and the count bound. Relay-contract fixtures unchanged.
+- Unverified until the next real run: K3 (c) live on a loaded thread, K6's five processes on real Codex
+  (a `python3` shim that spawns rather than execs would only add a process), and the ready-time write on
+  the live stack (RAVIS not restarted by this build).
+
 ## From R4 (ecosystem, RAVIS 0.24.0 and NERVIS 0.28.16, 13 Sep 2026) — the project lock, clean-up, restarts
 Built: `agent/lock_routes.py` and `lock_api.py` (the six routes), `group_kill.py`, `attribution.py`,
 `reconcile.py`; `cleanup.py` and `locks.py` rebuilt on them; migration 9 (`ravis_instance`, `agent_thread`,

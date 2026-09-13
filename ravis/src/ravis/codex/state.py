@@ -8,7 +8,7 @@
 | `not_installed` | the Homebrew link doesn't lead to a file |
 | `not_available` | switched off, bad signature, refused home, check failed, wrong process (§4.1) |
 | `untested_version` | neither tested nor accepted; or its file rules unproven (decision D2) |
-| `runtime_down` | the app-server is starting, restarting or failed to start |
+| `runtime_down` | the app-server is starting, restarting, failed to start or without its sites |
 | `signed_out` | no account, after an admin sign-out or no sign-in ever |
 | `sign_in_expired` | no account, after a sign-in RAVIS didn't end |
 | `account_changed` | the account's fingerprint isn't the confirmed one |
@@ -39,6 +39,13 @@ BACKEND_ID = "ravis/clarvis-codex"
 #: locale once turned `ps` dates into "zo 13 sep." (C1's notes).
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+#: Where RAVIS's default sites stand for the running process (Cal-3, `agent/sites.py`): not yet
+#: written, written, not needed (no file-rules profile to write them into), or else the word
+#: `SiteAllowlist.allow_defaults` gave for Codex not taking them — `overridden`, `not_written` or
+#: `codex_did_not_answer`.
+SITES_PENDING = "pending"
+SITES_WRITTEN = "written"
+SITES_NOT_NEEDED = "not_needed"
 
 
 @dataclass(frozen=True)
@@ -83,6 +90,8 @@ class Reading:
     sign_in: dict[str, Any]
     home_fingerprint: str
     now: datetime
+    #: `SITES_PENDING`, `SITES_WRITTEN`, `SITES_NOT_NEEDED`, or why Codex didn't take the sites.
+    default_sites: str
 
 
 def decide(reading: Reading) -> tuple[str, str]:
@@ -113,7 +122,7 @@ def _runtime_row(reading: Reading) -> tuple[str, str] | None:
 def _process_row(reading: Reading) -> tuple[str, str] | None:
     process = reading.process
     if process.state == "running" and reading.account_read:
-        return None
+        return _sites_row(reading.default_sites)
     if process.state == "failed":
         return "runtime_down", (
             "Codex's process failed five times in 30 minutes, so RAVIS has stopped restarting it "
@@ -122,6 +131,18 @@ def _process_row(reading: Reading) -> tuple[str, str] | None:
     if process.state == "restarting" and process.failure:
         return "runtime_down", f"Codex's process is restarting after: {process.failure}"
     return "runtime_down", "Codex's process is starting."
+
+
+def _sites_row(sites: str) -> tuple[str, str] | None:
+    """A running Codex takes no task until it has RAVIS's default sites (Cal-3)."""
+    if sites in (SITES_WRITTEN, SITES_NOT_NEEDED):
+        return None
+    if sites == SITES_PENDING:
+        return "runtime_down", "Codex's process is starting."
+    return "runtime_down", (
+        f"Codex's process is running, but it didn't take RAVIS's default sites ({sites}), so no "
+        "task can start. RAVIS writes them again the next time Codex starts."
+    )
 
 
 def _account_row(reading: Reading) -> tuple[str, str] | None:

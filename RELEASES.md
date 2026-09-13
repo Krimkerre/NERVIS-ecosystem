@@ -1052,7 +1052,35 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.24.1
+## RAVIS — 0.24.2
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **A site the owner allows now really gets added** (Cal-3). The fifth calibration run
+  (`cal_330b7525d115`) found Codex answering every site RAVIS added with "overridden", so the site
+  stayed blocked. The cause: RAVIS started Codex with the list of allowed sites among its start-up
+  options, and Codex lets a start-up option outrank anything written later. Codex now starts with
+  its network proxy on and no site list, and the moment its process is ready, and again after every
+  restart, RAVIS writes the default sites (the package registries and GitHub) into Codex's own
+  settings, the same way an allowed site is added. Sites the owner added earlier stay. Checked
+  without a model on Codex 0.154.0: that write is taken, the site answers at once, and a site never
+  written stays blocked.
+- **Until Codex has taken those sites, it takes no task.** If Codex doesn't take them, RAVIS's Codex
+  state says so in plain words, a new task is refused as "Codex isn't ready", the log records it,
+  and RAVIS tries again at Codex's next start. A profile pinned or named with a site list in it has
+  that list taken out before Codex starts. Checked by `ravis/tests/test_codex_default_sites.py`.
+- **Calibration's network question now uses Codex's real start-up state** and fails naming
+  "overridden" if a write is ever overridden again. The fake Codex in the tests now overrides a site
+  write whenever its start-up options carry a site list, as the real one does, so this bug coming
+  back fails a test.
+- **Calibration's stop question can now see everything it waits for.** It used to wait for four
+  processes per project that could never all be running: a small web server the sandbox forbids,
+  a command that held the turn for ten minutes, and one that ended at once. Each project now runs
+  one command that starts three long-running processes in the background and waits for them, and
+  the question waits for the five processes that command really makes. Checked by
+  `ravis/tests/test_codex_calibration_findings.py`.
+
+### 0.24.1
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
