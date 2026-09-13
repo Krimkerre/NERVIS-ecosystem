@@ -84,9 +84,12 @@ def _ravis_environment(
     The rest of what `_services` reaches is replaced: NERVIS's environment, built in the same
     call, is handed credentials that live in `.run/`; the default upstream list reads the names in
     the credential store; Ollama and code-server are other questions; and the workspace NERVIS is
-    given is made under the repository root, which is `tmp_path` here.
+    given is made beside the repository root, so the root is a folder inside `tmp_path` here and
+    the workspace lands in `tmp_path` too.
     """
-    monkeypatch.setattr(run, "ROOT", tmp_path)
+    root = tmp_path / "NERVIS-ecosystem"
+    root.mkdir()
+    monkeypatch.setattr(run, "ROOT", root)
     for minted in (
         "nervis_ravis_credential", "benchmark_token", "admin_token", "ravis_admin_credential"
     ):

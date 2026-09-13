@@ -487,10 +487,15 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # that is unreachable unless you already know the variable's name —
             # the button would be there, and every file list would say "off".
             #
-            # Somewhere under a person's home is the thing not to do. Anyone who
-            # wants that sets NERVIS_WORKSPACE_PATH themselves, which is a
-            # decision worth making deliberately.
-            workspace = ROOT / "workspace"
+            # **Beside the checkout, not inside it** (owner decision, 13 September
+            # 2026). It used to be `<repo>/workspace`. But the tasks handed to
+            # Clarvis live in `clarvis/nervis-tasks/` here, and Codex refuses any
+            # project that lies inside this repository
+            # (RAVIS_AGENT_PROTECTED_REPOSITORIES, below). Inside the checkout,
+            # every real task would have been refused. So it is `NERVIS workspace`
+            # next to the repositories, in the folder that already holds them.
+            # Anyone who wants it elsewhere sets NERVIS_WORKSPACE_PATH.
+            workspace = ROOT.parent / "NERVIS workspace"
             workspace.mkdir(exist_ok=True)
             # **Three rooms, made here so they exist before anything looks.**
             # What somebody handed NERVIS, what NERVIS produced, and the folder
