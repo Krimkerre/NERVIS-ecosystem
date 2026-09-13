@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 3096 tests, no network, no live service
+.venv/bin/pytest                      # part of 3139 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1259 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 3096 passing across the four, conformance `PASS`.
+Expected: all clean, 3139 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -215,7 +215,7 @@ carries an as-built note saying what exists and what does not.
 | 14 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
 | 15 | **Defects recorded below and never closed** | Closed on 12 September, each under its own entry and in the dated section *The recorded defects, fixed*: a tool probe landing on a model that is not loaded (§8.7); LM Studio's advertised context window; the credential write's repeated catalogue refresh; Hand over through the proxy; the half export — and, found on the way, `LOCAL_PREFERRED` sitting behind five ranking terms. Also closed that day: a tool refusal now tries the pool's next model; SIRVIS releases and unloads what it loaded when it stops; and the launcher's start and stop have automated tests, which found and fixed three holes of their own. Still open: SIRVIS M22b's reasoning share was never confirmed on real data; the Anthropic and Google adapters never fall back for any failure; and the menu bar app was once found not running, with the stack and a model it held still up, no crash report and no log entry, cause unknown — the app's log now keeps its history and records how each run ends, so a repeat will say whether it quit |
 | 16 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run on every commit that touches the dashboard only in a clone where `git config core.hooksPath tools/githooks` has been run |
-| 17 | **Codex tasks through RAVIS — RAVIS M29, Clarvis E-C9, NERVIS M28** | Designed on 13 September 2026, with the architecture and four other questions decided by the owner that morning, and the Stop button and the refusal of the ecosystem's own repositories later that day. **Increment 0 landed the same day:** runbook §2.2 and the product documents' amendments, the contract fixtures and their copy in Clarvis, and `clarvis/plan.md` M15, signed off. Nothing else is built — next are R1 on the ecosystem track and C1 on Clarvis's. The order, the dependencies and the risks are in *Codex engine through RAVIS — build plan, 2026-09-13* below |
+| 17 | **Codex tasks through RAVIS — RAVIS M29, Clarvis E-C9, NERVIS M28** | Designed on 13 September 2026, with the architecture and four other questions decided by the owner that morning, and the Stop button and the refusal of the ecosystem's own repositories later that day. **Increment 0 landed the same day:** runbook §2.2 and the product documents' amendments, the contract fixtures and their copy in Clarvis, and `clarvis/plan.md` M15, signed off. **R1 landed the same day, in RAVIS 0.23.8:** the Codex runtime check and version pin, `ravis/codex` listed only for a client that asks for it, and the 400 refusal on `/v1` — nothing else is built. Next are N1a and R2 on the ecosystem track, and C1 on Clarvis's. The order, the dependencies and the risks are in *Codex engine through RAVIS — build plan, 2026-09-13* below |
 
 ### After that — deferred on purpose, or waiting on the owner
 
@@ -19372,7 +19372,7 @@ had been turning it back into the built-in default, silently ignoring what the o
 
 **What this is.** Codex, OpenAI's coding agent, becomes an optional coding engine for Clarvis, run by
 RAVIS on this Mac on the owner's ChatGPT plan. It was designed on 13 September 2026, and every open
-question was decided by the owner the same day. **Nothing of it is built.** This entry is where a
+question was decided by the owner the same day. **R1 has landed (below); nothing else is built.** This entry is where a
 later session picks the build up: what was decided, what landed today, the increments in order with
 what each waits for, where the specifications now say what, and the known risks. Row 17 of Next
 points here.
@@ -19429,7 +19429,7 @@ tests and fixtures, and agent working sessions.
 
 | Increment | What | Waits for | Size; sessions |
 |---|---|---|---|
-| **R1** RAVIS | The runtime check and pin: Homebrew link resolution, signature, sha256, schema trees, acceptance checks, the tested-runtimes record; `ravis/codex` listed only with `X-Clarvis-Engines: codex`; the 400 refusal on `/v1/chat/completions` and `/v1/embeddings`; both capabilities; conformance from 23 checks to 24; `ravis codex preflight` | I0 | 800 / 950; 1 |
+| **R1** RAVIS — **landed 13 September 2026, RAVIS 0.23.8** | The runtime check and pin: Homebrew link resolution, signature, sha256, schema trees, acceptance checks, the tested-runtimes record; `ravis/codex` listed only with `X-Clarvis-Engines: codex`; the 400 refusal on `/v1/chat/completions` and `/v1/embeddings`; both capabilities; conformance from 23 checks to 24; `ravis codex preflight`. **Built:** the Codex settings and `ravis doctor`'s advisory findings on them; `ravis/src/ravis/codex/runtime.py`, run once at startup in worker threads and kept — Homebrew's link through `brew --prefix`, a signature requirement naming OpenAI's team, the sha256, both schema trees generated in a throwaway Codex home, and the verdict against `tested_runtimes.json`, which records Homebrew Codex 0.154.0 with its file rules unproven, so it reads `untested_version` until calibration; the listing in both catalogue builders; the refusal on both routes, before routing; 43 tests. **Not built, left for later increments:** acceptance checks 1-5 and 7a with the used-method and definition hashes, both capabilities (RAVIS.md §4.1 advertises them only once their routes pass), conformance's 24th check (it stays at 23 checks) and `ravis codex preflight` | I0 | 800 / 950; 1 |
 | **N1a** launcher | `tools/run.py`: `brew --prefix`, the `RAVIS_CODEX_*` and `RAVIS_AGENT_*` environment, the `codex` block in `status --json`, `codex sign-in`, `cancel-sign-in`, `codex stop` and `codex reprove`, and the owner's command-line credential, which never enters NERVIS's environment; tests in `nervis/tests/test_launcher_status.py` | I0; after R1 in the track | 290 / 350; 0.5 |
 | **R2** RAVIS | The one Codex process and its I/O discipline, sign-in, allowance, the account fingerprint, version acceptance, the file-rules re-test, the dev-only calibration route; the shared lock rule and checkout lock file against `lock-rule-cases.json`; a Python fake of Codex's app-server | R1 | 2,190 / 2,420; 3 |
 | **Cal** calibration, with the owner | The questions below, inside RAVIS's one process, on two throwaway git projects the owner names. It uses plan allowance, so the owner gives the go-ahead. Outputs: its record here, the tested-runtimes entry, redacted transcripts under `ravis/tests/fixtures/codex/calibration/`, and the final mapping from modes to Codex's approval settings | R2 and N1a, with the stack restarted on R2's build | 350 / – / 150 prose; 1 |

@@ -27,7 +27,8 @@ agent sessions: it hosts the optional Codex runtime and relays each task between
 Clarvis under the project write lock (runbook §2.2)**. It does **not** benchmark hardware
 (SIRVIS), decide approvals, run Clarvis's tools or manage git (Clarvis), or supervise and display
 the ecosystem (NERVIS). **Codex edits workspaces as the agent RAVIS hosts; RAVIS's own logic never
-does.** The Codex half was decided on 13 September 2026 and is not built (M29, §15.1.2).
+does.** The Codex half was decided on 13 September 2026; of it, only the runtime check, the
+conditional listing and the `/v1` refusal are built so far (M29's first increment, R1; §15.1.2).
 
 ---
 
@@ -55,7 +56,8 @@ problem. Everything downstream follows from that:
 
 Codex tasks are the one place where RAVIS is not "just a very good OpenAI-compatible server". They
 are brokered agent sessions on a separate relay (§15.1.2, runbook §2.2), and `/v1` refuses
-`ravis/codex`. *Decided 13 September 2026; not built (M29).*
+`ravis/codex`. *Decided 13 September 2026. The `/v1` refusal is built (M29's first increment, R1);
+the relay is not.*
 
 ---
 
@@ -177,7 +179,8 @@ endpoint as part of availability and model-selection behaviour.
 
 `ravis/codex` is listed as `{id, object, owned_by}` only, after the pools, in both builders, while
 Codex is enabled and the request carries `X-Clarvis-Engines: codex`. Listing it reads cached values
-and one header and starts nothing. *Decided 13 September 2026; not built (M29).*
+and one header and starts nothing. *Decided 13 September 2026; built in M29's first increment, R1
+(0.23.8).*
 
 ## 4.4 Inbound limits and admission control
 
@@ -349,7 +352,7 @@ enforcement.
 4. **`owned_by` is optional.** A placeholder such as `organization_owner`, or omitting the field,
    both yield the vendor-prefix label.
 5. **`ravis/codex` is listed as `{id, object, owned_by}` and nothing else** (decided 13 September
-   2026; not built, M29), and only for a request carrying `X-Clarvis-Engines: codex` (§4.3). No
+   2026; built in M29's first increment, R1), and only for a request carrying `X-Clarvis-Engines: codex` (§4.3). No
    entry in RAVIS's catalogue sets `created` today, so rule 3 holds; the day other entries gain
    `created`, rule 3 and the Codex entry's no-extra-keys rule will disagree, and rule 3 must win.
 
@@ -1613,7 +1616,8 @@ that one incoming request equals one upstream call, but do not implement orchest
   none of the file, the keyring or the environment stays unavailable. *Corrected 12 September
   2026: this line said "never plaintext", which §14 and rule 16 stopped promising on
   9 September.*
-- **Without Codex** (M29 — decided 13 September 2026, not built) — `ravis/codex` is not listed,
+- **Without Codex** (M29 — decided 13 September 2026; the listing rule and `RAVIS_CODEX_ENABLED` are
+  built, the sessions are not) — `ravis/codex` is not listed,
   session creation is refused with the state's reason, the lock API still serves Clarvis's own
   engine, and nothing else changes. Disabling it with `RAVIS_CODEX_ENABLED=false` and a restart
   refuses new sessions while existing ones can still be settled and ended.
@@ -1683,8 +1687,9 @@ ravis/
 └── docs/
 ```
 
-**Planned for M29, not built:** `src/ravis/codex/` for the runtime check and pin, the supervised
-Codex process, its state, sign-in, allowance, version acceptance and the file-rules re-test; and
+**M29, in part:** `src/ravis/codex/` holds the runtime check and pin (`runtime.py` and
+`tested_runtimes.json`, built in R1). **Planned, not built:** the supervised Codex process there,
+its state, sign-in, allowance, version acceptance and the file-rules re-test; and
 `src/ravis/agent/` for the session store, the relay routes, identity and tokens, the
 unanswered-request policy, process attribution and clean-up, and the project lock with its shared
 rule and checkout lock file. The design names the lock rule's module under both packages; this
@@ -1778,7 +1783,7 @@ and §20.1 maps these milestones onto its stages.
 | **M25b** | **Serverless GPU as a routing candidate.** Everything that must be true before a pool may pick one — see the four dependencies below | A cold endpoint warms without opening its circuit; a scaled-to-zero endpoint is distinguishable from a COLD local model in a route decision; spend on it is visible; a background call under the default profile never selects it |
 | **M28** AUTOMATED VERIFIED | **`ravis/free-api` — costs nothing and runs somebody else's hardware.** Both halves are load-bearing and neither is `ravis/cheap`: cheap prefers local, and on any machine with a runtime "least monetary cost" resolves to a local model — right for cheap, wrong for the caller this exists for. Unattended work must not load a local model, because loading one is exactly how work nobody is watching starts competing for memory with the conversation somebody is having. It is also why §9.6.1's background marker is not the answer: that marker means *must be free* and a local model satisfies it. **Below `private` on the privacy ladder**, and structurally rather than by rule — a free tier is free because the prompt is worth something, so this is an egress path with logging, and `free` requiring remote while `local` and `private` require local leaves the two with no candidate in common. Rate limits are the normal case rather than a fault, and needed no new handling: `RATE_LIMIT` is already `retry_same_target=False, may_fall_back=True` | A machine with a free hosted model, a paid one and a local one routes `ravis/free-api` to the free hosted one, `ravis/cheap` to the local one, and the two disagreeing **is** the reason both exist; **a pool with nothing free refuses rather than billing** — the ceiling is a contract, so membership resolves to nothing and the engine says the pool is unavailable, where `cheap` correctly falls back to the cheapest paid; a request carrying `LOCAL_ONLY` can reach no member of this pool by any route; the description says on its face that it is logged and never private. **Moved from IMPLEMENTED, 12 September 2026:** `ravis/tests/test_pool_free_api.py` exercises the acceptance and passes, eleven tests. Offered a local, a free hosted and a paid model, the pool takes the free one while `ravis/cheap` takes the local one; given only the local or only the paid one it selects nothing, so it refuses rather than billing; the ceiling is zero rather than merely low; and the description says logged. The `LOCAL_ONLY` clause is checked as pool locality — `ravis/free-api` requires remote where `ravis/local` and `ravis/private` require local — not by sending a `LOCAL_ONLY` request. A live request through the pool, served by a free hosted model, is recorded in `STATUS.md` on 1 September 2026; that is one request rather than a recorded run of the acceptance, so the row stops short of live verification |
 | **M27** | **More than one SIRVIS.** `sirvis_base_url` is one string and the evidence store is keyed `runtime_key → role → record`, so a second measuring service is not "configure another URL" — it is a store that can hold two machines' answers about the same build without one erasing the other. See below | The same build measured on two machines yields two records, both readable; a route decision names *which machine* its evidence came from; an upstream on machine A is never ranked on a measurement taken on machine B; one SIRVIS going away degrades only the machine it measured |
-| **M29** | **Codex agent sessions, brokered.** Specified 13 September 2026 (runbook §2.2, §15.1.2); nothing built. One supervised Codex process with a pinned, calibrated version and a proven permission profile; sign-in and allowance; agent-session records; the SSE relay with tokens, idempotency and NERVIS or admin refusals; per-task command clean-up; the unanswered-request policy; the project lock for both engines; `/v1` refusal and conditional listing. Paired with Clarvis E-C9 and NERVIS M28, and built in four increments around a calibration step with the owner, in the order `STATUS.md` gives | Contract tests against the shared fixtures; a crash or restart marks running turns uncertain and kills only recorded processes; answers after Stop are refused; NERVIS and admin credentials get 403 on every session route except `owner-stop`, even with a token; `owner-stop` stops only, needs a matching confirmation, and refuses client credentials and tokens; a stale lock after sleep isn't treated as dead; untested versions and unproven rules refuse new tasks; conformance counts 24 checks; calibration and one live task recorded in STATUS |
+| **M29** | **Codex agent sessions, brokered.** Specified 13 September 2026 (runbook §2.2, §15.1.2). **Built so far, the first increment, R1 (13 September 2026, 0.23.8):** the runtime check and version pin — Homebrew's link through `brew --prefix`, OpenAI's signature, and the build's sha256 and both schema trees against `src/ravis/codex/tested_runtimes.json`, run once at startup in the background and kept — `ravis/codex` listed only with `X-Clarvis-Engines: codex`, and the 400 refusal on `/v1/chat/completions` and `/v1/embeddings`. R1 is exercised by RAVIS's own suite and not yet by the clean-clone gate, so it is short of AUTOMATED VERIFIED (runbook §14.8); the rest of this row is not built. One supervised Codex process with a pinned, calibrated version and a proven permission profile; sign-in and allowance; agent-session records; the SSE relay with tokens, idempotency and NERVIS or admin refusals; per-task command clean-up; the unanswered-request policy; the project lock for both engines; `/v1` refusal and conditional listing. Paired with Clarvis E-C9 and NERVIS M28, and built in four increments around a calibration step with the owner, in the order `STATUS.md` gives | Contract tests against the shared fixtures; a crash or restart marks running turns uncertain and kills only recorded processes; answers after Stop are refused; NERVIS and admin credentials get 403 on every session route except `owner-stop`, even with a token; `owner-stop` stops only, needs a matching confirmation, and refuses client credentials and tokens; a stale lock after sleep isn't treated as dead; untested versions and unproven rules refuse new tasks; conformance counts 24 checks; calibration and one live task recorded in STATUS |
 
 ## 20.1 Ecosystem gate mapping
 

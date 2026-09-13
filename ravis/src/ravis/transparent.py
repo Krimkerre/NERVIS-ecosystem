@@ -230,6 +230,7 @@ def merged_catalogue(
     transparents: dict[str, TransparentUpstream],
     disabled: frozenset[str] = frozenset(),
     filters: dict[str, ModelFilter] | None = None,
+    agent_backends: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """`GET /v1/models` across every upstream — pools once, models deduped.
 
@@ -241,9 +242,16 @@ def merged_catalogue(
     Clarvis, whose parser is described in §5.0.1 as strict about the shape, and
     an extra key is a change to a contract for the sake of a diagnostic that
     `model_owners` already serves better.
+
+    `agent_backends` come straight after the pools, in the pools' own shape and
+    with no extra key either (§5.0.1 item 5): `ravis/codex`, for a caller that
+    asked, and nothing for anyone else (`api/openai/agent_backends.py`).
     """
     pools: list[dict[str, Any]] = [
         {"id": pool.pool_id, "object": "model", "owned_by": "ravis"} for pool in DEFAULT_POOLS
+    ]
+    backends: list[dict[str, Any]] = [
+        {"id": backend, "object": "model", "owned_by": "ravis"} for backend in agent_backends
     ]
     models: dict[str, dict[str, Any]] = {}
     for candidate in transparents.values():
@@ -261,7 +269,7 @@ def merged_catalogue(
                     "object": "model",
                     "owned_by": entry.get("owned_by", "organization_owner"),
                 }
-    return {"object": "list", "data": pools + list(models.values())}
+    return {"object": "list", "data": pools + backends + list(models.values())}
 
 
 def merged_residency(transparents: dict[str, TransparentUpstream]) -> ResidencySnapshot:

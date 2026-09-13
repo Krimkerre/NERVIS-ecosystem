@@ -45,6 +45,12 @@ def _never_the_operators_own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     # than carved into the check as a test-shaped exception, and rather than
     # rewritten into two hundred call sites.
     monkeypatch.setenv("RAVIS_ALLOWED_HOSTS", '["127.0.0.1", "localhost", "::1", "testserver"]')
+    # **Codex is switched off for the suite, and its data folder is a throwaway**
+    # (runbook §2.2, M29). Left on, every test that enters the lifespan would ask
+    # Homebrew where the real Codex is and run it. The Codex tests switch it back on,
+    # with fake programs (`tests/codex_fakes.py`).
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("RAVIS_CODEX_ENABLED", "false")
 
 
 @pytest.fixture

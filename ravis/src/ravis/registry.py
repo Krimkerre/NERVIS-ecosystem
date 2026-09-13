@@ -156,7 +156,7 @@ class ModelRegistry:
         entries = payload.get("data", []) if isinstance(payload, dict) else []
         return [entry for entry in entries if isinstance(entry, dict)]
 
-    def as_openai_list(self) -> dict[str, Any]:
+    def as_openai_list(self, agent_backends: tuple[str, ...] = ()) -> dict[str, Any]:
         """The `GET /v1/models` body, in OpenAI's list shape.
 
         Pools are listed first, then the upstream's own models. Listing pools at
@@ -169,10 +169,18 @@ class ModelRegistry:
         otherwise — and pools have no meaningful creation time, so including it
         on upstream models alone would produce exactly the mixed list that
         scrambles the intended order (§5.0.1).
+
+        `agent_backends` come straight after the pools and in the pools' own
+        shape — `ravis/codex`, for a caller that asked (`api/openai/agent_backends.py`).
+        This is the builder used when no upstream is declared; `merged_catalogue`
+        is the other, and the two list it the same way.
         """
         pools = [
             {"id": pool.pool_id, "object": "model", "owned_by": "ravis"}
             for pool in DEFAULT_POOLS
+        ]
+        pools += [
+            {"id": backend, "object": "model", "owned_by": "ravis"} for backend in agent_backends
         ]
         upstream = [
             {

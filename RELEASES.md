@@ -884,7 +884,27 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.7
+## RAVIS — 0.23.8
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **`ravis/codex` is refused as a chat model.** A chat or embeddings request naming `ravis/codex`, or
+  any id under `ravis/codex/`, now gets a 400 saying it is the Codex coding engine and that nothing was
+  run — before routing, before any provider is called, and whether or not Codex is set up.
+- **`ravis/codex` is listed only for a client that asks for it.** `/v1/models` shows it straight after the
+  pools when Codex is enabled and the request carries `X-Clarvis-Engines: codex`, which Clarvis 0.17.0
+  and later will send; every other client sees the list unchanged. Running Codex tasks is not built yet.
+- **RAVIS checks the Codex on this Mac once, in the background, when it starts:** Homebrew's link,
+  OpenAI's signature, and the build's fingerprint and protocol schemas against the pinned Homebrew Codex
+  0.154.0. That build is reported as paused for re-testing until calibration proves its file rules.
+  Codex runs only in a throwaway folder deleted straight afterwards, never in `~/.codex`, and what the
+  check found is written to RAVIS's log.
+- **New settings:** `RAVIS_CODEX_ENABLED` (unset: on when Codex is installed), `RAVIS_CODEX_EXECUTABLE`
+  (unset: ask `brew --prefix`), `RAVIS_CODEX_HOME` and `RAVIS_CODEX_EXPECTED_TEAM_ID`. `ravis doctor`
+  notes a missing executable, Homebrew's versioned copy, or a Codex home inside `~/.codex` or RAVIS's
+  configuration folder, and never refuses to serve over any of them.
+
+### 0.23.7
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

@@ -40,6 +40,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ravis.api.management.decisions import RecordedDecision
+from ravis.api.openai.agent_backends import agent_backend_refusal
 from ravis.api.openai.serialize import DONE, completion, frame_for, opening_frame
 from ravis.content import check_image_count
 from ravis.core.capabilities import Capability, ModelCapabilities
@@ -703,7 +704,14 @@ def _inspect(body: bytes, request: Request) -> dict[str, Any] | JSONResponse:
     if not isinstance(parsed, dict):
         return _openai_error("Request body must be a JSON object", "invalid_request_error", 400)
 
-    refusal = _shape_refusal(parsed)
+    # The Codex engine first, straight after parsing and before anything else reads
+    # the request, so no disabled-provider or upstream check, no routing, no route
+    # event and no session touch ever happens for it (runbook §2.2). Before the
+    # shape check too: a body naming `ravis/codex` hears the one thing that matters
+    # about it, not a complaint about its `messages`.
+    refusal = agent_backend_refusal(parsed)
+    if refusal is None:
+        refusal = _shape_refusal(parsed)
     if refusal is not None:
         return refusal
 

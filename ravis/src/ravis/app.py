@@ -45,6 +45,7 @@ from ravis.api.management import management_router
 from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, embeddings_router, models_router
+from ravis.codex.runtime import CodexRuntime
 from ravis.config import Settings, resolved_capabilities
 from ravis.cost import (
     PriceBook,
@@ -151,9 +152,13 @@ def _lifespan(settings: Settings) -> Any:
         publisher = asyncio.create_task(
             api.state.events.run(api.state.upstream_client)
         )
+        # The optional Codex engine's one startup check (runbook §2.2, M29), in worker
+        # threads: serving never waits for it, and `/v1/models` reads what it found.
+        codex_check = asyncio.create_task(api.state.codex.check())
         try:
             yield
         finally:
+            codex_check.cancel()
             refresher.cancel()
             evidence_refresher.cancel()
             recorder.cancel()
@@ -359,6 +364,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # state, and §17's storage model does not list them. Losing them on restart
     # costs a debugging session; persisting every one costs disk forever.
     api.state.decision_log = DecisionLog()
+    # Codex, the optional coding engine (runbook §2.2, M29). Building it runs nothing:
+    # the lifespan runs its one startup check, and `/v1/models` reads what it keeps.
+    api.state.codex = CodexRuntime(settings)
     # Providers whose upstream does not speak the external protocol, keyed by
     # the name a direct address uses: `ravis/<provider>/<model>`. Empty until
     # M4 registers the first one — and empty is the honest default, because a

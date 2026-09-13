@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
+from ravis.api.openai.agent_backends import listed_agent_backends
 from ravis.registry import ModelRegistry
 from ravis.transparent import TransparentUpstream, merged_catalogue
 
@@ -24,10 +25,15 @@ async def list_models(request: Request) -> dict[str, Any]:
     No authentication, no upstream call, no awaiting anything. If that ever
     stops being true, Clarvis reports RAVIS offline and the cause is invisible
     from the client side.
+
+    That holds for `ravis/codex` too: whether it is listed is the Codex runtime
+    check's kept answer and one request header, never a check made here
+    (`agent_backends.py`).
     """
     transparents: dict[str, TransparentUpstream] = getattr(
         request.app.state, "transparents", {}
     )
+    backends = listed_agent_backends(request)
     if transparents:
         state = getattr(request.app.state, "provider_state", None)
         filters = getattr(request.app.state, "model_filters", None)
@@ -35,6 +41,7 @@ async def list_models(request: Request) -> dict[str, Any]:
             transparents,
             frozenset(state.disabled()) if state else frozenset(),
             filters.all() if filters else None,
+            agent_backends=backends,
         )
     registry: ModelRegistry = request.app.state.model_registry
-    return registry.as_openai_list()
+    return registry.as_openai_list(agent_backends=backends)

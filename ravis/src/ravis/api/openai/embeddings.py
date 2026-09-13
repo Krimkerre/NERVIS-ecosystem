@@ -24,6 +24,8 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from ravis.api.openai.agent_backends import agent_backend_refusal
+
 router = APIRouter(prefix="/v1", tags=["openai"])
 
 
@@ -38,6 +40,31 @@ def _openai_error(message: str, error_type: str, status: int) -> JSONResponse:
 
 @router.post("/embeddings")
 async def create_embeddings(request: Request) -> JSONResponse:
+    """Refuse the Codex engine by name, then embed with the configured local model.
+
+    `ravis/codex` gets the same 400 as on chat completions, before anything else —
+    even before "no embedding model is configured", because what is true of that id
+    does not depend on how this route is configured (runbook §2.2).
+    """
+    refusal = agent_backend_refusal(await _parsed_or_none(request))
+    if refusal is not None:
+        return refusal
+    return await _embed(request)
+
+
+async def _parsed_or_none(request: Request) -> Any:
+    """The body parsed as JSON, or `None` when it isn't JSON.
+
+    A body that isn't JSON is `_embed`'s to refuse, in its own words; this only needs
+    to know whether a `model` in it names the Codex engine.
+    """
+    try:
+        return await request.json()
+    except ValueError:
+        return None
+
+
+async def _embed(request: Request) -> JSONResponse:
     """Forward to the configured local embedding model, or refuse honestly.
 
     A 503 with a named cause here, not a 500 and not an empty vector — the

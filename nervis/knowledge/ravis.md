@@ -273,6 +273,15 @@ it.
 can declare a request as background — a conversation title, say — and RAVIS
 excludes paid providers unless told otherwise.
 
+**It does not treat Codex as a chat model.** ravis/codex names the Codex coding engine that
+Clarvis will run through RAVIS, and it is not a pool. A chat or embeddings request naming it, or
+any id under ravis/codex/, is refused with a 400 that says so before anything runs, whether or
+not Codex is set up. It appears in `/v1/models` only for a Clarvis that asks for it (0.17.0 and
+later) while Codex is installed. RAVIS checks the Codex on this Mac once when it starts — the
+Homebrew build, OpenAI's signature and the pinned version — and writes what it found to its log.
+Running Codex tasks is not built yet, and the pinned Homebrew Codex 0.154.0 stays paused until
+calibration proves its file rules.
+
 **A dead NERVIS never makes RAVIS report itself unready.** This regressed
 once for real: a readiness check that read the event publisher's own
 dropped-event count made a dead collector look like a RAVIS problem, which

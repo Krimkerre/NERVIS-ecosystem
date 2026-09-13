@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import pathlib
+import shutil
 from dataclasses import dataclass, field
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ravis.credentials import config_directory
 from ravis.upstreams import UpstreamConfigurationError, upstream_specs
 
 # Loopback is the default listen address for every service in this ecosystem
@@ -328,6 +331,28 @@ class Settings(BaseSettings):
     # exists for. Keep this above the upstream timeout if you change either.
     retry_max_seconds: float = 600.0
 
+    # ── Codex, the optional coding engine (runbook §2.2, §15.1.2 — M29) ───────
+    # Whether RAVIS offers Codex. Unset means "if it is installed": the startup
+    # check (`codex/runtime.py`) decides once, by whether the executable below
+    # leads to a file. `false` switches it off — `ravis/codex` is never listed and
+    # nothing is run. `true` lists it even when the executable is missing, so a
+    # client can learn why it cannot start.
+    codex_enabled: bool | None = None
+    # The Codex executable. Empty means "ask Homebrew": RAVIS runs `brew --prefix`
+    # once at startup and uses `<prefix>/bin/codex`, the link Homebrew re-points on
+    # every upgrade, so an upgrade reads as a new build to re-test rather than as
+    # Codex gone (owner decision D4). Name that link, never the versioned copy
+    # under `Caskroom/`, which the check refuses. Read from the environment only;
+    # never from a request or the catalogue.
+    codex_executable: str = ""
+    # Where RAVIS's own Codex will keep its sign-in and history. Empty means
+    # `ravis-codex` in the data directory (`XDG_DATA_HOME`, else `~/.local/share`).
+    # Never the ChatGPT app's `~/.codex`, and never inside RAVIS's configuration
+    # folder, which holds RAVIS's credentials: either leaves Codex not available.
+    codex_home: str = ""
+    # The Apple team that must have signed the executable: OpenAI's.
+    codex_expected_team_id: str = "2DC432GLL2"
+
     database_path: str = "ravis.db"
     log_level: str = "INFO"
 
@@ -518,7 +543,109 @@ def inspect_configuration(settings: Settings) -> ConfigurationReport:
                 "never fall back",
             )
         )
+    _check_codex(settings, report)
     return report
+
+
+# ── Codex, the optional coding engine (runbook §2.2 — M29) ──────────────────
+
+
+def data_directory() -> pathlib.Path:
+    """Where RAVIS keeps data that is not configuration: `XDG_DATA_HOME`, else `~/.local/share`.
+
+    The sibling of `config_directory` (`credentials.py`), read from the environment for the
+    same reason: so a test never touches a real home directory. Codex's home and the throwaway
+    folders its check runs in belong here (design §4.2), outside the configuration folder that
+    holds RAVIS's own credentials.
+    """
+    base = os.environ.get("XDG_DATA_HOME") or pathlib.Path.home() / ".local" / "share"
+    return pathlib.Path(base)
+
+
+def codex_home(settings: Settings) -> pathlib.Path:
+    """The folder RAVIS's own Codex uses as its home, as an absolute path."""
+    if settings.codex_home:
+        return pathlib.Path(os.path.abspath(os.path.expanduser(settings.codex_home)))
+    return data_directory() / "ravis-codex"
+
+
+def codex_home_refusal(settings: Settings) -> str | None:
+    """Why the Codex home can't be used, or `None` when it can.
+
+    Two folders are refused, by comparing paths and reading neither (design §4.2):
+
+    - **The ChatGPT app's `~/.codex`,** and anything inside it. It holds the owner's own Codex
+      sign-in, and RAVIS's Codex signs in on its own (runbook §2.2).
+    - **RAVIS's configuration folder,** and anything inside it. It holds RAVIS's credentials,
+      and runbook §2.2 puts Codex's home outside it.
+
+    A home elsewhere doesn't stop Codex's commands reading those folders — only the permission
+    profile's deny list does, and that arrives with the Codex process (R2) — but a home inside
+    one would hand it over outright.
+    """
+    home = codex_home(settings)
+    refused = (
+        (pathlib.Path.home() / ".codex", "the ChatGPT app's own Codex home, ~/.codex"),
+        (config_directory(), "RAVIS's configuration folder, which holds its credentials"),
+    )
+    for folder, what in refused:
+        absolute = pathlib.Path(os.path.abspath(folder))
+        if home == absolute or absolute in home.parents:
+            return f"the Codex home {home} is inside {what}"
+    return None
+
+
+def names_caskroom_copy(executable: str) -> bool:
+    """Whether a configured executable names Homebrew's versioned copy rather than its link.
+
+    `/opt/homebrew/Caskroom/codex/0.154.0/bin/codex` names one version, and after `brew upgrade`
+    it is stale or gone, so Codex would read as not installed instead of as a new build to
+    re-test. The link, `$(brew --prefix)/bin/codex`, follows every upgrade (design review N6).
+    """
+    return "Caskroom" in pathlib.Path(executable).parts
+
+
+def _check_codex(settings: Settings, report: ConfigurationReport) -> None:
+    """Say why Codex would read as not installed or not available, and never refuse to serve.
+
+    Codex is optional and every product works without it (runbook §2.2), so each finding here
+    is advisory, and a Codex switched off has nothing to report. What the startup check does
+    beyond this — asking Homebrew, the signature, the pin — runs programs, and `doctor` runs
+    none.
+    """
+    if settings.codex_enabled is False:
+        return
+    executable = _codex_executable_problem(settings)
+    if executable is not None:
+        report.findings.append(ConfigurationFinding(False, "codex_executable", executable))
+    home = codex_home_refusal(settings)
+    if home is not None:
+        report.findings.append(
+            ConfigurationFinding(False, "codex_home", f"{home}, so Codex is not available")
+        )
+
+
+def _codex_executable_problem(settings: Settings) -> str | None:
+    """What stops the Codex executable being found or trusted, judged from paths alone."""
+    configured = settings.codex_executable
+    if not configured:
+        if shutil.which("brew") is None:
+            return (
+                "not set, and Homebrew is not on PATH to ask, so Codex reads as not installed; "
+                "RAVIS runs without it"
+            )
+        return None
+    if names_caskroom_copy(configured):
+        return (
+            f"{configured} is Homebrew's versioned copy; name $(brew --prefix)/bin/codex so an "
+            "upgrade reads as a new build to re-test. Until then Codex is not available"
+        )
+    if not pathlib.Path(configured).expanduser().is_file():
+        return (
+            f"{configured} does not lead to a file, so Codex reads as not installed; "
+            "RAVIS runs without it"
+        )
+    return None
 
 
 def _check_capabilities_file(settings: Settings, report: ConfigurationReport) -> None:
