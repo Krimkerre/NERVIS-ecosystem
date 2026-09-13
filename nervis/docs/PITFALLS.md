@@ -417,6 +417,19 @@ Since this list was written, fourteen of them became automated:
   the request to go through NERVIS's proxy with the control header and the model id's
   slashes intact, the rows to be redrawn from the list RAVIS answered with, and a 403
   to say the admin key is the problem. Listed in `tools/dashboard_gates.txt`.
+- **`node tools/codex_check.js`** renders RAVIS → Credentials against a recorded
+  `/api/v1/codex` and recorded answers from NERVIS's Codex control routes (13 September
+  2026). It fails unless each Codex state draws its own words and offers only the
+  buttons RAVIS would accept — Sign in wherever a sign-in can run, paused for re-testing
+  on a tested build included; Sign out where an account is signed in; This is my account,
+  with the hint, for a different account; Try again after a sign-in that didn't finish.
+  It presses Sign in and requires the tab to be opened before the request is sent (a tab
+  opened after an `await` is a blocked pop-up), pointed at the https page RAVIS gave and
+  closed on a refusal; the waiting panel to show the link again, the time left and
+  Cancel, and to redraw when a look finds the sign-in over; every write to carry the
+  control header; Sign out to take two clicks and never `confirm()`; the link never to
+  travel through the relay; and nothing RAVIS sends to inject markup, the address in the
+  `href` included. Listed in `tools/dashboard_gates.txt`.
 - **`node tools/empty_world_check.js`** renders all 36 screens against services
   that are **up and hold nothing** — the fresh-install world, which is neither
   of the two the other checks cover. Six screens threw in it. **Runs in CI.**
@@ -500,6 +513,7 @@ node tools/picture_check.js                         # a drawn picture renders; n
 node tools/editor_check.js                          # no frame for an editor that is not there
 node tools/export_check.js                          # an export never writes half a conversation
 node tools/ravis_diagnostics_check.js               # a resting model gets a row, and Lift ends it
+node tools/codex_check.js                           # Codex signs in from Credentials, in every state
 node tools/routing_check.js                         # every screen is addressable
 node tools/outcome_check.js                         # a refusal is not an outage
 node tools/stream_check.js                          # the stream resumes and refuses correctly

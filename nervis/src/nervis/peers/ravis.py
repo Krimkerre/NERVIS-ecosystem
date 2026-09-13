@@ -148,6 +148,8 @@ async def configure(
     path: str,
     credential: str,
     body: dict[str, Any] | None = None,
+    *,
+    timeout: float = 10.0,
 ) -> tuple[int, dict[str, Any]]:
     """One configuration write, on the operator's behalf (§16 item 4).
 
@@ -168,6 +170,12 @@ async def configure(
     because the four differ in nothing else, and a copy is how one of them ends
     up without the header — the note on `_credential_call` says the same thing
     one surface along.
+
+    `timeout` is keyword-only and ten seconds unless a caller knows RAVIS may take
+    longer to answer honestly. The Codex sign-in routes do: RAVIS itself gives Codex
+    ten seconds to start or cancel a sign-in and more to read an account, so a
+    ten-second wait here would turn RAVIS's own answer — "Codex did not answer the
+    sign-in request in time" — into NERVIS's vaguer "RAVIS did not answer".
     """
     if entry is None or not entry.declaration.base_url:
         return 503, {"message": "RAVIS is not registered"}
@@ -180,7 +188,8 @@ async def configure(
             )
         }
     return await _credential_call(
-        client, method, f"{entry.declaration.base_url}{path}", credential, body
+        client, method, f"{entry.declaration.base_url}{path}", credential, body,
+        timeout=timeout,
     )
 
 
@@ -190,6 +199,8 @@ async def _credential_call(
     url: str,
     credential: str,
     body: dict[str, Any] | None,
+    *,
+    timeout: float = 10.0,
 ) -> tuple[int, dict[str, Any]]:
     """One authorised call to RAVIS's credential surface.
 
@@ -201,7 +212,7 @@ async def _credential_call(
             method, url,
             headers={"authorization": f"Bearer {credential}"},
             json=body,
-            timeout=10.0,
+            timeout=timeout,
         )
     except httpx.HTTPError as failure:
         return 502, {"message": f"RAVIS did not answer: {type(failure).__name__}"}

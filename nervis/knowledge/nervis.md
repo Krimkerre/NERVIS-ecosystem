@@ -279,6 +279,13 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
+As of 13 September 2026: RAVIS → Credentials has a card for signing RAVIS's own
+Codex in to the ChatGPT plan. **Sign in with ChatGPT** opens OpenAI's page in a new
+tab; the card follows the sign-in by itself, then shows the account as a hint with
+Sign out, asks This is my account when the account changed, and offers Try again when
+a sign-in didn't finish. NERVIS forwards those calls to RAVIS with its RAVIS admin
+credential; the browser never holds it.
+
 As of 12 September 2026: the dashboard no longer reads RAVIS straight from the
 browser. Every open tab used to share RAVIS's one anonymous allowance of sixty
 requests a minute with any other program on the machine, and the overview

@@ -358,7 +358,31 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.11
+## NERVIS — 0.28.12
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Sign Codex in to your ChatGPT plan from the dashboard.** RAVIS → Credentials has a new card,
+  *ChatGPT subscription (Codex)*, under the provider keys (the first part of the Codex engine's
+  increment N2).
+  - Signed out, **Sign in with ChatGPT** opens OpenAI's sign-in page in a new tab. The card then
+    shows that a sign-in is waiting, a link to open the page again, the time left before it
+    expires, and **Cancel**, and it notices by itself when you have finished.
+  - Signed in, it shows the account as a hint (like `o…@example.com`) and the plan, with
+    **Sign out…**, which takes two clicks. When Codex is signed in to a different account from the
+    one you confirmed, it asks **This is my account** or Sign out.
+  - A sign-in that didn't finish — the page expired, it failed, or RAVIS restarted while it
+    waited — says why, with **Try again**. When another program holds Codex's sign-in ports
+    (1455 and 1457), it says so, and that the ChatGPT app's own Codex sign-in uses the same two.
+  - While Codex isn't installed, isn't available or its process is restarting, the card shows
+    RAVIS's reason and no button. It needs RAVIS 0.23.9; an older RAVIS is named as one that
+    doesn't offer the sign-in yet.
+- NERVIS forwards the five calls behind the card — start, read, cancel, sign out, confirm the
+  account — to RAVIS with its RAVIS admin credential, after checking the page's control token, and
+  passes RAVIS's answers and refusals back unchanged. The sign-in page's address stays out of
+  RAVIS's public state, is marked for the browser not to keep, and NERVIS never logs it.
+
+### 0.28.11
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

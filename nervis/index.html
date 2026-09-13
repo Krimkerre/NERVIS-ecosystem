@@ -3073,6 +3073,33 @@ const API={
 
   async _poolsMock(){return{items:[]}},
 
+  /* GET /api/v1/codex — Codex as RAVIS holds it (RAVIS 0.23.9 on): one state word and
+     the sentence explaining it, the account as a hint (`o…@example.com`, never an email
+     or a token), whether a sign-in waits and until when, the plan's allowance and the
+     tasks. **Never the sign-in page's address**: RAVIS keeps that on its admin route,
+     which the Credentials screen reaches through NERVIS's control route instead.
+
+     RAVIS's own field names, renamed only in the views. The adapter checks only that
+     this is Codex's state at all, so an answer without one reads as unreadable rather
+     than being drawn as some state. */
+  async codex(){return live('ravis','/api/v1/codex',this._codexMock,payload=>{
+   if(!payload||typeof payload.state!=='string')throw new Error('the answer carries no Codex state');
+   return payload;})},
+
+  /* The contract fixture's signed-in example, trimmed, with its real strings so the
+     injection probe has something to carry. Never drawn as a state: every Codex view
+     checks `live` first and says RAVIS did not answer. */
+  async _codexMock(){return{
+   state:'signed_in',reason:'Codex is signed in with a ChatGPT Plus plan.',
+   runtime:{source:'homebrew',version:'0.154.0',verdict:'tested',strict_rules:'proven'},
+   account:{signed_in:true,auth_mode:'chatgpt',plan:'plus',email_hint:'o…@example.com',
+    fingerprint:'strong',fingerprint_matches:true,plan_changed:false},
+   usage:{known:true,source:'notification',observed_at:'2026-09-13T01:54:00Z',stale:false,
+    allowance_not_cost:true,limit_reached:null,spend_control_reached:null,
+    windows:[{id:'primary',label:'5-hour window',duration_minutes:300,used_percent:38,
+     remaining_percent:62,resets_at:'2026-09-13T04:30:00Z'}],individual_limit:null,credits:null},
+   runs:[],models:[],sign_in:{state:'idle',started_at:null,expires_at:null,error:null}}},
+
   /* GET /api/v1/models — RAVIS's own view of the candidates, capability-evidenced
      per RAVIS.md §15.1. This is not a copy of SIRVIS's model list: it carries what
      RAVIS needs to decide eligibility, and for tools that means three fields
@@ -10663,14 +10690,12 @@ async function ravisSettings(){
    screen cannot show one even by mistake. That is why the field is always empty
    on load rather than pre-filled with dots pretending to be a stored value. */
 async function ravisCredentials(){
- heading('Credentials','Provider keys. Entered here, stored by RAVIS, never read back.');
- let payload=null;
- try{
-  const r=await fetch(BASE.ravis+'/api/v1/providers/credentials',readDeadline());
-  if(r.ok)payload=await r.json();
- }catch(e){payload=null}
+ heading('Credentials','Provider keys, and the ChatGPT sign-in for Codex. Keys are entered here, stored by RAVIS, never read back.');
+ /* Both reads at once, so the Codex card adds nothing to the keys' wait. */
+ const [payload,codex]=await Promise.all([readProviderCredentials(),API.ravis.codex()]);
 
  if(!payload){
+  CODEX_SIGN_IN.stop();
   $('#content').innerHTML=`<div class="card full"><h3>RAVIS is not answering</h3>${cell(`
    <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/providers/credentials</span></div>
    <small class="mono dim">no transcription to fall back to, deliberately. A remembered "configured" for a service that is not running would be the most misleading thing this screen could say.</small>`,'ravis')}</div>`;
@@ -10710,12 +10735,361 @@ async function ravisCredentials(){
     <div class="trace-step"><b>Fish Audio key</b><span><a href="#" onclick="go('nervis','Settings');return false" style="color:inherit"><b>NERVIS &rarr; Settings</b></a></span></div>
     <small class="mono dim">the keyring is the write target as of 9 September 2026; before that a key typed here went to the file, and the specification said the opposite — "never stored in plaintext" — which an external audit caught. Only the <b>name</b> is kept beside the file, so RAVIS can still list what it holds without asking the keyring to be searched. A machine with no keyring — Windows, a headless server, or <span class="mono">RAVIS_CREDENTIAL_KEYRING=0</span> — keeps the file, with the same protection as the SSH private key sitting next to it.<br><br>every key on this screen is one <b>RAVIS</b> needs to route a completion. The text-to-speech key is not: §18.2 keeps voice credentials in NERVIS's own storage, and the deciding reason is the privacy gate — whether a sentence may reach a cloud voice depends on <i>which model produced it</i>, a fact NERVIS holds and RAVIS would have to be told.</small>`)}`,'ravis')}</div>
 
+  ${codexSignInCard(codex)}
+
   ${loose.length?`<div class="card full"><h3>File permissions</h3>${cell(`
    <div class="trace-step"><b>${loose.map(i=>escapeHtml(i.name)).join(', ')}</b><span>readable by other accounts on this machine</span></div>
    <small class="mono dim">RAVIS writes the credential file at mode <b>0600</b>. Something has widened it since. Repair with <span class="mono">chmod 600 ~/.config/ravis/credentials.json</span> — the file is still being read, because refusing would lock you out of your own service over a permission bit.</small>`,'ravis')}</div>`:''}
 
 `;
+ CODEX_SIGN_IN.arrive(codex);
 }
+
+async function readProviderCredentials(){
+ try{
+  const r=await fetch(BASE.ravis+'/api/v1/providers/credentials',readDeadline());
+  return r.ok?await r.json():null;
+ }catch(e){return null}
+}
+
+/* ── Codex's ChatGPT sign-in, on RAVIS → Credentials ─────────────────────────
+
+   The owner looked here for a way to sign Codex in and found none (13 September
+   2026). It belongs beside the provider keys because it is the same kind of thing:
+   what RAVIS needs before it can use a service. RAVIS runs its own copy of Codex, and
+   this signs that copy in to the owner's ChatGPT plan, in the browser, on OpenAI's
+   own page.
+
+   **What is drawn comes from RAVIS's public state** (`API.ravis.codex()`, through the
+   relay), which says whether a sign-in waits but never where. **The sign-in page's
+   address comes only from RAVIS's admin route**, through NERVIS's control route with
+   the page's control token, and is held in memory on this object, never stored.
+
+   **Only the card's inner slot is redrawn** while a sign-in is followed — never the
+   whole screen, which would empty a provider key half typed into a field above. */
+const CODEX_POLL_MS=3000;
+/* After a sign-in ends, Codex reads the account a moment later; until it has, RAVIS
+   still says signed out. A few short re-reads, rather than "signed out" for a sign-in
+   that worked. */
+const CODEX_SETTLE_READS=4;
+const CODEX_HTTPS_ONLY="RAVIS gave a sign-in address that isn't https, so this page won't open it.";
+
+/* Each state word as design §3.3 has it shown, and its chip. Signed out is amber, not
+   red: it is a setting to fix, like a missing key, not a fault. */
+const CODEX_STATES={
+ checking:['checking…','dim'],
+ not_installed:['not installed','dim'],
+ not_available:['not available','dim'],
+ untested_version:['paused — Codex needs re-testing','warn'],
+ runtime_down:['Codex process restarting','warn'],
+ signed_out:['signed out','warn'],
+ sign_in_expired:['sign-in expired','warn'],
+ account_changed:['different account','warn'],
+ quota_exhausted:['allowance used up','warn'],
+ signed_in:['signed in',''],
+};
+
+function codexScreenShown(){return state.app==='ravis'&&state.view==='Credentials'}
+
+function codexStateChip(word){
+ const [words,tone]=CODEX_STATES[word]||[String(word),'dim'];
+ return `<span class="chip${tone?' '+tone:''}">${escapeHtml(words)}</span>`;
+}
+
+function codexSignInCard(codex){
+ return `<div class="card full${liveClass(codex.live)}"><h3>ChatGPT subscription (Codex)</h3>${cell(`
+   <div id="codex-sign-in">${codexSignInBody(codex)}</div>
+   <small class="mono dim" style="display:block;margin-top:8px">this signs RAVIS's own copy of Codex in to your ChatGPT plan. You sign in on OpenAI's page, in your browser; this screen only ever shows the account as a hint, like o…@example.com — never a password or a token. It is separate from the ChatGPT app's own sign-in.</small>`,'ravis')}</div>`;
+}
+
+function codexSignInBody(codex){
+ if(!codex.live)return codexUnread();
+ const waiting=(codex.sign_in||{}).state==='waiting_for_browser';
+ return codexNote(CODEX_SIGN_IN.note)+(waiting?codexWaiting(codex.sign_in,CODEX_SIGN_IN):codexStanding(codex));
+}
+
+/* No state read. A RAVIS from before 0.23.9 answers 404 and is said to be one;
+   anything else is said as what happened, and nothing is guessed in its place. */
+function codexUnread(){
+ const status=(OUTCOME.ravis||{}).status;
+ if(status===404||status===405)
+  return `<div class="trace-step"><b>status</b><span><span class="chip dim">not offered</span> this RAVIS doesn't offer the Codex sign-in yet. It arrived in RAVIS 0.23.9; restart the stack on that version or later.</span></div>`;
+ return `<div class="trace-step"><b>status</b><span><span class="chip dim">not known</span> ${escapeHtml(readFailure('ravis')||'RAVIS did not answer the read of Codex’s state')}. Nothing here is guessed.</span></div>`;
+}
+
+function codexNote(note){
+ return note?`<div class="trace-step"><b>last try</b><span>${escapeHtml(note)}</span></div>`:'';
+}
+
+function codexStanding(codex){
+ const account=codex.account||null;
+ CODEX_SIGN_IN.hint=account?account.email_hint:null;
+ return `<div class="trace-step"><b>status</b><span>${codexStateChip(codex.state)} ${escapeHtml(codex.reason||'')}</span></div>
+   ${account?codexAccountRow(account):''}
+   ${codexFailedRow(codex)}
+   <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${codexButtons(codex)}</div>`;
+}
+
+function codexAccountRow(account){
+ const who=account.email_hint==null?'an account Codex names without an email address':account.email_hint;
+ const plan=account.plan?` · ChatGPT ${codexPlanName(account.plan)} plan`:'';
+ /* Design §3.4: with no email and no account id, RAVIS can only tell accounts apart
+    by their plan, and the card says so. */
+ const weak=account.fingerprint==='weak'
+  ?' <span class="chip warn" title="Codex gave no email address or account id, so RAVIS can only tell this account from another by its plan">account check is weak</span>':'';
+ return `<div class="trace-step"><b>account</b><span><span class="mono">${escapeHtml(who)}${escapeHtml(plan)}</span>${weak}</span></div>`;
+}
+
+function codexPlanName(plan){const p=String(plan);return p.charAt(0).toUpperCase()+p.slice(1)}
+
+/* How the last sign-in ended, when it didn't work and no account is signed in. RAVIS's
+   restart sentence is the one worded here: "RAVIS restarted during sign-in" alone does
+   not say that nothing else was lost. */
+function codexFailedRow(codex){
+ const sign=codex.sign_in||{};
+ if(sign.state!=='failed'||codex.account)return '';
+ const words=sign.error==='RAVIS restarted during sign-in'
+  ?'RAVIS restarted while the sign-in page was waiting, so that sign-in was lost. Nothing else changed; start it again.'
+  :(sign.error||'RAVIS did not say why.');
+ return `<div class="trace-step"><b>last sign-in</b><span><span class="chip warn">didn't finish</span> ${escapeHtml(words)}</span></div>`;
+}
+
+/* A sign-in is offered where RAVIS would take one. Paused for re-testing still runs
+   Codex's process when the build is a tested one whose file rules aren't proven yet —
+   the state on this Mac on 13 September 2026 — and the sign-in runs in that process.
+   Only a build in neither list gets no process, and RAVIS refuses that. */
+function codexCanSignIn(codex){
+ if(codex.state==='signed_out'||codex.state==='sign_in_expired')return true;
+ return codex.state==='untested_version'&&(codex.runtime||{}).verdict!=='untested';
+}
+
+function codexButtons(codex){
+ const flow=CODEX_SIGN_IN;
+ if(flow.busy)return '<span class="mono dim">waiting for RAVIS…</span>';
+ if(codex.account)return codexAccountButtons(codex,flow);
+ if(!codexCanSignIn(codex))return '';
+ const failed=flow.retry||(codex.sign_in||{}).state==='failed';
+ const label=failed?'Try again':(codex.state==='sign_in_expired'?'Sign in with ChatGPT again':'Sign in with ChatGPT');
+ return `<button class="btn primary" onclick="CODEX_SIGN_IN.start()">${label}</button>`;
+}
+
+/* Sign out takes two clicks, the page's rule for anything that undoes a setting
+   (`armed`, above): `confirm()` can be muted by the browser and then does nothing. */
+function codexAccountButtons(codex,flow){
+ const mine=codex.state==='account_changed'
+  ?`<button class="btn primary" onclick="CODEX_SIGN_IN.confirm()">This is my account: ${escapeHtml(codex.account.email_hint==null?'no email given':codex.account.email_hint)}</button>`:'';
+ const out=flow.armed==='sign-out'
+  ?'<button class="btn primary" onclick="CODEX_SIGN_IN.signOut()">Click again to sign out</button><button class="btn" onclick="CODEX_SIGN_IN.disarm()">Stay signed in</button>'
+  :'<button class="btn" onclick="CODEX_SIGN_IN.signOut()">Sign out…</button>';
+ return mine+out;
+}
+
+function codexWaiting(sign,flow){
+ const opened=flow.blocked
+  ?"Your browser didn't open a new tab, so open the sign-in page with the link below."
+  :'The ChatGPT sign-in page opened in a new tab. Sign in there; this screen notices by itself.';
+ return `<div class="trace-step"><b>status</b><span><span class="chip warn">signing in</span> ${escapeHtml(opened)}</span></div>
+   <div class="trace-step"><b>sign-in page</b><span>${codexLinkOrReason(flow)}</span></div>
+   <div class="trace-step"><b>time left</b><span id="codex-sign-in-countdown">${escapeHtml(codexCountdown(sign.expires_at))}</span></div>
+   <div style="margin-top:8px"><button class="btn" onclick="CODEX_SIGN_IN.cancel()">Cancel</button></div>`;
+}
+
+function codexLinkOrReason(flow){
+ if(flow.link)return `<a href="${escapeHtml(flow.link)}" target="_blank" rel="noopener noreferrer" style="color:inherit"><b>Open the sign-in page again</b> ↗</a>`;
+ return escapeHtml(flow.linkProblem||'reading the page’s address from RAVIS…');
+}
+
+function codexSafeLink(url){return typeof url==='string'&&/^https:\/\//.test(url)?url:null}
+
+/* Whole minutes and seconds, from RAVIS's expiry, recounted each second. Past the
+   expiry the page says so and waits for RAVIS to end the sign-in, rather than
+   declaring it over itself. */
+function codexCountdown(expires){
+ const left=Math.floor((Date.parse(expires)-Date.now())/1000);
+ if(!isFinite(left))return 'RAVIS did not say when the page expires';
+ if(left<=0)return 'the page has expired; waiting for RAVIS to end the sign-in';
+ return `${Math.floor(left/60)} min ${String(left%60).padStart(2,'0')} s before the page expires`;
+}
+
+/* One call to NERVIS's Codex control routes. Never throws: a refusal comes back with
+   the sentence the card shows. */
+async function codexControl(method,sub,body){
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/ravis/codex'+sub,{method,headers:control_headers(),
+    cache:'no-store',body:body==null?null:JSON.stringify(body)});
+  const said=(await r.json().catch(()=>null))||{};
+  return{ok:r.ok,status:r.status,body:said,words:r.ok?'':codexRefusal(r.status,said)};
+ }catch(e){
+  return{ok:false,status:0,body:{},words:"NERVIS didn't answer, so nothing reached RAVIS. Check the stack is running, then try again."};
+ }
+}
+
+/* RAVIS's own sentence wherever it gave one; the page adds only what RAVIS can't
+   know — what usually holds the ports, a stale page, a missing admin key. */
+function codexRefusal(status,said){
+ const error=said.error||{};
+ const words=error.message||said.message||'';
+ if(error.code==='CODEX_SIGN_IN_PORT_BUSY')
+  return `${words} The ChatGPT app's own Codex uses the same two ports when it signs in: finish or close that sign-in, then try again.`.trim();
+ if(error.code==='CONTROL_TOKEN_REQUIRED')
+  return 'NERVIS restarted since this page was opened, so the page can no longer act for you. Reload the page and try again.';
+ if(status===403)
+  return `This needs RAVIS's admin key, and NERVIS's request didn't carry one RAVIS accepts. ${words}`.trim();
+ if(status===404||status===405)
+  return "This RAVIS doesn't offer the Codex sign-in yet. It arrived in RAVIS 0.23.9; restart the stack on that version or later.";
+ return words||`RAVIS refused, with HTTP ${status}.`;
+}
+
+const CODEX_SIGN_IN={
+ link:null,linkProblem:'',expires:null,note:'',armed:null,busy:false,blocked:false,
+ retry:false,hint:null,poll:null,clock:null,
+
+ /* Each time the Credentials screen is drawn: follow a sign-in that is waiting —
+    started here, from the menu bar, or before a reload — and forget the last
+    screen's half-finished Sign out and its note. */
+ arrive(codex){
+  this.armed=null;this.note='';this.retry=false;this.linkProblem='';
+  this.follow(codex);
+ },
+
+ /* Looks for the address once, only while neither it nor the reason it can't be shown
+    is known. A redraw calls this, and a look that redraws would otherwise call itself
+    again without ever waiting: with an address that isn't https, that was a loop
+    asking NERVIS as fast as it could answer (found by codex_check). */
+ follow(codex){
+  const sign=codex.live?(codex.sign_in||{}):{};
+  if(sign.state!=='waiting_for_browser'){this.stop();this.link=null;this.linkProblem='';return}
+  this.expires=sign.expires_at;
+  if(!this.poll)this.watch();
+  if(!this.link&&!this.linkProblem)this.tick();
+ },
+
+ /* The tab is opened now, inside the click, and pointed at the page once RAVIS
+    answers: a tab opened after an await is a pop-up the browser blocks (design M12).
+    On a refusal the empty tab is closed again. */
+ async start(){
+  if(this.busy)return;
+  const tab=window.open('','_blank');
+  this.busy=true;this.note='';
+  const r=await codexControl('POST','/sign-in',{method:'browser'});
+  this.busy=false;
+  if(!r.ok){
+   if(tab)tab.close();
+   this.note=r.words;this.retry=true;
+   await this.redraw();return;
+  }
+  this.retry=false;
+  this.aim(tab,r.body.sign_in||{});
+  await this.redraw();
+ },
+
+ aim(tab,sign){
+  this.keepLink(sign);
+  this.blocked=!tab;
+  if(tab&&this.link){tab.opener=null;tab.location.href=this.link}
+  else if(tab)tab.close();
+ },
+
+ keepLink(sign){
+  this.link=codexSafeLink(sign.auth_url);
+  this.linkProblem=this.link?'':CODEX_HTTPS_ONLY;
+  this.expires=sign.expires_at;
+ },
+
+ /* One look at the waiting sign-in, through the admin route: still waiting keeps the
+    address fresh; anything else means it ended, however it ended. */
+ async tick(){
+  if(!codexScreenShown()){this.stop();return}
+  const r=await codexControl('GET','/sign-in');
+  if(!r.ok){await this.unreadLink(r.words);return}
+  const sign=r.body.sign_in||{};
+  if(sign.state!=='waiting_for_browser'){await this.finish();return}
+  const before=this.link+'|'+this.linkProblem;
+  this.keepLink(sign);
+  if(this.link+'|'+this.linkProblem!==before)await this.redraw();
+ },
+
+ /* A failed look changes nothing shown while the address is already held; without
+    one, the reason takes its place, once rather than on every poll. */
+ async unreadLink(words){
+  if(this.link||this.linkProblem===words)return;
+  this.linkProblem=words;
+  await this.redraw();
+ },
+
+ async finish(){
+  this.stop();this.link=null;this.linkProblem='';
+  for(let read=0;read<CODEX_SETTLE_READS;read++){
+   const codex=await this.redraw();
+   if(!codex.live||codex.account||(codex.sign_in||{}).state!=='idle')return;
+   await new Promise(done=>setTimeout(done,1500));
+  }
+ },
+
+ watch(){
+  this.stop();
+  this.poll=setInterval(()=>this.tick(),CODEX_POLL_MS);
+  this.clock=setInterval(()=>this.count(),1000);
+ },
+
+ stop(){clearInterval(this.poll);clearInterval(this.clock);this.poll=null;this.clock=null},
+
+ count(){
+  if(!codexScreenShown()){this.stop();return}
+  const shown=document.getElementById('codex-sign-in-countdown');
+  if(shown)shown.textContent=codexCountdown(this.expires);
+ },
+
+ async cancel(){
+  this.stop();
+  const r=await codexControl('DELETE','/sign-in');
+  if(r.ok){this.link=null;this.linkProblem=''}
+  this.note=r.ok?(r.body.cancelled?'Sign-in cancelled.':'No sign-in was waiting any more.'):r.words;
+  await this.redraw();
+ },
+
+ async signOut(){
+  if(this.armed!=='sign-out'){
+   this.armed='sign-out';
+   notify('Signing out stops Codex until you sign in again — click again to sign out');
+   await this.redraw();return;
+  }
+  this.armed=null;
+  const r=await codexControl('POST','/sign-out',{});
+  this.note=r.ok?'Signed out.':r.words;
+  await (r.ok?this.draw(r.body):this.redraw());
+ },
+
+ async disarm(){this.armed=null;await this.redraw()},
+
+ /* The hint sent is the one this card showed, as RAVIS asks: if the account moved again
+    in between, RAVIS refuses and the card redraws with the new one. */
+ async confirm(){
+  const r=await codexControl('POST','/account/confirm',{email_hint:this.hint});
+  this.note=r.ok?'Account confirmed.':r.words;
+  await (r.ok?this.draw(r.body):this.redraw());
+ },
+
+ /* Sign out and confirm answer with Codex's whole state, so the slot is drawn from
+    that answer rather than from a second read. */
+ async draw(body){
+  const codex={...body,live:true};
+  this.paint(codex);
+  return codex;
+ },
+
+ async redraw(){
+  const codex=await API.ravis.codex();
+  this.paint(codex);
+  this.follow(codex);
+  return codex;
+ },
+
+ paint(codex){
+  const slot=document.getElementById('codex-sign-in');
+  if(slot&&codexScreenShown())slot.innerHTML=codexSignInBody(codex);
+ },
+};
 
 /* The Settings screen's one real writer.
 

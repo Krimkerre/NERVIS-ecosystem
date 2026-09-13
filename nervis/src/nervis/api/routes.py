@@ -590,6 +590,112 @@ async def lift_ravis_suppression(model: str, request: Request) -> Any:
     return JSONResponse(answered, status_code=status)
 
 
+# ── Codex's ChatGPT sign-in, from RAVIS → Credentials ──────────────────────────
+#
+# The owner asked on 13 September 2026 for a way to sign RAVIS's Codex in to the ChatGPT
+# plan from the dashboard, beside the provider keys. RAVIS serves the sign-in on admin
+# routes (RAVIS 0.23.9); these are the same hop every other RAVIS write on the dashboard
+# takes: the page's control token is checked, then NERVIS presents its RAVIS admin
+# credential, which the browser never holds (design record `design/codex-engine/design.md`
+# §3.8). Nothing here starts Codex work: no route in NERVIS reaches RAVIS's re-test.
+#
+# **The sign-in page's address is a live way into the sign-in until it ends**, so RAVIS
+# gives it only on these admin routes and never on the public `GET /api/v1/codex`. NERVIS
+# keeps it that way: the answer passes straight back to the page, nothing logs or stores
+# it, and every answer says `no-store` so the browser does not keep a copy either.
+
+#: Longer than RAVIS's own waits on Codex — ten seconds to start or cancel a sign-in, and up
+#: to twenty-five to re-read an account being confirmed — so RAVIS's answer arrives, rather
+#: than NERVIS giving up first and saying only that RAVIS did not answer.
+CODEX_CONTROL_TIMEOUT_SECONDS = 35.0
+#: RAVIS's sign-in route: start with POST, read with GET, cancel with DELETE.
+_CODEX_SIGN_IN = "/api/v1/codex/sign-in"
+
+
+async def _codex_control(
+    request: Request,
+    method: str,
+    path: str,
+    credential: str,
+    body: dict[str, Any] | None = None,
+) -> JSONResponse:
+    """Forward one Codex control call to RAVIS and hand back exactly what RAVIS said.
+
+    The credential is a parameter rather than read here, so each route below names
+    `ravis_admin_credential` itself — which is how `test_control_token`'s route-table
+    gate recognises a route that spends it and checks that route is gated.
+
+    RAVIS's status and body travel verbatim — 409 with the ports held, 422 for a body
+    RAVIS will not take, 409 when Codex is not available — because each asks the page
+    to say something different, and a flattened 200 or 500 would lose which.
+    """
+    status, answered = await ravis_peer.configure(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        method, path, credential, body,
+        timeout=CODEX_CONTROL_TIMEOUT_SECONDS,
+    )
+    return JSONResponse(answered, status_code=status, headers={"cache-control": "no-store"})
+
+
+@router.post("/ravis/codex/sign-in", dependencies=[Depends(require_control)])
+async def start_codex_sign_in(request: Request) -> Any:
+    """Start the browser sign-in: RAVIS answers 202 with the page's address, or 200 with the
+    same body when one is already waiting. The page's body is forwarded as it came, so a
+    method RAVIS does not offer is RAVIS's refusal to word, not NERVIS's."""
+    body = await _json_body(request)
+    return await _codex_control(
+        request, "POST", _CODEX_SIGN_IN,
+        request.app.state.settings.ravis_admin_credential, body,
+    )
+
+
+@router.get("/ravis/codex/sign-in", dependencies=[Depends(require_control)])
+async def read_codex_sign_in(request: Request) -> Any:
+    """The waiting sign-in, with its page's address, so the dashboard can open it again.
+
+    **A read, and gated anyway.** The token exists for mutations, and every other read on
+    this router is open (`test_control_token.test_reads_stay_open`). This one is different
+    in what it carries: while a sign-in waits, the answer is the way into it, and RAVIS
+    guards it with an admin credential for that reason. Leaving the NERVIS side open would
+    hand it to anything able to reach NERVIS's port.
+    """
+    return await _codex_control(
+        request, "GET", _CODEX_SIGN_IN, request.app.state.settings.ravis_admin_credential
+    )
+
+
+@router.delete("/ravis/codex/sign-in", dependencies=[Depends(require_control)])
+async def cancel_codex_sign_in(request: Request) -> Any:
+    """Cancel the waiting sign-in: `{"cancelled": true|false}`, false when none was waiting."""
+    return await _codex_control(
+        request, "DELETE", _CODEX_SIGN_IN, request.app.state.settings.ravis_admin_credential
+    )
+
+
+@router.post("/ravis/codex/sign-out", dependencies=[Depends(require_control)])
+async def sign_codex_out(request: Request) -> Any:
+    """Sign Codex out of the ChatGPT account. RAVIS answers with Codex's whole state, which the
+    screen redraws from; 409 while a Codex task is working."""
+    body = await _json_body(request)
+    return await _codex_control(
+        request, "POST", "/api/v1/codex/sign-out",
+        request.app.state.settings.ravis_admin_credential, body,
+    )
+
+
+@router.post("/ravis/codex/account/confirm", dependencies=[Depends(require_control)])
+async def confirm_codex_account(request: Request) -> Any:
+    """"This is my account": the page sends the account hint it showed (`email_hint`, or null
+    for an account Codex reports without an email) and RAVIS checks it is still the one
+    signed in. The body goes as it came; a missing hint is RAVIS's 422 to explain."""
+    body = await _json_body(request)
+    return await _codex_control(
+        request, "POST", "/api/v1/codex/account/confirm",
+        request.app.state.settings.ravis_admin_credential, body,
+    )
+
+
 @router.get("/ravis/routes/for/{request_id}")
 async def read_decision_for(request_id: str, request: Request) -> dict[str, Any]:
     """The route decision behind one request (§7.1).

@@ -360,6 +360,45 @@ successfully less than a minute ago, RAVIS reports the count it already has
 instead of fetching again. A double click, or a save retried after a timeout, no
 longer repeats a network call.
 
+## Signing Codex in to the ChatGPT plan
+
+Since 13 September 2026 RAVIS runs its own copy of Codex, OpenAI's coding agent, and
+that copy has to be signed in to the owner's ChatGPT plan before it can do anything.
+It is done on the dashboard, on **RAVIS → Credentials**
+(`http://127.0.0.1:8790/#/ravis/Credentials`), in the card headed *ChatGPT
+subscription (Codex)*, below the provider keys. `tools/run.py codex sign-in` does the
+same from Terminal. It is a separate sign-in from the ChatGPT app's own.
+
+- **Signed out:** press **Sign in with ChatGPT**. A new tab opens on OpenAI's sign-in
+  page; sign in there. The card shows *signing in*, a link to open the page again if
+  the tab was closed or the browser blocked it, the time left (the page lasts ten
+  minutes) and **Cancel**. It notices by itself when the sign-in is done.
+- **Signed in:** the card shows the account as a hint, like `o…@example.com`, and the
+  plan. **Sign out…** takes two clicks.
+- **A different account:** when Codex is signed in to another account than the one
+  confirmed, the card asks **This is my account** (with the hint) or Sign out. Until
+  one of them is pressed, Codex takes no new work.
+- **A sign-in that didn't finish** — the page expired, the sign-in failed, or RAVIS
+  restarted while the page waited — shows why, with **Try again**. A restart loses
+  the sign-in because the page's listener lived in the Codex process RAVIS was running.
+- **"Another program is holding the sign-in ports 1455 and 1457":** Codex's sign-in
+  listens on one of those two, and the ChatGPT app's own Codex uses the same two when
+  it signs in. Finish or close that sign-in, then Try again.
+- **Not installed, not available, or the process restarting:** there is nothing to
+  sign in to yet, and the card shows RAVIS's reason and no button. While Codex is
+  *paused for re-testing* on a build RAVIS has tested, signing in still works; only a
+  Codex build RAVIS has never tested gets no process to sign in with.
+- **Older RAVIS:** before RAVIS 0.23.9 the card says that RAVIS doesn't offer the
+  sign-in yet.
+
+The screen never shows a password or a token, and RAVIS never gives out the account's
+full email address. The sign-in page's address is a live way into the sign-in until it
+ends, so RAVIS hands it only to an admin credential: the dashboard gets it through
+NERVIS's control route `/api/v1/ravis/codex/sign-in`, which checks the page's control
+token, presents NERVIS's RAVIS admin credential and tells the browser not to keep a
+copy. RAVIS's public state, `GET /api/v1/codex`, says whether a sign-in waits and until
+when, but never where.
+
 ## Trying a model on purpose, so it can be measured at all
 
 Two switches under **Model** in chat's settings, both off unless switched on.

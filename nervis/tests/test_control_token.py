@@ -5,7 +5,8 @@ loopback bind as authorization: every management mutation there needs an admin
 credential, and anonymous or ordinary inference callers get 403. NERVIS holds
 that credential and proxies seven of those mutations — provider enable, model
 filters, pool members, pool curation, credential write and delete, and lifting a
-tool-refusal suppression — so until
+tool-refusal suppression — and, since 13 September 2026, Codex's ChatGPT sign-in
+(start, read, cancel, sign out, confirm the account) — so until
 this, anything that could reach `127.0.0.1:8790` could change RAVIS's
 configuration without holding anything at all. The credential was moved out of
 the browser's reach and the decision to *use* it was left ungated.
@@ -49,6 +50,13 @@ MUTATIONS = (
     # A model id with its slash left in, which is how the Diagnostics screen sends
     # it: the route takes the id as a path, and the slash is part of the id.
     ("POST", "/api/v1/ravis/health/suppressions/qwen/qwen3-1.7b/lift", None),
+    # Codex's ChatGPT sign-in, from RAVIS → Credentials (13 September 2026). The GET
+    # is here too: it is a read, but while a sign-in waits it carries the way into it.
+    ("POST", "/api/v1/ravis/codex/sign-in", {"method": "browser"}),
+    ("GET", "/api/v1/ravis/codex/sign-in", None),
+    ("DELETE", "/api/v1/ravis/codex/sign-in", None),
+    ("POST", "/api/v1/ravis/codex/sign-out", {}),
+    ("POST", "/api/v1/ravis/codex/account/confirm", {"email_hint": None}),
 )
 
 
