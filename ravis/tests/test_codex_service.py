@@ -92,6 +92,8 @@ def test_one_app_server_starts_with_the_designed_command_home_and_environment(
         "-c", "features.plugins=false",
         "-c", "sandbox_workspace_write.exclude_slash_tmp=true",
         "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+        "-c", "features.exec_permission_approvals=true",
+        "-c", "features.request_permissions_tool=true",
     ]
     environment = start["env"]
     home = tmp_path / "codex-home"

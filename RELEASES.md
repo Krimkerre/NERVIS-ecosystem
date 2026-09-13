@@ -999,7 +999,23 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.13
+## RAVIS — 0.23.14
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Codex may ask for a command's extra permissions, such as the network, for approval.**
+  Calibration run 1 (13 September 2026) found three things: no command reached the network,
+  approved or not (K3); Codex never asked to leave the box with extra permissions (K4); and it
+  never requested permissions (K8). The owner chose network after approval over no network at
+  all. Codex 0.154.0's `experimentalFeature/list` shows why nothing asked: both
+  `exec_permission_approvals` and `request_permissions_tool` are off by default. RAVIS now starts
+  Codex with both switched on (`FIXED_FLAGS`), so Codex can ask to run one command with
+  `additional_permissions`, like `network.enabled`, and that arrives as an approval.
+- **Both features are marked "underDevelopment" in this Codex build.** A new build's acceptance
+  check and a calibration re-test have to confirm they still behave. K3, K4 and K8 are re-asked
+  on this build next.
+
+### 0.23.13
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
