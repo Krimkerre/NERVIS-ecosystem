@@ -278,8 +278,20 @@ def refused_as(response: Any, expected: dict[str, Any], *, same_message: bool = 
 
 
 def state_of(client: TestClient) -> dict[str, Any]:
-    response = client.get("/api/v1/codex")
-    assert response.status_code == 200
+    """`GET /api/v1/codex`, read as NERVIS reads it: a named caller.
+
+    **Named, not anonymous** (found 13 September 2026). `eventually` polls every 20 ms, and
+    RAVIS gives an anonymous caller 60 requests a minute. A test that waits through five
+    scripted failed starts and their back-off crossed that in about a second, and the read
+    answered 429 RATE_LIMITED. That made `test_five_failures_in_the_window_stop_the_restarts`
+    fail intermittently, while the endpoint itself was answering correctly. The launcher and
+    NERVIS read this with NERVIS's credential, which has the named caller's allowance, so the
+    rig polls the same way. Anonymous reads are tested where they're the point.
+    """
+    response = client.get(
+        "/api/v1/codex", headers={"Authorization": f"Bearer {SECRETS['client.nervis']}"}
+    )
+    assert response.status_code == 200, (response.status_code, response.text)
     return response.json()  # type: ignore[no-any-return]
 
 

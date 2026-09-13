@@ -999,7 +999,24 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.11
+## RAVIS — 0.23.12
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **A test that failed some of the time is stable, and nothing in RAVIS was broken.**
+  `test_five_failures_in_the_window_stop_the_restarts` failed 3 of 3 runs on 006556e and 1 of 3
+  on d1ca70b, at the test rig's read of `GET /api/v1/codex`. The read answered **429
+  RATE_LIMITED**, not a crash. The rig polled every 20 ms as an anonymous caller, RAVIS allows
+  an anonymous caller 60 requests a minute, and waiting through five failed starts and their
+  back-off crossed that in about a second. The endpoint answered correctly throughout.
+- **The rig now reads Codex's state as NERVIS does, with NERVIS's named credential**
+  (`ravis/tests/codex_rig.py`, `state_of`). No assertion changed. The test the anonymous view
+  matters for still reads anonymously. It passed 10 of 10 in a row, and the full suite passes
+  with 1466 tests.
+- **Real readers were never affected.** The launcher and NERVIS read `GET /api/v1/codex` with
+  NERVIS's credential, which has the named caller's allowance.
+
+### 0.23.11
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
