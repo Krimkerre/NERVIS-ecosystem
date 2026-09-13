@@ -97,7 +97,14 @@
           "response": {
             "status": 422,
             "body": {
-              "$unfixed": "the design gives 422 and no code; RAVIS's increment fixes it (conventions.json open_points)"
+              "error": {
+                "code": "SIGN_IN_METHOD_NOT_SUPPORTED",
+                "message": "RAVIS signs Codex in through the browser only; 'device_code' is not a method it offers.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
             }
           }
         },
@@ -504,6 +511,29 @@
               }
             }
           }
+        },
+        {
+          "name": "a body without email_hint",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/account/confirm",
+            "headers": {"Content-Type": "application/json"},
+            "body": {}
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "INVALID_REQUEST_BODY",
+                "message": "The body must carry email_hint: the account hint the dashboard showed.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
         }
       ]
     },
@@ -711,7 +741,90 @@
             "method": "DELETE",
             "path": "/api/v1/codex/accept-version/7c2d1ac2d5fa680c2d97e55d140337fa8a38e8fbde184bf7df5c313732ea121c"
           },
-          "response": {"status": 200, "body": {"$unfixed": "200; the design fixes no body"}}
+          "response": {
+            "status": 200,
+            "body": {
+              "backend_id": "ravis/codex",
+              "execution": "delegated_agent",
+              "roles": ["agent"],
+              "state": "untested_version",
+              "reason": "Codex changed (now 0.155.0) and needs re-testing before new work.",
+              "revision": 43,
+              "runtime": {
+                "source": "homebrew",
+                "version": "0.155.0",
+                "installed_sha256": "7c2d1ac2d5fa680c2d97e55d140337fa8a38e8fbde184bf7df5c313732ea121c",
+                "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "team_id": "2DC432GLL2",
+                "verdict": "untested",
+                "strict_rules": "unproven",
+                "schema": {
+                  "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+                  "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+                },
+                "process": {
+                  "state": "running",
+                  "since": "2026-09-13T00:05:00Z",
+                  "restarts_24h": 0,
+                  "active_turns": 0
+                },
+                "checked_at": "2026-09-13T01:54:00Z"
+              },
+              "home": {
+                "fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"
+              },
+              "account": {
+                "signed_in": true,
+                "auth_mode": "chatgpt",
+                "plan": "plus",
+                "email_hint": "o…@example.com",
+                "fingerprint": "strong",
+                "fingerprint_matches": true,
+                "plan_changed": false,
+                "checked_at": "2026-09-13T01:54:00Z"
+              },
+              "usage": {
+                "known": true,
+                "source": "notification",
+                "observed_at": "2026-09-13T01:54:00Z",
+                "stale": false,
+                "allowance_not_cost": true,
+                "limit_reached": null,
+                "spend_control_reached": null,
+                "windows": [
+                  {
+                    "id": "primary",
+                    "label": "5-hour window",
+                    "duration_minutes": 300,
+                    "used_percent": 38,
+                    "remaining_percent": 62,
+                    "resets_at": "2026-09-13T04:30:00Z"
+                  },
+                  {
+                    "id": "secondary",
+                    "label": "weekly window",
+                    "duration_minutes": 10080,
+                    "used_percent": 20,
+                    "remaining_percent": 80,
+                    "resets_at": "2026-09-17T09:00:00Z"
+                  }
+                ],
+                "individual_limit": null,
+                "credits": {"has_credits": false, "unlimited": false, "balance": null}
+              },
+              "runs": [],
+              "models": [
+                {
+                  "id": "gpt-6-astra",
+                  "display_name": "gpt-6-astra",
+                  "is_default": true,
+                  "default_effort": "low",
+                  "efforts": ["low", "medium", "high"]
+                }
+              ],
+              "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+            }
+          }
         }
       ]
     },

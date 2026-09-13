@@ -213,6 +213,11 @@
       "retryable": false,
       "where": "the same Idempotency-Key with a different body"
     },
+    "INVALID_REQUEST_BODY": {
+      "status": [422],
+      "retryable": false,
+      "where": "a Codex admin route (sign-in, sign-out, account/confirm, accept-version, reprove) whose body is not a JSON object or lacks a field the route needs"
+    },
     "LEASE_REVOKED": {
       "status": [409],
       "retryable": false,
@@ -293,6 +298,11 @@
       "status": [409],
       "retryable": false,
       "where": "turns and DELETE on a session that still needs a settle"
+    },
+    "SIGN_IN_METHOD_NOT_SUPPORTED": {
+      "status": [422],
+      "retryable": false,
+      "where": "sign-in with a method other than browser"
     },
     "TOKEN_NOT_ACCEPTED": {
       "status": [400],
@@ -410,11 +420,11 @@
   "open_points": [
     "A replayed create, transfer or reissue-token must return the original token, while RAVIS stores only token hashes and its idempotency record keeps ids and states only. RAVIS's relay increment decides how a replay returns a token it did not keep.",
     "CODEX_NOT_READY's details.reason is a sentence in the endpoint table and the fixed word strict_file_rules_unproven in the safety-box rule. These fixtures use that word for unproven file rules and the state's reason sentence otherwise.",
-    "The design gives a 422 without a code for an invalid mode and for a sign-in method other than browser; those examples say so instead of naming one.",
+    "The design gives a 422 without a code for an invalid mode; that example says so instead of naming one. RAVIS's second increment (R2) fixed the rest of this family: a sign-in method other than browser is SIGN_IN_METHOD_NOT_SUPPORTED, a malformed Codex admin body is INVALID_REQUEST_BODY, and DELETE accept-version answers the full GET body.",
     "GET /api/v1/codex/reprove returns the last result; only its state and result word are fixed.",
     "The transcript's turn entries follow Codex's thread/turns/list summary view and are fixed against calibration's transcripts.",
     "The deltas_skipped marker in a resumed stream, a question's options and its answers map, and the type key on a normalised stream item have no fixed shape yet; the fixtures show one plausible form of each.",
     "Whether a session settled with next: idle keeps its project lock is not stated; the idle view here shows it released, and turns show how a lockless session takes it back.",
-    "The shared lock rule's module is named both codex/lock_rule.py and agent/lock_rule.py in the design; RAVIS.md §18 follows the build plan's agent/, and R2 settles it. The cases are the contract either way."
+    "The shared lock rule's module is named both codex/lock_rule.py and agent/lock_rule.py in the design; RAVIS.md §18 follows the build plan's agent/. R2 did not build it, so the increment that does settles the name. The cases are the contract either way."
   ]
 }

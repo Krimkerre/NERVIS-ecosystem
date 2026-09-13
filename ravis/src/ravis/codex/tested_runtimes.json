@@ -1,6 +1,86 @@
 {
-  "_about": "The Codex builds RAVIS has pinned (runbook §2.2 invariant 6; RAVIS.md §15.1.2). A binary is a tested build only when its sha256 and both schema-tree hashes match one entry here. strict_rules_proven stays false until calibration proves the file rules on that exact binary, and until then new Codex work stays paused (untested_version). R2 adds used_methods, strict_rules_surface and the definition hashes.",
+  "_about": "The Codex builds RAVIS has pinned (runbook §2.2 invariant 6; RAVIS.md §15.1.2). A binary is a tested build only when its sha256 and both schema-tree hashes match one entry here. strict_rules_proven stays false until calibration proves the file rules on that exact binary, and until then new Codex work stays paused (untested_version). used_methods and strict_rules_surface are what RAVIS depends on in a new build (acceptance checks 5 and 7a); each entry's definitions file holds its experimental schema's per-definition hashes (ravis/codex/schema_report.py).",
   "format": 3,
+  "used_methods": {
+    "client_requests": [
+      "initialize",
+      "account/read",
+      "account/login/start",
+      "account/login/cancel",
+      "account/logout",
+      "account/rateLimits/read",
+      "model/list",
+      "thread/start",
+      "thread/resume",
+      "thread/turns/list",
+      "thread/loaded/list",
+      "thread/unsubscribe",
+      "thread/archive",
+      "thread/unarchive",
+      "thread/delete",
+      "command/exec",
+      "turn/start",
+      "turn/steer",
+      "turn/interrupt"
+    ],
+    "server_notifications": [
+      "account/login/completed",
+      "account/updated",
+      "account/rateLimits/updated",
+      "error",
+      "turn/started",
+      "turn/completed",
+      "item/started",
+      "item/completed",
+      "item/agentMessage/delta",
+      "item/commandExecution/outputDelta",
+      "item/fileChange/patchUpdated",
+      "turn/diff/updated",
+      "turn/plan/updated",
+      "thread/status/changed",
+      "thread/tokenUsage/updated",
+      "serverRequest/resolved",
+      "model/rerouted",
+      "warning",
+      "modelProvider/authRecoveryStarted",
+      "modelProvider/authRecoveryCompleted"
+    ],
+    "server_requests": [
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+      "item/permissions/requestApproval",
+      "item/tool/requestUserInput",
+      "mcpServer/elicitation/request"
+    ]
+  },
+  "strict_rules_surface": {
+    "experimental_definitions": [
+      "ThreadStartParams",
+      "CommandExecutionRequestApprovalParams",
+      "AdditionalPermissionProfile",
+      "AdditionalFileSystemPermissions",
+      "AdditionalNetworkPermissions",
+      "FileSystemSandboxEntry",
+      "FileSystemAccessMode",
+      "FileSystemPath",
+      "FileSystemSpecialPath",
+      "ActivePermissionProfile",
+      "PermissionProfileListResponse",
+      "PermissionProfileSummary",
+      "ThreadBackgroundTerminal",
+      "ThreadBackgroundTerminalsListResponse",
+      "ThreadResumeParams",
+      "TurnStartParams",
+      "CommandExecParams"
+    ],
+    "experimental_methods": [
+      "permissionProfile/list",
+      "thread/backgroundTerminals/list",
+      "thread/backgroundTerminals/terminate"
+    ]
+  },
+  "_file_rules_profile_about": "The clarvis_run permission profile's -c flags (design §4.9), written at calibration once Codex's own validation errors fix their TOML syntax: {\"name\": \"clarvis_run\", \"flags\": [\"-c\", \"…\"]}, where a flag may name {user_home}, {ravis_config}, {codex_home} and {reproof_decoys}. null until then: the Codex process starts without it, and the file-rules re-test refuses to start.",
+  "file_rules_profile": null,
   "tested": [
     {
       "codex_version": "0.154.0",
@@ -8,9 +88,10 @@
       "sha256": "4f85982624b3898c8991cb80c0981b2aa71070e3537046c9a95950318a95afcc",
       "stable_tree": "b32fa164e4bedf854688c5e2dcee10b3da22c0306dd7eda148ee9eeed00dfe93",
       "experimental_tree": "d811e26c9f5b69cfb77cc7a6001a982394863b11f7a380ed243a0a77f1798172",
+      "definitions": "schemas/0.154.0.definition-hashes.json",
       "strict_rules_proven": false,
       "recorded_on": "2026-09-13",
-      "evidence": "Measured for RAVIS R1 from /opt/homebrew/Caskroom/codex/0.154.0/bin/codex, reached through the Homebrew link /opt/homebrew/bin/codex: signed by Apple team 2DC432GLL2, prints codex-cli 0.154.0, and both schema trees were generated in a throwaway Codex home under a sandbox denying network access and every write outside that home. The stable tree equals the reference recorded for ChatGPT.app's 0.154.0-alpha.6.2. Calibration proves the file rules (STATUS.md, Codex engine build plan)."
+      "evidence": "Measured for RAVIS R1 from /opt/homebrew/Caskroom/codex/0.154.0/bin/codex, reached through the Homebrew link /opt/homebrew/bin/codex: signed by Apple team 2DC432GLL2, prints codex-cli 0.154.0, and both schema trees were generated in a throwaway Codex home under a sandbox denying network access and every write outside that home. The stable tree equals the reference recorded for ChatGPT.app's 0.154.0-alpha.6.2. Calibration proves the file rules (STATUS.md, Codex engine build plan). The definition hashes (R2) were built from the protocol brief's generated experimental tree, whose tree hash equals this entry's experimental_tree."
     }
   ]
 }

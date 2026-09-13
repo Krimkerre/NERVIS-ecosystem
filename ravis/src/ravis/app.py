@@ -42,10 +42,11 @@ from ravis.admission import (
     is_preflight,
 )
 from ravis.api.management import management_router
+from ravis.api.management.codex import router as codex_router
 from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, embeddings_router, models_router
-from ravis.codex.runtime import CodexRuntime
+from ravis.codex.service import CodexService
 from ravis.config import Settings, resolved_capabilities
 from ravis.cost import (
     PriceBook,
@@ -110,6 +111,7 @@ def create_app(settings: Settings) -> Any:
     api.include_router(embeddings_router)
     api.include_router(management_router)
     api.include_router(credentials_router)
+    api.include_router(codex_router)
     # Wrapping last means this ends up outermost, which is the entire point.
     return BodySizeLimiter(api, settings.max_request_bytes)
 
@@ -152,13 +154,16 @@ def _lifespan(settings: Settings) -> Any:
         publisher = asyncio.create_task(
             api.state.events.run(api.state.upstream_client)
         )
-        # The optional Codex engine's one startup check (runbook §2.2, M29), in worker
-        # threads: serving never waits for it, and `/v1/models` reads what it found.
-        codex_check = asyncio.create_task(api.state.codex.check())
+        # The optional Codex engine (runbook §2.2, M29): its runtime check, then its one
+        # supervised process, sign-in and allowance (`codex/service.py`). Serving never waits
+        # for it, and `/v1/models` reads what the check found.
+        codex_start = asyncio.create_task(api.state.codex_service.start())
         try:
             yield
         finally:
-            codex_check.cancel()
+            codex_start.cancel()
+            # First, and bounded: Codex's process ends inside the launcher's six-second wait.
+            await api.state.codex_service.stop()
             refresher.cancel()
             evidence_refresher.cancel()
             recorder.cancel()
@@ -364,9 +369,6 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # state, and §17's storage model does not list them. Losing them on restart
     # costs a debugging session; persisting every one costs disk forever.
     api.state.decision_log = DecisionLog()
-    # Codex, the optional coding engine (runbook §2.2, M29). Building it runs nothing:
-    # the lifespan runs its one startup check, and `/v1/models` reads what it keeps.
-    api.state.codex = CodexRuntime(settings)
     # Providers whose upstream does not speak the external protocol, keyed by
     # the name a direct address uses: `ravis/<provider>/<model>`. Empty until
     # M4 registers the first one — and empty is the honest default, because a
@@ -460,6 +462,11 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         machine_id=api.state.machine_id,
         base_url=settings.nervis_base_url,
     )
+    # Codex, the optional coding engine (runbook §2.2, M29). Building it runs nothing: the
+    # lifespan starts it, and `/v1/models` reads the runtime check it keeps (`api.state.codex`).
+    # After the publisher, because it publishes Codex's state changes and its audit.
+    api.state.codex_service = CodexService(settings, emit=api.state.events.emit)
+    api.state.codex = api.state.codex_service.runtime
     api.state.ecosystem = ravis_surface(
         service_id=api.state.service_id,
         machine_id=api.state.machine_id,

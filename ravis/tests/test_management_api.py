@@ -81,9 +81,11 @@ def test_a_read_endpoint_does_not_accept_a_write() -> None:
 def test_every_write_this_surface_serves_is_one_it_declares() -> None:
     """The mutation surface, asserted rather than described.
 
-    RAVIS serves seven writes: two on a provider credential, one on a provider's
+    RAVIS serves fourteen writes: two on a provider credential, one on a provider's
     enabled flag, one on its model filter, one on a pool's membership, one
-    curating every pool, and one lifting a tool-refusal suppression. Each is
+    curating every pool, one lifting a tool-refusal suppression, and seven for
+    Codex (sign-in, its cancellation, sign-out, account confirmation, accepting
+    and revoking a build, and the file-rules re-test). Each is
     deliberate; what is not acceptable is another appearing without anybody
     noticing, which is exactly what happened to the fifth -- it shipped while
     the module said "Reads only. No endpoint here mutates", and without the
@@ -117,6 +119,19 @@ def test_every_write_this_surface_serves_is_one_it_declares() -> None:
         # before its half hour is up. Guarded and audited like the pool write;
         # it changes routing state held in memory and nothing on disk.
         "POST /api/v1/health/suppressions/{model}/lift",
+        # Added deliberately, 13 September 2026 (M29's second increment, RAVIS.md
+        # §15.1.2): Codex's browser sign-in, its cancellation, sign-out, confirming a
+        # changed account, and accepting or revoking a Codex build. Each needs an
+        # admin credential and is audited.
+        "POST /api/v1/codex/sign-in",
+        "DELETE /api/v1/codex/sign-in",
+        "POST /api/v1/codex/sign-out",
+        "POST /api/v1/codex/account/confirm",
+        "POST /api/v1/codex/accept-version",
+        "DELETE /api/v1/codex/accept-version/{sha256}",
+        # The file-rules re-test: the one write that starts Codex work, so only the
+        # owner's command-line credential may call it, never NERVIS's (F-A3).
+        "POST /api/v1/codex/reprove",
     }, "a write appeared or vanished on the management surface"
 
 

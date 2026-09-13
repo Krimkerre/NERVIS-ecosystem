@@ -352,6 +352,15 @@ class Settings(BaseSettings):
     codex_home: str = ""
     # The Apple team that must have signed the executable: OpenAI's.
     codex_expected_team_id: str = "2DC432GLL2"
+    # How often RAVIS reads the ChatGPT plan's remaining allowance while no Codex turn is
+    # running: every 15 minutes (design §3.3). While turns run it doesn't poll at all, because
+    # Codex's own notifications keep the figure current; reading never starts a model call.
+    codex_usage_refresh_seconds: int = 900
+    # The applications whose admin credential may start the file-rules re-test (design §3.4).
+    # Only the owner's command-line credential by default — never NERVIS's `launcher` — because
+    # the re-test runs commands and spends a little of the plan's allowance, and NERVIS never
+    # starts Codex work (runbook §2.2).
+    codex_reproof_applications: list[str] = ["owner_cli"]
 
     database_path: str = "ravis.db"
     log_level: str = "INFO"

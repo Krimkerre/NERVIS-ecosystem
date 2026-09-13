@@ -309,6 +309,7 @@ async def _run_every_check() -> ConformanceResult:
     them rather than each one remembering to ask for it."""
     result = ConformanceResult()
     await _check_models_endpoint(result)
+    await _check_codex_refusal(result)
     await _check_stream("chat stream", fixtures.PLAIN_CHAT, result, "text")
     await _check_done_terminator(result)
     await _check_frames_are_well_formed(result)
@@ -450,6 +451,36 @@ async def _check_models_endpoint(result: ConformanceResult) -> None:
         "/v1/models cached response",
         response.status_code == 200 and response.json().get("object") == "list",
         f"status={response.status_code}",
+    )
+
+
+async def _check_codex_refusal(result: ConformanceResult) -> None:
+    """`ravis/codex` is refused as a chat model, and no upstream is asked (runbook §2.2).
+
+    The Codex engine's id is not a model, and a Clarvis that sends it to chat completions must
+    hear a 400 before anything runs. The status is the point: Clarvis's tool probe keeps a 4xx
+    that isn't about access as "this model cannot use tools", and its agent stops without
+    retrying, where a 404 would contradict the listing and a 5xx would send it round a retry loop
+    (`api/openai/agent_backends.py`). The design counts this as conformance's 24th check (§3.2).
+    """
+    upstream = _FixtureUpstream(fixtures.PLAIN_CHAT)
+    app = _app_against(upstream)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+    ) as client:
+        response = await client.post(
+            "/v1/chat/completions",
+            json={"model": "ravis/codex", "stream": True, "messages": [
+                {"role": "user", "content": "hello"}
+            ]},
+        )
+    code = response.json().get("error", {}).get("code") if response.content else None
+    result.record(
+        "ravis/codex is refused as a chat model",
+        response.status_code == 400
+        and code == "agent_backend_not_a_chat_model"
+        and upstream.served == [],
+        f"status={response.status_code} code={code!r} forwarded={upstream.served}",
     )
 
 

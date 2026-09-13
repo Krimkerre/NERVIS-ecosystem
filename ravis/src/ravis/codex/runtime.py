@@ -1,10 +1,9 @@
-"""Is the Codex on this Mac the build RAVIS pinned? Checked once at startup, off the request path.
+"""Is the Codex on this Mac a build RAVIS may run? Checked at startup, and again when it changes.
 
 Runbook §2.2, invariant 6: **any Codex binary not recorded as tested or accepted pauses new
 tasks.** Homebrew replaces Codex whenever the owner upgrades, and a new build can change the
 protocol RAVIS speaks to it or the sandbox rules that keep its commands away from key and password
-files. So RAVIS never assumes which Codex it has: it looks once per start and says plainly what it
-found.
+files. So RAVIS never assumes which Codex it has: it looks, and says plainly what it found.
 
 The check stops at the first row of the Codex state table that applies — an earlier row wins
 (`tests/fixtures/relay-contract/codex-state.json`):
@@ -17,16 +16,23 @@ The check stops at the first row of the Codex state table that applies — an ea
    nobody else can change the file; and OpenAI's Apple team signed it. Otherwise: `not_available`.
 4. **Which build it is:** its sha256, the version it prints, and one hash for each of the two
    protocol schema trees it generates — run in a throwaway Codex home deleted afterwards.
-5. **Whether that build is pinned:** all three hashes match an entry in `tested_runtimes.json`.
-   A build that isn't pinned — or is pinned, but without file rules calibration has proven (owner
-   decision D2) — is `untested_version`.
+5. **Whether that build may run:** all three hashes match an entry in `tested_runtimes.json` —
+   `tested` — or its sha256 is one the owner accepted — `accepted`, recorded in RAVIS's own
+   `codex-state.json` (design §3.4). Anything else is `untested`, which is `untested_version`. So is
+   a tested or accepted build whose file rules aren't proven yet (owner decision D2): calibration
+   proves a tested build's, the file-rules re-test an accepted build's (design §4.3).
+
+**Checked again when the file changes** (design §4.1). Every 60 seconds the Codex service asks
+`executable_changed()`, which follows the link again and compares the file it now leads to —
+path, device, inode, size and modification time — with what the last check saw. That runs no
+program, so the 220 MB binary is hashed once per build rather than once a minute, and only a real
+change (a `brew upgrade` re-pointing the link, say) runs the whole check again. After the owner
+accepts a build or the re-test proves one, `revise()` decides the verdict again from what the last
+check already read.
 
 **Discovery never runs any of this.** `/v1/models` reads `CodexRuntime.enabled`, a kept answer,
 because Clarvis probes that endpoint with a two-second timeout and reads slowness as "offline"
-(RAVIS.md §4.3). The check runs in worker threads, started by the lifespan (`app.py`).
-
-**What follows the last row is not here yet:** the Codex process, sign-in, the allowance and
-accepting a new build are R2 in `STATUS.md`'s Codex build plan, which starts from this report.
+(RAVIS.md §4.3). The check runs in worker threads, started by the Codex service (`service.py`).
 """
 
 from __future__ import annotations
@@ -40,25 +46,25 @@ import shutil
 import stat
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from importlib import resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any, Literal
 
+from ravis.codex.pin import TESTED_RUNTIMES, PinUnreadableError, read_pin
 from ravis.config import Settings, codex_home_refusal, data_directory, names_caskroom_copy
 
 logger = logging.getLogger("ravis")
 
 #: The rows of the Codex state table this check can end on. The rows after them — the process,
-#: the account, the allowance — are R2's, and R2 reads this report before deciding them.
+#: the account, the allowance — are decided in `state.py`, which starts from this report.
 RuntimeState = Literal["checking", "not_installed", "not_available", "untested_version"]
-
-#: The pin, committed beside this module and shipped inside the package.
-TESTED_RUNTIMES: Traversable = resources.files("ravis.codex") / "tested_runtimes.json"
-#: The pin's format, as the design numbers it (`design/codex-engine/design.md` §4.3).
-PIN_FORMAT = 3
+#: What RAVIS's records say about a build: pinned by a test, accepted by the owner, or neither.
+Verdict = Literal["tested", "accepted", "untested"]
+#: What identifies the file the executable leads to, without reading it (design §4.1).
+StatKey = tuple[str, int, int, int, int]
 
 #: Always the system's own `codesign`, never one found on PATH: the program that vouches for
 #: Codex must not be one a stray PATH entry could replace.
@@ -69,8 +75,9 @@ CODESIGN = "/usr/bin/codesign"
 TEAM_ID = re.compile(r"^[A-Z0-9]{10}$")
 
 #: The folder, in the data directory, that holds the throwaway Codex homes (design §4.2). Each
-#: check makes one inside it and deletes it when the check ends.
+#: check makes one inside it, named `check-…`, and deletes it when the check ends.
 SCRATCH_FOLDER = "ravis-codex-scratch"
+CHECK_PREFIX = "check-"
 #: All that `codex --version` prints: `codex-cli 0.154.0`.
 VERSION_LINE = re.compile(r"^codex-cli (\d+\.\d+\.\d+\S*)$")
 #: The two schema trees, by the name the pin records each under, and the flags that generate it.
@@ -103,12 +110,24 @@ class CodexRuntimeError(Exception):
 
 
 @dataclass(frozen=True)
+class BuildRecords:
+    """What the owner decided about builds the pin doesn't cover (design §3.4, §4.3).
+
+    `accepted` holds the sha256 of every build accepted without a test; `proven`, of every
+    accepted build whose file rules the re-test proved. Both live in `codex-state.json`.
+    """
+
+    accepted: frozenset[str] = frozenset()
+    proven: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
 class RuntimeReport:
     """What the last check found: a state, a reason a person can read, and the build's facts.
 
     `state` is `None` when none of this check's rows applies — the executable was found, trusted
-    and pinned, with its file rules proven — so the rows after them decide. Each fact is `None`
-    until the check has read it, never a guess.
+    and tested or accepted, with its file rules proven — so the rows after them decide. Each fact
+    is `None` until the check has read it, never a guess.
     """
 
     state: RuntimeState | None
@@ -117,18 +136,14 @@ class RuntimeReport:
     version: str | None = None
     installed_sha256: str | None = None
     team_id: str | None = None
-    verdict: Literal["tested", "untested"] | None = None
+    verdict: Verdict | None = None
     strict_rules: Literal["proven", "unproven"] | None = None
     stable_tree: str | None = None
     experimental_tree: str | None = None
     checked_at: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        """The state and reason, with the facts in the shape of `GET /api/v1/codex`'s `runtime`.
-
-        R2 serves that block (`codex-state.json`). Until then the startup log prints this, so an
-        operator can read what the check found without a route to ask.
-        """
+        """The state and reason with the build's facts, as the startup log prints them."""
         return {
             "state": self.state,
             "reason": self.reason,
@@ -156,7 +171,10 @@ def locate_executable(settings: Settings) -> Path:
     The path comes from settings or from Homebrew and nowhere else: never from a request, and
     never from the catalogue (design §4.1).
     """
-    link = _configured_or_homebrew_link(settings)
+    return _located(_configured_or_homebrew_link(settings))
+
+
+def _located(link: Path) -> Path:
     target = link.resolve()
     if not target.is_file():
         raise CodexRuntimeError("not_installed", f"{link} does not lead to a file")
@@ -185,36 +203,58 @@ def _configured_or_homebrew_link(settings: Settings) -> Path:
     return Path(prefix) / "bin" / "codex"
 
 
+def stat_key(link: Path) -> StatKey | None:
+    """What identifies the file `link` leads to now, from its metadata; None if there is none."""
+    try:
+        target = link.resolve()
+        found = target.stat()
+    except OSError:
+        return None
+    if not stat.S_ISREG(found.st_mode):
+        return None
+    return (str(target), found.st_dev, found.st_ino, found.st_size, found.st_mtime_ns)
+
+
 def inspect_executable(
     target: Path,
     settings: Settings,
     *,
     codesign: str = CODESIGN,
     pin: Traversable = TESTED_RUNTIMES,
+    records: BuildRecords = BuildRecords(),
 ) -> RuntimeReport:
-    """Everything after finding the file: whether to trust it, which build, whether it is pinned."""
+    """Everything after finding the file: whether to trust it, which build, whether it may run."""
     _refuse_untrusted_location(target, settings)
-    team = _verified_team(target, settings.codex_expected_team_id, codesign)
-    with target.open("rb") as binary:
-        installed_sha256 = hashlib.file_digest(binary, "sha256").hexdigest()
+    team = verified_team(target, settings.codex_expected_team_id, codesign)
+    installed_sha256 = file_sha256(target)
     version, trees = _read_build(target, data_directory() / SCRATCH_FOLDER)
-    entry = _pinned_entry(_tested_builds(pin), installed_sha256, trees)
-    verdict: Literal["tested", "untested"] = "untested" if entry is None else "tested"
-    proven = entry is not None and entry.get("strict_rules_proven") is True
-    state, reason = _runtime_row(version, verdict, proven)
-    return RuntimeReport(
-        state=state,
-        reason=reason,
+    facts = RuntimeReport(
+        state=None,
+        reason="",
         # A cask's copy lives in Homebrew's `Caskroom`; anything else was named by hand.
         source="homebrew" if "Caskroom" in target.parts else "configured",
         version=version,
         installed_sha256=installed_sha256,
         team_id=team,
-        verdict=verdict,
-        strict_rules="proven" if proven else "unproven",
         stable_tree=trees["stable"],
         experimental_tree=trees["experimental"],
         checked_at=_now(),
+    )
+    return judged(facts, pin, records)
+
+
+def judged(report: RuntimeReport, pin: Traversable, records: BuildRecords) -> RuntimeReport:
+    """`report` with its verdict, file rules, state and reason decided from the pin and records."""
+    trees = {"stable": report.stable_tree, "experimental": report.experimental_tree}
+    entry = pinned_entry(tested_builds(pin), report.installed_sha256, trees)
+    verdict, proven = _verdict(entry, report.installed_sha256, records)
+    state, reason = _runtime_row(report.version, verdict, proven)
+    return replace(
+        report,
+        state=state,
+        reason=reason,
+        verdict=verdict,
+        strict_rules="proven" if proven else "unproven",
     )
 
 
@@ -237,7 +277,7 @@ def _refuse_untrusted_location(target: Path, settings: Settings) -> None:
         )
 
 
-def _verified_team(target: Path, team: str, codesign: str) -> str:
+def verified_team(target: Path, team: str, codesign: str) -> str:
     """Refuse a binary OpenAI's Apple team did not sign, and return the team that did.
 
     One `codesign` run checks it all: the signature is intact (`--strict`), and it satisfies a
@@ -262,37 +302,47 @@ def _verified_team(target: Path, team: str, codesign: str) -> str:
     return team
 
 
+def file_sha256(path: Path) -> str:
+    with path.open("rb") as binary:
+        return hashlib.file_digest(binary, "sha256").hexdigest()
+
+
 def _read_build(executable: Path, scratch_root: Path) -> tuple[str, dict[str, str]]:
     """The build's version and schema-tree hashes, read in a throwaway Codex home.
 
     Every Codex run writes into its Codex home — even `--help` leaves `tmp/arg0` behind — so none
-    of these may run against a real one: not RAVIS's own, where the sign-in will live, and never
-    the ChatGPT app's `~/.codex`. `HOME` and `TMPDIR` point into the same throwaway folder, the
+    of these may run against a real one: not RAVIS's own, where the sign-in lives, and never the
+    ChatGPT app's `~/.codex`. `HOME` and `TMPDIR` point into the same throwaway folder, the
     environment carries nothing else, and the folder is deleted however the runs end. Measured on
     13 September 2026 under a sandbox denying network access and every write outside the folder:
     both generations succeeded, and all Codex left in its home was an empty `tmp/arg0`.
     """
-    scratch_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    workdir = Path(tempfile.mkdtemp(prefix="check-", dir=scratch_root))
+    workdir = scratch_workdir(scratch_root)
     try:
-        environment = _throwaway_environment(workdir)
-        version = _parsed_version(_codex(executable, ["--version"], environment, workdir).stdout)
+        environment = throwaway_environment(workdir)
+        version = parsed_version(run_codex(executable, ["--version"], environment, workdir).stdout)
         trees = {
-            name: _schema_tree(executable, workdir / name, flags, environment)
+            name: tree_sha256(generate_schema_tree(executable, workdir / name, flags, environment))
             for name, flags in SCHEMA_TREES
         }
         return version, trees
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        remove_folder(workdir)
 
 
-def _throwaway_environment(workdir: Path) -> dict[str, str]:
+def scratch_workdir(scratch_root: Path) -> Path:
+    """A fresh throwaway folder for one check, inside the scratch folder (0700)."""
+    scratch_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=CHECK_PREFIX, dir=scratch_root))
+
+
+def throwaway_environment(workdir: Path) -> dict[str, str]:
     """The whole environment a Codex run gets: the system PATH, and homes inside `workdir`."""
     home = workdir / "home"
     throwaway_codex_home = home / "codex-home"
     temporary = home / "tmp"
-    throwaway_codex_home.mkdir(parents=True)
-    temporary.mkdir()
+    throwaway_codex_home.mkdir(parents=True, exist_ok=True)
+    temporary.mkdir(exist_ok=True)
     return {
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME": str(home),
@@ -301,7 +351,7 @@ def _throwaway_environment(workdir: Path) -> dict[str, str]:
     }
 
 
-def _codex(
+def run_codex(
     executable: Path, arguments: list[str], environment: dict[str, str], workdir: Path
 ) -> subprocess.CompletedProcess[str]:
     """Run Codex once in the throwaway home, and refuse the build when the run fails."""
@@ -321,7 +371,7 @@ def _codex(
     return finished
 
 
-def _parsed_version(printed: str) -> str:
+def parsed_version(printed: str) -> str:
     """`0.154.0` from `codex-cli 0.154.0`; anything else leaves the build unidentified."""
     matched = VERSION_LINE.match(printed.strip())
     if matched is None:
@@ -331,11 +381,11 @@ def _parsed_version(printed: str) -> str:
     return matched.group(1)
 
 
-def _schema_tree(
+def generate_schema_tree(
     executable: Path, out: Path, flags: tuple[str, ...], environment: dict[str, str]
-) -> str:
-    """Generate one schema tree into `out`, and return its hash."""
-    _codex(
+) -> Path:
+    """Generate one schema tree into `out`, and return the folder once it holds files."""
+    run_codex(
         executable,
         ["app-server", "generate-json-schema", "--out", str(out), *flags],
         environment,
@@ -343,7 +393,7 @@ def _schema_tree(
     )
     if not out.is_dir() or not any(path.is_file() for path in out.rglob("*")):
         raise CodexRuntimeError("not_available", f"codex generated no {out.name} schema")
-    return tree_sha256(out)
+    return out
 
 
 def tree_sha256(folder: Path) -> str:
@@ -368,7 +418,7 @@ def tree_sha256(folder: Path) -> str:
     return manifest.hexdigest()
 
 
-def _tested_builds(pin: Traversable) -> list[dict[str, Any]]:
+def tested_builds(pin: Traversable) -> list[dict[str, Any]]:
     """The entries of `tested_runtimes.json`, or `not_available` when the record can't be read.
 
     The file is committed with the code, so an unreadable one is a broken RAVIS build — but it is
@@ -376,21 +426,14 @@ def _tested_builds(pin: Traversable) -> list[dict[str, Any]]:
     Codex is a working RAVIS (runbook §2.2: "every product works without it").
     """
     try:
-        document = json.loads(pin.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as failure:
-        raise CodexRuntimeError(
-            "not_available", f"the record of tested Codex builds can't be read: {failure}"
-        ) from None
-    tested = document.get("tested") if isinstance(document, dict) else None
-    if not isinstance(tested, list) or document.get("format") != PIN_FORMAT:
-        raise CodexRuntimeError(
-            "not_available", f"the record of tested Codex builds is not format {PIN_FORMAT}"
-        )
-    return [entry for entry in tested if isinstance(entry, dict)]
+        document = read_pin(pin)
+    except PinUnreadableError as failure:
+        raise CodexRuntimeError("not_available", str(failure)) from None
+    return [entry for entry in document["tested"] if isinstance(entry, dict)]
 
 
-def _pinned_entry(
-    tested: list[dict[str, Any]], installed_sha256: str, trees: dict[str, str]
+def pinned_entry(
+    tested: list[dict[str, Any]], installed_sha256: str | None, trees: dict[str, str | None]
 ) -> dict[str, Any] | None:
     """The entry this build matches on all three hashes, or `None` when it matches none.
 
@@ -408,13 +451,28 @@ def _pinned_entry(
     return None
 
 
+def _verdict(
+    entry: dict[str, Any] | None, installed_sha256: str | None, records: BuildRecords
+) -> tuple[Verdict, bool]:
+    """The verdict, and whether the build's file rules are proven.
+
+    A tested build's rules are proven by calibration (its pin entry); an accepted build's only by
+    the file-rules re-test (review AM1: acceptance itself proves nothing about behaviour).
+    """
+    if entry is not None:
+        return "tested", entry.get("strict_rules_proven") is True
+    if installed_sha256 in records.accepted:
+        return "accepted", installed_sha256 in records.proven
+    return "untested", False
+
+
 def _runtime_row(
-    version: str, verdict: Literal["tested", "untested"], proven: bool
+    version: str | None, verdict: Verdict, proven: bool
 ) -> tuple[RuntimeState | None, str]:
     """Which of this check's rows the build lands on, and the reason to show for it.
 
-    Owner decision D2 puts the stricter file rules in force for every task, so a pinned build
-    whose rules calibration hasn't proven pauses new work just as an unknown build does. It
+    Owner decision D2 puts the stricter file rules in force for every task, so a tested or
+    accepted build whose rules aren't proven pauses new work just as an unknown build does. It
     differs only in the verdict it reports (runbook §2.2, invariant 6).
     """
     if verdict == "untested":
@@ -422,12 +480,41 @@ def _runtime_row(
             f"Codex {version} is not a build RAVIS has tested, so new Codex work stays paused "
             "until it is re-tested."
         )
-    if not proven:
+    if proven:
+        which = "the pinned build" if verdict == "tested" else "a build you accepted"
+        return None, f"Codex {version} is {which}, and its file rules are proven."
+    if verdict == "tested":
         return "untested_version", (
             f"Codex {version} is the pinned build, but its file rules haven't been proven on it "
             "yet, so new Codex work stays paused until calibration proves them."
         )
-    return None, f"Codex {version} is the pinned build, and its file rules are proven."
+    return "untested_version", (
+        f"Codex {version} was accepted without re-testing, so new Codex work stays paused until "
+        "the file-rules re-test proves its rules."
+    )
+
+
+def sweep_scratch(scratch_root: Path) -> int:
+    """Delete the throwaway homes a killed check left behind, and say how many.
+
+    A `kill -9` in the middle of a check skips its `finally`, so its folder stays (R1's notes). The
+    sweep runs once, when the Codex service starts and before its first check, so it can never
+    delete a folder a check is still using. Only `check-…` folders are touched.
+    """
+    if not scratch_root.is_dir():
+        return 0
+    leftovers = sorted(scratch_root.glob(f"{CHECK_PREFIX}*"))
+    for leftover in leftovers:
+        remove_folder(leftover)
+    return len(leftovers)
+
+
+def remove_folder(path: Path) -> None:
+    """Delete a folder RAVIS made; a link in its place is removed, never followed."""
+    if path.is_symlink():
+        path.unlink(missing_ok=True)
+    else:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _run(
@@ -477,11 +564,11 @@ def _now() -> str:
 
 
 class CodexRuntime:
-    """The one kept answer to "can RAVIS use Codex?", filled in by one check at startup.
+    """The kept answer to "can RAVIS use Codex?", filled in by the check and kept current.
 
-    Built with the application and run by its lifespan (`app.py`) in worker threads, so neither
-    building the app nor any request ever runs a program. `report` starts at `checking` and is
-    replaced once; `enabled` is what `/v1/models` reads.
+    Built with the application, so building it runs nothing; the Codex service runs `check()` at
+    startup and again whenever `executable_changed()` says the file moved. `report` starts at
+    `checking`; `enabled` is what `/v1/models` reads.
     """
 
     def __init__(
@@ -490,31 +577,42 @@ class CodexRuntime:
         *,
         codesign: str = CODESIGN,
         pin: Traversable = TESTED_RUNTIMES,
+        records: Callable[[], BuildRecords] = BuildRecords,
     ) -> None:
         self._settings = settings
-        self._codesign = codesign
-        self._pin = pin
-        # The file the executable led to when this start's check looked; None before it has
-        # looked, and when it found nothing.
+        self._records = records
+        self.codesign = codesign
+        self.pin = pin
+        # Homebrew's link (or the configured path) as the first check found it: Homebrew's prefix
+        # doesn't move, so `brew` is asked once per start, not once a minute.
+        self._link: Path | None = None
+        self._stat_key: StatKey | None = None
+        # The file the executable led to when the last check looked; None before it has looked,
+        # and when it found nothing.
         self.executable: Path | None = None
         self.report = RuntimeReport(
             state="checking", reason="Codex has not been checked since RAVIS started."
         )
 
     @property
+    def link_folder(self) -> Path | None:
+        """The folder holding the executable's link: `$(brew --prefix)/bin` for Homebrew's."""
+        return self._link.parent if self._link is not None else None
+
+    @property
     def enabled(self) -> bool:
         """Whether `ravis/codex` is offered at all (RAVIS.md §4.3; runbook §2.2).
 
-        The setting, when it is set. Otherwise, whether the executable led to a file when this
-        start's check looked — so before the check has looked, and when it found nothing, the
-        answer is no. A kept value, because `/v1/models` reads it and must never wait.
+        The setting, when it is set. Otherwise, whether the executable led to a file when the
+        last check looked — so before the check has looked, and when it found nothing, the answer
+        is no. A kept value, because `/v1/models` reads it and must never wait.
         """
         if self._settings.codex_enabled is not None:
             return self._settings.codex_enabled
         return self.executable is not None
 
     async def check(self) -> None:
-        """Run the check once, off the event loop, and keep what it found. Never raises.
+        """Run the check, off the event loop, and keep what it found. Never raises.
 
         Cancellation at shutdown is the one thing that passes through, as it should. A worker
         thread already running a program finishes it, and still deletes its throwaway home.
@@ -539,11 +637,34 @@ class CodexRuntime:
             raise CodexRuntimeError(
                 "not_available", "Codex is switched off (RAVIS_CODEX_ENABLED=false)."
             )
-        self.executable = await asyncio.to_thread(locate_executable, self._settings)
+        if self._link is None:
+            self._link = await asyncio.to_thread(_configured_or_homebrew_link, self._settings)
+        self._stat_key = await asyncio.to_thread(stat_key, self._link)
+        self.executable = None
+        self.executable = await asyncio.to_thread(_located, self._link)
         return await asyncio.to_thread(
             inspect_executable,
             self.executable,
             self._settings,
-            codesign=self._codesign,
-            pin=self._pin,
+            codesign=self.codesign,
+            pin=self.pin,
+            records=self._records(),
         )
+
+    def executable_changed(self) -> bool:
+        """Whether the link now leads to another file, or the file changed. Runs no program."""
+        if self._link is None or self._settings.codex_enabled is False:
+            return False
+        return stat_key(self._link) != self._stat_key
+
+    def revise(self) -> None:
+        """Decide the verdict again from what the last check read, once the owner's records move."""
+        report = self.report
+        if report.installed_sha256 is None or report.version is None:
+            return
+        try:
+            self.report = judged(report, self.pin, self._records())
+        except CodexRuntimeError as refusal:
+            self.report = RuntimeReport(
+                state=refusal.state, reason=refusal.reason, checked_at=_now()
+            )

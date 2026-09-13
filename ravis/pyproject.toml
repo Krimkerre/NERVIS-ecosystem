@@ -1,6 +1,6 @@
 [project]
 name = "ravis"
-version = "0.23.8"
+version = "0.23.9"
 description = "Local-first AI routing gateway with an OpenAI-compatible API"
 requires-python = ">=3.11"
 dependencies = [
@@ -29,10 +29,11 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 # Files a package reads at run time besides its modules: Codex's pin, which
-# `ravis.codex.runtime` loads as package data. Declared so that an install that
-# isn't editable carries it too.
+# `ravis.codex.pin` loads as package data, and the per-definition schema hashes
+# its tested entries name (`schemas/`). Declared so that an install that isn't
+# editable carries them too.
 [tool.setuptools.package-data]
-"ravis.codex" = ["tested_runtimes.json"]
+"ravis.codex" = ["tested_runtimes.json", "schemas/*.json"]
 
 # ── Engineering standards, ECOSYSTEM_RUNBOOK.md §14.1 ─────────────────────────
 # These are gates, not preferences. The prose in §14 describes them; this file

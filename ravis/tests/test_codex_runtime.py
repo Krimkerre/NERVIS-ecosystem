@@ -27,6 +27,7 @@ from tests.codex_fakes import (
     EXPERIMENTAL_SCHEMA,
     PINNED_TEAM,
     STABLE_SCHEMA,
+    FakeAppServer,
     FakeBrew,
     FakeCodesign,
     FakeCodex,
@@ -45,6 +46,7 @@ from ravis.codex.runtime import (
     locate_executable,
     tree_sha256,
 )
+from ravis.codex.service import CodexService
 from ravis.config import ConfigurationFinding, Settings, data_directory, inspect_configuration
 from ravis.credentials import config_directory
 
@@ -398,15 +400,18 @@ def _eventually(condition: Callable[[], bool], seconds: float = 10.0) -> None:
 def test_the_check_runs_once_at_startup_and_listing_reads_what_it_kept(
     tmp_path: Path, codesign: FakeCodesign
 ) -> None:
-    codex = FakeCodex.install(tmp_path / "bin" / "codex")
+    server = FakeAppServer.create(tmp_path / "app-server")
+    codex = FakeCodex.install(tmp_path / "bin" / "codex", app_server=server)
     settings = _settings(codex_executable=str(codex.path))
     app = create_app(settings)
-    runtime = CodexRuntime(
+    service = CodexService(
         settings,
+        emit=app.app.state.events.emit,
         codesign=str(codesign.path),
         pin=write_pin(tmp_path / "pin.json", pin_entry(codex)),
     )
-    app.app.state.codex = runtime
+    app.app.state.codex_service = service
+    app.app.state.codex = runtime = service.runtime
 
     with TestClient(app) as client:
         _eventually(lambda: runtime.report.state != "checking")

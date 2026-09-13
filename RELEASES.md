@@ -908,7 +908,36 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.8
+## RAVIS — 0.23.9
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **RAVIS now runs Codex's app-server itself, one for the whole Mac** — only for a Codex build that is
+  tested or that you accepted, in RAVIS's own Codex folder (`~/.local/share/ravis-codex`), never the
+  ChatGPT app's `~/.codex`. If it crashes or stops answering, RAVIS restarts it (after 1 s, 5 s, 30 s,
+  then every 5 minutes) and stops trying after five failures in half an hour. A new Codex on disk is
+  swapped in only while nothing is running on it. Codex tasks themselves are not built yet.
+- **Codex signs in to your ChatGPT plan through RAVIS.** `POST /api/v1/codex/sign-in` gives the
+  browser page to open; RAVIS says plainly when another program (such as the ChatGPT app) holds both
+  sign-in ports, when Codex doesn't answer, when the ten minutes run out, and when a RAVIS restart cut
+  a sign-in off. Cancelling, signing out and confirming the account are there too (admin credential,
+  audited). A different ChatGPT account from the one you confirmed pauses Codex until you confirm it;
+  only a hint of the email (`o…@example.com`) is ever shown, and no token.
+- **`GET /api/v1/codex` reports Codex's state and your plan's remaining allowance**, from memory, to
+  any caller: what is left in each window and when it resets, "unknown" rather than zero when Codex
+  hasn't said, and "used up" kept apart from being throttled. RAVIS reads the allowance every 15
+  minutes while Codex is idle, and never starts a model call to do it.
+- **A Codex build RAVIS hasn't tested can be checked and accepted** (`GET /api/v1/codex/version-check`,
+  `POST /api/v1/codex/accept-version`): seven checks, run in a throwaway folder. An accepted build
+  still pauses tasks until the file-rules re-test proves its rules; that re-test
+  (`POST /api/v1/codex/reprove`) starts only with the owner's command-line credential, from the menu
+  bar, and not before calibration has fixed the file-rules profile.
+- **The Clarvis conformance gate now has 24 checks**: the new one proves `ravis/codex` is refused as a
+  chat model before any upstream is asked.
+- **New settings:** `RAVIS_CODEX_USAGE_REFRESH_SECONDS` (900) and `RAVIS_CODEX_REPROOF_APPLICATIONS`
+  (`["owner_cli"]`). **Capability:** `ravis.codex_runtime@1` is advertised available.
+
+### 0.23.8
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

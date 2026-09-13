@@ -40,6 +40,47 @@ For R2:
   `/v1/models` lists `ravis/codex` only with `X-Clarvis-Engines: codex`; chat completions for `ravis/codex` and
   `ravis/codex/anything` → 400 `agent_backend_not_a_chat_model`; `~/.local/share/ravis-codex-scratch` created, empty.
 
+## From R2 (ecosystem, RAVIS 0.23.9, 13 Sep 2026)
+For Cal:
+- Build the dev-only calibration route first (`POST /api/v1/codex/calibration/runs`, only while
+  `RAVIS_CODEX_CALIBRATION=1`, `require_owner_cli`): not built in R2. `reprove.py`'s harness is the
+  shape to reuse (threads it creates, a fixed list per scenario, answers audited).
+- Write the `clarvis_run` flags into `tested_runtimes.json` → `file_rules_profile`
+  (`{"name", "flags"}`; placeholders `{user_home}`, `{ravis_config}`, `{codex_home}`,
+  `{reproof_decoys}`). While it is null the process starts without a profile, check 7b can't run,
+  and reprove refuses with 409 `CODEX_NOT_READY`.
+- Today's pin (tested, unproven) reads `untested_version`, but the process runs, so sign-in works.
+  Only a build in neither list gets no process.
+- Confirm on real readings: `resetsAt` is whole seconds (pinned in `test_codex_usage.py`); approval
+  `command` is the plain text the prompt gave (the harness matches exactly — a `bash -lc` wrapper
+  makes every re-test inconclusive); how escalation is asked; `features.plugins=false` holds (K10);
+  `thread/start` takes `permissions`, `runtimeWorkspaceRoots` and `ephemeral` together.
+- A new tested entry's hashes: `schema_report.definition_record(read_bundle(<experimental tree>),
+  used_surface(read_pin()), codex_version=…, experimental_tree=…)`.
+For N2:
+- Control routes forward with the admin credential (`ravis_peer.configure`): `POST
+  /api/v1/codex/sign-in {"method":"browser"}` → 202 started / 200 already waiting, both
+  `{"sign_in": {state, auth_url, callback_port, started_at, expires_at}}`; `GET` the same route to
+  reopen the page (§3.8's table has no control route for it; re-POSTing also returns it);
+  `DELETE` → `{"cancelled": bool}`; `POST /sign-out {}` and `POST /account/confirm {"email_hint":
+  <the hint shown, or null>}` → the full state; version-check, accept-version, revoke as fixed.
+- Render from `GET /api/v1/codex` (GET relay): `state`, `reason`, `account.email_hint` (never an
+  email or token), `sign_in {state: idle|waiting_for_browser|failed, started_at, expires_at,
+  error}` (no address), `usage.known:false` → no bar. `runs` is `[]` until R3.
+- New catalogued codes: `SIGN_IN_METHOD_NOT_SUPPORTED` (422), `INVALID_REQUEST_BODY` (422).
+For N1b:
+- `codex sign-in`, `cancel-sign-in` and `status --json` now answer. Re-test refusals the launcher
+  doesn't map come as 409 `CODEX_NOT_READY` (not calibrated, signed out, allowance used up) → exit
+  1 with RAVIS's sentence: show it.
+For R3:
+- Hold a thread with `MessageRouter.hold(thread_id, Inbox)`; requests for an unheld thread are
+  refused `-32601`. `ActiveTurns` counts turns from Codex's notifications.
+- Add `runs` and its named-caller filter, `CODEX_NOT_READY {details.reason}` on session create
+  (an exhausted allowance is 409, never 429), and put `relay` back into `ravis.codex_runtime@1`'s
+  constraints when declaring `ravis.agent_sessions@1`.
+- On Python 3.11 `asyncio.wait_for` swallowed a cancel and hung `Connection.stop()`: use
+  `asyncio.timeout`, as all of `ravis/codex/` now does.
+
 ## From nervis-ecosystem-fc (13 Sep 2026, before C2a) — ChatService Stop wiring (untested in 0.16.0)
 - `stop()` = `busy.stop()` → `runs.stopWaiting()` → `planningIO?.cancel()`; keep the planning cancel and the order.
 - `stopFromChat()` passes `planning: Boolean(this.planningIO)` to `stopReply`; `'paused'` wins (PLANNING_PAUSED_LINE

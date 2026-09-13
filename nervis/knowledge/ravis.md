@@ -279,8 +279,19 @@ any id under ravis/codex/, is refused with a 400 that says so before anything ru
 not Codex is set up. It appears in `/v1/models` only for a Clarvis that asks for it (0.17.0 and
 later) while Codex is installed. RAVIS checks the Codex on this Mac once when it starts — the
 Homebrew build, OpenAI's signature and the pinned version — and writes what it found to its log.
-Running Codex tasks is not built yet, and the pinned Homebrew Codex 0.154.0 stays paused until
-calibration proves its file rules.
+
+**It reports Codex's state and the ChatGPT plan's allowance, and signs Codex in.** `GET
+/api/v1/codex` answers any caller from memory with one state — checking, not installed, not
+available, paused for re-testing, process restarting, signed out, sign-in expired, a different
+account, allowance used up, or signed in — and the allowance left in each window with when it
+resets: an allowance, never a cost, and unknown rather than zero. With an admin credential,
+`/api/v1/codex/sign-in` starts, shows and cancels the ChatGPT browser sign-in,
+`/api/v1/codex/sign-out` signs out, and `/api/v1/codex/account/confirm` confirms a changed
+account; `/api/v1/codex/version-check` and `/api/v1/codex/accept-version` check and accept a
+Codex build RAVIS hasn't tested. The file-rules re-test, `/api/v1/codex/reprove`, starts only from
+the menu bar with the owner's own credential. RAVIS runs one Codex process for this, and only for a
+tested or accepted build. Running Codex tasks is not built yet, and the pinned Homebrew Codex
+0.154.0 stays paused for tasks until calibration proves its file rules.
 
 **A dead NERVIS never makes RAVIS report itself unready.** This regressed
 once for real: a readiness check that read the event publisher's own

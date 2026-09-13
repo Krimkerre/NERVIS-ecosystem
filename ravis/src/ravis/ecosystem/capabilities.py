@@ -60,7 +60,7 @@ def _installed_version(distribution: str) -> str:
 BUILD_VERSION = _installed_version("ravis")
 
 DECLARED: dict[str, Capability] = {
-    # Available because `ravis conformance clarvis` passes all twenty-three
+    # Available because `ravis conformance clarvis` passes all twenty-four
     # checks against the transparent route, and M9 verified it against a real
     # client. Sixteen when this was written; the count is pinned by
     # `test_every_expected_check_is_present`, so a number here that drifts is a
@@ -174,6 +174,23 @@ DECLARED: dict[str, Capability] = {
         reason="POST /v1/embeddings forwards to one configured local runtime "
         "(default: Ollama's nomic-embed-text) — no multi-provider routing, no "
         "fallback chain and no conformance suite yet, unlike the chat path",
+    ),
+    # RAVIS.md §4.1: advertised once `/api/v1/codex` and its routes pass their tests, which
+    # they do from M29's second increment (R2). **Never a readiness check**: Codex may still be
+    # not installed, paused for re-testing or signed out, and `/api/v1/codex` says which. The
+    # contract's constraints also name the relay, `/api/v1/agent-sessions`; that route and its
+    # own capability, `ravis.agent_sessions@1`, arrive with M29's third increment, so the
+    # `relay` constraint is added back then rather than pointing at nothing now.
+    "ravis.codex_runtime@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="Codex's state, sign-in, account, version and file-rules re-test routes are "
+        "served; whether Codex can take work is /api/v1/codex's answer, not this",
+        constraints={
+            "backend_id": "ravis/codex",
+            "roles": ["agent"],
+            "state_endpoint": "/api/v1/codex",
+        },
     ),
 }
 
