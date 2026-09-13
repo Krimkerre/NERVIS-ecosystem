@@ -42,9 +42,9 @@ checklist.
 | Product | Owns | Does not own |
 |---|---|---|
 | **SIRVIS** | Machine/runtime/model inventory, measured benchmark evidence, Runtime Sets, recommendations | Routing, chat, provider credentials, supervision |
-| **RAVIS** | Provider adaptation, eligibility and routing, virtual profiles, local-runtime coordination, route explanations, sessions, usage and cost | Benchmarking hardware, editing workspaces, displaying the ecosystem |
-| **CLARVIS** | Coding-agent behaviour inside one workspace: tools, approval gates, agent loop, conversation and workspace state | Model selection across vendors, benchmark truth, ecosystem visualisation |
-| **NERVIS** | Registry, dashboard, diagnostics, event hub, traces, general RAVIS-backed chat, control surfaces it is explicitly granted | Any peer's business logic; any peer's safety decisions |
+| **RAVIS** | Provider adaptation, eligibility and routing, virtual profiles, local-runtime coordination, route explanations, sessions, usage and cost; **brokering Codex agent sessions — hosting the optional Codex runtime with its sign-in, version pinning and allowance, relaying each task's events, approvals, questions, steer and stop to Clarvis, and the project write lock both coding engines use (§2.2)** | Benchmarking hardware, **deciding approvals or answering questions for the owner, Clarvis's own tools, git branches and commits**, displaying the ecosystem |
+| **CLARVIS** | Coding-agent behaviour inside one workspace: tools, approval gates, agent loop, conversation and workspace state; **the choice of coding engine; for Codex tasks, the approval and question interface, git branches and commits, the task checkpoint and switching between engines (§2.2)** | Model selection across vendors, benchmark truth, ecosystem visualisation, hosting the Codex runtime |
+| **NERVIS** | Registry, dashboard, diagnostics, event hub, traces, general RAVIS-backed chat, control surfaces it is explicitly granted | Any peer's business logic; any peer's safety decisions; starting, steering or answering any coding engine's work (it may ask RAVIS to stop a Codex task once the owner confirms, §2.2) |
 
 If two components appear to disagree about a fact, the owner in this table is
 authoritative for that kind of fact.
@@ -105,6 +105,94 @@ reads and at least one hosted provider adapter to drive through. **Exit:** RAVIS
 refuses to route an agent pool to a hosted model whose tool-call trial failed,
 names the trial and its date in the route explanation, and leaves that same
 model eligible for a chat pool.
+
+### 2.2 Codex agent sessions, brokered by RAVIS
+
+**Decided by the owner, 13 September 2026. Specified, not built.** This section, the product
+documents' amendments (`RAVIS.md` §15.1.2 and M29, `CLARVIS.md` §5.5 and E-C9, `NERVIS.md` §8 and
+M28), the contract fixtures and Clarvis's signed-off `plan.md` M15 landed that day as the build's
+first increment. No route, process, control or lock described here exists yet. It is §3's change
+order, steps 1 and 2: the proposal — owner RAVIS; consumers Clarvis, NERVIS and the launcher;
+additive, since every product works without it; its security impact is invariants 2, 6 and 8
+below — accepted by the owner, with its fixtures. `STATUS.md` carries the build order and the known
+risks.
+
+Clarvis may run a coding task on OpenAI's Codex (`codex app-server`, the Homebrew stable build) on
+the owner's ChatGPT plan. **RAVIS runs the Codex process and keeps the task.** Clarvis windows start
+it, answer it, steer it, stop it, and reattach to it after closing. It is optional; every product
+works without it.
+
+**Who owns what.**
+- **RAVIS** owns one long-lived Codex process: its home (outside RAVIS's configuration folder),
+  sign-in, version pin and allowance reading. It owns the agent-session records and the relay (SSE
+  events and JSON actions), the per-task command clean-up, the unanswered-request policy, and the
+  project write lock for both engines.
+- **Clarvis** owns the engine choice, the approval and question interface, git (branches, commits,
+  reconciliation), the task checkpoint, switching, and its own engine.
+- **NERVIS** shows Codex's state, allowance and running tasks, and starts or cancels a sign-in,
+  confirms the account or accepts a version through RAVIS. **It never starts Codex work (a task or
+  the file-rules re-test), and never steers or answers a task.** After the owner confirms, it may
+  stop one through RAVIS's owner Stop route, as the menu bar may through the launcher.
+
+**Identifiers.**
+- Catalogue id `ravis/codex`, listed only with `X-Clarvis-Engines: codex`, never a pool member or
+  fallback; `/v1` refuses it with 400 `agent_backend_not_a_chat_model`.
+- `GET /api/v1/codex` (any caller).
+- Admin, for UX and audit: `/api/v1/codex/sign-in`, `/sign-out`, `/account/confirm`,
+  `/version-check`, `/accept-version`. `/api/v1/codex/reprove` accepts only the owner's command-line
+  credential (`admin.owner_cli`), which NERVIS never holds.
+- Clarvis client plus session token: `/api/v1/agent-sessions…` (`RAVIS.md` §15.1.2), **except**
+  `POST /api/v1/agent-sessions/{sid}/owner-stop`, which takes only the owner's command-line
+  credential or NERVIS's admin credential, no token, and a confirmation of the task's folder name
+  and current turn.
+- Clarvis client plus lease: `/api/v1/project-locks…`.
+- Capabilities `ravis.codex_runtime@1` and `ravis.agent_sessions@1`.
+- Shared fixtures: `ravis/tests/fixtures/relay-contract/*.json` and
+  `ravis/tests/fixtures/lock-rule-cases.json`, owned by RAVIS and copied into Clarvis
+  (`src/test/fixtures/`) with a hash check against `codex-contract.sha256`.
+- Transport: JSON POST for actions and server-sent events for each task's stream (§4), never
+  WebSockets.
+
+**Invariants.**
+1. **One writer per project.** A central RAVIS lock, plus a lock file in the checkout. It is
+   released only after the engine's processes are confirmed gone and its work is settled. A switch
+   holds it until the destination starts. A Codex session starts a turn only while it holds the
+   lock. A holder that lost the lock never commits, saves the checkpoint or releases.
+2. **Approvals and questions are answered only by a Clarvis window holding the task's session
+   token** and an allowed client credential. NERVIS and administrative credentials are refused on
+   every session route except the stop-only owner route. RAVIS never approves a task's request, and
+   its unanswered-request policy may only decline and pause. **The one exception is the file-rules
+   re-test,** which the owner starts from the menu bar: RAVIS's harness allows only that test's four
+   listed commands, in its own throwaway folders, never in a task.
+3. **Stop resolves open requests before interrupting;** an answer after Stop never starts a step.
+4. **Feedback typed by the owner reaches the engine,** or the task checkpoint when no engine can
+   take it.
+5. **The allowance is not money.** No automatic move to a paid engine.
+6. **Any Codex binary not recorded as tested or accepted pauses new tasks.** Strict file rules must
+   be proven for the running version before any task starts.
+7. **A change of ChatGPT account pauses new tasks** until confirmed.
+8. **RAVIS's records, logs and events stay metadata-only,** except: content held in memory while
+   relayed (bounded, never persisted); Codex's own history in RAVIS's Codex folder (owner
+   decision); and the task's workspace path.
+
+**Out of scope.** Automatic switching when the quota runs out; Codex for chat, planning or the
+interview; remote hosts; other applications using agent sessions; any dashboard or menu control of
+tasks other than Stop; Codex on the ecosystem's own repositories or on the coding folder itself.
+
+**Lands with** RAVIS M29, Clarvis E-C9 and NERVIS M28, after a calibration step against the real
+runtime.
+
+**Exit.** On this Mac, a Codex task started in code-server:
+- shows progress, an approval and a steer;
+- keeps running when the browser tab is closed, and is reattached from desktop VS Code, where a
+  waiting approval is answered;
+- stops with its processes confirmed gone before anything is saved;
+- moves to `ravis/clarvis-agent` and back on the same branch, with typed feedback, and no two
+  engines ever write at once.
+
+The menu bar and the dashboard show the task and the allowance, and each stops a task after a
+confirmation; the attached editor then says where the stop came from. NERVIS's credentials are
+refused on every other session route.
 
 ---
 

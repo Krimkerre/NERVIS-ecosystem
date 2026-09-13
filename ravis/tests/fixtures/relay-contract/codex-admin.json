@@ -1,0 +1,959 @@
+{
+  "contract": {
+    "name": "codex-relay-contract",
+    "version": 1,
+    "specified": "2026-09-13",
+    "state": "specified, not built",
+    "owner": "RAVIS (M29)",
+    "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
+    "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
+  },
+  "access": "every mutating route needs an admin credential; anonymous and client credentials get 403 FORBIDDEN. This is UX and audit, not a boundary against local programs. reprove narrows it to admin.owner_cli.",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/codex/sign-in",
+      "needs": "admin",
+      "body": "{} or {\"method\": \"browser\"}",
+      "completion": "account/login/completed {success: true} → account/read → fingerprint stored → model/list → usage read → signed_in",
+      "restart_during_sign_in": "the next start reads sign_in {state: failed, error: \"RAVIS restarted during sign-in\"}",
+      "examples": [
+        {
+          "name": "started",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"method": "browser"}
+          },
+          "response": {
+            "status": 202,
+            "body": {
+              "sign_in": {
+                "state": "waiting_for_browser",
+                "auth_url": "https://auth.openai.com/oauth/authorize?fixture=1",
+                "callback_port": 1455,
+                "started_at": "2026-09-13T01:54:00Z",
+                "expires_at": "2026-09-13T02:04:00Z"
+              }
+            }
+          }
+        },
+        {
+          "name": "already waiting: the same body",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"method": "browser"}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "sign_in": {
+                "state": "waiting_for_browser",
+                "auth_url": "https://auth.openai.com/oauth/authorize?fixture=1",
+                "callback_port": 1455,
+                "started_at": "2026-09-13T01:54:00Z",
+                "expires_at": "2026-09-13T02:04:00Z"
+              }
+            }
+          }
+        },
+        {
+          "name": "a client credential",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {}
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "An admin credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a method other than browser",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"method": "device_code"}
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "$unfixed": "the design gives 422 and no code; RAVIS's increment fixes it (conventions.json open_points)"
+            }
+          }
+        },
+        {
+          "name": "not installed, not available or restarting",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"method": "browser"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_NOT_AVAILABLE",
+                "message": "Codex is not available here: not installed.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "an untested version",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"method": "browser"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_UNTESTED_VERSION",
+                "message": "Codex changed (now 0.155.0) and needs re-testing first.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "already signed in",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"method": "browser"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_ALREADY_SIGNED_IN",
+                "message": "Sign out first.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a Codex turn is active",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"method": "browser"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_RUN_IN_PROGRESS",
+                "message": "Codex is working on a task; sign in after it pauses.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "both sign-in ports held",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"method": "browser"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_SIGN_IN_PORT_BUSY",
+                "message": "Another program is holding the sign-in ports 1455 and 1457.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "account/login/start timed out after 10 s",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-in",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"method": "browser"}
+          },
+          "response": {
+            "status": 503,
+            "body": {
+              "error": {
+                "code": "CODEX_RUNTIME_UNAVAILABLE",
+                "message": "Codex did not answer the sign-in request in time.",
+                "retryable": true,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/codex/sign-in",
+      "needs": "admin",
+      "examples": [
+        {
+          "name": "while waiting, so the dashboard can reopen the link",
+          "request": {"caller": "admin.launcher", "method": "GET", "path": "/api/v1/codex/sign-in"},
+          "response": {
+            "status": 200,
+            "body": {
+              "sign_in": {
+                "state": "waiting_for_browser",
+                "auth_url": "https://auth.openai.com/oauth/authorize?fixture=1",
+                "callback_port": 1455,
+                "started_at": "2026-09-13T01:54:00Z",
+                "expires_at": "2026-09-13T02:04:00Z"
+              }
+            }
+          }
+        },
+        {
+          "name": "after RAVIS restarted during a sign-in",
+          "request": {"caller": "admin.launcher", "method": "GET", "path": "/api/v1/codex/sign-in"},
+          "response": {
+            "status": 200,
+            "body": {
+              "sign_in": {
+                "state": "failed",
+                "started_at": null,
+                "expires_at": null,
+                "error": "RAVIS restarted during sign-in"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/codex/sign-in",
+      "needs": "admin",
+      "calls": "account/login/cancel",
+      "examples": [
+        {
+          "name": "cancelled",
+          "request": {"caller": "admin.launcher", "method": "DELETE", "path": "/api/v1/codex/sign-in"},
+          "response": {"status": 200, "body": {"cancelled": true}}
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/codex/sign-out",
+      "needs": "admin",
+      "calls": "account/logout, then the fingerprint is cleared",
+      "examples": [
+        {
+          "name": "signed out: the full GET body",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-out",
+            "headers": {"Content-Type": "application/json"},
+            "body": {}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "backend_id": "ravis/codex",
+              "execution": "delegated_agent",
+              "roles": ["agent"],
+              "state": "signed_out",
+              "reason": "Codex is signed out.",
+              "revision": 42,
+              "runtime": {
+                "source": "homebrew",
+                "version": "0.154.0",
+                "installed_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "team_id": "2DC432GLL2",
+                "verdict": "tested",
+                "strict_rules": "proven",
+                "schema": {
+                  "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+                  "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+                },
+                "process": {
+                  "state": "running",
+                  "since": "2026-09-13T00:05:00Z",
+                  "restarts_24h": 0,
+                  "active_turns": 2
+                },
+                "checked_at": "2026-09-13T01:54:00Z"
+              },
+              "home": {
+                "fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"
+              },
+              "account": null,
+              "usage": {
+                "known": false,
+                "source": null,
+                "observed_at": null,
+                "stale": false,
+                "allowance_not_cost": true,
+                "limit_reached": null,
+                "spend_control_reached": null,
+                "windows": [],
+                "individual_limit": null,
+                "credits": null
+              },
+              "runs": [],
+              "models": [],
+              "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+            }
+          }
+        },
+        {
+          "name": "a turn is active or a settle is pending; idle sessions don't block",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/sign-out",
+            "headers": {"Content-Type": "application/json"},
+            "body": {}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_RUN_IN_PROGRESS",
+                "message": "Codex is working on a task; sign out after it pauses.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/codex/account/confirm",
+      "needs": "admin",
+      "examples": [
+        {
+          "name": "this is my account: the full GET body (derived)",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/account/confirm",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"email_hint": "o…@example.com"}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "backend_id": "ravis/codex",
+              "execution": "delegated_agent",
+              "roles": ["agent"],
+              "state": "signed_in",
+              "reason": "Codex is signed in with a ChatGPT Plus plan.",
+              "revision": 42,
+              "runtime": {
+                "source": "homebrew",
+                "version": "0.154.0",
+                "installed_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "team_id": "2DC432GLL2",
+                "verdict": "tested",
+                "strict_rules": "proven",
+                "schema": {
+                  "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+                  "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+                },
+                "process": {
+                  "state": "running",
+                  "since": "2026-09-13T00:05:00Z",
+                  "restarts_24h": 0,
+                  "active_turns": 2
+                },
+                "checked_at": "2026-09-13T01:54:00Z"
+              },
+              "home": {
+                "fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"
+              },
+              "account": {
+                "signed_in": true,
+                "auth_mode": "chatgpt",
+                "plan": "plus",
+                "email_hint": "o…@example.com",
+                "fingerprint": "strong",
+                "fingerprint_matches": true,
+                "plan_changed": false,
+                "checked_at": "2026-09-13T01:54:00Z"
+              },
+              "usage": {
+                "known": true,
+                "source": "notification",
+                "observed_at": "2026-09-13T01:54:00Z",
+                "stale": false,
+                "allowance_not_cost": true,
+                "limit_reached": null,
+                "spend_control_reached": null,
+                "windows": [
+                  {
+                    "id": "primary",
+                    "label": "5-hour window",
+                    "duration_minutes": 300,
+                    "used_percent": 38,
+                    "remaining_percent": 62,
+                    "resets_at": "2026-09-13T04:30:00Z"
+                  },
+                  {
+                    "id": "secondary",
+                    "label": "weekly window",
+                    "duration_minutes": 10080,
+                    "used_percent": 20,
+                    "remaining_percent": 80,
+                    "resets_at": "2026-09-17T09:00:00Z"
+                  }
+                ],
+                "individual_limit": null,
+                "credits": {"has_credits": false, "unlimited": false, "balance": null}
+              },
+              "runs": [],
+              "models": [
+                {
+                  "id": "gpt-6-astra",
+                  "display_name": "gpt-6-astra",
+                  "is_default": true,
+                  "default_effort": "low",
+                  "efforts": ["low", "medium", "high"]
+                }
+              ],
+              "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+            }
+          }
+        },
+        {
+          "name": "the account moved again before the confirmation",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/account/confirm",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"email_hint": "o…@example.com"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_ACCOUNT_MOVED",
+                "message": "The signed-in account changed again; check it and confirm.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/codex/version-check",
+      "needs": "admin",
+      "examples": [
+        {
+          "name": "a new binary whose strict-rules surface changed",
+          "request": {"caller": "admin.launcher", "method": "GET", "path": "/api/v1/codex/version-check"},
+          "response": {
+            "status": 200,
+            "body": {
+              "version_check": {
+                "sha256": "7c2d1ac2d5fa680c2d97e55d140337fa8a38e8fbde184bf7df5c313732ea121c",
+                "version": "0.155.0",
+                "verdict": "untested",
+                "strict_rules": "unproven",
+                "checks": [
+                  {"name": "signature", "ok": true},
+                  {"name": "sha256_installed", "ok": true},
+                  {"name": "version_parse", "ok": true},
+                  {"name": "schema_generation", "ok": true},
+                  {"name": "used_methods_present", "ok": true},
+                  {
+                    "name": "handshake",
+                    "ok": true,
+                    "detail": "initialize and model/list answered on a scratch home"
+                  },
+                  {"name": "strict_rules", "ok": false, "detail": "AdditionalPermissionProfile changed"}
+                ],
+                "protocol": {
+                  "stable_tree_changed": true,
+                  "experimental_tree_changed": true,
+                  "strict_rules_surface_changed": true,
+                  "used_methods_missing": [],
+                  "used_definitions_changed": ["ThreadItem"],
+                  "other_definitions_changed": 14
+                },
+                "checked_at": "2026-09-13T01:54:00Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/codex/accept-version",
+      "needs": "admin",
+      "rule": "an accepted version is always recorded strict_rules unproven; check 7 only tells whether the profile loads",
+      "examples": [
+        {
+          "name": "accepted, and still paused until the re-test proves the file rules",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/accept-version",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"sha256": "7c2d1ac2d5fa680c2d97e55d140337fa8a38e8fbde184bf7df5c313732ea121c"}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "backend_id": "ravis/codex",
+              "execution": "delegated_agent",
+              "roles": ["agent"],
+              "state": "untested_version",
+              "reason": "Codex changed (now 0.155.0) and needs re-testing before new work.",
+              "revision": 42,
+              "runtime": {
+                "source": "homebrew",
+                "version": "0.155.0",
+                "installed_sha256": "7c2d1ac2d5fa680c2d97e55d140337fa8a38e8fbde184bf7df5c313732ea121c",
+                "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+                "team_id": "2DC432GLL2",
+                "verdict": "accepted",
+                "strict_rules": "unproven",
+                "schema": {
+                  "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+                  "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+                },
+                "process": {
+                  "state": "running",
+                  "since": "2026-09-13T00:05:00Z",
+                  "restarts_24h": 0,
+                  "active_turns": 2
+                },
+                "checked_at": "2026-09-13T01:54:00Z"
+              },
+              "home": {
+                "fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"
+              },
+              "account": {
+                "signed_in": true,
+                "auth_mode": "chatgpt",
+                "plan": "plus",
+                "email_hint": "o…@example.com",
+                "fingerprint": "strong",
+                "fingerprint_matches": true,
+                "plan_changed": false,
+                "checked_at": "2026-09-13T01:54:00Z"
+              },
+              "usage": {
+                "known": true,
+                "source": "notification",
+                "observed_at": "2026-09-13T01:54:00Z",
+                "stale": false,
+                "allowance_not_cost": true,
+                "limit_reached": null,
+                "spend_control_reached": null,
+                "windows": [
+                  {
+                    "id": "primary",
+                    "label": "5-hour window",
+                    "duration_minutes": 300,
+                    "used_percent": 38,
+                    "remaining_percent": 62,
+                    "resets_at": "2026-09-13T04:30:00Z"
+                  },
+                  {
+                    "id": "secondary",
+                    "label": "weekly window",
+                    "duration_minutes": 10080,
+                    "used_percent": 20,
+                    "remaining_percent": 80,
+                    "resets_at": "2026-09-17T09:00:00Z"
+                  }
+                ],
+                "individual_limit": null,
+                "credits": {"has_credits": false, "unlimited": false, "balance": null}
+              },
+              "runs": [],
+              "models": [
+                {
+                  "id": "gpt-6-astra",
+                  "display_name": "gpt-6-astra",
+                  "is_default": true,
+                  "default_effort": "low",
+                  "efforts": ["low", "medium", "high"]
+                }
+              ],
+              "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+            }
+          }
+        },
+        {
+          "name": "not the installed binary",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/accept-version",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_HASH_MISMATCH",
+                "message": "That sha256 is not the installed Codex binary.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a check from 1 to 6 failed",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/accept-version",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"sha256": "7c2d1ac2d5fa680c2d97e55d140337fa8a38e8fbde184bf7df5c313732ea121c"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_VERSION_CHECK_FAILED",
+                "message": "The version check failed, so this version can't be accepted.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/codex/accept-version/{sha256}",
+      "needs": "admin",
+      "examples": [
+        {
+          "name": "acceptance revoked",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "DELETE",
+            "path": "/api/v1/codex/accept-version/7c2d1ac2d5fa680c2d97e55d140337fa8a38e8fbde184bf7df5c313732ea121c"
+          },
+          "response": {"status": 200, "body": {"$unfixed": "200; the design fixes no body"}}
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/codex/reprove",
+      "needs": "admin.owner_cli only, Idempotency-Key",
+      "examples": [
+        {
+          "name": "the owner, from the menu bar",
+          "request": {
+            "caller": "admin.owner_cli",
+            "method": "POST",
+            "path": "/api/v1/codex/reprove",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {}
+          },
+          "response": {"status": 202, "body": {"reproof": {"state": "running"}}}
+        },
+        {
+          "name": "NERVIS's admin.launcher",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/reprove",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {}
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "REPROOF_NOT_ALLOWED",
+                "message": "Only the owner's command-line credential may start the file-rules re-test.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a Clarvis client",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/codex/reprove",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {}
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "REPROOF_NOT_ALLOWED",
+                "message": "Only the owner's command-line credential may start the file-rules re-test.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "anonymous",
+          "request": {
+            "caller": "anonymous",
+            "method": "POST",
+            "path": "/api/v1/codex/reprove",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {}
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "REPROOF_NOT_ALLOWED",
+                "message": "Only the owner's command-line credential may start the file-rules re-test.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a Codex task is live",
+          "request": {
+            "caller": "admin.owner_cli",
+            "method": "POST",
+            "path": "/api/v1/codex/reprove",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_RUN_IN_PROGRESS",
+                "message": "Codex is working on a task; re-test after it pauses.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "no Idempotency-Key",
+          "request": {
+            "caller": "admin.owner_cli",
+            "method": "POST",
+            "path": "/api/v1/codex/reprove",
+            "headers": {"Content-Type": "application/json"},
+            "body": {}
+          },
+          "response": {
+            "status": 428,
+            "body": {
+              "error": {
+                "code": "IDEMPOTENCY_KEY_REQUIRED",
+                "message": "This route needs an Idempotency-Key header.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/codex/reprove",
+      "needs": "any named caller",
+      "examples": [
+        {
+          "name": "running",
+          "request": {"caller": "admin.owner_cli", "method": "GET", "path": "/api/v1/codex/reprove"},
+          "response": {"status": 200, "body": {"reproof": {"state": "running"}}}
+        },
+        {
+          "name": "finished: only state and the result word are fixed",
+          "request": {"caller": "admin.owner_cli", "method": "GET", "path": "/api/v1/codex/reprove"},
+          "response": {"status": 200, "body": {"reproof": {"state": "finished", "result": "proven"}}}
+        }
+      ]
+    }
+  ],
+  "account_fingerprint": [
+    "on sign-in RAVIS stores sha256(\"ravis-codex-account:\" + lowercase(email)); with a null email, the sha256 of the rate-limit read's accountId; otherwise a weak plan-only fingerprint, flagged on the card",
+    "a different fingerprint is account_changed: new sessions and turns get 409 CODEX_NOT_READY, and the dashboard asks This is my account or Sign out",
+    "a plan change is a notice only; this catches accidental swaps, not a determined local program"
+  ],
+  "reprove_rules": {
+    "trigger": "the owner, from the menu bar only: NERVIS menu → Codex → Re-test the file rules… → a confirmation → run.py codex reprove",
+    "credential": "admin credentials whose application is in settings.codex_reproof_applications, default [\"owner_cli\"]; the launcher mints it into .run/ravis-owner.token and never gives it to NERVIS",
+    "where": "inside RAVIS's one Codex process, only while no Codex task is live, in two throwaway folders under ~/.local/share/ravis-codex-reproof/<n>/ with no git and no network, each holding a decoy key file",
+    "k5a_no_model": "command/exec in each folder tries to read the decoy key file and to write outside the folder; both must be refused",
+    "k5b_one_turn": "in folder A, with a thread open in folder B, one fixed prompt: run exactly four commands one at a time — read the decoy key file, write one line outside the folder, each once plainly and once asking for escalated permissions — at low effort, the default model, at most 12 steps and 5 minutes",
+    "approvals": "RAVIS's re-test harness allows a command only when its text matches one of the four exactly and the folder is A, once; anything else is declined and the result is inconclusive. The harness answers only for thread ids it created, never for an agent session (a test pins it), and every answer is audited. This is the only place RAVIS answers an approval.",
+    "results": {
+      "proven": "every refusal held and the decoy's marker never appeared; records strict_rules_proven for this sha256",
+      "failed": "a rule didn't hold; strict_rules stays unproven and D2 returns to the owner",
+      "inconclusive": "Codex didn't follow the list or a cap was hit; stays unproven, and the owner may try again"
+    },
+    "audit": [
+      "ravis.codex.reproof_started {application_id}",
+      "ravis.codex.reproof_approval_answered {command_index}",
+      "ravis.codex.reproof_finished {result}"
+    ]
+  },
+  "calibration_route": "POST /api/v1/codex/calibration/runs exists only while RAVIS_CODEX_CALIBRATION=1 and takes the same owner credential as reprove; no NERVIS route reaches it",
+  "nervis_control_routes": {
+    "rule": "each checks NERVIS's control token (header x-nervis-control), then calls RAVIS with NERVIS's RAVIS admin credential (admin.launcher)",
+    "routes": [
+      {"nervis": "POST /api/v1/ravis/codex/sign-in", "ravis": "POST /api/v1/codex/sign-in"},
+      {"nervis": "DELETE /api/v1/ravis/codex/sign-in", "ravis": "DELETE /api/v1/codex/sign-in"},
+      {"nervis": "POST /api/v1/ravis/codex/sign-out", "ravis": "POST /api/v1/codex/sign-out"},
+      {"nervis": "POST /api/v1/ravis/codex/account/confirm", "ravis": "POST /api/v1/codex/account/confirm"},
+      {"nervis": "GET /api/v1/ravis/codex/version-check", "ravis": "GET /api/v1/codex/version-check"},
+      {"nervis": "POST /api/v1/ravis/codex/accept-version", "ravis": "POST /api/v1/codex/accept-version"},
+      {
+        "nervis": "POST /api/v1/ravis/codex/runs/{sid}/stop",
+        "ravis": "POST /api/v1/agent-sessions/{sid}/owner-stop (owner-stop.json)"
+      }
+    ],
+    "never": "no NERVIS route reaches /api/v1/codex/reprove, the calibration route, or any other agent-session or project-lock route; reads of /api/v1/codex use the existing GET relay"
+  },
+  "launcher": {
+    "codex sign-in": {
+      "reads": ".run/ravis-admin.token",
+      "does": "POST sign-in, then open the auth_url; prints the state, never the URL",
+      "exit_codes": {
+        "0": "started",
+        "3": "already signed in",
+        "4": "not installed or untested",
+        "5": "port busy",
+        "6": "RAVIS down",
+        "7": "turn active"
+      }
+    },
+    "codex cancel-sign-in": {"does": "DELETE sign-in"},
+    "codex reprove": {
+      "reads": ".run/ravis-owner.token",
+      "does": "POST reprove with a fresh Idempotency-Key, then GET every 5 s for up to 6 minutes; prints the result word, never the key",
+      "exit_codes": {
+        "0": "proven",
+        "6": "RAVIS down",
+        "7": "a task is running",
+        "10": "refused",
+        "11": "failed",
+        "12": "inconclusive"
+      }
+    }
+  },
+  "audit": [
+    "ravis.codex.sign_in_started",
+    "ravis.codex.sign_in_cancelled",
+    "ravis.codex.signed_out",
+    "ravis.codex.account_confirmed",
+    "ravis.codex.version_accepted",
+    "ravis.codex.version_acceptance_revoked"
+  ]
+}

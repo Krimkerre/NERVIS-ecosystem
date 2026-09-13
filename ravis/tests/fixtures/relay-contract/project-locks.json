@@ -1,0 +1,966 @@
+{
+  "contract": {
+    "name": "codex-relay-contract",
+    "version": 1,
+    "specified": "2026-09-13",
+    "state": "specified, not built",
+    "owner": "RAVIS (M29)",
+    "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
+    "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
+  },
+  "scope": "a Codex session holds its project's lock itself, taken at create; Clarvis's own engine takes its lock through these routes. Every route needs the client credential (conventions.json identity_rule).",
+  "lock_view": {
+    "holder.kind": ["codex_session", "clarvis_run"],
+    "state": ["running", "stopping", "transferring", "leftover", "superseded"],
+    "verdict": "alive | unresponsive | gone, by the shared lock rule (../lock-rule-cases.json)",
+    "examples": [
+      {
+        "id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K",
+        "workspace": {
+          "name": "add-utc-demo",
+          "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+        },
+        "holder": {
+          "kind": "codex_session",
+          "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+          "window_id": null,
+          "host": "ravis",
+          "since": "2026-09-13T01:12:00Z"
+        },
+        "state": "running",
+        "waiting_on_you": true,
+        "heartbeat_age_seconds": 4,
+        "verdict": "alive",
+        "taken_over_from": null
+      },
+      {
+        "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+        "workspace": {
+          "name": "add-utc-demo",
+          "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+        },
+        "holder": {
+          "kind": "clarvis_run",
+          "session_id": null,
+          "window_id": "win-desktop-1c9e4d",
+          "host": "desktop",
+          "since": "2026-09-13T01:42:00Z"
+        },
+        "state": "running",
+        "waiting_on_you": false,
+        "heartbeat_age_seconds": 7,
+        "verdict": "alive",
+        "taken_over_from": null
+      }
+    ]
+  },
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/project-locks",
+      "needs": ["client credential", "Idempotency-Key"],
+      "body": "{workspace_root, clarvis_task_id, holder: {kind: clarvis_run, window_id, host, pid, pid_start}, git_dir, transfer_token?, adopt_file_lock?}",
+      "rule": "the window creates the checkout lock file first; on a refusal it deletes the file and refuses. adopt_file_lock true re-registers a file lock after RAVIS was unreachable or restarted, replacing a superseded row",
+      "examples": [
+        {
+          "name": "taken",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "holder": {
+                "kind": "clarvis_run",
+                "window_id": "win-desktop-1c9e4d",
+                "host": "desktop",
+                "pid": 48123,
+                "pid_start": "Sun Sep 13 05:10:02 2026"
+              },
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git"
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "lock": {
+                "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                "workspace": {
+                  "name": "add-utc-demo",
+                  "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                },
+                "holder": {
+                  "kind": "clarvis_run",
+                  "session_id": null,
+                  "window_id": "win-desktop-1c9e4d",
+                  "host": "desktop",
+                  "since": "2026-09-13T01:42:00Z"
+                },
+                "state": "running",
+                "waiting_on_you": false,
+                "heartbeat_age_seconds": 7,
+                "verdict": "alive",
+                "taken_over_from": null
+              },
+              "lease_token": "lk_FIXTURE_lease_not_a_secret_CCCCCCCCCCCCCCCC"
+            }
+          }
+        },
+        {
+          "name": "moved atomically from a Codex session with its transfer token",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "holder": {
+                "kind": "clarvis_run",
+                "window_id": "win-desktop-1c9e4d",
+                "host": "desktop",
+                "pid": 48123,
+                "pid_start": "Sun Sep 13 05:10:02 2026"
+              },
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "transfer_token": "FIXTURE-transfer-token-1"
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "lock": {
+                "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                "workspace": {
+                  "name": "add-utc-demo",
+                  "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                },
+                "holder": {
+                  "kind": "clarvis_run",
+                  "session_id": null,
+                  "window_id": "win-desktop-1c9e4d",
+                  "host": "desktop",
+                  "since": "2026-09-13T01:42:00Z"
+                },
+                "state": "running",
+                "waiting_on_you": false,
+                "heartbeat_age_seconds": 7,
+                "verdict": "alive",
+                "taken_over_from": null
+              },
+              "lease_token": "lk_FIXTURE_lease_not_a_secret_CCCCCCCCCCCCCCCC"
+            }
+          }
+        },
+        {
+          "name": "a file lock adopted after RAVIS came back",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "holder": {
+                "kind": "clarvis_run",
+                "window_id": "win-desktop-1c9e4d",
+                "host": "desktop",
+                "pid": 48123,
+                "pid_start": "Sun Sep 13 05:10:02 2026"
+              },
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "adopt_file_lock": true
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "lock": {
+                "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                "workspace": {
+                  "name": "add-utc-demo",
+                  "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                },
+                "holder": {
+                  "kind": "clarvis_run",
+                  "session_id": null,
+                  "window_id": "win-desktop-1c9e4d",
+                  "host": "desktop",
+                  "since": "2026-09-13T01:42:00Z"
+                },
+                "state": "running",
+                "waiting_on_you": false,
+                "heartbeat_age_seconds": 7,
+                "verdict": "alive",
+                "taken_over_from": null
+              },
+              "lease_token": "lk_FIXTURE_lease_not_a_secret_CCCCCCCCCCCCCCCC"
+            }
+          }
+        },
+        {
+          "name": "a Codex session holds it: attach instead",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "holder": {
+                "kind": "clarvis_run",
+                "window_id": "win-desktop-1c9e4d",
+                "host": "desktop",
+                "pid": 48123,
+                "pid_start": "Sun Sep 13 05:10:02 2026"
+              },
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git"
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROJECT_LOCKED",
+                "message": "Codex is already working on this project.",
+                "retryable": false,
+                "details": {
+                  "lock": {
+                    "id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K",
+                    "workspace": {
+                      "name": "add-utc-demo",
+                      "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                    },
+                    "holder": {
+                      "kind": "codex_session",
+                      "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+                      "window_id": null,
+                      "host": "ravis",
+                      "since": "2026-09-13T01:12:00Z"
+                    },
+                    "state": "running",
+                    "waiting_on_you": true,
+                    "heartbeat_age_seconds": 4,
+                    "verdict": "alive",
+                    "taken_over_from": null
+                  },
+                  "takeover_allowed": false,
+                  "attach_session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D"
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "an unresponsive Clarvis window holds it",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "holder": {
+                "kind": "clarvis_run",
+                "window_id": "win-desktop-1c9e4d",
+                "host": "desktop",
+                "pid": 48123,
+                "pid_start": "Sun Sep 13 05:10:02 2026"
+              },
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git"
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROJECT_LOCKED",
+                "message": "Another Clarvis window holds this project.",
+                "retryable": false,
+                "details": {
+                  "lock": {
+                    "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                    "workspace": {
+                      "name": "add-utc-demo",
+                      "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                    },
+                    "holder": {
+                      "kind": "clarvis_run",
+                      "session_id": null,
+                      "window_id": "win-desktop-1c9e4d",
+                      "host": "desktop",
+                      "since": "2026-09-13T01:42:00Z"
+                    },
+                    "state": "running",
+                    "waiting_on_you": false,
+                    "heartbeat_age_seconds": 140,
+                    "verdict": "unresponsive",
+                    "taken_over_from": null
+                  },
+                  "takeover_allowed": true
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a folder around this one is locked",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo/web",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "holder": {
+                "kind": "clarvis_run",
+                "window_id": "win-desktop-1c9e4d",
+                "host": "desktop",
+                "pid": 48123,
+                "pid_start": "Sun Sep 13 05:10:02 2026"
+              },
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git"
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "NESTED_PROJECT_LOCKED",
+                "message": "A folder inside or around this project is locked.",
+                "retryable": false,
+                "details": {
+                  "lock": {
+                    "id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K",
+                    "workspace": {
+                      "name": "add-utc-demo",
+                      "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                    },
+                    "holder": {
+                      "kind": "codex_session",
+                      "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+                      "window_id": null,
+                      "host": "ravis",
+                      "since": "2026-09-13T01:12:00Z"
+                    },
+                    "state": "running",
+                    "waiting_on_you": true,
+                    "heartbeat_age_seconds": 4,
+                    "verdict": "alive",
+                    "taken_over_from": null
+                  }
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "the ecosystem's own repository",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/clarvis",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "holder": {
+                "kind": "clarvis_run",
+                "window_id": "win-desktop-1c9e4d",
+                "host": "desktop",
+                "pid": 48123,
+                "pid_start": "Sun Sep 13 05:10:02 2026"
+              },
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git"
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "WORKSPACE_ROOT_NOT_ALLOWED",
+                "message": "Codex doesn't work on the ecosystem's own repositories.",
+                "retryable": false,
+                "details": {"reason": "protected_repository"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a git_dir that is not the root's",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "holder": {
+                "kind": "clarvis_run",
+                "window_id": "win-desktop-1c9e4d",
+                "host": "desktop",
+                "pid": 48123,
+                "pid_start": "Sun Sep 13 05:10:02 2026"
+              },
+              "git_dir": "/tmp/elsewhere/.git"
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "GIT_DIR_NOT_ALLOWED",
+                "message": "git_dir is not this workspace's git folder.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/project-locks/{lid}/heartbeat",
+      "needs": ["X-Lock-Lease"],
+      "body": "{waiting_on_you, state, running_command: {pid, pgid, start, comm} | null}, every 15 s, and synchronously right before every commit",
+      "examples": [
+        {
+          "name": "held",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/heartbeat",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Lock-Lease": "lk_FIXTURE_lease_not_a_secret_CCCCCCCCCCCCCCCC"
+            },
+            "body": {
+              "waiting_on_you": false,
+              "state": "running",
+              "running_command": {
+                "pid": 48210,
+                "pgid": 48210,
+                "start": "Sun Sep 13 05:41:07 2026",
+                "comm": "npm"
+              }
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "lock": {
+                "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                "workspace": {
+                  "name": "add-utc-demo",
+                  "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                },
+                "holder": {
+                  "kind": "clarvis_run",
+                  "session_id": null,
+                  "window_id": "win-desktop-1c9e4d",
+                  "host": "desktop",
+                  "since": "2026-09-13T01:42:00Z"
+                },
+                "state": "running",
+                "waiting_on_you": false,
+                "heartbeat_age_seconds": 7,
+                "verdict": "alive",
+                "taken_over_from": null
+              }
+            }
+          }
+        },
+        {
+          "name": "taken over: the fence",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/heartbeat",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Lock-Lease": "lk_FIXTURE_lease_not_a_secret_CCCCCCCCCCCCCCCC"
+            },
+            "body": {
+              "waiting_on_you": false,
+              "state": "running",
+              "running_command": {
+                "pid": 48210,
+                "pgid": 48210,
+                "start": "Sun Sep 13 05:41:07 2026",
+                "comm": "npm"
+              }
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "LEASE_REVOKED",
+                "message": "Another window took over this task.",
+                "retryable": false,
+                "details": {"taken_over_by": "win-code-server-7f3a2b"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/project-locks/{lid}/release",
+      "needs": ["X-Lock-Lease"],
+      "examples": [
+        {
+          "name": "released",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/release",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Lock-Lease": "lk_FIXTURE_lease_not_a_secret_CCCCCCCCCCCCCCCC"
+            },
+            "body": {"processes_confirmed_gone": true}
+          },
+          "response": {"status": 200, "body": {"$unfixed": "200; the design fixes no body"}}
+        },
+        {
+          "name": "processes not confirmed gone, or the lock is leftover",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/release",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Lock-Lease": "lk_FIXTURE_lease_not_a_secret_CCCCCCCCCCCCCCCC"
+            },
+            "body": {"processes_confirmed_gone": false}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROCESSES_NOT_CONFIRMED_GONE",
+                "message": "Something this run started is still running.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/project-locks/{lid}/takeover",
+      "needs": ["client credential", "Idempotency-Key", "no lease"],
+      "rule": "only for clarvis_run holders; before the new holder writes, the holder's running_command is killed with its whole process group and descendants and confirmed gone; if that can't be confirmed the takeover stays leftover",
+      "examples": [
+        {
+          "name": "taken over from an unresponsive window, confirmed",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/takeover",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "window": {
+                "id": "win-code-server-7f3a2b",
+                "host": "code-server",
+                "pid": 50211,
+                "pid_start": "Sun Sep 13 05:30:40 2026"
+              },
+              "confirm": {"holder_window_id": "win-desktop-1c9e4d", "holder_since": "2026-09-13T01:42:00Z"}
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "lock": {
+                "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                "workspace": {
+                  "name": "add-utc-demo",
+                  "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                },
+                "holder": {
+                  "kind": "clarvis_run",
+                  "session_id": null,
+                  "window_id": "win-code-server-7f3a2b",
+                  "host": "code-server",
+                  "since": "2026-09-13T01:42:00Z"
+                },
+                "state": "running",
+                "waiting_on_you": false,
+                "heartbeat_age_seconds": 7,
+                "verdict": "alive",
+                "taken_over_from": "win-desktop-1c9e4d"
+              },
+              "lease_token": "lk_FIXTURE_takeover_lease_not_a_secret_DDDDDDD"
+            }
+          }
+        },
+        {
+          "name": "the holder is alive and working",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/takeover",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "window": {
+                "id": "win-code-server-7f3a2b",
+                "host": "code-server",
+                "pid": 50211,
+                "pid_start": "Sun Sep 13 05:30:40 2026"
+              },
+              "confirm": {"holder_window_id": "win-desktop-1c9e4d", "holder_since": "2026-09-13T01:42:00Z"}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "HOLDER_ACTIVE",
+                "message": "Another Clarvis window is working on this project; stop it there first.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a Codex session holds it",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK5A2B3C4D5E6F7G8H9J0K/takeover",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "window": {
+                "id": "win-code-server-7f3a2b",
+                "host": "code-server",
+                "pid": 50211,
+                "pid_start": "Sun Sep 13 05:30:40 2026"
+              },
+              "confirm": {"holder_window_id": "win-desktop-1c9e4d", "holder_since": "2026-09-13T01:42:00Z"}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "ATTACH_INSTEAD",
+                "message": "Codex sessions are attached, never taken over.",
+                "retryable": false,
+                "details": {"session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "the confirmation names another window",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/takeover",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "window": {
+                "id": "win-code-server-7f3a2b",
+                "host": "code-server",
+                "pid": 50211,
+                "pid_start": "Sun Sep 13 05:30:40 2026"
+              },
+              "confirm": {"holder_window_id": "win-desktop-1c9e4d", "holder_since": "2026-09-13T01:42:00Z"}
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "CONFIRMATION_MISMATCH",
+                "message": "The lock's holder changed; look again before taking over.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/project-locks/{lid}/transfer",
+      "needs": ["X-Lock-Lease, or the holding session's token", "Idempotency-Key"],
+      "rule": "the lock goes to transferring; a transfer token that expires leaves the lock with the source in stopped and never releases it",
+      "examples": [
+        {
+          "name": "Clarvis's engine to Codex",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/transfer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Lock-Lease": "lk_FIXTURE_lease_not_a_secret_CCCCCCCCCCCCCCCC",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"to": "codex_session"}
+          },
+          "response": {
+            "status": 200,
+            "body": {"transfer_token": "FIXTURE-transfer-token-1", "expires_at": "2026-09-13T02:09:00Z"}
+          }
+        },
+        {
+          "name": "Codex to Clarvis's engine, with the session token",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK5A2B3C4D5E6F7G8H9J0K/transfer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {"to": "clarvis_run"}
+          },
+          "response": {
+            "status": 200,
+            "body": {"transfer_token": "FIXTURE-transfer-token-1", "expires_at": "2026-09-13T02:09:00Z"}
+          }
+        },
+        {
+          "name": "processes not confirmed gone",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/transfer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Lock-Lease": "lk_FIXTURE_lease_not_a_secret_CCCCCCCCCCCCCCCC",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"to": "codex_session"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROCESSES_NOT_CONFIRMED_GONE",
+                "message": "Something this run started is still running.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/project-locks?workspace_root=",
+      "needs": ["client credential"],
+      "examples": [
+        {
+          "name": "held",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/project-locks",
+            "query": {"workspace_root": "/Users/owner/Documents/coding/add-utc-demo"}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "lock": {
+                "id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K",
+                "workspace": {
+                  "name": "add-utc-demo",
+                  "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                },
+                "holder": {
+                  "kind": "codex_session",
+                  "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+                  "window_id": null,
+                  "host": "ravis",
+                  "since": "2026-09-13T01:12:00Z"
+                },
+                "state": "running",
+                "waiting_on_you": true,
+                "heartbeat_age_seconds": 4,
+                "verdict": "alive",
+                "taken_over_from": null
+              }
+            }
+          }
+        },
+        {
+          "name": "free",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/project-locks",
+            "query": {"workspace_root": "/Users/owner/Documents/coding/add-utc-demo"}
+          },
+          "response": {"status": 200, "body": {"lock": null}}
+        },
+        {
+          "name": "anonymous",
+          "request": {
+            "caller": "anonymous",
+            "method": "GET",
+            "path": "/api/v1/project-locks",
+            "query": {"workspace_root": "/Users/owner/Documents/coding/add-utc-demo"}
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "AGENT_CLIENT_NOT_ALLOWED",
+                "message": "A Clarvis credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a root outside the rule",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/project-locks",
+            "query": {"workspace_root": "/Users/owner/Library"}
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "WORKSPACE_ROOT_NOT_ALLOWED",
+                "message": "That folder can't hold a Codex task.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "takeover_rules": [
+    {"holder_verdict": "gone", "takeover": "allowed, no confirmation"},
+    {
+      "holder_verdict": "unresponsive, or alive with waiting_on_you",
+      "takeover": "only with confirm matching the holder's window id and since"
+    },
+    {"holder_verdict": "alive and working", "takeover": "409 HOLDER_ACTIVE"}
+  ],
+  "nested_root_cases": [
+    {
+      "requested": "/Users/owner/Documents/coding/add-utc-demo",
+      "locked": "/Users/owner/Documents/coding/add-utc-demo/web",
+      "nested": true
+    },
+    {
+      "requested": "/Users/owner/Documents/coding/add-utc-demo/web",
+      "locked": "/Users/owner/Documents/coding/add-utc-demo",
+      "nested": true
+    },
+    {
+      "requested": "/Users/owner/Documents/coding/add-utc-demo-v2",
+      "locked": "/Users/owner/Documents/coding/add-utc-demo",
+      "nested": false,
+      "why": "a shared name prefix is not an ancestor"
+    },
+    {
+      "requested": "/Users/owner/Documents/coding/add-utc-demo",
+      "locked": "/Users/owner/Documents/coding/add-utc-demo",
+      "nested": false,
+      "why": "the same root is PROJECT_LOCKED, not nested"
+    }
+  ],
+  "group_kill_at_takeover": [
+    "snapshot ps -A -o pid=,ppid=,pgid=,lstart=,comm=",
+    "the group is still the recorded one if its leader (pid = pgid) is alive with the recorded start time, or if no process has pid = pgid any more; not if a process with that pid has another start time, and then nothing is signalled by group",
+    "targets: every process in the group, plus every descendant by ppid of the leader or a member, each started at or after the recorded start time",
+    "SIGTERM the group and each other target, wait 2 s, SIGKILL the same set",
+    "confirm for up to 3 s that no target with a matching start time is alive; otherwise the takeover stays leftover and names them",
+    "this is not the Codex rule: Codex's commands share the app-server's group across projects, so Codex kills never use a group"
+  ]
+}

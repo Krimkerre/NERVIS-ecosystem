@@ -1,0 +1,656 @@
+{
+  "contract": {
+    "name": "codex-relay-contract",
+    "version": 1,
+    "specified": "2026-09-13",
+    "state": "specified, not built",
+    "owner": "RAVIS (M29)",
+    "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
+    "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
+  },
+  "route": {
+    "method": "GET",
+    "path": "/api/v1/agent-sessions/{sid}/events",
+    "needs": ["client credential", "session token"],
+    "query": {
+      "window_id": "the attaching window",
+      "host": "desktop | code-server",
+      "after": "equivalent to Last-Event-ID"
+    },
+    "content_type": "text/event-stream"
+  },
+  "frames_text": "retry: 3000\n\nid: 1235\nevent: request.opened\ndata: {\"session_id\":\"as_01J9ZK4T6Q8M2V7R3N5B1C0D\",\"request\":{…RequestView…}}\n\n: heartbeat\n\n",
+  "frame_rules": [
+    "ids are per-session, monotonic integers",
+    "a heartbeat comment every 15 s",
+    "retry: 3000 is advertised",
+    "one JSON data line per frame: session_id plus the event's fields"
+  ],
+  "connection_rules": {
+    "without_a_cursor": "the stream begins with event snapshot, then live events",
+    "with_a_cursor": "events after that id are replayed, then live events",
+    "cursor_inside_the_kept_non_delta_range": "every non-delta event after it is replayed, with a deltas_skipped marker where deltas were evicted",
+    "cursor_too_old": "409 EVENT_CURSOR_EXPIRED {oldest_event_id} before streaming; read the snapshot and reconnect with ?after=<snapshot.last_event_id>",
+    "closing_a_stream": "never stops a task"
+  },
+  "replay_buffers": {
+    "deltas": "agent.delta and command.output: the last 2,000, or 8 MB",
+    "other_events": "kept for the session's life, capped at 20,000 or 32 MB, dropping the oldest item.started and usage.updated first",
+    "snapshots": "include the last 200 item.completed events",
+    "lifetime": "until 30 minutes after the session ends; never written to disk"
+  },
+  "attachment": {
+    "panel_ping_seconds": 10,
+    "presence_every_seconds": 20,
+    "pings_lost_after_seconds": 25,
+    "attached_while_presence_younger_than_seconds": 45,
+    "rules": [
+      "a window counts as attached only while its Clarvis panel is connected, not merely while its extension host lives",
+      "when the pings stop, the host posts panel_connected false and closes the stream",
+      "when they resume, the host posts panel_connected true at once and reopens the stream from its cursor, or a snapshot"
+    ]
+  },
+  "events": [
+    {
+      "event": "snapshot",
+      "data": "SessionView, with pending requests",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "state": "waiting_on_you",
+        "workspace": {"root": "/Users/owner/Documents/coding/add-utc-demo", "name": "add-utc-demo"},
+        "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+        "mode": "agent",
+        "file_rules": "strict",
+        "codex": {
+          "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+          "active_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+          "model": "gpt-6-astra",
+          "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+        },
+        "branch": {
+          "name": "clarvis/add-utc",
+          "head_commit_at_start": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"
+        },
+        "pending_requests": [
+          {
+            "id": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X",
+            "kind": "command",
+            "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+            "item_id": "call_fixture_command_1",
+            "opened_at": "2026-09-13T01:42:00Z",
+            "payload": {
+              "command": "npm install left-pad",
+              "cwd": "web",
+              "reason": "The build needs this package.",
+              "network": {"host": "registry.npmjs.org", "protocol": "https"},
+              "escalation": null,
+              "gate_hint": null
+            },
+            "allowed_decisions": ["once", "skip", "stop"]
+          }
+        ],
+        "queued_feedback": 0,
+        "attached_windows": [{"id": "win-desktop-1c9e4d", "host": "desktop", "since": "2026-09-13T01:42:00Z"}],
+        "processes": {"attributed": 2, "confirmed_gone": false, "leftover": []},
+        "lock": {"id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K", "state": "running"},
+        "settle": {"needed": false, "claimed_by": null},
+        "created_at": "2026-09-13T01:12:00Z",
+        "updated_at": "2026-09-13T01:54:00Z",
+        "last_event_id": 1234
+      }
+    },
+    {
+      "event": "session.state",
+      "data": "{state, reason?, stopped_by?: window | menu_bar | dashboard, processes: {confirmed_gone, leftover: [{pid, comm, started_at}]}}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "state": "leftover",
+        "processes": {
+          "confirmed_gone": false,
+          "leftover": [{"pid": 51310, "comm": "node", "started_at": "2026-09-13T01:12:00Z"}]
+        }
+      }
+    },
+    {
+      "event": "turn.started",
+      "data": "{turn_id, kind}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "turn_id": "019a1c2f-1d2e-7c3b-a4f5-6e7d8c9b0a12",
+        "kind": "carry_on"
+      }
+    },
+    {
+      "event": "turn.completed",
+      "data": "{turn_id, status: completed | interrupted | failed, error?: {kind, http_status?, message}, processes_confirmed_gone}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+        "status": "interrupted",
+        "error": {"kind": "step_cap", "message": "The step cap of 25 was reached."},
+        "processes_confirmed_gone": true
+      }
+    },
+    {
+      "event": "item.started",
+      "data": "{turn_id, item}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+        "item": {
+          "type": "commandExecution",
+          "id": "call_fixture_command_1",
+          "command": "python3 -m pytest -q",
+          "cwd": ".",
+          "exit_code": null,
+          "duration_ms": null,
+          "output_tail": ""
+        }
+      }
+    },
+    {
+      "event": "item.completed",
+      "data": "{turn_id, item}; item is agentMessage {id, text, phase}, commandExecution {id, command, cwd, exit_code, duration_ms, output_tail (redacted, at most 1,500 characters)} or fileChange {id, status, changes}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+        "item": {
+          "type": "commandExecution",
+          "id": "call_fixture_command_1",
+          "command": "python3 -m pytest -q",
+          "cwd": ".",
+          "exit_code": 0,
+          "duration_ms": 1840,
+          "output_tail": "3 passed in 0.41s"
+        }
+      }
+    },
+    {
+      "event": "agent.delta",
+      "data": "{turn_id, item_id, text}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+        "item_id": "msg_fixture_1",
+        "text": "Adding the flag"
+      }
+    },
+    {
+      "event": "command.output",
+      "data": "{turn_id, item_id, text}, redacted",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+        "item_id": "call_fixture_command_1",
+        "text": "..."
+      }
+    },
+    {
+      "event": "plan.updated",
+      "data": "{turn_id, steps: [{step, status}]}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+        "steps": [{"step": "Add the --utc flag", "status": "in_progress"}]
+      }
+    },
+    {
+      "event": "request.opened",
+      "data": "{request: RequestView}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "request": {
+          "id": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X",
+          "kind": "command",
+          "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+          "item_id": "call_fixture_command_1",
+          "opened_at": "2026-09-13T01:42:00Z",
+          "payload": {
+            "command": "npm install left-pad",
+            "cwd": "web",
+            "reason": "The build needs this package.",
+            "network": {"host": "registry.npmjs.org", "protocol": "https"},
+            "escalation": null,
+            "gate_hint": null
+          },
+          "allowed_decisions": ["once", "skip", "stop"]
+        }
+      }
+    },
+    {
+      "event": "request.resolved",
+      "data": "{request_id, by: window | stop | policy_timeout | policy_secret | policy_elicitation | owner_stop | turn_ended, decision_kind}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "request_id": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X",
+        "by": "window",
+        "decision_kind": "once"
+      }
+    },
+    {
+      "event": "feedback",
+      "data": "{text, how: steered | queued | delivered_in_turn | not_delivered}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "text": "Use datetime.timezone.utc, not pytz.",
+        "how": "steered"
+      }
+    },
+    {
+      "event": "usage.updated",
+      "data": "{windows, limit_reached}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "windows": [{"id": "primary", "remaining_percent": 61, "resets_at": "2026-09-13T04:30:00Z"}],
+        "limit_reached": null
+      }
+    },
+    {
+      "event": "model.rerouted",
+      "data": "{from, to, reason}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "from": "gpt-6-astra",
+        "to": "gpt-6-astra-mini",
+        "reason": "capacity"
+      }
+    },
+    {
+      "event": "warning",
+      "data": "{message}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "message": "Codex's protocol reported an unknown item type; it was skipped."
+      }
+    },
+    {
+      "event": "attached",
+      "data": "{windows: [{id, host, since}]}",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "windows": [{"id": "win-desktop-1c9e4d", "host": "desktop", "since": "2026-09-13T01:12:00Z"}]
+      }
+    },
+    {
+      "event": "lock.changed",
+      "data": "{state}",
+      "example_data": {"session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D", "state": "transferring"}
+    },
+    {
+      "event": "session.ended",
+      "data": "{final_state}",
+      "example_data": {"session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D", "final_state": "ended"}
+    }
+  ],
+  "normalised_items": {
+    "agentMessage": {
+      "type": "agentMessage",
+      "id": "msg_fixture_1",
+      "text": "STEP: 2. Add the --utc flag",
+      "phase": null
+    },
+    "commandExecution": {
+      "type": "commandExecution",
+      "id": "call_fixture_command_1",
+      "command": "python3 -m pytest -q",
+      "cwd": ".",
+      "exit_code": 0,
+      "duration_ms": 1840,
+      "output_tail": "3 passed in 0.41s"
+    },
+    "fileChange": {
+      "type": "fileChange",
+      "id": "call_fixture_file_change_1",
+      "status": "completed",
+      "changes": [{"path": "hello.py", "change": "add", "added": 6, "removed": 0}]
+    }
+  },
+  "examples": [
+    {
+      "name": "first connection, no cursor",
+      "request": {
+        "caller": "client.clarvis",
+        "method": "GET",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events",
+        "query": {"window_id": "win-desktop-1c9e4d", "host": "desktop"},
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": null,
+        "frames": [
+          {
+            "id": 1234,
+            "event": "snapshot",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "state": "waiting_on_you",
+              "workspace": {"root": "/Users/owner/Documents/coding/add-utc-demo", "name": "add-utc-demo"},
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "mode": "agent",
+              "file_rules": "strict",
+              "codex": {
+                "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                "active_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+                "model": "gpt-6-astra",
+                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+              },
+              "branch": {
+                "name": "clarvis/add-utc",
+                "head_commit_at_start": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"
+              },
+              "pending_requests": [
+                {
+                  "id": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X",
+                  "kind": "command",
+                  "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+                  "item_id": "call_fixture_command_1",
+                  "opened_at": "2026-09-13T01:42:00Z",
+                  "payload": {
+                    "command": "npm install left-pad",
+                    "cwd": "web",
+                    "reason": "The build needs this package.",
+                    "network": {"host": "registry.npmjs.org", "protocol": "https"},
+                    "escalation": null,
+                    "gate_hint": null
+                  },
+                  "allowed_decisions": ["once", "skip", "stop"]
+                }
+              ],
+              "queued_feedback": 0,
+              "attached_windows": [
+                {"id": "win-desktop-1c9e4d", "host": "desktop", "since": "2026-09-13T01:42:00Z"}
+              ],
+              "processes": {"attributed": 2, "confirmed_gone": false, "leftover": []},
+              "lock": {"id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K", "state": "running"},
+              "settle": {"needed": false, "claimed_by": null},
+              "created_at": "2026-09-13T01:12:00Z",
+              "updated_at": "2026-09-13T01:54:00Z",
+              "last_event_id": 1234
+            }
+          },
+          {
+            "id": 1235,
+            "event": "request.opened",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "request": {
+                "id": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X",
+                "kind": "command",
+                "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+                "item_id": "call_fixture_command_1",
+                "opened_at": "2026-09-13T01:42:00Z",
+                "payload": {
+                  "command": "npm install left-pad",
+                  "cwd": "web",
+                  "reason": "The build needs this package.",
+                  "network": {"host": "registry.npmjs.org", "protocol": "https"},
+                  "escalation": null,
+                  "gate_hint": null
+                },
+                "allowed_decisions": ["once", "skip", "stop"]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "resumed after 1234",
+      "request": {
+        "caller": "client.clarvis",
+        "method": "GET",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events",
+        "query": {"window_id": "win-desktop-1c9e4d", "host": "desktop"},
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+          "Last-Event-ID": "1234"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": null,
+        "frames": [
+          {
+            "id": 1235,
+            "event": "request.opened",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "request": {
+                "id": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X",
+                "kind": "command",
+                "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+                "item_id": "call_fixture_command_1",
+                "opened_at": "2026-09-13T01:42:00Z",
+                "payload": {
+                  "command": "npm install left-pad",
+                  "cwd": "web",
+                  "reason": "The build needs this package.",
+                  "network": {"host": "registry.npmjs.org", "protocol": "https"},
+                  "escalation": null,
+                  "gate_hint": null
+                },
+                "allowed_decisions": ["once", "skip", "stop"]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a cursor older than the kept events",
+      "request": {
+        "caller": "client.clarvis",
+        "method": "GET",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events",
+        "query": {"window_id": "win-desktop-1c9e4d", "host": "desktop"},
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+          "Last-Event-ID": "12"
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "EVENT_CURSOR_EXPIRED",
+            "message": "That event cursor is too old; read the snapshot.",
+            "retryable": false,
+            "details": {"oldest_event_id": 480},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "a wrong token",
+      "request": {
+        "caller": "client.clarvis",
+        "method": "GET",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events",
+        "query": {"window_id": "win-desktop-1c9e4d", "host": "desktop"},
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Agent-Session-Token": "ast_FIXTURE_wrong_token_not_a_secret_WWWWWWWWWW"
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "error": {
+            "code": "AGENT_SESSION_NOT_FOUND",
+            "message": "No such agent session.",
+            "retryable": false,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "an admin credential holding a valid token",
+      "request": {
+        "caller": "admin.launcher",
+        "method": "GET",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events",
+        "query": {"window_id": "win-desktop-1c9e4d", "host": "desktop"},
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "error": {
+            "code": "AGENT_CLIENT_NOT_ALLOWED",
+            "message": "Administrative credentials may not start, read, steer, stop or answer Codex tasks.",
+            "retryable": false,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "stopped from the dashboard",
+      "request": {
+        "caller": "client.clarvis",
+        "method": "GET",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events",
+        "query": {"window_id": "win-desktop-1c9e4d", "host": "desktop"},
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+          "Last-Event-ID": "1234"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": null,
+        "frames": [
+          {
+            "id": 1236,
+            "event": "session.state",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "state": "stopping",
+              "stopped_by": "dashboard",
+              "processes": {"confirmed_gone": false, "leftover": []}
+            }
+          },
+          {
+            "id": 1237,
+            "event": "request.resolved",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "request_id": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X",
+              "by": "owner_stop",
+              "decision_kind": "stop"
+            }
+          },
+          {
+            "id": 1238,
+            "event": "turn.completed",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+              "status": "interrupted",
+              "processes_confirmed_gone": true
+            }
+          },
+          {
+            "id": 1239,
+            "event": "session.state",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "state": "stopped",
+              "stopped_by": "dashboard",
+              "processes": {"confirmed_gone": true, "leftover": []}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a queued steer whose session lost the project lock starts nothing",
+      "request": {
+        "caller": "client.clarvis",
+        "method": "GET",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events",
+        "query": {"window_id": "win-desktop-1c9e4d", "host": "desktop"},
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+          "Last-Event-ID": "1234"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": null,
+        "frames": [
+          {
+            "id": 1240,
+            "event": "turn.completed",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+              "status": "completed",
+              "processes_confirmed_gone": true
+            }
+          },
+          {
+            "id": 1241,
+            "event": "feedback",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "text": "Also update the README.",
+              "how": "not_delivered"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "the step cap while no window is attached",
+      "request": {
+        "caller": "client.clarvis",
+        "method": "GET",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events",
+        "query": {"window_id": "win-desktop-1c9e4d", "host": "desktop"},
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+          "Last-Event-ID": "1234"
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": null,
+        "frames": [
+          {
+            "id": 1242,
+            "event": "turn.completed",
+            "data": {
+              "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+              "status": "interrupted",
+              "error": {"kind": "step_cap", "message": "The step cap of 25 was reached."},
+              "processes_confirmed_gone": true
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,2499 @@
+{
+  "contract": {
+    "name": "codex-relay-contract",
+    "version": 1,
+    "specified": "2026-09-13",
+    "state": "specified, not built",
+    "owner": "RAVIS (M29)",
+    "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
+    "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
+  },
+  "session_states": {
+    "starting": "being created",
+    "running": "a turn is active",
+    "waiting_on_you": "a turn is active and a request is open",
+    "stopping": "interrupt and process clean-up in progress",
+    "stopped": "turn interrupted, processes confirmed gone; needs settle",
+    "leftover": "processes not confirmed gone; locks held",
+    "paused_unanswered": "the unanswered-request policy fired; needs settle",
+    "paused_for_update": "a new Codex binary appeared while the turn only waited for an answer; needs settle",
+    "completed_needs_review": "turn completed, processes confirmed gone; needs settle",
+    "idle": "settled; thread kept; can continue",
+    "uncertain": "the runtime died mid-turn; needs settle",
+    "failed": "—",
+    "ended": "—"
+  },
+  "request_kinds": {
+    "command": "{command, cwd, reason, network: {host, protocol} | null, escalation, gate_hint}",
+    "fileChange": "{files: [{path, change: add | delete | update | rename, moved_to?, added, removed}], reason, grant_root?, outside_workspace: [...]}",
+    "permissions": "{read, write, network, reason, outside_workspace, denied}",
+    "question": "{questions: [{id, header, question, options, allow_other}]}",
+    "paths": "relative to the root; outside paths are absolute and listed"
+  },
+  "allowed_decisions_rules": [
+    "computed by RAVIS, so no client can grant more than it offers",
+    "Codex's acceptForSession and a permissions grant with scope session are never offered in this delivery",
+    "writes outside the root, or a denied path, offer only skip and stop",
+    "a secret question is never offered: RAVIS answers it empty itself and emits request.resolved {by: policy_secret}",
+    "a question offers answer and stop (derived from Clarvis's rendering: each option, typing when allow_other, Stop the run)"
+  ],
+  "request_view_examples": [
+    {
+      "id": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X",
+      "kind": "command",
+      "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+      "item_id": "call_fixture_command_1",
+      "opened_at": "2026-09-13T01:42:00Z",
+      "payload": {
+        "command": "npm install left-pad",
+        "cwd": "web",
+        "reason": "The build needs this package.",
+        "network": {"host": "registry.npmjs.org", "protocol": "https"},
+        "escalation": null,
+        "gate_hint": null
+      },
+      "allowed_decisions": ["once", "skip", "stop"]
+    },
+    {
+      "id": "rq_01J9ZK6Y2Z3A4B5C6D7E8F9G0H",
+      "kind": "fileChange",
+      "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+      "item_id": "call_fixture_file_change_1",
+      "opened_at": "2026-09-13T01:42:00Z",
+      "payload": {
+        "files": [
+          {"path": "src/app.ts", "change": "update", "added": 12, "removed": 3},
+          {"path": "README.md", "change": "rename", "moved_to": "docs/README.md", "added": 0, "removed": 0},
+          {"path": "/Users/owner/.zshrc", "change": "update", "added": 1, "removed": 0}
+        ],
+        "reason": "Add the --utc flag and document it.",
+        "outside_workspace": ["/Users/owner/.zshrc"]
+      },
+      "allowed_decisions": ["skip", "stop"]
+    },
+    {
+      "id": "rq_01J9ZKA1B2C3D4E5F6G7H8J9K0",
+      "kind": "permissions",
+      "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+      "item_id": "call_fixture_permissions_1",
+      "opened_at": "2026-09-13T01:42:00Z",
+      "payload": {
+        "read": ["/Users/owner/.ssh/config"],
+        "write": [],
+        "network": false,
+        "reason": "Read the SSH configuration.",
+        "outside_workspace": ["/Users/owner/.ssh/config"],
+        "denied": ["/Users/owner/.ssh/config"]
+      },
+      "allowed_decisions": ["skip", "stop"]
+    },
+    {
+      "id": "rq_01J9ZK9J1K2L3M4N5P6Q7R8S9T",
+      "kind": "question",
+      "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+      "item_id": "call_fixture_question_1",
+      "opened_at": "2026-09-13T01:42:00Z",
+      "payload": {
+        "questions": [
+          {
+            "id": "q1",
+            "header": "Log timestamps",
+            "question": "Should --utc also change the log timestamps?",
+            "options": ["Yes", "No"],
+            "allow_other": true
+          }
+        ]
+      },
+      "allowed_decisions": ["answer", "stop"]
+    }
+  ],
+  "stop_responses": {
+    "command": "cancel",
+    "fileChange": "cancel",
+    "permissions": {"permissions": {}},
+    "question": {"answers": {}}
+  },
+  "unanswered_request_policy": {
+    "attached": "a window counts as attached while its Clarvis panel's presence is under 45 s old; the request waits, and after 2 hours the policy fires",
+    "detached": "the menu bar and dashboard show the wait at once; after 30 minutes the policy fires",
+    "when_it_fires": "RAVIS answers with the stop response, runs the end sequence, the session becomes paused_unanswered, the thread is kept, and request.resolved {by: policy_timeout} is emitted",
+    "never": "RAVIS never answers accept, acceptForSession or a grant on the owner's behalf, and never auto-approves while no window is attached"
+  },
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions",
+      "needs": ["client credential", "Idempotency-Key"],
+      "rules": [
+        "the body carries no sandbox, permission-profile or approval-policy fields: RAVIS derives them from mode, the owner's file-rules decision and the calibration record, so a client can't weaken them",
+        "limits.max_steps comes from clarvis.agent.maxStepsPerTask, and RAVIS enforces it even while no window is attached",
+        "creation takes the project lock and the checkout lock file atomically, or takes the lock over from lock.transfer_token",
+        "Clarvis's key is sha256(taskId + \":\" + windowId + \":\" + attempt)"
+      ],
+      "examples": [
+        {
+          "name": "created",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "session": {
+                "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+                "state": "starting",
+                "workspace": {"root": "/Users/owner/Documents/coding/add-utc-demo", "name": "add-utc-demo"},
+                "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+                "mode": "agent",
+                "file_rules": "strict",
+                "codex": {
+                  "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                  "active_turn_id": null,
+                  "model": "gpt-6-astra",
+                  "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                },
+                "branch": {
+                  "name": "clarvis/add-utc",
+                  "head_commit_at_start": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"
+                },
+                "pending_requests": [],
+                "queued_feedback": 0,
+                "attached_windows": [
+                  {"id": "win-code-server-7f3a2b", "host": "code-server", "since": "2026-09-13T01:12:00Z"}
+                ],
+                "processes": {"attributed": 0, "confirmed_gone": false, "leftover": []},
+                "lock": {"id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K", "state": "running"},
+                "settle": {"needed": false, "claimed_by": null},
+                "created_at": "2026-09-13T01:12:00Z",
+                "updated_at": "2026-09-13T01:12:00Z",
+                "last_event_id": 1
+              },
+              "session_token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "events_url": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events"
+            }
+          }
+        },
+        {
+          "name": "created from a switch back, resuming the thread",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {
+                "kind": "resume",
+                "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                "catch_up_text": "While you were stopped, another engine worked on this project. Changes since commit <sawHeadCommit> …"
+              },
+              "lock": {"transfer_token": "FIXTURE-transfer-token-1"},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "session": {
+                "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+                "state": "starting",
+                "workspace": {"root": "/Users/owner/Documents/coding/add-utc-demo", "name": "add-utc-demo"},
+                "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+                "mode": "agent",
+                "file_rules": "strict",
+                "codex": {
+                  "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                  "active_turn_id": null,
+                  "model": "gpt-6-astra",
+                  "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                },
+                "branch": {
+                  "name": "clarvis/add-utc",
+                  "head_commit_at_start": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"
+                },
+                "pending_requests": [],
+                "queued_feedback": 0,
+                "attached_windows": [
+                  {"id": "win-code-server-7f3a2b", "host": "code-server", "since": "2026-09-13T01:12:00Z"}
+                ],
+                "processes": {"attributed": 0, "confirmed_gone": false, "leftover": []},
+                "lock": {"id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K", "state": "running"},
+                "settle": {"needed": false, "claimed_by": null},
+                "created_at": "2026-09-13T01:12:00Z",
+                "updated_at": "2026-09-13T01:12:00Z",
+                "last_event_id": 1
+              },
+              "session_token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "events_url": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events"
+            }
+          }
+        },
+        {
+          "name": "replayed: the same key and body return the original response",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 201,
+            "body": {
+              "session": {
+                "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+                "state": "starting",
+                "workspace": {"root": "/Users/owner/Documents/coding/add-utc-demo", "name": "add-utc-demo"},
+                "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+                "mode": "agent",
+                "file_rules": "strict",
+                "codex": {
+                  "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                  "active_turn_id": null,
+                  "model": "gpt-6-astra",
+                  "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+                },
+                "branch": {
+                  "name": "clarvis/add-utc",
+                  "head_commit_at_start": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"
+                },
+                "pending_requests": [],
+                "queued_feedback": 0,
+                "attached_windows": [
+                  {"id": "win-code-server-7f3a2b", "host": "code-server", "since": "2026-09-13T01:12:00Z"}
+                ],
+                "processes": {"attributed": 0, "confirmed_gone": false, "leftover": []},
+                "lock": {"id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K", "state": "running"},
+                "settle": {"needed": false, "claimed_by": null},
+                "created_at": "2026-09-13T01:12:00Z",
+                "updated_at": "2026-09-13T01:12:00Z",
+                "last_event_id": 1
+              },
+              "session_token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "events_url": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/events"
+            }
+          }
+        },
+        {
+          "name": "the same key with another body",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "auto",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "IDEMPOTENCY_KEY_REUSED",
+                "message": "That Idempotency-Key was used with a different body.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "no Idempotency-Key",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {"Content-Type": "application/json"},
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 428,
+            "body": {
+              "error": {
+                "code": "IDEMPOTENCY_KEY_REQUIRED",
+                "message": "This route needs an Idempotency-Key header.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "anonymous",
+          "request": {
+            "caller": "anonymous",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "AGENT_CLIENT_NOT_ALLOWED",
+                "message": "A Clarvis credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "the ecosystem's own repository",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/NERVIS-ecosystem",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/NERVIS-ecosystem/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "WORKSPACE_ROOT_NOT_ALLOWED",
+                "message": "Codex doesn't work on the ecosystem's own repositories.",
+                "retryable": false,
+                "details": {"reason": "protected_repository"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "the coding folder itself",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "WORKSPACE_ROOT_NOT_ALLOWED",
+                "message": "Choose a project folder, not the folder that holds them all.",
+                "retryable": false,
+                "details": {"reason": "allowed_roots_entry"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a git_dir that is not the root's git folder",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/other/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "GIT_DIR_NOT_ALLOWED",
+                "message": "git_dir is not this workspace's git folder.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Clarvis's own engine holds the project",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROJECT_LOCKED",
+                "message": "Another engine holds this project.",
+                "retryable": false,
+                "details": {
+                  "lock": {
+                    "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                    "workspace": {
+                      "name": "add-utc-demo",
+                      "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                    },
+                    "holder": {
+                      "kind": "clarvis_run",
+                      "session_id": null,
+                      "window_id": "win-desktop-1c9e4d",
+                      "host": "desktop",
+                      "since": "2026-09-13T01:42:00Z"
+                    },
+                    "state": "running",
+                    "waiting_on_you": false,
+                    "heartbeat_age_seconds": 7,
+                    "verdict": "alive",
+                    "taken_over_from": null
+                  }
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a folder around this one is locked",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo/web",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "NESTED_PROJECT_LOCKED",
+                "message": "A folder inside or around this project is locked.",
+                "retryable": false,
+                "details": {
+                  "lock": {
+                    "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                    "workspace": {
+                      "name": "add-utc-demo",
+                      "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                    },
+                    "holder": {
+                      "kind": "clarvis_run",
+                      "session_id": null,
+                      "window_id": "win-desktop-1c9e4d",
+                      "host": "desktop",
+                      "since": "2026-09-13T01:42:00Z"
+                    },
+                    "state": "running",
+                    "waiting_on_you": false,
+                    "heartbeat_age_seconds": 7,
+                    "verdict": "alive",
+                    "taken_over_from": null
+                  }
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "the file rules are unproven",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_NOT_READY",
+                "message": "Codex isn't ready.",
+                "retryable": false,
+                "details": {"state": "untested_version", "reason": "strict_file_rules_unproven"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a different ChatGPT account",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_NOT_READY",
+                "message": "Codex isn't ready.",
+                "retryable": false,
+                "details": {
+                  "state": "account_changed",
+                  "reason": "Codex is signed in to a different account than the one you confirmed."
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "three live sessions already",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_SESSION_LIMIT",
+                "message": "Codex is already running the most tasks allowed at once.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "an expired transfer token",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {
+                "kind": "resume",
+                "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                "catch_up_text": "While you were stopped, another engine worked on this project. Changes since commit <sawHeadCommit> …"
+              },
+              "lock": {"transfer_token": "FIXTURE-transfer-token-1"},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "LOCK_TRANSFER_INVALID",
+                "message": "That transfer token is unknown, expired or for another project.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "resuming while RAVIS's lock is superseded",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {
+                "kind": "resume",
+                "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                "catch_up_text": "While you were stopped, another engine worked on this project. Changes since commit <sawHeadCommit> …"
+              },
+              "lock": {"transfer_token": "FIXTURE-transfer-token-1"},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "LOCK_SUPERSEDED",
+                "message": "Another editor held this checkout when RAVIS restarted; wait until it releases.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "the Codex process didn't answer",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7e8e67cf3b0ab220303d78e6022402412691cf795143211b300c3a2f1df0e687"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "window": {"id": "win-code-server-7f3a2b", "host": "code-server"},
+              "mode": "agent",
+              "model": "",
+              "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"},
+              "git_dir": "/Users/owner/Documents/coding/add-utc-demo/.git",
+              "start": {"kind": "brief", "text": "<nextMilestoneTask + rendered checkpoint>"},
+              "lock": {"transfer_token": null},
+              "limits": {"max_steps": 25}
+            }
+          },
+          "response": {
+            "status": 503,
+            "body": {
+              "error": {
+                "code": "CODEX_RUNTIME_UNAVAILABLE",
+                "message": "Codex didn't start.",
+                "retryable": true,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-sessions?workspace_root=",
+      "needs": ["client credential"],
+      "rules": ["no tokens and no payloads; attached_windows is a count here (derived)"],
+      "examples": [
+        {
+          "name": "the workspace's sessions",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions",
+            "query": {"workspace_root": "/Users/owner/Documents/coding/add-utc-demo"}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "items": [
+                {
+                  "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+                  "state": "waiting_on_you",
+                  "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+                  "created_at": "2026-09-13T01:12:00Z",
+                  "updated_at": "2026-09-13T01:54:00Z",
+                  "waiting_on_you": true,
+                  "attached_windows": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "NERVIS's relay",
+          "request": {
+            "caller": "client.nervis",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions",
+            "query": {"workspace_root": "/Users/owner/Documents/coding/add-utc-demo"}
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "AGENT_CLIENT_NOT_ALLOWED",
+                "message": "A Clarvis credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a root outside the rule",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions",
+            "query": {"workspace_root": "/Users/owner"}
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "WORKSPACE_ROOT_NOT_ALLOWED",
+                "message": "That folder can't hold a Codex task.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-sessions/{sid}",
+      "needs": ["client credential", "session token"],
+      "examples": [
+        {
+          "name": "a task waiting on a command approval",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "state": "waiting_on_you",
+              "workspace": {"root": "/Users/owner/Documents/coding/add-utc-demo", "name": "add-utc-demo"},
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "mode": "agent",
+              "file_rules": "strict",
+              "codex": {
+                "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                "active_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+                "model": "gpt-6-astra",
+                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+              },
+              "branch": {
+                "name": "clarvis/add-utc",
+                "head_commit_at_start": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"
+              },
+              "pending_requests": [
+                {
+                  "id": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X",
+                  "kind": "command",
+                  "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+                  "item_id": "call_fixture_command_1",
+                  "opened_at": "2026-09-13T01:42:00Z",
+                  "payload": {
+                    "command": "npm install left-pad",
+                    "cwd": "web",
+                    "reason": "The build needs this package.",
+                    "network": {"host": "registry.npmjs.org", "protocol": "https"},
+                    "escalation": null,
+                    "gate_hint": null
+                  },
+                  "allowed_decisions": ["once", "skip", "stop"]
+                }
+              ],
+              "queued_feedback": 0,
+              "attached_windows": [
+                {"id": "win-desktop-1c9e4d", "host": "desktop", "since": "2026-09-13T01:42:00Z"}
+              ],
+              "processes": {"attributed": 2, "confirmed_gone": false, "leftover": []},
+              "lock": {"id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K", "state": "running"},
+              "settle": {"needed": false, "claimed_by": null},
+              "created_at": "2026-09-13T01:12:00Z",
+              "updated_at": "2026-09-13T01:54:00Z",
+              "last_event_id": 1234
+            }
+          }
+        },
+        {
+          "name": "a wrong token: the session's existence doesn't leak",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_wrong_token_not_a_secret_WWWWWWWWWW"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "AGENT_SESSION_NOT_FOUND",
+                "message": "No such agent session.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "NERVIS's credential holding a valid token",
+          "request": {
+            "caller": "client.nervis",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            }
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "AGENT_CLIENT_NOT_ALLOWED",
+                "message": "A Clarvis credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "an admin credential holding a valid token",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            }
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "AGENT_CLIENT_NOT_ALLOWED",
+                "message": "Administrative credentials may not start, read, steer, stop or answer Codex tasks.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a client application other than clarvis",
+          "request": {
+            "caller": "client.other",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            }
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "AGENT_CLIENT_NOT_ALLOWED",
+                "message": "A Clarvis credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-sessions/{sid}/transcript?limit=50",
+      "needs": ["client credential", "session token"],
+      "rules": ["read through from Codex's thread/turns/list summary view; nothing is stored"],
+      "examples": [
+        {
+          "name": "the thread's turns",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/transcript",
+            "query": {"limit": "50"},
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {"turns": []},
+            "note": "turn entries are fixed against calibration's transcripts (conventions.json open_points)"
+          }
+        },
+        {
+          "name": "the Codex process didn't answer",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/transcript",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            }
+          },
+          "response": {
+            "status": 503,
+            "body": {
+              "error": {
+                "code": "CODEX_RUNTIME_UNAVAILABLE",
+                "message": "Codex didn't answer.",
+                "retryable": true,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/turns",
+      "needs": ["session token", "Idempotency-Key"],
+      "body": "{text, kind: continue | carry_on | catch_up, lock?: {transfer_token}}",
+      "rule": "a turn needs the project lock (conventions.json turns_need_the_project_lock)",
+      "examples": [
+        {
+          "name": "continued, holding the lock",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"text": "Carry on with milestone 2.", "kind": "continue"}
+          },
+          "response": {"status": 202, "body": {"turn": {"state": "starting"}}}
+        },
+        {
+          "name": "a switch back: the lock is taken with the transfer token, atomically",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {
+              "text": "While you were stopped, another engine worked on this project …",
+              "kind": "catch_up",
+              "lock": {"transfer_token": "FIXTURE-transfer-token-1"}
+            }
+          },
+          "response": {"status": 202, "body": {"turn": {"state": "starting"}}}
+        },
+        {
+          "name": "a turn is active: steer instead",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"text": "Carry on with milestone 2.", "kind": "continue"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "TURN_ACTIVE",
+                "message": "A turn is already running; send it as a steer.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "stopping",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"text": "Carry on with milestone 2.", "kind": "continue"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SESSION_STOPPING",
+                "message": "This task is stopping.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "the last turn still needs a settle",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"text": "Carry on with milestone 2.", "kind": "continue"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SETTLE_FIRST",
+                "message": "Save the last turn's work first.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "the allowance is used up",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"text": "Carry on with milestone 2.", "kind": "continue"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CODEX_NOT_READY",
+                "message": "Codex isn't ready.",
+                "retryable": false,
+                "details": {
+                  "state": "quota_exhausted",
+                  "reason": "The ChatGPT plan's allowance is used up until 04:30."
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "left idle by a switch while Clarvis's own engine holds the project",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"text": "Carry on with milestone 2.", "kind": "continue"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROJECT_LOCKED",
+                "message": "Another engine holds this project.",
+                "retryable": false,
+                "details": {
+                  "lock": {
+                    "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                    "workspace": {
+                      "name": "add-utc-demo",
+                      "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                    },
+                    "holder": {
+                      "kind": "clarvis_run",
+                      "session_id": null,
+                      "window_id": "win-desktop-1c9e4d",
+                      "host": "desktop",
+                      "since": "2026-09-13T01:42:00Z"
+                    },
+                    "state": "running",
+                    "waiting_on_you": false,
+                    "heartbeat_age_seconds": 7,
+                    "verdict": "alive",
+                    "taken_over_from": null
+                  }
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a folder around this one is locked",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"text": "Carry on with milestone 2.", "kind": "continue"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "NESTED_PROJECT_LOCKED",
+                "message": "A folder inside or around this project is locked.",
+                "retryable": false,
+                "details": {
+                  "lock": {
+                    "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                    "workspace": {
+                      "name": "add-utc-demo",
+                      "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                    },
+                    "holder": {
+                      "kind": "clarvis_run",
+                      "session_id": null,
+                      "window_id": "win-desktop-1c9e4d",
+                      "host": "desktop",
+                      "since": "2026-09-13T01:42:00Z"
+                    },
+                    "state": "running",
+                    "waiting_on_you": false,
+                    "heartbeat_age_seconds": 7,
+                    "verdict": "alive",
+                    "taken_over_from": null
+                  }
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "RAVIS's lock was superseded at a restart",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"text": "Carry on with milestone 2.", "kind": "continue"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "LOCK_SUPERSEDED",
+                "message": "Another editor held this checkout when RAVIS restarted; wait until it releases.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "an expired transfer token",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/turns",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {
+              "text": "While you were stopped, another engine worked on this project …",
+              "kind": "catch_up",
+              "lock": {"transfer_token": "FIXTURE-transfer-token-1"}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "LOCK_TRANSFER_INVALID",
+                "message": "That transfer token is unknown, expired or for another project.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/steer",
+      "needs": ["session token", "Idempotency-Key"],
+      "rule": "RAVIS calls turn/steer with expectedTurnId; on a race it queues the text server-side for the next turn, unless the session is stopping or no longer holds the lock",
+      "examples": [
+        {
+          "name": "steered into the running turn",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/steer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "text": "Use datetime.timezone.utc, not pytz.",
+              "expected_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"
+            }
+          },
+          "response": {"status": 202, "body": {"delivered": "steered"}}
+        },
+        {
+          "name": "the turn ended first: queued for the next one",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/steer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "text": "Use datetime.timezone.utc, not pytz.",
+              "expected_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"
+            }
+          },
+          "response": {"status": 202, "body": {"delivered": "queued"}}
+        },
+        {
+          "name": "empty text",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/steer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {"text": ""}
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "EMPTY_STEER",
+                "message": "There is nothing to pass on.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "stopping",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/steer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "text": "Use datetime.timezone.utc, not pytz.",
+              "expected_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SESSION_STOPPING",
+                "message": "This task is stopping.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "no active turn and no lock: nothing is queued",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/steer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "text": "Use datetime.timezone.utc, not pytz.",
+              "expected_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROJECT_LOCKED",
+                "message": "Another engine holds this project.",
+                "retryable": false,
+                "details": {
+                  "lock": {
+                    "id": "pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y",
+                    "workspace": {
+                      "name": "add-utc-demo",
+                      "root_hash": "sha256:c462152dbc1b3298da32ac6af3df54ec3f7ffd6a3328477ce9393b917bbddeeb"
+                    },
+                    "holder": {
+                      "kind": "clarvis_run",
+                      "session_id": null,
+                      "window_id": "win-desktop-1c9e4d",
+                      "host": "desktop",
+                      "since": "2026-09-13T01:42:00Z"
+                    },
+                    "state": "running",
+                    "waiting_on_you": false,
+                    "heartbeat_age_seconds": 7,
+                    "verdict": "alive",
+                    "taken_over_from": null
+                  }
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/interrupt",
+      "needs": ["session token"],
+      "body": "{reason: stop | switch | scope_change}",
+      "examples": [
+        {
+          "name": "stopping",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/interrupt",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"reason": "stop"}
+          },
+          "response": {"status": 202, "body": {"state": "stopping"}}
+        },
+        {
+          "name": "pressed again: still 202",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/interrupt",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"reason": "stop"}
+          },
+          "response": {"status": 202, "body": {"state": "stopping"}}
+        },
+        {
+          "name": "a wrong token",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/interrupt",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_wrong_token_not_a_secret_WWWWWWWWWW"
+            },
+            "body": {"reason": "stop"}
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "AGENT_SESSION_NOT_FOUND",
+                "message": "No such agent session.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/requests/{rid}/answer",
+      "needs": ["session token", "Idempotency-Key: <rid>:<window_id>"],
+      "body": "{decision: {kind: once | skip | stop | answer, text?, answers?}}",
+      "examples": [
+        {
+          "name": "run it once",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/requests/rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X/answer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X:win-desktop-1c9e4d"
+            },
+            "body": {"decision": {"kind": "once"}}
+          },
+          "response": {"status": 200, "body": {"resolved": true, "decision_kind": "once"}}
+        },
+        {
+          "name": "a question answered",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/requests/rq_01J9ZK9J1K2L3M4N5P6Q7R8S9T/answer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "rq_01J9ZK9J1K2L3M4N5P6Q7R8S9T:win-desktop-1c9e4d"
+            },
+            "body": {"decision": {"kind": "answer", "answers": {"q1": "Yes"}}}
+          },
+          "response": {"status": 200, "body": {"resolved": true, "decision_kind": "answer"}}
+        },
+        {
+          "name": "an unknown request",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/requests/rq_01J9ZK0000000000000UNKNOWN/answer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "rq_01J9ZK0000000000000UNKNOWN:win-desktop-1c9e4d"
+            },
+            "body": {"decision": {"kind": "once"}}
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "REQUEST_NOT_FOUND",
+                "message": "No such request.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "the other window answered first",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/requests/rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X/answer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X:win-code-server-7f3a2b"
+            },
+            "body": {"decision": {"kind": "once"}}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "REQUEST_ALREADY_RESOLVED",
+                "message": "Already answered.",
+                "retryable": false,
+                "details": {"by": "window"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "stopping: a late answer never starts a step",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/requests/rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X/answer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X:win-desktop-1c9e4d"
+            },
+            "body": {"decision": {"kind": "once"}}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SESSION_STOPPING",
+                "message": "This task is stopping.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "once on a change outside the project",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/requests/rq_01J9ZK6Y2Z3A4B5C6D7E8F9G0H/answer",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "rq_01J9ZK6Y2Z3A4B5C6D7E8F9G0H:win-desktop-1c9e4d"
+            },
+            "body": {"decision": {"kind": "once"}}
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "DECISION_NOT_ALLOWED",
+                "message": "That decision isn't offered for this request.",
+                "retryable": false,
+                "details": {"allowed_decisions": ["skip", "stop"]},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/presence",
+      "needs": ["session token"],
+      "rule": "every 20 s while the panel pings; attached while the last panel_connected true is under 45 s old",
+      "examples": [
+        {
+          "name": "the panel is connected",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/presence",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"window_id": "win-desktop-1c9e4d", "host": "desktop", "panel_connected": true}
+          },
+          "response": {"status": 204, "body": null}
+        },
+        {
+          "name": "a wrong token",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/presence",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_wrong_token_not_a_secret_WWWWWWWWWW"
+            },
+            "body": {"window_id": "win-desktop-1c9e4d", "host": "desktop", "panel_connected": false}
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "AGENT_SESSION_NOT_FOUND",
+                "message": "No such agent session.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/mode",
+      "needs": ["session token"],
+      "examples": [
+        {
+          "name": "changed from the next turn",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/mode",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"mode": "auto"}
+          },
+          "response": {"status": 200, "body": {"mode": "auto", "applies_from": "next_turn"}}
+        },
+        {
+          "name": "not a mode",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/mode",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"mode": "yolo"}
+          },
+          "response": {
+            "status": 422,
+            "body": {"$unfixed": "the design gives 422 and no code (conventions.json open_points)"}
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/leftover",
+      "needs": ["session token"],
+      "examples": [
+        {
+          "name": "stop them",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/leftover",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"action": "stop_them"}
+          },
+          "response": {"status": 200, "body": {"processes_confirmed_gone": true}}
+        },
+        {
+          "name": "nothing left over",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/leftover",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"action": "stop_them"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "NO_LEFTOVER",
+                "message": "Nothing Codex started is still running.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/settle-claim",
+      "needs": ["session token"],
+      "rule": "needed after stopped, completed_needs_review, paused_unanswered, paused_for_update or uncertain; one window claims, reconciles git, commits on the task branch, saves the checkpoint, then posts settle",
+      "examples": [
+        {
+          "name": "claimed",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/settle-claim",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"window_id": "win-desktop-1c9e4d"}
+          },
+          "response": {
+            "status": 200,
+            "body": {"claim_id": "FIXTURE-settle-claim-1", "expires_at": "2026-09-13T01:59:00Z"}
+          }
+        },
+        {
+          "name": "the other window holds the claim",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/settle-claim",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"window_id": "win-desktop-1c9e4d"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SETTLE_CLAIMED",
+                "message": "Another editor is saving this task's work.",
+                "retryable": false,
+                "details": {"window": "win-code-server-7f3a2b"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "processes not confirmed gone",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/settle-claim",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"window_id": "win-desktop-1c9e4d"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROCESSES_NOT_CONFIRMED_GONE",
+                "message": "Something this task started is still running.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "nothing to settle",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/settle-claim",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"window_id": "win-desktop-1c9e4d"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "NOTHING_TO_SETTLE",
+                "message": "This task has nothing to save.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "RAVIS's lock was superseded at a restart",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/settle-claim",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {"window_id": "win-desktop-1c9e4d"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "LOCK_SUPERSEDED",
+                "message": "Another editor held this checkout when RAVIS restarted; wait until it releases.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/settle",
+      "needs": ["session token", "Idempotency-Key"],
+      "body": "{claim_id, commit, checkpoint_saved: true, next: idle | end | transfer}",
+      "examples": [
+        {
+          "name": "settled",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/settle",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "claim_id": "FIXTURE-settle-claim-1",
+              "commit": "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b",
+              "checkpoint_saved": true,
+              "next": "idle"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "state": "idle",
+              "workspace": {"root": "/Users/owner/Documents/coding/add-utc-demo", "name": "add-utc-demo"},
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "mode": "agent",
+              "file_rules": "strict",
+              "codex": {
+                "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                "active_turn_id": null,
+                "model": "gpt-6-astra",
+                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+              },
+              "branch": {
+                "name": "clarvis/add-utc",
+                "head_commit_at_start": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"
+              },
+              "pending_requests": [],
+              "queued_feedback": 0,
+              "attached_windows": [
+                {"id": "win-desktop-1c9e4d", "host": "desktop", "since": "2026-09-13T01:42:00Z"}
+              ],
+              "processes": {"attributed": 0, "confirmed_gone": true, "leftover": []},
+              "lock": null,
+              "settle": {"needed": false, "claimed_by": null},
+              "created_at": "2026-09-13T01:12:00Z",
+              "updated_at": "2026-09-13T01:54:00Z",
+              "last_event_id": 1290
+            }
+          }
+        },
+        {
+          "name": "retried after a lost response: the settled view, not CLAIM_INVALID",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/settle",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "claim_id": "FIXTURE-settle-claim-1",
+              "commit": "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b",
+              "checkpoint_saved": true,
+              "next": "idle"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "state": "idle",
+              "workspace": {"root": "/Users/owner/Documents/coding/add-utc-demo", "name": "add-utc-demo"},
+              "clarvis_task_id": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+              "mode": "agent",
+              "file_rules": "strict",
+              "codex": {
+                "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
+                "active_turn_id": null,
+                "model": "gpt-6-astra",
+                "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec"
+              },
+              "branch": {
+                "name": "clarvis/add-utc",
+                "head_commit_at_start": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"
+              },
+              "pending_requests": [],
+              "queued_feedback": 0,
+              "attached_windows": [
+                {"id": "win-desktop-1c9e4d", "host": "desktop", "since": "2026-09-13T01:42:00Z"}
+              ],
+              "processes": {"attributed": 0, "confirmed_gone": true, "leftover": []},
+              "lock": null,
+              "settle": {"needed": false, "claimed_by": null},
+              "created_at": "2026-09-13T01:12:00Z",
+              "updated_at": "2026-09-13T01:54:00Z",
+              "last_event_id": 1290
+            }
+          }
+        },
+        {
+          "name": "a claim that isn't the current one",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/settle",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "claim_id": "FIXTURE-settle-claim-1",
+              "commit": "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b",
+              "checkpoint_saved": true,
+              "next": "idle"
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "CLAIM_INVALID",
+                "message": "That settle claim is not the current one.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "processes not confirmed gone",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/settle",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {
+              "claim_id": "FIXTURE-settle-claim-1",
+              "commit": "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b",
+              "checkpoint_saved": true,
+              "next": "idle"
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROCESSES_NOT_CONFIRMED_GONE",
+                "message": "Something this task started is still running.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/cancel",
+      "needs": ["session token"],
+      "examples": [
+        {
+          "name": "stopping, ending after the settle",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/cancel",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            },
+            "body": {}
+          },
+          "response": {"status": 202, "body": {"state": "stopping", "end_after_settle": true}}
+        },
+        {
+          "name": "a wrong token",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/cancel",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_wrong_token_not_a_secret_WWWWWWWWWW"
+            },
+            "body": {}
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "AGENT_SESSION_NOT_FOUND",
+                "message": "No such agent session.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agent-sessions/{sid}",
+      "needs": ["session token"],
+      "rule": "the thread is kept (the owner's decision to keep Codex's history)",
+      "examples": [
+        {
+          "name": "ended",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "DELETE",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            }
+          },
+          "response": {"status": 200, "body": {"state": "ended"}}
+        },
+        {
+          "name": "still needs a settle",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "DELETE",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SETTLE_FIRST",
+                "message": "Save the last turn's work first.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a turn is active",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "DELETE",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "TURN_ACTIVE",
+                "message": "A turn is still running.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-sessions/{sid}/reissue-token",
+      "needs": ["client credential, no token", "Idempotency-Key"],
+      "rule": "workspace_root must equal the session's root; allowed only when no window has been attached for 60 s; the old token stops working; audited as ravis.agent_session.token_reissued",
+      "examples": [
+        {
+          "name": "reissued",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/reissue-token",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"workspace_root": "/Users/owner/Documents/coding/add-utc-demo"}
+          },
+          "response": {
+            "status": 200,
+            "body": {"session_token": "ast_FIXTURE_reissued_token_not_a_secret_BBBBBBB"}
+          }
+        },
+        {
+          "name": "retried: the same new token",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/reissue-token",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"workspace_root": "/Users/owner/Documents/coding/add-utc-demo"}
+          },
+          "response": {
+            "status": 200,
+            "body": {"session_token": "ast_FIXTURE_reissued_token_not_a_secret_BBBBBBB"}
+          }
+        },
+        {
+          "name": "another root",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/reissue-token",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {"workspace_root": "/Users/owner/Documents/coding/add-utc-demo-copy"}
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "AGENT_SESSION_NOT_FOUND",
+                "message": "No such agent session.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a window attached within 60 s",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/reissue-token",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+            },
+            "body": {"workspace_root": "/Users/owner/Documents/coding/add-utc-demo"}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "WINDOW_ATTACHED",
+                "message": "An editor is attached to this task; reconnect from there.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "owner_stop": "POST /api/v1/agent-sessions/{sid}/owner-stop is on its own router: owner-stop.json",
+  "events": "GET /api/v1/agent-sessions/{sid}/events: event-stream.json",
+  "answer_key_example": "rq_01J9ZK6M3N4P5Q6R7S8T9V0W1X:win-desktop-1c9e4d"
+}

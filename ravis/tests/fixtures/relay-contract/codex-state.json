@@ -1,0 +1,642 @@
+{
+  "contract": {
+    "name": "codex-relay-contract",
+    "version": 1,
+    "specified": "2026-09-13",
+    "state": "specified, not built",
+    "owner": "RAVIS (M29)",
+    "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
+    "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
+  },
+  "route": {
+    "method": "GET",
+    "path": "/api/v1/codex",
+    "who_may_read": "any caller, including anonymous and NERVIS's GET relay",
+    "speed": "answered from an in-memory snapshot within about 50 ms; it never waits on the Codex process",
+    "status": "always 200 while RAVIS is up",
+    "content": "metadata only"
+  },
+  "state_precedence": "exactly one state; when several apply, the earlier row wins",
+  "states": [
+    {"state": "checking", "when": "Before the first check after startup", "shown_as": "checking…"},
+    {
+      "state": "not_installed",
+      "when": "The configured path, the Homebrew link, doesn't resolve to a file",
+      "shown_as": "not installed"
+    },
+    {
+      "state": "not_available",
+      "when": "Disabled; wrong signature or team; home inside ~/.codex or RAVIS's configuration folder; or the check failed",
+      "shown_as": "not available, with the reason"
+    },
+    {
+      "state": "untested_version",
+      "when": "The installed sha256 is in neither the tested nor the accepted list; or strict rules are on and strict_rules is unproven",
+      "shown_as": "paused — Codex needs re-testing"
+    },
+    {
+      "state": "runtime_down",
+      "when": "The app-server is restarting or failed to start",
+      "shown_as": "Codex process restarting"
+    },
+    {
+      "state": "signed_out",
+      "when": "account is null, after an admin sign-out or no sign-in ever",
+      "shown_as": "signed out"
+    },
+    {
+      "state": "sign_in_expired",
+      "when": "account is null after a sign-in RAVIS didn't end",
+      "shown_as": "sign-in expired"
+    },
+    {
+      "state": "account_changed",
+      "when": "The account fingerprint differs from the confirmed one",
+      "shown_as": "different account — confirm on the dashboard"
+    },
+    {
+      "state": "quota_exhausted",
+      "when": "Any of: rateLimitReachedType non-null; a window at usedPercent >= 100 with a future reset; individualLimit.remainingPercent <= 0; spendControlReached true. Credits alone never count",
+      "shown_as": "allowance used up · resets 04:30"
+    },
+    {"state": "signed_in", "when": "Otherwise", "shown_as": "62% left · resets 04:30, or usage unknown"}
+  ],
+  "run_states": [
+    "running",
+    "waiting_on_you",
+    "paused_unanswered",
+    "paused_for_update",
+    "completed_needs_review",
+    "uncertain",
+    "leftover",
+    "clarvis_engine"
+  ],
+  "runs_rules": [
+    "runs lists live agent sessions and Clarvis-engine project locks",
+    "every caller gets since, the start time",
+    "only named callers — any client or admin credential, including NERVIS's relay and the launcher — also get each Codex run's id and current or last turn_id; the owner Stop confirmation sends back id, project and turn_id",
+    "project is the basename of the workspace root: no path, request text or command",
+    "a Clarvis-engine lock has no Codex session, so its id and turn_id are null for named callers (derived)"
+  ],
+  "usage_rules": [
+    "while any turn is active, account/rateLimits/updated notifications are merged sparsely (source: notification) and polling pauses",
+    "when no turn is active, account/rateLimits/read every 15 minutes, plus one read 30 s after the last active turn ends",
+    "unknown is never 0: known false means windows [] and no percentages",
+    "stale is true after 30 minutes without a reading while idle",
+    "remaining_percent = max(0, 100 - round(usedPercent)); labels come from windowDurationMins; the resetsAt unit is pinned by a fixture test"
+  ],
+  "capabilities": [
+    {
+      "id": "ravis.codex_runtime",
+      "version": "1.0.0",
+      "state": "available",
+      "constraints": {
+        "backend_id": "ravis/codex",
+        "roles": ["agent"],
+        "state_endpoint": "/api/v1/codex",
+        "relay": "/api/v1/agent-sessions"
+      }
+    },
+    {
+      "id": "ravis.agent_sessions",
+      "version": "1.0.0",
+      "state": "available",
+      "constraints": {
+        "backend_id": "ravis/codex",
+        "roles": ["agent"],
+        "state_endpoint": "/api/v1/codex",
+        "relay": "/api/v1/agent-sessions"
+      }
+    }
+  ],
+  "capabilities_rule": "declared available once M29 ships; never used as readiness checks",
+  "examples": [
+    {
+      "name": "signed in, three projects busy, read by a named caller",
+      "request": {"caller": "client.nervis", "method": "GET", "path": "/api/v1/codex"},
+      "response": {
+        "status": 200,
+        "body": {
+          "backend_id": "ravis/codex",
+          "execution": "delegated_agent",
+          "roles": ["agent"],
+          "state": "signed_in",
+          "reason": "Codex is signed in with a ChatGPT Plus plan.",
+          "revision": 42,
+          "runtime": {
+            "source": "homebrew",
+            "version": "0.154.0",
+            "installed_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "team_id": "2DC432GLL2",
+            "verdict": "tested",
+            "strict_rules": "proven",
+            "schema": {
+              "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+              "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+            },
+            "process": {
+              "state": "running",
+              "since": "2026-09-13T00:05:00Z",
+              "restarts_24h": 0,
+              "active_turns": 2
+            },
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "home": {"fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"},
+          "account": {
+            "signed_in": true,
+            "auth_mode": "chatgpt",
+            "plan": "plus",
+            "email_hint": "o…@example.com",
+            "fingerprint": "strong",
+            "fingerprint_matches": true,
+            "plan_changed": false,
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "usage": {
+            "known": true,
+            "source": "notification",
+            "observed_at": "2026-09-13T01:54:00Z",
+            "stale": false,
+            "allowance_not_cost": true,
+            "limit_reached": null,
+            "spend_control_reached": null,
+            "windows": [
+              {
+                "id": "primary",
+                "label": "5-hour window",
+                "duration_minutes": 300,
+                "used_percent": 38,
+                "remaining_percent": 62,
+                "resets_at": "2026-09-13T04:30:00Z"
+              },
+              {
+                "id": "secondary",
+                "label": "weekly window",
+                "duration_minutes": 10080,
+                "used_percent": 20,
+                "remaining_percent": 80,
+                "resets_at": "2026-09-17T09:00:00Z"
+              }
+            ],
+            "individual_limit": null,
+            "credits": {"has_credits": false, "unlimited": false, "balance": null}
+          },
+          "runs": [
+            {
+              "id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+              "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
+              "project": "add-utc-demo",
+              "state": "waiting_on_you",
+              "since": "2026-09-13T01:12:00Z",
+              "age_minutes": 42,
+              "waiting_minutes": 12,
+              "attached_windows": 0,
+              "paused_reason": null
+            },
+            {
+              "id": "as_01J9ZK7W1X2Y3Z4A5B6C7D8E",
+              "turn_id": "019a1c30-2e3f-7d4c-b5a6-7f8e9d0c1b23",
+              "project": "weather-cli",
+              "state": "running",
+              "since": "2026-09-13T01:40:00Z",
+              "age_minutes": 14,
+              "waiting_minutes": null,
+              "attached_windows": 1,
+              "paused_reason": null
+            },
+            {
+              "id": null,
+              "turn_id": null,
+              "project": "notes-app",
+              "state": "clarvis_engine",
+              "since": "2026-09-13T01:50:00Z",
+              "age_minutes": 4,
+              "waiting_minutes": null,
+              "attached_windows": 1,
+              "paused_reason": null
+            }
+          ],
+          "models": [
+            {
+              "id": "gpt-6-astra",
+              "display_name": "gpt-6-astra",
+              "is_default": true,
+              "default_effort": "low",
+              "efforts": ["low", "medium", "high"]
+            }
+          ],
+          "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+        }
+      }
+    },
+    {
+      "name": "the same moment, read anonymously: no run ids or turn ids",
+      "request": {"caller": "anonymous", "method": "GET", "path": "/api/v1/codex"},
+      "response": {
+        "status": 200,
+        "body": {
+          "backend_id": "ravis/codex",
+          "execution": "delegated_agent",
+          "roles": ["agent"],
+          "state": "signed_in",
+          "reason": "Codex is signed in with a ChatGPT Plus plan.",
+          "revision": 42,
+          "runtime": {
+            "source": "homebrew",
+            "version": "0.154.0",
+            "installed_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "team_id": "2DC432GLL2",
+            "verdict": "tested",
+            "strict_rules": "proven",
+            "schema": {
+              "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+              "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+            },
+            "process": {
+              "state": "running",
+              "since": "2026-09-13T00:05:00Z",
+              "restarts_24h": 0,
+              "active_turns": 2
+            },
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "home": {"fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"},
+          "account": {
+            "signed_in": true,
+            "auth_mode": "chatgpt",
+            "plan": "plus",
+            "email_hint": "o…@example.com",
+            "fingerprint": "strong",
+            "fingerprint_matches": true,
+            "plan_changed": false,
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "usage": {
+            "known": true,
+            "source": "notification",
+            "observed_at": "2026-09-13T01:54:00Z",
+            "stale": false,
+            "allowance_not_cost": true,
+            "limit_reached": null,
+            "spend_control_reached": null,
+            "windows": [
+              {
+                "id": "primary",
+                "label": "5-hour window",
+                "duration_minutes": 300,
+                "used_percent": 38,
+                "remaining_percent": 62,
+                "resets_at": "2026-09-13T04:30:00Z"
+              },
+              {
+                "id": "secondary",
+                "label": "weekly window",
+                "duration_minutes": 10080,
+                "used_percent": 20,
+                "remaining_percent": 80,
+                "resets_at": "2026-09-17T09:00:00Z"
+              }
+            ],
+            "individual_limit": null,
+            "credits": {"has_credits": false, "unlimited": false, "balance": null}
+          },
+          "runs": [
+            {
+              "project": "add-utc-demo",
+              "state": "waiting_on_you",
+              "since": "2026-09-13T01:12:00Z",
+              "age_minutes": 42,
+              "waiting_minutes": 12,
+              "attached_windows": 0,
+              "paused_reason": null
+            },
+            {
+              "project": "weather-cli",
+              "state": "running",
+              "since": "2026-09-13T01:40:00Z",
+              "age_minutes": 14,
+              "waiting_minutes": null,
+              "attached_windows": 1,
+              "paused_reason": null
+            },
+            {
+              "project": "notes-app",
+              "state": "clarvis_engine",
+              "since": "2026-09-13T01:50:00Z",
+              "age_minutes": 4,
+              "waiting_minutes": null,
+              "attached_windows": 1,
+              "paused_reason": null
+            }
+          ],
+          "models": [
+            {
+              "id": "gpt-6-astra",
+              "display_name": "gpt-6-astra",
+              "is_default": true,
+              "default_effort": "low",
+              "efforts": ["low", "medium", "high"]
+            }
+          ],
+          "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+        }
+      }
+    },
+    {
+      "name": "signed in, usage unknown: no percentages, never zero",
+      "request": {"caller": "client.nervis", "method": "GET", "path": "/api/v1/codex"},
+      "response": {
+        "status": 200,
+        "body": {
+          "backend_id": "ravis/codex",
+          "execution": "delegated_agent",
+          "roles": ["agent"],
+          "state": "signed_in",
+          "reason": "Codex is signed in with a ChatGPT Plus plan.",
+          "revision": 42,
+          "runtime": {
+            "source": "homebrew",
+            "version": "0.154.0",
+            "installed_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "team_id": "2DC432GLL2",
+            "verdict": "tested",
+            "strict_rules": "proven",
+            "schema": {
+              "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+              "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+            },
+            "process": {
+              "state": "running",
+              "since": "2026-09-13T00:05:00Z",
+              "restarts_24h": 0,
+              "active_turns": 2
+            },
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "home": {"fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"},
+          "account": {
+            "signed_in": true,
+            "auth_mode": "chatgpt",
+            "plan": "plus",
+            "email_hint": "o…@example.com",
+            "fingerprint": "strong",
+            "fingerprint_matches": true,
+            "plan_changed": false,
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "usage": {
+            "known": false,
+            "source": null,
+            "observed_at": null,
+            "stale": false,
+            "allowance_not_cost": true,
+            "limit_reached": null,
+            "spend_control_reached": null,
+            "windows": [],
+            "individual_limit": null,
+            "credits": null
+          },
+          "runs": [],
+          "models": [
+            {
+              "id": "gpt-6-astra",
+              "display_name": "gpt-6-astra",
+              "is_default": true,
+              "default_effort": "low",
+              "efforts": ["low", "medium", "high"]
+            }
+          ],
+          "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+        }
+      }
+    },
+    {
+      "name": "signed out",
+      "request": {"caller": "client.nervis", "method": "GET", "path": "/api/v1/codex"},
+      "response": {
+        "status": 200,
+        "body": {
+          "backend_id": "ravis/codex",
+          "execution": "delegated_agent",
+          "roles": ["agent"],
+          "state": "signed_out",
+          "reason": "Codex is signed out.",
+          "revision": 42,
+          "runtime": {
+            "source": "homebrew",
+            "version": "0.154.0",
+            "installed_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "team_id": "2DC432GLL2",
+            "verdict": "tested",
+            "strict_rules": "proven",
+            "schema": {
+              "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+              "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+            },
+            "process": {
+              "state": "running",
+              "since": "2026-09-13T00:05:00Z",
+              "restarts_24h": 0,
+              "active_turns": 2
+            },
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "home": {"fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"},
+          "account": null,
+          "usage": {
+            "known": false,
+            "source": null,
+            "observed_at": null,
+            "stale": false,
+            "allowance_not_cost": true,
+            "limit_reached": null,
+            "spend_control_reached": null,
+            "windows": [],
+            "individual_limit": null,
+            "credits": null
+          },
+          "runs": [],
+          "models": [],
+          "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+        }
+      }
+    },
+    {
+      "name": "allowance used up",
+      "request": {"caller": "client.nervis", "method": "GET", "path": "/api/v1/codex"},
+      "response": {
+        "status": 200,
+        "body": {
+          "backend_id": "ravis/codex",
+          "execution": "delegated_agent",
+          "roles": ["agent"],
+          "state": "quota_exhausted",
+          "reason": "The ChatGPT plan's allowance is used up until 04:30.",
+          "revision": 42,
+          "runtime": {
+            "source": "homebrew",
+            "version": "0.154.0",
+            "installed_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "team_id": "2DC432GLL2",
+            "verdict": "tested",
+            "strict_rules": "proven",
+            "schema": {
+              "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+              "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+            },
+            "process": {
+              "state": "running",
+              "since": "2026-09-13T00:05:00Z",
+              "restarts_24h": 0,
+              "active_turns": 2
+            },
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "home": {"fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"},
+          "account": {
+            "signed_in": true,
+            "auth_mode": "chatgpt",
+            "plan": "plus",
+            "email_hint": "o…@example.com",
+            "fingerprint": "strong",
+            "fingerprint_matches": true,
+            "plan_changed": false,
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "usage": {
+            "known": true,
+            "source": "notification",
+            "observed_at": "2026-09-13T01:54:00Z",
+            "stale": false,
+            "allowance_not_cost": true,
+            "limit_reached": null,
+            "spend_control_reached": null,
+            "windows": [
+              {
+                "id": "primary",
+                "label": "5-hour window",
+                "duration_minutes": 300,
+                "used_percent": 100,
+                "remaining_percent": 0,
+                "resets_at": "2026-09-13T04:30:00Z"
+              },
+              {
+                "id": "secondary",
+                "label": "weekly window",
+                "duration_minutes": 10080,
+                "used_percent": 20,
+                "remaining_percent": 80,
+                "resets_at": "2026-09-17T09:00:00Z"
+              }
+            ],
+            "individual_limit": null,
+            "credits": {"has_credits": false, "unlimited": false, "balance": null}
+          },
+          "runs": [],
+          "models": [
+            {
+              "id": "gpt-6-astra",
+              "display_name": "gpt-6-astra",
+              "is_default": true,
+              "default_effort": "low",
+              "efforts": ["low", "medium", "high"]
+            }
+          ],
+          "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+        }
+      }
+    },
+    {
+      "name": "paused for re-testing: the installed binary is neither tested nor accepted",
+      "request": {"caller": "client.nervis", "method": "GET", "path": "/api/v1/codex"},
+      "response": {
+        "status": 200,
+        "body": {
+          "backend_id": "ravis/codex",
+          "execution": "delegated_agent",
+          "roles": ["agent"],
+          "state": "untested_version",
+          "reason": "Codex changed (now 0.155.0) and needs re-testing before new work.",
+          "revision": 42,
+          "runtime": {
+            "source": "homebrew",
+            "version": "0.155.0",
+            "installed_sha256": "7c2d1ac2d5fa680c2d97e55d140337fa8a38e8fbde184bf7df5c313732ea121c",
+            "running_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
+            "team_id": "2DC432GLL2",
+            "verdict": "untested",
+            "strict_rules": "unproven",
+            "schema": {
+              "stable_tree": "48a6dd686f2fac76531817428f72fde025c634fea8a064a48b2b0127b14bdb50",
+              "experimental_tree": "c6bd61e1e6e8527ed44c4e897efbffd059ea69cb95e085978b91a828a5c630a4"
+            },
+            "process": {
+              "state": "running",
+              "since": "2026-09-13T00:05:00Z",
+              "restarts_24h": 0,
+              "active_turns": 2
+            },
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "home": {"fingerprint": "sha256:d7f90d4554be65c7796599f94992709e65bff5bae4234c7fcdfadade543cc593"},
+          "account": {
+            "signed_in": true,
+            "auth_mode": "chatgpt",
+            "plan": "plus",
+            "email_hint": "o…@example.com",
+            "fingerprint": "strong",
+            "fingerprint_matches": true,
+            "plan_changed": false,
+            "checked_at": "2026-09-13T01:54:00Z"
+          },
+          "usage": {
+            "known": true,
+            "source": "notification",
+            "observed_at": "2026-09-13T01:54:00Z",
+            "stale": false,
+            "allowance_not_cost": true,
+            "limit_reached": null,
+            "spend_control_reached": null,
+            "windows": [
+              {
+                "id": "primary",
+                "label": "5-hour window",
+                "duration_minutes": 300,
+                "used_percent": 38,
+                "remaining_percent": 62,
+                "resets_at": "2026-09-13T04:30:00Z"
+              },
+              {
+                "id": "secondary",
+                "label": "weekly window",
+                "duration_minutes": 10080,
+                "used_percent": 20,
+                "remaining_percent": 80,
+                "resets_at": "2026-09-17T09:00:00Z"
+              }
+            ],
+            "individual_limit": null,
+            "credits": {"has_credits": false, "unlimited": false, "balance": null}
+          },
+          "runs": [],
+          "models": [
+            {
+              "id": "gpt-6-astra",
+              "display_name": "gpt-6-astra",
+              "is_default": true,
+              "default_effort": "low",
+              "efforts": ["low", "medium", "high"]
+            }
+          ],
+          "sign_in": {"state": "idle", "started_at": null, "expires_at": null, "error": null}
+        }
+      }
+    }
+  ]
+}

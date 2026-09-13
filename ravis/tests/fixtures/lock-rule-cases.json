@@ -1,0 +1,220 @@
+{
+  "contract": {
+    "name": "codex-relay-contract",
+    "version": 1,
+    "specified": "2026-09-13",
+    "state": "specified, not built",
+    "owner": "RAVIS (M29)",
+    "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
+    "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
+  },
+  "rule": {
+    "signature": "judgeLock(lock, probe, observerAwakeSeconds) -> alive | unresponsive | gone",
+    "implemented_in": ["Clarvis: src/engine/lock/lockRule.ts (C1)", "RAVIS: the lock rule module (R2)"],
+    "threshold_seconds": 90,
+    "gone": "the holder's pid isn't running, or ps -o lstart= -p <pid> differs from pid_start. Only gone counts as dead",
+    "unresponsive": "pid and start time match, the heartbeat is older than 90 s, and the observer has been awake at least 90 s since the Mac last woke",
+    "alive": "otherwise",
+    "observer_awake": "seconds since kern.waketime, else kern.boottime: a stale heartbeat after a sleep never makes a live holder dead",
+    "used_by": "RAVIS for project_lock rows and for the checkout file; Clarvis for the file"
+  },
+  "lock_file": {
+    "path": "<git_dir>/clarvis-engine.lock, or <root>/.clarvis/engine.lock without git",
+    "create": "atomically, open(path, 'wx', 0o600), written by the process that actually writes: RAVIS for Codex sessions, the window for Clarvis-engine runs",
+    "acquire": "create the file, then obtain RAVIS's lock (on refusal delete the file and refuse), then heartbeat both every 15 s",
+    "release": "in reverse order, only after the holder's processes are confirmed gone and any settle is done; never while a switch holds the lock; never by a holder that has lost it",
+    "example": {
+      "version": 3,
+      "ravis_lock_id": "pl_01J9ZK5A2B3C4D5E6F7G8H9J0K",
+      "taskId": "8b1c2d3e-4f50-4a61-9b72-83c4d5e6f708",
+      "engine": "codex",
+      "state": "running",
+      "holder": {
+        "kind": "codex_session",
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "pid": 4411,
+        "pid_start": "Sun Sep 13 05:10:02 2026",
+        "window_id": null,
+        "host": "ravis",
+        "since": "2026-09-13T01:42:00Z"
+      },
+      "heartbeatAt": "2026-09-13T01:42:00Z",
+      "waitingOnYou": true,
+      "leftover": [],
+      "takenOverFrom": null,
+      "running_command": null
+    }
+  },
+  "verdict_cases": [
+    {
+      "name": "the holder's pid is not running",
+      "lock": {"pid": 48123, "pid_start": "Sun Sep 13 05:10:02 2026", "heartbeat_age_seconds": 3},
+      "probe": {"pid_running": false, "lstart": null},
+      "observer_awake_seconds": 600,
+      "expected": "gone"
+    },
+    {
+      "name": "the pid was reused by a later process",
+      "lock": {"pid": 48123, "pid_start": "Sun Sep 13 05:10:02 2026", "heartbeat_age_seconds": 2},
+      "probe": {"pid_running": true, "lstart": "Sun Sep 13 05:40:11 2026"},
+      "observer_awake_seconds": 600,
+      "expected": "gone"
+    },
+    {
+      "name": "a fresh heartbeat",
+      "lock": {"pid": 48123, "pid_start": "Sun Sep 13 05:10:02 2026", "heartbeat_age_seconds": 4},
+      "probe": {"pid_running": true, "lstart": "Sun Sep 13 05:10:02 2026"},
+      "observer_awake_seconds": 600,
+      "expected": "alive"
+    },
+    {
+      "name": "an old heartbeat while the observer has been awake",
+      "lock": {"pid": 48123, "pid_start": "Sun Sep 13 05:10:02 2026", "heartbeat_age_seconds": 91},
+      "probe": {"pid_running": true, "lstart": "Sun Sep 13 05:10:02 2026"},
+      "observer_awake_seconds": 600,
+      "expected": "unresponsive"
+    },
+    {
+      "name": "an old heartbeat just after the Mac woke",
+      "lock": {"pid": 48123, "pid_start": "Sun Sep 13 05:10:02 2026", "heartbeat_age_seconds": 5400},
+      "probe": {"pid_running": true, "lstart": "Sun Sep 13 05:10:02 2026"},
+      "observer_awake_seconds": 30,
+      "expected": "alive"
+    },
+    {
+      "name": "a heartbeat exactly 90 s old is not older than 90 s",
+      "lock": {"pid": 48123, "pid_start": "Sun Sep 13 05:10:02 2026", "heartbeat_age_seconds": 90},
+      "probe": {"pid_running": true, "lstart": "Sun Sep 13 05:10:02 2026"},
+      "observer_awake_seconds": 600,
+      "expected": "alive"
+    },
+    {
+      "name": "awake exactly 90 s counts as at least 90 s",
+      "lock": {"pid": 48123, "pid_start": "Sun Sep 13 05:10:02 2026", "heartbeat_age_seconds": 91},
+      "probe": {"pid_running": true, "lstart": "Sun Sep 13 05:10:02 2026"},
+      "observer_awake_seconds": 90,
+      "expected": "unresponsive"
+    },
+    {
+      "name": "awake 89 s",
+      "lock": {"pid": 48123, "pid_start": "Sun Sep 13 05:10:02 2026", "heartbeat_age_seconds": 91},
+      "probe": {"pid_running": true, "lstart": "Sun Sep 13 05:10:02 2026"},
+      "observer_awake_seconds": 89,
+      "expected": "alive"
+    },
+    {
+      "name": "not running wins over a fresh heartbeat after a wake",
+      "lock": {"pid": 48123, "pid_start": "Sun Sep 13 05:10:02 2026", "heartbeat_age_seconds": 0},
+      "probe": {"pid_running": false, "lstart": null},
+      "observer_awake_seconds": 5,
+      "expected": "gone"
+    }
+  ],
+  "adoption_rule": {
+    "records": "RAVIS records its own instance, pid and process start time, in ravis_instance at every start",
+    "rewrite_only_when": "the checkout lock file still names RAVIS's previous instance",
+    "otherwise": "whatever the verdict, the file is left untouched, RAVIS's lock is marked superseded, the Codex session stays uncertain, and settle-claim, turns and resume get 409 LOCK_SUPERSEDED",
+    "then": "when the window releases, or registers its lock with adopt_file_lock true, RAVIS replaces the superseded row; the Codex session can then be settled by a window holding the lock, and continued"
+  },
+  "adoption_cases": [
+    {
+      "name": "the file names RAVIS's previous instance",
+      "file": {"holder_kind": "codex_session", "names_previous_ravis_instance": true, "verdict": "gone"},
+      "create_race_lost": false,
+      "expected": {"action": "rewrite", "file_touched": true, "ravis_lock_state": "running"}
+    },
+    {
+      "name": "a live window holds the file",
+      "file": {"holder_kind": "clarvis_run", "names_previous_ravis_instance": false, "verdict": "alive"},
+      "create_race_lost": false,
+      "expected": {
+        "action": "superseded",
+        "file_touched": false,
+        "ravis_lock_state": "superseded",
+        "codex_session_state": "uncertain",
+        "refused_with_409_lock_superseded": ["settle-claim", "turns", "resume"]
+      }
+    },
+    {
+      "name": "an unresponsive window holds the file",
+      "file": {
+        "holder_kind": "clarvis_run",
+        "names_previous_ravis_instance": false,
+        "verdict": "unresponsive"
+      },
+      "create_race_lost": false,
+      "expected": {
+        "action": "superseded",
+        "file_touched": false,
+        "ravis_lock_state": "superseded",
+        "codex_session_state": "uncertain",
+        "refused_with_409_lock_superseded": ["settle-claim", "turns", "resume"]
+      }
+    },
+    {
+      "name": "a gone window holds the file",
+      "file": {"holder_kind": "clarvis_run", "names_previous_ravis_instance": false, "verdict": "gone"},
+      "create_race_lost": false,
+      "expected": {
+        "action": "superseded",
+        "file_touched": false,
+        "ravis_lock_state": "superseded",
+        "codex_session_state": "uncertain",
+        "refused_with_409_lock_superseded": ["settle-claim", "turns", "resume"]
+      }
+    },
+    {
+      "name": "no file, and nothing else holds the root",
+      "file": null,
+      "create_race_lost": false,
+      "expected": {"action": "create", "file_touched": true, "ravis_lock_state": "running"}
+    },
+    {
+      "name": "no file, and a window won the create race",
+      "file": null,
+      "create_race_lost": true,
+      "expected": {
+        "action": "superseded",
+        "file_touched": false,
+        "ravis_lock_state": "superseded",
+        "codex_session_state": "uncertain",
+        "refused_with_409_lock_superseded": ["settle-claim", "turns", "resume"]
+      }
+    }
+  ],
+  "on_finding_a_lock": [
+    {
+      "holder": "codex_session",
+      "verdict": "any",
+      "outcome": "attach: never taken over; any window of the workspace joins the session and can stop it"
+    },
+    {
+      "holder": "clarvis_run",
+      "verdict": "gone",
+      "outcome": "reconcile: kill the recorded leftovers and running_command's group, confirm, continue the same task with continueOn, committing the leftovers first"
+    },
+    {
+      "holder": "clarvis_run",
+      "verdict": "alive",
+      "waiting_on_you": false,
+      "outcome": "refuse: another Clarvis window is working on this project"
+    },
+    {
+      "holder": "clarvis_run",
+      "verdict": "alive",
+      "waiting_on_you": true,
+      "outcome": "take over with a confirmation naming the window and its age"
+    },
+    {
+      "holder": "clarvis_run",
+      "verdict": "unresponsive",
+      "outcome": "take over with a confirmation naming the window and its age"
+    }
+  ],
+  "fence": [
+    "a holder that lost its lock never commits, never writes the checkpoint, and never releases or rewrites a lock",
+    "stillHolds() is checked before every mutating tool call and before any commit or checkpoint write",
+    "lost means a heartbeat answered 409 LEASE_REVOKED, or the lock file no longer names this window; RAVIS unreachable is never loss: the run continues on the file, retries RAVIS every 15 s and re-registers with adopt_file_lock true"
+  ],
+  "window_ids": ["win-code-server-7f3a2b", "win-desktop-1c9e4d"]
+}

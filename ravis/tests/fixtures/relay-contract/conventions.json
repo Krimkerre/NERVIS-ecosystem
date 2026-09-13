@@ -1,0 +1,420 @@
+{
+  "contract": {
+    "name": "codex-relay-contract",
+    "version": 1,
+    "specified": "2026-09-13",
+    "state": "specified, not built",
+    "owner": "RAVIS (M29)",
+    "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
+    "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
+  },
+  "about": "Shared contract fixtures for Codex agent sessions brokered by RAVIS. RAVIS owns them in ravis/tests/fixtures/; Clarvis keeps a byte-identical copy in src/test/fixtures/, held to codex-contract.sha256. Every value is a fixture value: no token, key or hash is real. Nothing here is built yet.",
+  "files": {
+    "conventions.json": "this file: transport, callers, headers, the error catalogue and the shared rules",
+    "codex-state.json": "GET /api/v1/codex: state, allowance and running tasks",
+    "codex-admin.json": "sign-in, sign-out, account confirmation, version acceptance, the file-rules re-test, NERVIS's control routes",
+    "openai-refusal.json": "the 400 on /v1/chat/completions and /v1/embeddings, and the conditional /v1/models entry",
+    "agent-sessions.json": "the relay's session routes and shapes",
+    "event-stream.json": "the per-session SSE stream",
+    "owner-stop.json": "the stop-only owner route, the launcher's codex stop and NERVIS's Stop route",
+    "project-locks.json": "the project lock routes both engines use",
+    "../lock-rule-cases.json": "the shared lock rule's cases, implemented by RAVIS and Clarvis alike"
+  },
+  "transport": {
+    "actions": "JSON over loopback HTTP; Content-Type: application/json; the form content types are refused",
+    "events": "server-sent events on GET /api/v1/agent-sessions/{sid}/events; no WebSockets, which skip RAVIS's admission layer",
+    "timestamps": "ISO-8601 UTC"
+  },
+  "content_rule": "Nothing in these routes, in RAVIS's logs or audit, or in MEP events carries prompt text, approval text, commands, file contents or diffs, except the relay stream and snapshot sent to a session-token holder, which carry what the window must render.",
+  "callers": {
+    "anonymous": "no credential",
+    "client.clarvis": "a client credential of application clarvis: code-server windows through the launcher's environment, desktop VS Code through the file named in clarvis.ravis.credentialFile",
+    "client.nervis": "NERVIS's client credential, which its GET relay presents on every read of RAVIS's /api/v1/",
+    "client.other": "a client credential whose application is not in settings.agent_client_applications",
+    "admin.launcher": "the launcher's admin credential; NERVIS holds it for its control routes",
+    "admin.owner_cli": "the owner's command-line admin credential in .run/ravis-owner.token, used only by run.py codex stop and codex reprove, never given to NERVIS",
+    "note": "caller names the credential presented in Authorization; its value never appears in a fixture"
+  },
+  "headers": {
+    "Idempotency-Key": {
+      "format": "1-128 printable characters",
+      "required_on": [
+        "POST /api/v1/agent-sessions",
+        "POST /api/v1/agent-sessions/{sid}/turns",
+        "POST /api/v1/agent-sessions/{sid}/steer",
+        "POST /api/v1/agent-sessions/{sid}/requests/{rid}/answer",
+        "POST /api/v1/agent-sessions/{sid}/settle",
+        "POST /api/v1/agent-sessions/{sid}/reissue-token",
+        "POST /api/v1/agent-sessions/{sid}/owner-stop",
+        "POST /api/v1/project-locks",
+        "POST /api/v1/project-locks/{lid}/takeover",
+        "POST /api/v1/project-locks/{lid}/transfer",
+        "POST /api/v1/codex/reprove"
+      ],
+      "scope": "per session or workspace root, per window_id from the body, per key: two windows never share a key",
+      "kept_hours": 24,
+      "same_key_same_body": "the original response is replayed: a retried settle returns the settled view, a retried transfer the same token, a retried reissue-token the same new token",
+      "same_key_other_body": "422 IDEMPOTENCY_KEY_REUSED",
+      "missing": "428 IDEMPOTENCY_KEY_REQUIRED",
+      "resolution_before_replay": "an answer checks the request's resolution before replaying across windows, so another window gets 409 REQUEST_ALREADY_RESOLVED, never someone else's 200"
+    },
+    "X-Agent-Session-Token": {
+      "format": "^ast_[A-Za-z0-9_-]{43}$",
+      "entropy_bits": 256,
+      "returned": "once at creation, and by reissue-token",
+      "stored_by_ravis": "its sha256 only, compared in constant time",
+      "missing_or_wrong": "404 AGENT_SESSION_NOT_FOUND, so a session's existence doesn't leak",
+      "kept_by_clarvis_in": "~/.local/share/clarvis/agent-sessions/<sha256(workspace root realpath)>.json; folder 0700, file 0600, written atomically, deleted when the session ends"
+    },
+    "X-Lock-Lease": {
+      "format": "lk_ followed by an opaque value",
+      "returned_by": ["POST /api/v1/project-locks", "POST /api/v1/project-locks/{lid}/takeover"]
+    },
+    "Last-Event-ID": "the event stream's resume cursor; ?after= is equivalent",
+    "X-Clarvis-Engines": {
+      "value": "codex",
+      "sent_by": "Clarvis 0.17.0 or later, on listModels to a loopback base URL",
+      "effect": "lets GET /v1/models list ravis/codex"
+    }
+  },
+  "identifiers": {
+    "session_id": "as_ prefix",
+    "request_id": "rq_ prefix",
+    "lock_id": "pl_ prefix",
+    "thread_id, turn_id, item_id": "Codex's own ids, passed through",
+    "transfer_token, claim_id": "opaque",
+    "nervis_stop_route_sid": "^as_[0-9A-Za-z]{10,40}$",
+    "nervis_stop_route_idempotency_key": "^[A-Za-z0-9_-]{16,128}$"
+  },
+  "error_envelope": {
+    "shape": {
+      "error": {
+        "code": "…",
+        "message": "…",
+        "retryable": false,
+        "details": {},
+        "request_id": "…",
+        "trace_id": "…"
+      }
+    },
+    "rules": [
+      "Clients match on code and details; message wording is informative and may change.",
+      "request_id and trace_id differ per response; fixtures use placeholders.",
+      "RAVIS's OpenAI-compatible /v1 endpoints keep OpenAI's error shape (openai-refusal.json).",
+      "NERVIS's own refusals before forwarding keep NERVIS's shape (owner-stop.json)."
+    ]
+  },
+  "error_codes": {
+    "AGENT_CLIENT_NOT_ALLOWED": {
+      "status": [403],
+      "retryable": false,
+      "where": "every agent-session and project-lock route except owner-stop, GETs included"
+    },
+    "AGENT_SESSION_NOT_FOUND": {
+      "status": [404],
+      "retryable": false,
+      "where": "any {sid} route with a missing or wrong session token; owner-stop with an unknown id"
+    },
+    "ATTACH_INSTEAD": {
+      "status": [409],
+      "retryable": false,
+      "where": "takeover of a lock a Codex session holds: Codex sessions are attached, never taken over"
+    },
+    "CLAIM_INVALID": {
+      "status": [409],
+      "retryable": false,
+      "where": "settle with a claim that is not the current one"
+    },
+    "CODEX_ACCOUNT_MOVED": {"status": [409], "retryable": false, "where": "account/confirm"},
+    "CODEX_ALREADY_SIGNED_IN": {"status": [409], "retryable": false, "where": "sign-in"},
+    "CODEX_HASH_MISMATCH": {
+      "status": [409],
+      "retryable": false,
+      "where": "accept-version for a sha256 that is not the installed binary"
+    },
+    "CODEX_NOT_AVAILABLE": {
+      "status": [409],
+      "retryable": false,
+      "where": "sign-in while not_installed, not_available or runtime_down"
+    },
+    "CODEX_NOT_READY": {
+      "status": [409],
+      "retryable": false,
+      "where": "session create and turns while Codex's state is not ready, including unproven file rules and a changed account"
+    },
+    "CODEX_RUNTIME_UNAVAILABLE": {
+      "status": [503],
+      "retryable": true,
+      "where": "session create, transcript, and a sign-in whose start timed out"
+    },
+    "CODEX_RUN_IN_PROGRESS": {
+      "status": [409],
+      "retryable": false,
+      "where": "sign-in, sign-out and reprove while a Codex turn is active or a settle is pending"
+    },
+    "CODEX_SESSION_LIMIT": {
+      "status": [409],
+      "retryable": false,
+      "where": "session create above the live-session limit (default 3)"
+    },
+    "CODEX_SIGN_IN_PORT_BUSY": {
+      "status": [409],
+      "retryable": false,
+      "where": "sign-in while ports 1455 and 1457 are both held"
+    },
+    "CODEX_UNTESTED_VERSION": {
+      "status": [409],
+      "retryable": false,
+      "where": "sign-in while the installed binary is neither tested nor accepted"
+    },
+    "CODEX_VERSION_CHECK_FAILED": {
+      "status": [409],
+      "retryable": false,
+      "where": "accept-version when any of acceptance checks 1-6 failed"
+    },
+    "CONFIRMATION_MISMATCH": {
+      "status": [409, 422],
+      "retryable": false,
+      "where": "owner-stop (409) and lock takeover (422) whose confirmation does not match"
+    },
+    "DECISION_NOT_ALLOWED": {
+      "status": [422],
+      "retryable": false,
+      "where": "answer with a decision outside the request's allowed_decisions"
+    },
+    "EMPTY_STEER": {"status": [422], "retryable": false, "where": "steer with empty text"},
+    "EVENT_CURSOR_EXPIRED": {
+      "status": [409],
+      "retryable": false,
+      "where": "events with a cursor older than the kept non-delta events, answered before streaming"
+    },
+    "FORBIDDEN": {
+      "status": [403],
+      "retryable": false,
+      "where": "the Codex admin routes for a caller without an admin credential (RAVIS's existing code)"
+    },
+    "GIT_DIR_NOT_ALLOWED": {
+      "status": [422],
+      "retryable": false,
+      "where": "session create and lock create whose git_dir fails the git-folder rule"
+    },
+    "HOLDER_ACTIVE": {
+      "status": [409],
+      "retryable": false,
+      "where": "takeover of a Clarvis-engine run that is alive and working"
+    },
+    "IDEMPOTENCY_KEY_REQUIRED": {
+      "status": [428],
+      "retryable": false,
+      "where": "a route that requires Idempotency-Key, called without one"
+    },
+    "IDEMPOTENCY_KEY_REUSED": {
+      "status": [422],
+      "retryable": false,
+      "where": "the same Idempotency-Key with a different body"
+    },
+    "LEASE_REVOKED": {
+      "status": [409],
+      "retryable": false,
+      "where": "heartbeat from a holder whose lock was taken over"
+    },
+    "LOCK_SUPERSEDED": {
+      "status": [409],
+      "retryable": false,
+      "where": "turns, settle-claim and a resuming create while RAVIS's lock row is superseded after a restart"
+    },
+    "LOCK_TRANSFER_INVALID": {
+      "status": [409],
+      "retryable": false,
+      "where": "session create and turns with a transfer token that is unknown, expired or for another root"
+    },
+    "NESTED_PROJECT_LOCKED": {
+      "status": [409],
+      "retryable": false,
+      "where": "session create, turns and lock create when an ancestor or descendant root is locked"
+    },
+    "NOTHING_RUNNING": {
+      "status": [409],
+      "retryable": false,
+      "where": "owner-stop on a session that is idle, stopped, paused, completed_needs_review or ended"
+    },
+    "NOTHING_TO_SETTLE": {
+      "status": [409],
+      "retryable": false,
+      "where": "settle-claim on a session that needs no settle"
+    },
+    "NO_LEFTOVER": {
+      "status": [409],
+      "retryable": false,
+      "where": "leftover when no leftover processes are recorded"
+    },
+    "OWNER_STOP_NOT_ALLOWED": {
+      "status": [403],
+      "retryable": false,
+      "where": "owner-stop from anonymous, any client credential, or an admin application not in agent_owner_stop_applications"
+    },
+    "PROCESSES_NOT_CONFIRMED_GONE": {
+      "status": [409],
+      "retryable": false,
+      "where": "settle-claim, settle, lock release and lock transfer before the holder's processes are confirmed gone"
+    },
+    "PROJECT_LOCKED": {
+      "status": [409],
+      "retryable": false,
+      "where": "session create, turns, steer and lock create while another holder has the root"
+    },
+    "RATE_LIMITED": {
+      "status": [429],
+      "retryable": true,
+      "where": "owner-stop above 10 calls a minute per application (RAVIS's existing code)"
+    },
+    "REPROOF_NOT_ALLOWED": {
+      "status": [403],
+      "retryable": false,
+      "where": "reprove from any caller but an admin application in codex_reproof_applications (default owner_cli)"
+    },
+    "REQUEST_ALREADY_RESOLVED": {
+      "status": [409],
+      "retryable": false,
+      "where": "answer to a request another window, Stop, the policy or the turn's end already resolved"
+    },
+    "REQUEST_NOT_FOUND": {"status": [404], "retryable": false, "where": "answer to an unknown request id"},
+    "SESSION_STOPPING": {
+      "status": [409],
+      "retryable": false,
+      "where": "turns, steer and answer once the session is stopping"
+    },
+    "SETTLE_CLAIMED": {
+      "status": [409],
+      "retryable": false,
+      "where": "settle-claim while another window holds the claim"
+    },
+    "SETTLE_FIRST": {
+      "status": [409],
+      "retryable": false,
+      "where": "turns and DELETE on a session that still needs a settle"
+    },
+    "TOKEN_NOT_ACCEPTED": {
+      "status": [400],
+      "retryable": false,
+      "where": "owner-stop carrying X-Agent-Session-Token"
+    },
+    "TURN_ACTIVE": {
+      "status": [409],
+      "retryable": false,
+      "where": "turns (steer instead) and DELETE while a turn is active"
+    },
+    "WINDOW_ATTACHED": {
+      "status": [409],
+      "retryable": false,
+      "where": "reissue-token while a window attached within the last 60 s"
+    },
+    "WORKSPACE_ROOT_NOT_ALLOWED": {
+      "status": [422],
+      "retryable": false,
+      "where": "session create and list, lock create and read, for a root outside the rule"
+    }
+  },
+  "identity_rule": {
+    "dependency": "require_agent_client(request), run first on every agent-session and project-lock route, GETs included",
+    "refusals_in_order": [
+      {
+        "when": "identity.is_anonymous",
+        "status": 403,
+        "code": "AGENT_CLIENT_NOT_ALLOWED",
+        "message": "A Clarvis credential is required."
+      },
+      {
+        "when": "identity.may_write_configuration: any admin credential, including NERVIS's admin.launcher",
+        "status": 403,
+        "code": "AGENT_CLIENT_NOT_ALLOWED",
+        "message": "Administrative credentials may not start, read, steer, stop or answer Codex tasks."
+      },
+      {
+        "when": "application_id is nervis or launcher",
+        "status": 403,
+        "code": "AGENT_CLIENT_NOT_ALLOWED",
+        "message": "A Clarvis credential is required."
+      },
+      {
+        "when": "application_id not in settings.agent_client_applications (default [\"clarvis\"])",
+        "status": 403,
+        "code": "AGENT_CLIENT_NOT_ALLOWED",
+        "message": "A Clarvis credential is required."
+      }
+    ],
+    "rules": [
+      "The refusals run before the session token is examined, so a NERVIS credential holding a valid token is still refused.",
+      "Attributes are read directly, never through getattr(identity, name, False).",
+      "The one exception is POST /api/v1/agent-sessions/{sid}/owner-stop, on its own router with require_owner_stop_caller (owner-stop.json).",
+      "A route-table test fails if any other agent-session or project-lock route lacks require_agent_client, if owner-stop has it, or if reprove or the calibration route lacks require_owner_cli."
+    ]
+  },
+  "workspace_root_rule": {
+    "accepted": "the realpath of an existing directory inside one of settings.agent_allowed_roots (default [\"~/Documents/coding\"]; the launcher appends extras)",
+    "refused": [
+      "$HOME itself",
+      "anything inside ~/.config, ~/.local/share, ~/.ssh, ~/.aws, ~/Library or ~/.codex",
+      "any configured .run folder",
+      "an agent_allowed_roots entry itself, such as ~/Documents/coding",
+      "a folder that is, contains or lies inside a protected repository, or contains a denied path, unless that exact folder is listed in agent_allowed_roots with allow_protected: true"
+    ],
+    "status": 422,
+    "code": "WORKSPACE_ROOT_NOT_ALLOWED",
+    "details_reason_fixed": {
+      "protected_repository": "is, contains or lies inside NERVIS-ecosystem or clarvis",
+      "allowed_roots_entry": "is an agent_allowed_roots entry itself"
+    },
+    "details_reason_other": "the design fixes no other reason values; RAVIS's relay increment adds them here",
+    "protected_repositories_default": "RAVIS's own checkout and its sibling clarvis, even when RAVIS starts without the launcher",
+    "owner_decision": "the ecosystem's own repositories stay refused; allowing one later needs an exact allow_protected listing and calibration K5c proving deny beats write inside a root",
+    "binding": "a session stores the realpath, and no later call can change it"
+  },
+  "git_dir_rule": [
+    "<root>/.git is a directory and git_dir is its realpath; or",
+    "<root>/.git is a file reading 'gitdir: <path>', that path resolves to <main>/.git/worktrees/<name>, and that folder's gitdir file points back to <root>/.git.",
+    "Anything else is 422 GIT_DIR_NOT_ALLOWED.",
+    "A root without .git uses <root>/.clarvis/.",
+    "RAVIS never runs git."
+  ],
+  "serialised_routes": {
+    "routes": [
+      "turns",
+      "steer",
+      "interrupt",
+      "answer",
+      "mode",
+      "leftover",
+      "settle-claim",
+      "settle",
+      "cancel",
+      "DELETE",
+      "owner-stop"
+    ],
+    "rule": "one per-session action lock; presence is not serialised; interrupt, cancel and owner-stop set stopping inside the lock, before any answer that arrived at the same moment can be forwarded to Codex"
+  },
+  "turns_need_the_project_lock": {
+    "applies_to": [
+      "POST …/turns",
+      "a steer that finds no active turn",
+      "a queued steer about to start its follow-on turn"
+    ],
+    "holds_when": "RAVIS's lock row names this session and is not superseded, and the checkout lock file names RAVIS",
+    "taken_atomically_when": [
+      "the request carries lock.transfer_token (a switch back)",
+      "nothing holds the root or a nested root: the lock and the checkout lock file are created as create does"
+    ],
+    "otherwise": "409 PROJECT_LOCKED {lock}, or NESTED_PROJECT_LOCKED, LOCK_SUPERSEDED or LOCK_TRANSFER_INVALID, and nothing starts",
+    "queued_steer_without_the_lock": "starts nothing; RAVIS emits feedback {text, how: not_delivered}, and Clarvis keeps the text in the checkpoint's latestFeedback"
+  },
+  "open_points": [
+    "A replayed create, transfer or reissue-token must return the original token, while RAVIS stores only token hashes and its idempotency record keeps ids and states only. RAVIS's relay increment decides how a replay returns a token it did not keep.",
+    "CODEX_NOT_READY's details.reason is a sentence in the endpoint table and the fixed word strict_file_rules_unproven in the safety-box rule. These fixtures use that word for unproven file rules and the state's reason sentence otherwise.",
+    "The design gives a 422 without a code for an invalid mode and for a sign-in method other than browser; those examples say so instead of naming one.",
+    "GET /api/v1/codex/reprove returns the last result; only its state and result word are fixed.",
+    "The transcript's turn entries follow Codex's thread/turns/list summary view and are fixed against calibration's transcripts.",
+    "The deltas_skipped marker in a resumed stream, a question's options and its answers map, and the type key on a normalised stream item have no fixed shape yet; the fixtures show one plausible form of each.",
+    "Whether a session settled with next: idle keeps its project lock is not stated; the idle view here shows it released, and turns show how a lockless session takes it back.",
+    "The shared lock rule's module is named both codex/lock_rule.py and agent/lock_rule.py in the design; RAVIS.md §18 follows the build plan's agent/, and R2 settles it. The cases are the contract either way."
+  ]
+}

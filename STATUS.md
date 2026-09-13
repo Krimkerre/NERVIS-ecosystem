@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 3091 tests, no network, no live service
+.venv/bin/pytest                      # part of 3096 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 23 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1259 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 3091 passing across the four, conformance `PASS`.
+Expected: all clean, 3096 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -215,6 +215,7 @@ carries an as-built note saying what exists and what does not.
 | 14 | **Specified for Clarvis and not built** | The Bridge's tool, diagnostic, task and model events (§6.4) — which is why NERVIS's list of Clarvis's tasks is always empty; most `/v1/status` fields (§6.3); the diagnostics-summary and log-reference capabilities; a direct-provider fallback (E-C2); fencing what the agent's tools read back (§9) |
 | 15 | **Defects recorded below and never closed** | Closed on 12 September, each under its own entry and in the dated section *The recorded defects, fixed*: a tool probe landing on a model that is not loaded (§8.7); LM Studio's advertised context window; the credential write's repeated catalogue refresh; Hand over through the proxy; the half export — and, found on the way, `LOCAL_PREFERRED` sitting behind five ranking terms. Also closed that day: a tool refusal now tries the pool's next model; SIRVIS releases and unloads what it loaded when it stops; and the launcher's start and stop have automated tests, which found and fixed three holes of their own. Still open: SIRVIS M22b's reasoning share was never confirmed on real data; the Anthropic and Google adapters never fall back for any failure; and the menu bar app was once found not running, with the stack and a model it held still up, no crash report and no log entry, cause unknown — the app's log now keeps its history and records how each run ends, so a repeat will say whether it quit |
 | 16 | **Security and operations** | No dependency audit — the gates install npm packages with auditing off, and nothing audits the Python ones; no recorded threat-model review or privilege matrix (runbook §9); the launcher starts and stops services in a different order from runbook §12.1; remote access with TLS and authentication is not built and nothing owns it (runbook §9); and the dashboard's page checks run on every commit that touches the dashboard only in a clone where `git config core.hooksPath tools/githooks` has been run |
+| 17 | **Codex tasks through RAVIS — RAVIS M29, Clarvis E-C9, NERVIS M28** | Designed on 13 September 2026, with the architecture and four other questions decided by the owner that morning, and the Stop button and the refusal of the ecosystem's own repositories later that day. **Increment 0 landed the same day:** runbook §2.2 and the product documents' amendments, the contract fixtures and their copy in Clarvis, and `clarvis/plan.md` M15, signed off. Nothing else is built — next are R1 on the ecosystem track and C1 on Clarvis's. The order, the dependencies and the risks are in *Codex engine through RAVIS — build plan, 2026-09-13* below |
 
 ### After that — deferred on purpose, or waiting on the owner
 
@@ -19366,6 +19367,197 @@ else.~~ **Guarded the same night, at the owner's asking, for both runtimes:** `_
 was — `serve` refuses to start and `doctor` names the variable. Zero is refused too, because `adapter_for`
 had been turning it back into the built-in default, silently ignoring what the operator wrote. RAVIS
 0.23.5 → 0.23.6 → 0.23.7, NERVIS 0.28.9 → 0.28.10.
+
+## Codex engine through RAVIS — build plan, 2026-09-13
+
+**What this is.** Codex, OpenAI's coding agent, becomes an optional coding engine for Clarvis, run by
+RAVIS on this Mac on the owner's ChatGPT plan. It was designed on 13 September 2026, and every open
+question was decided by the owner the same day. **Nothing of it is built.** This entry is where a
+later session picks the build up: what was decided, what landed today, the increments in order with
+what each waits for, where the specifications now say what, and the known risks. Row 17 of Next
+points here.
+
+**Where the design itself is.** The full design (codex-design.md, 2,356 lines, beside its
+constraints and its review) was written in a session's scratch folder against `94c3565` here and
+Clarvis `90df7be`, and is in neither repository. What a build needs from it is now carried by the
+documents and fixtures below; the parts only the design had — the calibration questions and the live
+test — are summarised in this entry.
+
+### The owner's decisions
+
+| # | Decision | What it means for the build |
+|---|---|---|
+| D1 | **RAVIS runs Codex**: one long-lived `codex app-server`, relaying sessions to Clarvis | Tasks outlive editor windows and are reattached from either host. A Codex crash or a RAVIS restart cuts off every running task at once. A Codex hosted inside Clarvis was considered and not chosen |
+| D2 | **Stricter file rules, gated on calibration** | No Codex task starts until calibration K5 proves Codex's commands cannot read the key and password files; a failure returns the question to the owner, never to looser rules |
+| D3 | **Codex's conversation history kept in RAVIS's own Codex folder** (`~/.local/share/ravis-codex`) | Deleted 90 days after last use and denied to Codex's commands; with relayed content held in memory, the one stated exception to RAVIS's metadata-only rule |
+| D4 | **The Homebrew stable Codex**, resolved through `brew --prefix` at each start | Pinned by sha256 and both schema trees; any other binary pauses new tasks until it is accepted and re-tested. The ChatGPT app's own copy is never used |
+| D5 | **No terms check** | Neither the build nor the live test waits on one |
+| (a) | **A Stop on the menu bar and the dashboard**, and nothing else | One owner route, `owner-stop`, needing a confirmation of the task's folder name and turn; nothing there can approve, answer, steer or start |
+| (b) | **The ecosystem's own repositories refused by default** | NERVIS-ecosystem, clarvis and the coding folder itself are refused as Codex workspaces; allowing one later takes an explicit listing and calibration K5c |
+| — | **The owner's approval of the design counts as the plan sign-off** that `clarvis/AGENTS.md` requires | Recorded in `clarvis/plan.md` M15 |
+
+D1 to D5 were decided at about 05:00, (a) and (b) later that day. None was ever on the list of
+decisions only the owner can make above, so nothing is removed from it.
+
+### What landed today: Increment 0, documents and fixtures only
+
+- `ECOSYSTEM_RUNBOOK.md` §2: the three product rows' ownership, and a new **§2.2**, the cross-product
+  contract.
+- `RAVIS.md`: §1, §2, §4.1, §4.3, §5.0.1, §6, §9.7, §10, §11, §12.1, §14, §15.1 with a new
+  **§15.1.2** listing every Codex route, §15.2, §16, §17, §18, and **M29** in §20 with its row in
+  §20.1.
+- `CLARVIS.md`: §2, §3, §4, §5, §5.2, a new **§5.5**, §6.7, and **E-C9** in §8 with its row in §8.1.
+- `NERVIS.md`: §6, §8, §16.2, and **M28** in §21 with its row in §21.1.
+- The contract fixtures, owned by RAVIS: `ravis/tests/fixtures/relay-contract/` — conventions and
+  the error catalogue, Codex state and usage, the admin routes, the `/v1` refusal, agent sessions,
+  the event stream, the owner Stop, project locks — and `ravis/tests/fixtures/lock-rule-cases.json`,
+  all hashed in `codex-contract.sha256`. Clarvis keeps a byte-identical copy in `src/test/fixtures/`.
+- `clarvis/plan.md` M15, signed off, and `clarvis/docs/CURRENT_STATE.md`.
+
+Every amended passage that describes behaviour says **not built**, and the three new milestones carry
+no §14.8 state, because none has started.
+
+### The increments, in order
+
+Two tracks, one agent per repository at a time, since the owner commits straight to main and the
+pre-commit hook snapshots the whole index. Sizes are the design's estimates, in lines of source /
+tests and fixtures, and agent working sessions.
+
+| Increment | What | Waits for | Size; sessions |
+|---|---|---|---|
+| **R1** RAVIS | The runtime check and pin: Homebrew link resolution, signature, sha256, schema trees, acceptance checks, the tested-runtimes record; `ravis/codex` listed only with `X-Clarvis-Engines: codex`; the 400 refusal on `/v1/chat/completions` and `/v1/embeddings`; both capabilities; conformance from 23 checks to 24; `ravis codex preflight` | I0 | 800 / 950; 1 |
+| **N1a** launcher | `tools/run.py`: `brew --prefix`, the `RAVIS_CODEX_*` and `RAVIS_AGENT_*` environment, the `codex` block in `status --json`, `codex sign-in`, `cancel-sign-in`, `codex stop` and `codex reprove`, and the owner's command-line credential, which never enters NERVIS's environment; tests in `nervis/tests/test_launcher_status.py` | I0; after R1 in the track | 290 / 350; 0.5 |
+| **R2** RAVIS | The one Codex process and its I/O discipline, sign-in, allowance, the account fingerprint, version acceptance, the file-rules re-test, the dev-only calibration route; the shared lock rule and checkout lock file against `lock-rule-cases.json`; a Python fake of Codex's app-server | R1 | 2,190 / 2,420; 3 |
+| **Cal** calibration, with the owner | The questions below, inside RAVIS's one process, on two throwaway git projects the owner names. It uses plan allowance, so the owner gives the go-ahead. Outputs: its record here, the tested-runtimes entry, redacted transcripts under `ravis/tests/fixtures/codex/calibration/`, and the final mapping from modes to Codex's approval settings | R2 and N1a, with the stack restarted on R2's build | 350 / – / 150 prose; 1 |
+| **R3** RAVIS | Migration 8 and the agent-session store; every `/api/v1/agent-sessions` route; SSE with replay buffers and cursor expiry; identity, tokens, roots, idempotency, allowed decisions, the unanswered-request policy, the step cap, redaction, presence, the per-session action lock, the owner Stop and its route-table test, turns needing the lock | Cal | 3,030 / 3,670; 4 |
+| **R4** RAVIS | The `/api/v1/project-locks` routes, per-task process attribution and clean-up, restart reconciliation and the adoption rule, the process-group kill at a takeover; the paired commit — RAVIS 0.23.7 → 0.24.0, NERVIS's RAVIS window to `0.24.999`, `## RAVIS — 0.24.0`; the full RAVIS gates and the clean-clone gate | R3 | 1,490 / 1,720; 2.5 |
+| **N1b** menu bar | The Codex line, tasks and waiting time, **Stop this task…** and **Re-test the file rules…**, each behind a confirmation; rebuilt and swapped with `kill -9`, then `open` | N1a; after R4 in the track | 310 / –; 0.5 |
+| **N2** NERVIS | The Codex card and Overview line; seven control routes, the task Stop among them, which forwards the page's `Idempotency-Key` through a new keyword-only `headers` argument on `ravis_peer.configure`; `codex_check.js`, asserting Stop is the only task control; PITFALLS and the knowledge files; NERVIS 0.29.0. Message the session flagged for `nervis/tools` first | R4 | 720 / 530 / 100; 1.5 |
+| **C1** Clarvis | Relay and lock clients, `FakeRavisRelay` built from the fixtures, `lockRule` against the shared cases. Message nervis-ecosystem-fc before the first edit | I0; runs beside R1 to R3 | 1,100 / 1,300; 1.5 |
+| **C2a** Clarvis | The remote runner, reattach from either host, presence, Stop and steer over the relay, the factory, and the Clarvis-engine lock with its fence | C1 | 1,980 / 2,270; 3 |
+| **C2b** Clarvis | Approvals: one at a time, rendered from `allowed_decisions`, the fakes updated from calibration's transcripts | C2a and Cal | 480 / 580; 1 |
+| **C3** Clarvis | The checkpoint file in the git folder, switching both ways through the lock, branch continuation | C2b | 1,110 / 1,330; 2 |
+| **P** packaging | Restart the stack on RAVIS 0.24.0 (editable reinstall) and NERVIS 0.29.0; rebuild the menu app; keep Clarvis 0.16.0's vsix for rollback; bump Clarvis to 0.17.0, its `RELEASES.md` section written by the ecosystem agent in the same sitting; `npm run check`, `test:host` and package; install into both hosts; byte-compare `dist/extension.js` | R4, N2 and C3 | – / – / 250; 0.5 |
+| **L** live test | With the owner, below | P, with K5 proven | 1.5 |
+
+About 13,850 / 15,520 / 1,840 lines in all, over about 25 sessions. The ecosystem track is the long
+pole, at about 14 sessions after I0; the Clarvis track, about 7.5, runs beside it against
+`FakeRavisRelay` and waits only for Cal (before C2b) and for R3 and R4 (end to end). **Every commit
+green, with one named exception:** `tools/check_releases.py` is red between the Clarvis 0.17.0 bump and
+its release note. Each agent updates its own test count here and its own `RELEASES.md` section in
+the same commit.
+
+### Calibration: what it has to find out
+
+Decoy secret files only — named like real ones, carrying a known marker, in a decoy folder on the
+deny list; real secrets are never read. **K1** whether file-change approvals arrive under `untrusted`
+with the profile; **K2** that an approved command stays in the box; **K2b** a per-thread temp folder;
+**K3** network only for an approved command; **K4** escalation; **K5 the strict profile with two
+projects at once — a failure keeps the rules unproven, no Codex task runs, and D2 returns to the
+owner**; **K5a** the model-free decoy check the re-test reuses; **K5c** "deny" beating "write" inside
+a root, kept for the day the owner allows a protected repository; **K6** per-task clean-up in one
+shared process — stopping project A leaves every process of project B alive; **K7** interrupt;
+**K8** an empty permissions grant grants nothing; **K9** whether a command can commit inside the box;
+**K10** that `features.plugins=false` holds; **K11** how long a "for the session" approval lasts,
+never offered either way; **K12** event order across two threads; **K13** archive, unarchive and
+resume.
+
+### The live test, with the owner
+
+Two throwaway git projects in folders the owner names — ask before creating them — and desktop VS
+Code pointed once at RAVIS's key file through `clarvis.ravis.credentialFile`. In order: **0** the
+stack up, the menu and the card signed out; **1** the `/v1` 400, the listing only with the header,
+and a 403 through NERVIS's relay on an agent-session route; **2** sign in from the menu; **3** choose
+`ravis/codex` in code-server; **4** a first build with a file and a command approval; **5** a steer
+while it works; **6** close the browser tab at an approval — menu and card show it waiting with no
+editor open; **7** reattach from desktop VS Code and answer the same approval; **8** Stop in desktop
+with both windows attached — processes confirmed gone with `ps`, one settle; **9** switch to
+`ravis/clarvis-agent`, typing feedback during the switch — same branch, API spend rises, the
+allowance doesn't; **10** switch back — the same Codex session continues its thread; **11** two
+projects: Stop A, and B's commands survive; **12** the unanswered-request policy at a 2-minute
+setting; **12a** Stop from the menu bar; **12b** Stop from the dashboard with no editor open; **13**
+optionally, a RAVIS restart mid-turn; **14** the proxied origin through NERVIS's `/code/`; **15**
+Stop is the only task control anywhere; **16** clean up, asking before deleting anything. Steps 4
+to 14 use plan allowance, and step 9 spends API money. The results are recorded here, under M29,
+E-C9 and M28.
+
+### Where the specifications now say what
+
+| Question | Canonical text |
+|---|---|
+| Who owns what, the identifiers, the eight invariants, what is out of scope, the exit | `ECOSYSTEM_RUNBOOK.md` §2 and §2.2 |
+| Every Codex route RAVIS will serve — state and usage, admin, agent sessions, the owner Stop, project locks — and the credential each takes | `RAVIS.md` §15.1.2 |
+| Request and response shapes, every error code, the event stream, the lock rule's cases | `ravis/tests/fixtures/relay-contract/` and `lock-rule-cases.json` |
+| RAVIS's side: listing and refusal, the metadata-only exception, streams, storage, events, degradation, modules | `RAVIS.md` §1, §2, §4.1, §4.3, §5.0.1, §6, §9.7, §10, §11, §12.1, §14, §15.2, §16, §17, §18 |
+| RAVIS's milestone and its stage placement | `RAVIS.md` M29 in §20, and its unscheduled row in §20.1 |
+| Clarvis's side: selection, readiness, the relay client, reattach, approvals, Stop, feedback, settle, the checkpoint, switching, the lock and fence, the safety box | `CLARVIS.md` §5.5, with §2, §3, §4, §5, §5.2 and §6.7 |
+| Clarvis's milestone, its sign-off and its build steps | `CLARVIS.md` E-C9 in §8 and §8.1; `clarvis/plan.md` M15 |
+| NERVIS's card, Overview line, menu bar line and Stop | `NERVIS.md` §6, §8, §16.2, and M28 in §21 and §21.1 |
+
+### Known risks
+
+1. **One Codex process serves every project.** A crash, a hang or a RAVIS restart cuts off every
+   running Codex task at once; recovery is review, save and continue, never automatic. **The owner's
+   standing rule to restart the stack after RAVIS source changes does exactly that** to any task
+   running at the time.
+2. **Work continues with no editor open.** Questions wait and pause after 30 minutes; in modes that
+   don't ask, Codex keeps changing files; finished work stays uncommitted until an editor settles
+   it; the owner has to notice the menu bar.
+3. **Per-task clean-up inside one shared process rests on attribution.** Background-terminal
+   listing is experimental, the sandbox arguments are heuristics, a process orphaned between two
+   samples can survive, and an ambiguous one is reported rather than killed. K6 measures it.
+4. **The relay is new, security-sensitive surface.** Session tokens sit in a user file any program
+   running as the owner can read; NERVIS's GET relay covers all of `/api/v1/`, so the explicit
+   refusals must hold on every route, which a route-table test pins; the launcher's two admin keys
+   are ordinary 0600 files, so a local program could stop tasks or spend a little allowance on a
+   re-test — never write, approve or start.
+5. **Unobserved Codex behaviour, and re-tests.** Every Codex update pauses new tasks until a short
+   re-test on plan allowance proves the key-file rules again, and leaning on experimental Codex
+   features makes a pause more likely. A K5 failure stops Codex tasks altogether.
+6. **RAVIS becomes required for Codex coding**, so its uptime affects running tasks.
+7. **Load in one process.** Concurrent turns share Codex's 128-message queues, and the limit of
+   three tasks is a guess.
+8. **Attachment is self-reported**, by the Clarvis panel's heartbeat.
+9. **Sign-in** needs port 1455 or 1457 free; device-code sign-in is unprobed, so remote code-server
+   is unsupported; a RAVIS restart during a sign-in loses it.
+10. **Reading the allowance:** OpenAI's tolerance for a read every 15 minutes is unknown.
+11. **An old Clarvis with `ravis/codex` typed by hand** makes an empty branch before RAVIS's 400.
+12. **Codex's commands use the real `HOME`**, so Codex setup under `~/.agents` may be picked up; not
+    traced.
+13. **Codex fetches OpenAI's plugin catalogue** each time its process starts, unless
+    `features.plugins=false` holds (K10).
+14. **The proxied code-server origin** may not support the panel (live step 14).
+15. **Rolling RAVIS back needs a database restore** after migration 8, which loses the agent-session
+    records.
+
+Found while writing Increment 0, each left for the increment named:
+
+- **The design is in neither repository.** Nothing built depends on it now, but the reasoning behind
+  each rule — the review findings it answers — is not in git.
+- **Where RAVIS's lock rule lives.** The design names both a `codex` and an `agent` module for it;
+  `RAVIS.md` §18 follows the build plan's `agent`, and R2 settles it.
+- **A replayed create, transfer or token reissue must return the original token**, while RAVIS keeps
+  only token hashes and its idempotency record keeps ids and states. R3 decides how. The fixtures'
+  `conventions.json` lists this beside the smaller gaps the design leaves open.
+- **`Idempotency-Key`.** Row 2 of *After that* — left out on purpose — stays true for RAVIS's existing
+  writes. The Codex routes require it, because a replayed settle or transfer must return its
+  original result.
+- **NERVIS's control-token gate** names its six routes (`nervis/tests/test_control_token.py`), so N2's
+  seven Codex control routes must be added to that list.
+
+**Checked**, 13 September 2026. `ravis/tests/test_codex_contract_fixtures.py` adds five tests: the
+manifest covers every fixture at its current hash; every error example is a catalogued code at its
+catalogued status and retry flag; each of the 45 catalogued codes is shown at least once; the `/v1`
+refusal is one OpenAI-shaped 400; and the lock rule's nine verdict cases and six adoption cases agree
+with the rule they state. Each was made to fail on a scratch copy — one byte appended to a fixture, a
+catalogued code with no example, the after-sleep case mistyped as gone — and ruff finds nothing in the
+file. The count at the top of this file moves from 3091 to 3096. Clarvis's
+`src/test/codexContractFixtures.test.ts` adds three, and `npm run check` there runs 1,450 with none
+skipped, so the comparison against RAVIS's originals ran; a copy corrupted by one byte failed it.
+`tools/check_status.py`, `tools/check_plans.py` (86 milestone rows across the three specs and 10 in
+`CLARVIS.md`), `tools/check_releases.py`, `tools/knowledge_check.py`, `tools/check_dead_code.py`,
+`tools/check_no_tracked_secrets.py` and `tools/check_degradation.py` all pass. The clean-clone gate was
+not run. No product source changed, no service was started, Codex was not run, and no version moved.
 
 ## Starting the thing
 

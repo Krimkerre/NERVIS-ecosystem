@@ -1,0 +1,476 @@
+{
+  "contract": {
+    "name": "codex-relay-contract",
+    "version": 1,
+    "specified": "2026-09-13",
+    "state": "specified, not built",
+    "owner": "RAVIS (M29)",
+    "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
+    "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
+  },
+  "route": {
+    "method": "POST",
+    "path": "/api/v1/agent-sessions/{sid}/owner-stop",
+    "router": "its own APIRouter with require_owner_stop_caller, never require_agent_client",
+    "callers": "an admin credential whose application is in settings.agent_owner_stop_applications, default [\"owner_cli\", \"launcher\"]: admin.owner_cli for the menu bar through run.py, admin.launcher for NERVIS's control route; separate applications give separate rate limits and audit identities",
+    "body": "{source: menu_bar | dashboard, confirm: {project, turn_id}}; source is informational and grants nothing",
+    "confirm_rule": "confirm must equal the session's folder name and its current or last turn id, as GET /api/v1/codex runs[] lists them; otherwise 409 CONFIRMATION_MISMATCH, so a stale menu or page can't stop a different task and nobody can stop a task by id alone",
+    "grants_nothing_else": "answering, approving, steering, starting, continuing, changing mode, settling, ending, reading events or transcripts and reissuing tokens all keep refusing admin, NERVIS and launcher credentials"
+  },
+  "what_it_does": [
+    "under the session's action lock: session stopping, with stopped_by = source",
+    "every open request is answered with its stop response and request.resolved {by: owner_stop} is emitted; later answers get 409 SESSION_STOPPING",
+    "the end sequence for that task only: interrupt, background terminals, per-process kills by pid and start time, confirmation",
+    "session stopped (paused, thread kept, work left for a Clarvis window to review and save), or leftover naming the processes"
+  ],
+  "examples": [
+    {
+      "name": "the menu bar",
+      "request": {
+        "caller": "admin.owner_cli",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {"status": 202, "body": {"state": "stopping"}}
+    },
+    {
+      "name": "the dashboard, through NERVIS",
+      "request": {
+        "caller": "admin.launcher",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {"Content-Type": "application/json", "Idempotency-Key": "FIXTUREdashboardStopKey01"},
+        "body": {
+          "source": "dashboard",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {"status": 202, "body": {"state": "stopping"}}
+    },
+    {
+      "name": "retried with the same key: replayed",
+      "request": {
+        "caller": "admin.owner_cli",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {"status": 202, "body": {"state": "stopping"}}
+    },
+    {
+      "name": "a Clarvis window (windows use interrupt)",
+      "request": {
+        "caller": "client.clarvis",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "error": {
+            "code": "OWNER_STOP_NOT_ALLOWED",
+            "message": "Only the owner's menu bar or the dashboard may stop a task this way; editors use interrupt.",
+            "retryable": false,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "NERVIS's client credential",
+      "request": {
+        "caller": "client.nervis",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "error": {
+            "code": "OWNER_STOP_NOT_ALLOWED",
+            "message": "Only the owner's menu bar or the dashboard may stop a task this way; editors use interrupt.",
+            "retryable": false,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "anonymous",
+      "request": {
+        "caller": "anonymous",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {
+        "status": 403,
+        "body": {
+          "error": {
+            "code": "OWNER_STOP_NOT_ALLOWED",
+            "message": "Only the owner's menu bar or the dashboard may stop a task this way; editors use interrupt.",
+            "retryable": false,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "carrying a session token",
+      "request": {
+        "caller": "admin.owner_cli",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d",
+          "X-Agent-Session-Token": "ast_FIXTURE_session_token_not_a_secret_AAAAAAAA"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "error": {
+            "code": "TOKEN_NOT_ACCEPTED",
+            "message": "The owner Stop takes no session token.",
+            "retryable": false,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "a stale menu: the turn moved on",
+      "request": {
+        "caller": "admin.owner_cli",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2d-0000-7000-8000-000000000000"}
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "CONFIRMATION_MISMATCH",
+            "message": "That task changed; refresh and try again.",
+            "retryable": false,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "nothing running",
+      "request": {
+        "caller": "admin.owner_cli",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "NOTHING_RUNNING",
+            "message": "That task isn't running.",
+            "retryable": false,
+            "details": {"state": "idle"},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "an unknown id",
+      "request": {
+        "caller": "admin.owner_cli",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK0000000000UNKNOWN0/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "error": {
+            "code": "AGENT_SESSION_NOT_FOUND",
+            "message": "No such agent session.",
+            "retryable": false,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "the eleventh call in a minute from one application",
+      "request": {
+        "caller": "admin.owner_cli",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {
+          "Content-Type": "application/json",
+          "Idempotency-Key": "4c2f8a1e-9b7d-4e3a-8f6c-2d1b0a9e8c7d"
+        },
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {
+        "status": 429,
+        "body": {
+          "error": {
+            "code": "RATE_LIMITED",
+            "message": "Too many stop requests; try again shortly.",
+            "retryable": true,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    },
+    {
+      "name": "no Idempotency-Key",
+      "request": {
+        "caller": "admin.owner_cli",
+        "method": "POST",
+        "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+        "headers": {"Content-Type": "application/json"},
+        "body": {
+          "source": "menu_bar",
+          "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        }
+      },
+      "response": {
+        "status": 428,
+        "body": {
+          "error": {
+            "code": "IDEMPOTENCY_KEY_REQUIRED",
+            "message": "This route needs an Idempotency-Key header.",
+            "retryable": false,
+            "details": {},
+            "request_id": "fixture-request-id",
+            "trace_id": "fixture-trace-id"
+          }
+        }
+      }
+    }
+  ],
+  "attached_windows": {
+    "stream": [
+      "session.state {state: stopping, stopped_by}",
+      "request.resolved {request_id, by: owner_stop} for each open request",
+      "session.state {state: stopped | leftover, stopped_by, processes}"
+    ],
+    "clarvis": "each attached window clears its questions, says \"Stopped from the menu bar.\" or \"Stopped from the dashboard.\", and settles as after its own Stop, one window claiming; a window attaching later sees \"This task was stopped from the dashboard at 01:40. Review and save its work?\""
+  },
+  "audit": "ravis.agent_session.owner_stopped {session_id, source, application_id}",
+  "mep_event": "ravis.agent_session.state_changed with reason_code owner_stop; no project path in either",
+  "security": "the launcher's two admin keys are 0600 files and NERVIS's control token is served to any local page load, so a program running as the owner could stop tasks: a denial of service only, since the route can't write, approve, answer or start",
+  "launcher": {
+    "command": "run.py codex stop <id> --project <name> --turn <turn_id>",
+    "reads": ".run/ravis-owner.token",
+    "sends": "source menu_bar, the confirmation and a fresh Idempotency-Key",
+    "prints": "{\"state\": \"stopping\"}, never the key",
+    "exit_codes": {
+      "0": "stopping",
+      "6": "RAVIS down",
+      "8": "confirmation mismatch",
+      "9": "not found or nothing running",
+      "10": "refused"
+    }
+  },
+  "nervis_route": {
+    "method": "POST",
+    "path": "/api/v1/ravis/codex/runs/{sid}/stop",
+    "checks": [
+      "NERVIS's control token (x-nervis-control), by its existing check",
+      "sid matches ^as_[0-9A-Za-z]{10,40}$",
+      "Idempotency-Key matches ^[A-Za-z0-9_-]{16,128}$"
+    ],
+    "forwards": "with NERVIS's RAVIS admin credential, source dashboard and the page's own Idempotency-Key, so a retried click is replayed rather than repeated; RAVIS's status and body come back unchanged",
+    "configure_headers": "ravis_peer.configure gains a keyword-only headers argument, used only by this route; a key named authorization, in any case, raises ValueError",
+    "examples": [
+      {
+        "name": "forwarded",
+        "request": {
+          "caller": "dashboard page",
+          "method": "POST",
+          "path": "/api/v1/ravis/codex/runs/as_01J9ZK4T6Q8M2V7R3N5B1C0D/stop",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-nervis-control": "<the page's control token>",
+            "Idempotency-Key": "FIXTUREdashboardStopKey01"
+          },
+          "body": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        },
+        "forwarded_request": {
+          "caller": "admin.launcher",
+          "method": "POST",
+          "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+          "headers": {"Content-Type": "application/json", "Idempotency-Key": "FIXTUREdashboardStopKey01"},
+          "body": {
+            "source": "dashboard",
+            "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+          }
+        },
+        "response": {"status": 202, "body": {"state": "stopping"}}
+      },
+      {
+        "name": "RAVIS's refusal passed through unchanged",
+        "request": {
+          "caller": "dashboard page",
+          "method": "POST",
+          "path": "/api/v1/ravis/codex/runs/as_01J9ZK4T6Q8M2V7R3N5B1C0D/stop",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-nervis-control": "<the page's control token>",
+            "Idempotency-Key": "FIXTUREdashboardStopKey01"
+          },
+          "body": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        },
+        "forwarded_request": {
+          "caller": "admin.launcher",
+          "method": "POST",
+          "path": "/api/v1/agent-sessions/as_01J9ZK4T6Q8M2V7R3N5B1C0D/owner-stop",
+          "headers": {"Content-Type": "application/json", "Idempotency-Key": "FIXTUREdashboardStopKey01"},
+          "body": {
+            "source": "dashboard",
+            "confirm": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+          }
+        },
+        "response": {
+          "status": 409,
+          "body": {
+            "error": {
+              "code": "CONFIRMATION_MISMATCH",
+              "message": "That task changed; refresh and try again.",
+              "retryable": false,
+              "details": {},
+              "request_id": "fixture-request-id",
+              "trace_id": "fixture-trace-id"
+            }
+          }
+        }
+      },
+      {
+        "name": "a malformed id is not forwarded",
+        "request": {
+          "caller": "dashboard page",
+          "method": "POST",
+          "path": "/api/v1/ravis/codex/runs/not-a-session/stop",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-nervis-control": "<the page's control token>",
+            "Idempotency-Key": "FIXTUREdashboardStopKey01"
+          },
+          "body": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        },
+        "forwarded_request": null,
+        "response": {
+          "status": 400,
+          "body": {"message": "'not-a-session' is not a Codex task id NERVIS will forward to RAVIS"}
+        }
+      },
+      {
+        "name": "a missing or malformed key is not forwarded",
+        "request": {
+          "caller": "dashboard page",
+          "method": "POST",
+          "path": "/api/v1/ravis/codex/runs/as_01J9ZK4T6Q8M2V7R3N5B1C0D/stop",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-nervis-control": "<the page's control token>",
+            "Idempotency-Key": "short"
+          },
+          "body": {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}
+        },
+        "forwarded_request": null,
+        "response": {
+          "status": 400,
+          "body": {
+            "message": "The Stop request needs an Idempotency-Key of 16 to 128 letters, digits, - or _."
+          }
+        }
+      }
+    ],
+    "dashboard": "each running row in the Codex card has Stop…; a confirm() first; the row shows stopping…, then stopped — open the project to review; a 403 names the missing admin key, a 409 mismatch says The task changed; refresh"
+  },
+  "windows": {"code_server": "win-code-server-7f3a2b", "desktop": "win-desktop-1c9e4d"}
+}
