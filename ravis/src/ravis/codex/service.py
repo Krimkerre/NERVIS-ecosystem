@@ -51,7 +51,29 @@ from typing import Any
 from ravis.codex import refusals
 from ravis.codex.acceptance import HandshakeTimings, VersionCheck, check_version
 from ravis.codex.account import Account, account_from_read, needs_account_id
+from ravis.codex.calibration import plan as calibration_plan
+from ravis.codex.calibration.harness import CalibrationTimings, ScenarioContext
+from ravis.codex.calibration.outputs import BuildFacts
+from ravis.codex.calibration.plan import (
+    BY_ID,
+    CALIBRATION_FOLDER,
+    CalibrationRequestError,
+    ProfileFileError,
+    new_run_id,
+    profile_under_test,
+    protected_repositories,
+    selected_scenarios,
+    sweep_calibration_decoys,
+    validate_projects,
+)
+from ravis.codex.calibration.runner import (
+    CalibrationLockedError,
+    CalibrationRun,
+    OutputTarget,
+    acquire_locks,
+)
 from ravis.codex.idempotency import KeptAnswers
+from ravis.codex.lock_rule import own_start
 from ravis.codex.pin import FileRulesProfile, PinUnreadableError, file_rules_profile, read_pin
 from ravis.codex.reprove import (
     Outcome,
@@ -124,6 +146,7 @@ class ServiceTimings:
     supervisor: SupervisorTimings = SupervisorTimings()
     handshake: HandshakeTimings = HandshakeTimings()
     reproof: ReproofTimings = ReproofTimings()
+    calibration: CalibrationTimings = CalibrationTimings()
 
 
 @dataclass(frozen=True)
@@ -144,6 +167,9 @@ class _Harness:
     def release(self, thread_id: str) -> None:
         self.router.release(thread_id)
 
+    def app_server_pid(self) -> int | None:
+        return self.supervisor.pid
+
 
 class CodexService:
     """Everything RAVIS does with Codex in this increment, and the one state it reports."""
@@ -157,8 +183,11 @@ class CodexService:
         pin: Any = None,
         timings: ServiceTimings = ServiceTimings(),
         sign_in_ports: tuple[int, ...] = SIGN_IN_PORTS,
+        calibration_slash_tmp: Path = Path("/tmp"),
     ) -> None:
         self.settings = settings
+        # K2's `/tmp` target; a test names its own folder, as it names its own sign-in ports.
+        self._calibration_slash_tmp = calibration_slash_tmp
         self._emit = emit
         self._timings = timings
         self._ports = sign_in_ports
@@ -184,6 +213,14 @@ class CodexService:
             timings=timings.supervisor,
         )
         self.kept_reproof_answers = KeptAnswers()
+        self.kept_calibration_answers = KeptAnswers()
+        self._calibration: CalibrationRun | None = None
+        self._calibration_task: asyncio.Task[None] | None = None
+        #: The profile under test while calibration mode is on, as written (placeholders in).
+        self._calibration_profile: dict[str, Any] | None = None
+        self._calibration_problem: str | None = None
+        #: Whether the profile the process runs with is the pinned one (the re-test needs that).
+        self._profile_pinned = False
         self._account: Account | None = None
         self._account_read = False
         self._usage: Usage = UNKNOWN
@@ -222,6 +259,7 @@ class CodexService:
             return
         data = data_directory()
         swept = sweep_scratch(data / SCRATCH_FOLDER) + sweep_reproof_folders(data)
+        swept += sweep_calibration_decoys(decoy_folder(data))
         if swept:
             logger.info("codex: swept %d throwaway folders a stopped check left behind", swept)
         async with self._check_lock:
@@ -245,7 +283,9 @@ class CodexService:
             # `asyncio.wait` never cancels what it waits on, and never waits past its budget.
             budget = sum(self._timings.supervisor.shutdown_waits) + 1.0
             await asyncio.wait({supervisor}, timeout=budget)
-        pending = [*self._tasks.values(), self._reproof_task, self._version_task]
+        pending = [
+            *self._tasks.values(), self._reproof_task, self._version_task, self._calibration_task,
+        ]
         running = [task for task in pending if task is not None and not task.done()]
         for task in running:
             task.cancel()
@@ -291,7 +331,21 @@ class CodexService:
             "codex_home": self._home,
             "reproof_decoys": decoy_folder(data_directory()),
         }
-        return file_rules_profile(document, folders)
+        pinned = file_rules_profile(document, folders)
+        self._profile_pinned = pinned is not None
+        if not self.settings.codex_calibration:
+            return pinned
+        # Calibration mode: the process runs with the profile under test (design §4.9, §10.4).
+        try:
+            raw = profile_under_test(
+                self.settings.codex_calibration_profile, document.get("file_rules_profile")
+            )
+        except ProfileFileError as problem:
+            self._calibration_problem = str(problem)
+            return pinned
+        self._calibration_profile, self._calibration_problem = raw, None
+        self._profile_pinned = raw == document.get("file_rules_profile")
+        return file_rules_profile({"file_rules_profile": raw}, folders)
 
     def _launch_plan(self) -> LaunchPlan | None:
         """Which Codex may run now: a tested or accepted build the check found, or none."""
@@ -682,8 +736,8 @@ class CodexService:
             raise refusals.not_available("Codex's process is not running yet.")
 
     def _busy(self) -> bool:
-        """A Codex turn is active, or the re-test is running."""
-        return self._turns.count > 0 or self._reproof_running()
+        """A Codex turn is active, or the re-test or a calibration run is running."""
+        return self._turns.count > 0 or self._reproof_running() or self._calibration_running()
 
     async def _login_start(self) -> dict[str, Any]:
         try:
@@ -879,12 +933,12 @@ class CodexService:
 
     def _reproof_refusal(self) -> refusals.CodexRefusalError | None:
         """Why the re-test can't run now. An allowance used up is 409, never 429 (C1's notes)."""
-        if self._turns.count:
+        if self._turns.count or self._calibration_running():
             return refusals.run_in_progress("re-test")
         report = self.runtime.report
         if report.verdict != "accepted":
             return refusals.not_ready(_not_accepted_reason(report.verdict, report.version))
-        if self._profile is None:
+        if self._profile is None or not self._profile_pinned:
             return refusals.not_ready(
                 "The clarvis_run file-rules profile isn't calibrated yet, so there is nothing the "
                 "re-test could prove."
@@ -953,6 +1007,138 @@ class CodexService:
             data={"application_id": application_id, "result": outcome.result},
         )
         self._state_moved("reproof")
+
+    # ── Calibration (dev-only, design §10.4) ─────────────────────────────────
+
+    def calibration_view(self, run_id: str | None) -> dict[str, Any] | None:
+        """The latest run's progress, or the named run's; None for a run this RAVIS doesn't know."""
+        run = self._calibration
+        if run is None or (run_id is not None and run.run_id != run_id):
+            return None
+        return run.view()
+
+    def _calibration_running(self) -> bool:
+        return self._calibration_task is not None and not self._calibration_task.done()
+
+    def start_calibration(self, application_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Check the request, lock both projects, make the decoys, and start the run."""
+        try:
+            protected = (
+                *(Path(path) for path in self.settings.agent_protected_repositories),
+                *protected_repositories(),
+            )
+            projects = validate_projects(body.get("project_a"), body.get("project_b"), protected)
+            selected = selected_scenarios(body.get("scenarios"))
+        except CalibrationRequestError as problem:
+            raise refusals.invalid_body(str(problem)) from None
+        needs_model = any(BY_ID[key].needs_model for key in selected)
+        if needs_model and body.get("allowance_go_ahead") is not True:
+            raise refusals.invalid_body(
+                "This run uses the plan's allowance: send allowance_go_ahead true once the owner "
+                "has agreed."
+            )
+        refusal = self._calibration_refusal(needs_model)
+        if refusal is not None:
+            raise refusal
+        run = self._new_calibration_run(projects, selected)
+        self._calibration = run
+        self._calibration_task = asyncio.create_task(self._run_calibration(run, application_id))
+        return run.view()
+
+    def _calibration_refusal(self, needs_model: bool) -> refusals.CodexRefusalError | None:
+        """Why a run can't start now; the process and the account are checked in that order."""
+        if self._turns.count or self._reproof_running() or self._calibration_running():
+            return refusals.run_in_progress("calibration")
+        if self._calibration_problem is not None or self._calibration_profile is None:
+            return refusals.not_ready(
+                f"The profile to calibrate can't be used: {self._calibration_problem}"
+            )
+        report = self.runtime.report
+        if report.verdict not in ("tested", "accepted") or report.installed_sha256 is None:
+            return refusals.not_ready(report.reason)
+        if self._supervisor.state != "running" and self._supervisor.start_error is None:
+            return refusals.not_ready("Codex's process isn't running yet.")
+        if not needs_model or self._supervisor.state != "running":
+            return None
+        if self._account is None:
+            return refusals.not_ready("Codex must be signed in: calibration's turns use the plan.")
+        if is_exhausted(self._usage, _now()):
+            return refusals.not_ready(used_up_reason(self._usage, _now()))
+        return None
+
+    def _new_calibration_run(self, projects: Any, selected: tuple[str, ...]) -> CalibrationRun:
+        run_id = new_run_id()
+        pid_start = own_start()
+        if pid_start is None:
+            raise refusals.not_ready("RAVIS couldn't read its own start time for the lock files.")
+        try:
+            locks = acquire_locks(projects, run_id, pid=os.getpid(), pid_start=pid_start)
+        except CalibrationLockedError as locked:
+            raise refusals.not_ready(str(locked)) from None
+        data = data_directory()
+        try:
+            plan = calibration_plan.prepare_plan(
+                run_id, projects, decoy_folder=decoy_folder(data),
+                slash_tmp=self._calibration_slash_tmp, codex_tmpdir=self._home / "tmp",
+            )
+        except OSError as failure:
+            for lock in reversed(locks):
+                lock.release()
+            raise refusals.not_ready(f"The decoys couldn't be made: {failure}") from None
+        profile = self._calibration_profile or {}
+        report = self.runtime.report
+        trace = uuid.uuid4().hex
+        return CalibrationRun(
+            plan=plan, profile=profile, selected=selected, locks=locks,
+            context=ScenarioContext(
+                codex=_Harness(self._supervisor, self._router), plan=plan,
+                profile_name=str(profile.get("name")), timings=self._timings.calibration,
+                audit=lambda scenario, method, decision: self._emit(
+                    "ravis.codex.calibration_approval_answered", trace_id=trace,
+                    data={"run_id": run_id, "scenario": scenario, "method": method,
+                          "decision": decision},
+                ),
+            ),
+            outputs=OutputTarget(
+                base=self._calibration_output(), codex_home=self._home,
+                pin=self.runtime.pin if isinstance(self.runtime.pin, Path) else None,
+            ),
+            build=BuildFacts(
+                sha256=str(report.installed_sha256), version=str(report.version),
+                stable_tree=report.stable_tree, experimental_tree=report.experimental_tree,
+            ),
+            start_failure=None if self._supervisor.state == "running"
+            else self._supervisor.start_error,
+        )
+
+    def _calibration_output(self) -> Path:
+        """Where a run writes: the setting, this checkout's fixtures, or the data folder."""
+        if self.settings.codex_calibration_output:
+            return Path(self.settings.codex_calibration_output).expanduser()
+        pin = self.runtime.pin
+        if isinstance(pin, Path) and len(pin.parents) > 3:
+            fixtures = pin.parents[3] / "tests" / "fixtures"
+            if fixtures.is_dir():
+                return fixtures / "codex" / "calibration"
+        return data_directory() / CALIBRATION_FOLDER
+
+    async def _run_calibration(self, run: CalibrationRun, application_id: str) -> None:
+        try:
+            await run.run()
+        finally:
+            result = run.view()["result"] or {}
+            self._emit(
+                "ravis.codex.calibration_finished",
+                trace_id=uuid.uuid4().hex,
+                data={"application_id": application_id, "run_id": run.run_id,
+                      "strict_rules_proven": result.get("strict_rules_proven") is True},
+            )
+            if run.pin_updated:
+                # The pin now proves this build: the verdict, and the profile, are read again.
+                self._profile = self._load_profile()
+                self.runtime.revise()
+                self._supervisor.wake()
+            self._state_moved("calibration")
 
     # ── Small things ─────────────────────────────────────────────────────────
 

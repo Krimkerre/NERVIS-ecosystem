@@ -1457,8 +1457,9 @@ that changes it. Do not render a field that writes it.
 ### 15.1.2 Codex agent sessions — decided 13 September 2026, not built (M29)
 
 Runbook §2.2 is the contract; this is the list of what RAVIS will serve for it. **Since M29's
-second increment (R2, 0.23.9) the routes in the first table exist, except the calibration route;
-the agent-session relay and the project lock do not yet.** Their request and response shapes, every
+second increment (R2, 0.23.9) the routes in the first table exist, and since calibration's
+harness (Cal, 0.23.10) the dev-only calibration route does too; the agent-session relay and the
+project lock do not yet.** Their request and response shapes, every
 error code and the event stream are
 the contract fixtures in `ravis/tests/fixtures/relay-contract/`, with the shared lock rule's cases in
 `ravis/tests/fixtures/lock-rule-cases.json`; `tests/test_codex_contract_fixtures.py` holds them to
@@ -1474,7 +1475,7 @@ commands, file contents or diffs, except the relay stream and snapshot a session
 | `POST`, `GET` and `DELETE /api/v1/codex/sign-in`; `POST /api/v1/codex/sign-out`; `POST /api/v1/codex/account/confirm` | admin | A browser sign-in inside RAVIS's one Codex process, its cancellation, sign-out, and confirming the account after its fingerprint changed |
 | `GET /api/v1/codex/version-check`; `POST /api/v1/codex/accept-version`; `DELETE /api/v1/codex/accept-version/{sha256}` | admin | The report on an untested binary, and accepting or revoking it; an accepted version stays paused until the file-rules re-test proves it |
 | `POST` and `GET /api/v1/codex/reprove` | `admin.owner_cli` to start; any named caller to read | The file-rules re-test, started from the menu bar; 403 `REPROOF_NOT_ALLOWED` for every other credential, NERVIS's included |
-| `POST /api/v1/codex/calibration/runs` | `admin.owner_cli` | Exists only while `RAVIS_CODEX_CALIBRATION=1` |
+| `POST` and `GET /api/v1/codex/calibration/runs`, `GET …/runs/{run_id}` | `admin.owner_cli` | Exist only while `RAVIS_CODEX_CALIBRATION=1`: start a calibration run on two throwaway git projects (with an `Idempotency-Key` and the owner's allowance go-ahead), and read its progress and result. `ravis codex calibrate`, run as `tools/run.py codex calibrate`, calls them |
 
 Admin here is UX and audit, not a boundary against local programs (runbook §2.2).
 
@@ -1701,12 +1702,15 @@ RAVIS's one supervised Codex process (`supervisor.py`, `rpc.py`, `routing.py`), 
 (`state.py`), sign-in and account (`sign_in.py`, `account.py`), allowance (`usage.py`), version
 acceptance (`acceptance.py`, `schema_report.py`), the file-rules re-test (`reprove.py`), RAVIS's own
 record (`store.py`) and the service composing them (`service.py`); the routes are
-`api/management/codex.py`. **Planned, not built:** the dev-only calibration route, and
-`src/ravis/agent/` for the session store, the relay routes, identity and tokens, the
-unanswered-request policy, process attribution and clean-up, and the project lock with its shared
-rule and checkout lock file. The design names the lock rule's module under both packages and moved
-it into R2 for calibration's sake; R2 did not build it, so the increment that does settles the
-name. The contract fixtures already exist, in `tests/fixtures/relay-contract/` and
+`api/management/codex.py`. **Since Cal (0.23.10):** `codex/calibration/` holds calibration — its
+sixteen questions, the harness answering from each question's fixed list, the redacted transcripts,
+the results summary and the pin entry written only by a full pass, and `ravis codex calibrate` —
+behind `api/management/codex_calibration.py`, mounted only while `RAVIS_CODEX_CALIBRATION=1`; and
+`codex/lock_rule.py`, `codex/lock_file.py` and `codex/process_table.py` hold the shared lock rule
+(settling its module's name), the checkout lock file, and process attribution with the end
+sequence, which calibration uses first. **Planned, not built:** `src/ravis/agent/` for the session
+store, the relay routes, identity and tokens, the unanswered-request policy, Stop's clean-up built
+on `process_table.py`, and the project lock's table and API. The contract fixtures already exist, in `tests/fixtures/relay-contract/` and
 `tests/fixtures/lock-rule-cases.json`.
 
 ---

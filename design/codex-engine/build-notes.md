@@ -51,6 +51,43 @@ For N2 (the rest):
   Overview line; all gated by `nervis/tools/codex_check.js`. `configure` gained a keyword-only `timeout`, not
   `headers`.
 
+## From Cal (ecosystem, RAVIS 0.23.10, 13 Sep 2026) — the harness is built; the real run is not
+How to start the real run (owner present, after the stack runs this build):
+- Stop the stack and start it with `RAVIS_CODEX_CALIBRATION=1` in RAVIS's environment (the launcher
+  never sets it). RAVIS's Codex then starts with the profile under test: the pinned one, else
+  `plan.CANDIDATE_PROFILE`, else a JSON file named in `RAVIS_CODEX_CALIBRATION_PROFILE`. The
+  sign-in survives the restart (file store).
+- `tools/run.py codex calibrate --project-a "<coding>/NERVIS workspace/clarvis/nervis-tasks/codex-calibration-a"
+  --project-b "<…>/codex-calibration-b" --prepare`. `--prepare` makes each a git project with a
+  base commit; RAVIS makes the decoys and markers at the start and removes them. It asks for the
+  allowance go-ahead, prints each question, ends with the result and the outputs folder. `--only
+  K10,K5a` runs the model-free pair first, without the go-ahead.
+- Afterwards restart the stack without the variable. On a full pass the checkout's
+  `ravis/src/ravis/codex/tested_runtimes.json` has been rewritten (profile, `strict_rules_proven`):
+  commit it with `ravis/tests/fixtures/codex/calibration/<version>-<run>/`, and write STATUS's
+  record from `summary.json` → `status_record`.
+Owner present for: the go-ahead; every question but K10 and K5a runs model turns; K3 lets Codex's
+approved command reach `example.com`; K9 makes an empty commit in project A; K6 starts `sleep 600`,
+`script -q /dev/null sleep 600` and `python3 -m http.server` in both projects and stops them.
+What the real run must confirm (the fake follows guesses from the schema and Codex's strings):
+- The candidate profile's TOML. A rejection fails K5 in Codex's words (`supervisor.start_error`);
+  fix it in a profile file and run again.
+- Approval `command`: plain or `bash -lc`-wrapped (unwrapped, recorded as `wrapped_commands_seen`).
+- A network approval arrives as a command approval with `networkApprovalContext` (K3).
+- `config/read` shows `features.plugins` or its `sessionFlags` origin (K10); `config/read` isn't in
+  the pin's used methods.
+- `thread/backgroundTerminals/list` gives `osPid`s, and the `WRITABLE_ROOT…=` argument format (K6).
+- `serverRequest/resolved` follows each answer and an interrupt's open request (K7, K12).
+- `thread/archive` needs a non-ephemeral thread; `thread/resume` takes `permissions` and roots
+  (K13); `turn/steer` takes `expectedTurnId` (K11); how granular `sandbox_approval:false` behaves (K4).
+Not built: the fake replaying calibration's transcripts; definition hashes for a calibrated build
+that isn't pinned (its new entry gets `definitions: null`); the `cwd_only` attribution rule (never
+used for kills); K11's settle stage (live test); a run surviving a RAVIS restart (it ends; decoys are
+swept at the next start and the next run adopts the lock files).
+For R3/R4: `codex/lock_rule.py`, `codex/lock_file.py` and `codex/process_table.py` (zombies are not
+survivors) are ready to reuse; `agent_protected_repositories` is now a RAVIS setting.
+For C2b: the modes' approval settings come from `summary.json` → `mode_mapping`.
+
 ## From R2 (ecosystem, RAVIS 0.23.9, 13 Sep 2026)
 For Cal:
 - Build the dev-only calibration route first (`POST /api/v1/codex/calibration/runs`, only while

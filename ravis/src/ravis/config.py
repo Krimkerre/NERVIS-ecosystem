@@ -361,6 +361,20 @@ class Settings(BaseSettings):
     # the re-test runs commands and spends a little of the plan's allowance, and NERVIS never
     # starts Codex work (runbook §2.2).
     codex_reproof_applications: list[str] = ["owner_cli"]
+    # **Calibration** (design §10.4): dev-only, run with the owner present. While true, the route
+    # `POST /api/v1/codex/calibration/runs` exists for the owner's command-line credential, and
+    # Codex's process starts with the file-rules profile under test. Never set by the launcher.
+    codex_calibration: bool = False
+    # A JSON file `{"name", "flags"}` to try as that profile instead of the pinned one or RAVIS's
+    # candidate — for when Codex's own validation errors call for another syntax.
+    codex_calibration_profile: str = ""
+    # Where a run's redacted transcripts and results summary go. Empty: this checkout's
+    # `ravis/tests/fixtures/codex/calibration/`, else `ravis-codex-calibration` in the data folder.
+    codex_calibration_output: str = ""
+    # The ecosystem's own checkouts, which no Codex work — calibration included — may use as a
+    # project (owner decision (b)). The launcher passes this checkout and its sibling `clarvis`;
+    # RAVIS also refuses the checkout it runs from, so the rule holds without the launcher.
+    agent_protected_repositories: list[str] = []
 
     database_path: str = "ravis.db"
     log_level: str = "INFO"

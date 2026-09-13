@@ -43,6 +43,7 @@ from ravis.admission import (
 )
 from ravis.api.management import management_router
 from ravis.api.management.codex import router as codex_router
+from ravis.api.management.codex_calibration import router as calibration_router
 from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.openai import chat_router, embeddings_router, models_router
@@ -112,6 +113,9 @@ def create_app(settings: Settings) -> Any:
     api.include_router(management_router)
     api.include_router(credentials_router)
     api.include_router(codex_router)
+    if settings.codex_calibration:
+        # Dev-only, with the owner present: without the setting these paths don't exist at all.
+        api.include_router(calibration_router)
     # Wrapping last means this ends up outermost, which is the entire point.
     return BodySizeLimiter(api, settings.max_request_bytes)
 

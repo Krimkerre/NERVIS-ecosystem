@@ -965,7 +965,36 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.23.9
+## RAVIS — 0.23.10
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Calibration can now be run, with the owner present — it hasn't been yet.** It is the test that
+  proves Codex's stricter file rules on the Codex build RAVIS runs, before any real Codex task may
+  start. It asks sixteen questions of RAVIS's own Codex process on two throwaway git projects: can a
+  command read decoy key files, write outside its project or reach the network without approval,
+  does Codex ask before changing a file, does stopping one project's commands leave the other's
+  running, and more. Only a full run in which every must-pass question passes writes the file-rules
+  profile into `tested_runtimes.json` and marks the build proven; if the decoy questions fail, the
+  rules stay unproven and the decision goes back to the owner.
+- **It exists only while RAVIS runs with `RAVIS_CODEX_CALIBRATION=1`**, which the launcher never
+  sets: `POST` and `GET /api/v1/codex/calibration/runs` answer only the owner's command-line
+  credential, and need an `Idempotency-Key`. Start it from a terminal with
+  `tools/run.py codex calibrate --project-a PATH --project-b PATH --prepare`: it makes each project a
+  git project with a base commit, refuses a project inside NERVIS-ecosystem or clarvis, asks before
+  using the plan's allowance, and prints each question's result as it goes.
+- **What a run leaves:** redacted transcripts and a results summary under
+  `ravis/tests/fixtures/codex/calibration/` (no tokens, emails, account ids or personal paths), and,
+  only on a full pass, the pin entry. Decoy files, their markers and every file a question made are
+  removed, and both projects' lock files are released.
+- **Underneath, for the Codex tasks to come:** RAVIS's side of the shared lock rule and the checkout
+  lock file (the same case table Clarvis follows), and working out which of Codex's processes belong
+  to which project, so stopping one never touches another's.
+- **New settings:** `RAVIS_CODEX_CALIBRATION` (false), `RAVIS_CODEX_CALIBRATION_PROFILE` and
+  `RAVIS_CODEX_CALIBRATION_OUTPUT` (empty), and `RAVIS_AGENT_PROTECTED_REPOSITORIES`, which the
+  launcher already passed and RAVIS now reads.
+
+### 0.23.9
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

@@ -291,7 +291,12 @@ account; `/api/v1/codex/version-check` and `/api/v1/codex/accept-version` check 
 Codex build RAVIS hasn't tested. The file-rules re-test, `/api/v1/codex/reprove`, starts only from
 the menu bar with the owner's own credential. RAVIS runs one Codex process for this, and only for a
 tested or accepted build. Running Codex tasks is not built yet, and the pinned Homebrew Codex
-0.154.0 stays paused for tasks until calibration proves its file rules.
+0.154.0 stays paused for tasks until calibration proves its file rules. Calibration is built (RAVIS
+0.23.10) but has not been run: it exists only while RAVIS runs with `RAVIS_CODEX_CALIBRATION=1`,
+the owner starts it from a terminal with `tools/run.py codex calibrate` on two throwaway git
+projects, and it asks sixteen questions of Codex using the plan's allowance. Only a full run in
+which every must-pass question passes marks the file rules proven; a failure of the decoy-file
+questions keeps them unproven and sends the decision back to the owner.
 
 **A dead NERVIS never makes RAVIS report itself unready.** This regressed
 once for real: a readiness check that read the event publisher's own

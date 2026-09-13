@@ -34,6 +34,7 @@ from tests.codex_fakes import (
 from ravis.app import create_app
 from ravis.codex.acceptance import HandshakeTimings
 from ravis.codex.account import account_fingerprint
+from ravis.codex.calibration.harness import CalibrationTimings
 from ravis.codex.reprove import ReproofTimings
 from ravis.codex.rpc import RpcTimings
 from ravis.codex.service import CodexService, ServiceTimings
@@ -68,6 +69,11 @@ FAST = ServiceTimings(
     reproof=ReproofTimings(
         exec_seconds=3.0, thread_start_seconds=3.0, turn_start_seconds=3.0,
         interrupt_seconds=1.0, settle_seconds=0.5, time_cap_seconds=3.0,
+    ),
+    calibration=CalibrationTimings(
+        request_seconds=3.0, turn_cap_seconds=8.0, interrupt_seconds=1.0, settle_seconds=1.5,
+        stop_cap_seconds=2.0, processes_start_seconds=8.0, term_wait_seconds=0.2,
+        confirm_seconds=2.0, heartbeat_seconds=0.2,
     ),
 )
 
@@ -193,6 +199,8 @@ def codex_rig(
         # Never the real 1455 and 1457 unless a test says so: the ChatGPT app's own Codex signs
         # in on them, and a test must not take them from it even for a moment.
         sign_in_ports=sign_in_ports or free_ports(2),
+        # Calibration's K2 writes (or is refused writing) into `/tmp`; a test's stays its own.
+        calibration_slash_tmp=tmp_path / "slash-tmp",
     )
     app.app.state.codex_service = rig.service
     app.app.state.codex = rig.service.runtime

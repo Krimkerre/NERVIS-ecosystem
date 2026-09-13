@@ -2430,6 +2430,8 @@ CODEX_ACTIONS = {
 def _run_codex() -> int:
     """`run.py codex …`: one JSON line on stdout, and the exit code the menu bar app reads."""
     arguments = _codex_arguments().parse_args(sys.argv[2:])
+    if arguments.action == "calibrate":
+        return codex_calibrate(arguments)
     if arguments.action == "stop":
         code, printed = codex_stop(arguments.id, arguments.project, arguments.turn)
     else:
@@ -2451,7 +2453,43 @@ def _codex_arguments() -> argparse.ArgumentParser:
     stop.add_argument("--project", required=True, help="the task's folder, from status --json")
     stop.add_argument("--turn", required=True, help="the task's turn id, from status --json")
     actions.add_parser("reprove", help="re-test Codex's file rules, using one short Codex turn")
+    calibrate = actions.add_parser(
+        "calibrate", help="prove Codex's file rules on two throwaway projects, owner present"
+    )
+    calibrate.add_argument("--project-a", required=True, help="the first throwaway git project")
+    calibrate.add_argument("--project-b", required=True, help="the second throwaway git project")
+    calibrate.add_argument(
+        "--prepare", action="store_true", help="git init and a base commit, where missing"
+    )
+    calibrate.add_argument("--only", default="", help="scenario ids to ask, such as K5a,K10")
+    calibrate.add_argument(
+        "--yes", action="store_true", help="the owner agrees to use the plan's allowance"
+    )
     return parser
+
+
+def codex_calibrate(arguments: argparse.Namespace) -> int:
+    """Run calibration with the owner present: RAVIS's own `ravis codex calibrate`, key and address in.
+
+    **Dev-only, and never from the menu bar.** Calibration asks sixteen questions of RAVIS's Codex
+    on two throwaway git projects (design §10.4) and uses the plan's allowance, so the owner runs it
+    by hand in a terminal while RAVIS runs with `RAVIS_CODEX_CALIBRATION=1`. Unlike the other
+    `codex` commands it prints plain progress lines, not one JSON line: a person reads it. The
+    owner's key goes to RAVIS's command as a file path, never as a value on a command line, and each
+    project path — the owner's workspace has a space in its name — is passed as one argument.
+    """
+    if not _held_secret(RAVIS_OWNER_TOKEN):
+        print(NO_OWNER_KEY, file=sys.stderr)
+        return EXIT_REFUSED
+    command = [
+        str(VENV / "bin" / "ravis"), "codex", "calibrate",
+        "--project-a", arguments.project_a, "--project-b", arguments.project_b,
+        "--credential-file", str(RAVIS_OWNER_TOKEN), "--url", f"http://127.0.0.1:{RAVIS_PORT}",
+    ]
+    command += ["--prepare"] if arguments.prepare else []
+    command += ["--yes"] if arguments.yes else []
+    command += ["--only", arguments.only] if arguments.only else []
+    return subprocess.run(command, check=False).returncode
 
 
 def _run_models() -> int:
@@ -2496,7 +2534,7 @@ if __name__ == "__main__":
         print(
             f"usage: {Path(__file__).name} [start|stop|status [--json]|models|load KEY|unload KEY"
             "|renew|codex sign-in|codex cancel-sign-in|codex stop ID --project NAME --turn TURN"
-            "|codex reprove]",
+            "|codex reprove|codex calibrate --project-a PATH --project-b PATH]",
             file=sys.stderr,
         )
         raise SystemExit(2)

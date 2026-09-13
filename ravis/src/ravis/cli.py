@@ -18,6 +18,7 @@ from typing import Sequence
 
 from ecosystem_protocol import configure_logging
 
+from ravis.codex.calibration.command import add_codex_parser, run_calibrate
 from ravis.config import ConfigurationReport, Settings, inspect_configuration
 from ravis.cost import PriceConfigurationError, load_prices
 from ravis.credentials import CredentialStore
@@ -54,6 +55,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_conformance()
     if arguments.command == "preflight":
         return _run_preflight(settings)
+    if arguments.command == "codex":
+        return run_calibrate(arguments, settings)
     return _run_serve(settings)
 
 
@@ -94,6 +97,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="check whether a consumer pointed here right now would work",
     )
     preflight.add_argument("consumer", choices=["clarvis"], help="which consumer to check")
+    # `ravis codex calibrate`: dev-only, run with the owner present (design §10.4).
+    add_codex_parser(subcommands)
     return parser
 
 

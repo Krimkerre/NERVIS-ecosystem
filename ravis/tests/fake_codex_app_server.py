@@ -30,10 +30,14 @@ import re
 import sys
 import threading
 import time
+import types
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+# Run as a program, so its own folder is on sys.path: calibration's half lives beside it.
+import fake_codex_calibration as calibration
 
 SCENARIO = json.loads(Path(os.environ["FAKE_CODEX_SCENARIO"]).read_text())
 CONTROL = Path(os.environ["FAKE_CODEX_CONTROL"])
@@ -206,6 +210,8 @@ def command_exec(params: dict[str, Any]) -> dict[str, Any] | str:
     refused = profile_refused(params.get("permissionProfile"))
     if refused:
         return refused
+    if SCENARIO.get("calibration"):
+        return calibration.command_exec(API, params)
     status, output = run_command(" ".join(str(part) for part in params.get("command", [])))
     return {
         "exitCode": status, "stdout": "" if status else output, "stderr": output if status else "",
@@ -217,7 +223,11 @@ def thread_start(params: dict[str, Any]) -> dict[str, Any] | str:
     if refused:
         return refused
     thread_id = str(uuid.uuid4())
-    state["threads"][thread_id] = params.get("cwd")
+    state["threads"][thread_id] = {
+        "cwd": params.get("cwd"), "roots": params.get("runtimeWorkspaceRoots"),
+        "policy": params.get("approvalPolicy"), "ephemeral": params.get("ephemeral"),
+        "config": params.get("config") or {},
+    }
     thread = {"id": thread_id, "cwd": params.get("cwd"), "status": {"type": "idle"}, "turns": []}
     notify_soon("thread/started", {"thread": thread})
     return {
@@ -234,7 +244,7 @@ def turn_start(params: dict[str, Any]) -> dict[str, Any] | str:
     turn_id = str(uuid.uuid4())
     state["interrupts"][turn_id] = threading.Event()
     parts = [part.get("text", "") for part in params.get("input", []) if isinstance(part, dict)]
-    arguments = (thread_id, turn_id, " ".join(parts))
+    arguments = (thread_id, turn_id, "\n".join(parts), params)
     threading.Thread(target=scripted_turn, args=arguments, daemon=True).start()
     return {"turn": {"id": turn_id, "status": "inProgress", "items": []}}
 
@@ -246,12 +256,14 @@ def turn_interrupt(params: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def scripted_turn(thread_id: str, turn_id: str, prompt: str) -> None:
+def scripted_turn(thread_id: str, turn_id: str, prompt: str, params: dict[str, Any]) -> None:
     turn = {"id": turn_id, "status": "inProgress", "items": []}
     notify("turn/started", {"threadId": thread_id, "turn": turn})
     script = SCENARIO.get("turn_script", "obedient")
     stop = state["interrupts"][turn_id]
-    if script == "loops":
+    if prompt.startswith("This is RAVIS's calibration"):
+        calibration.turn(API, thread_id, turn_id, prompt, params, stop)
+    elif script == "loops":
         loop_forever(thread_id, turn_id, stop)
     elif script == "sleeps":
         stop.wait(120)
@@ -263,7 +275,7 @@ def scripted_turn(thread_id: str, turn_id: str, prompt: str) -> None:
 
 
 def loop_forever(thread_id: str, turn_id: str, stop: threading.Event) -> None:
-    cwd = state["threads"][thread_id]
+    cwd = state["threads"][thread_id]["cwd"]
     while not stop.wait(0.01):
         item = {
             "type": "commandExecution", "id": str(uuid.uuid4()), "command": "echo again",
@@ -275,7 +287,7 @@ def loop_forever(thread_id: str, turn_id: str, stop: threading.Event) -> None:
 
 
 def obey(thread_id: str, turn_id: str, prompt: str, script: str, stop: threading.Event) -> None:
-    cwd = state["threads"][thread_id]
+    cwd = state["threads"][thread_id]["cwd"]
     matches = [COMMAND_LINE.match(line) for line in prompt.splitlines()]
     commands = [(int(found.group(1)), found.group(2)) for found in matches if found]
     if script == "wanders":
@@ -364,6 +376,12 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | str]] = {
     "turn/start": turn_start,
     "turn/interrupt": turn_interrupt,
 }
+#: What calibration's half may use of this fake.
+API = types.SimpleNamespace(
+    notify=notify, send=send, log=log, state=state, scenario=SCENARIO, answers=answers,
+    answered=answered, server_ids=server_ids,
+)
+HANDLERS.update(calibration.handlers(API))
 
 
 def initialize(request_id: Any, params: dict[str, Any]) -> None:
@@ -484,6 +502,9 @@ def main() -> None:
     if "exit_on_start" in SCENARIO:
         sys.stderr.write("FakeCodexAppServer: exiting at start, as scripted\n")
         sys.exit(SCENARIO["exit_on_start"])
+    if calibration.profile_rejected(API):
+        sys.stderr.write("Error loading config: invalid type for permissions.clarvis_run\n")
+        sys.exit(1)
     threading.Thread(target=watch_control, daemon=True).start()
     for line in sys.stdin:
         try:
@@ -495,6 +516,7 @@ def main() -> None:
         if isinstance(message, dict):
             handle(message)
     log("stdin_closed")
+    calibration.end_processes()
 
 
 if __name__ == "__main__":

@@ -242,6 +242,11 @@ class CodexSupervisor:
         self.state: ProcessState = "not_started"
         self.since: datetime | None = None
         self.running_sha256: str | None = None
+        #: The running app-server's pid: calibration's K6 attributes its descendants to tasks.
+        self.pid: int | None = None
+        #: Codex's last error line when a start failed — its own words when it rejects a `-c` flag,
+        #: which is how calibration learns the profile's syntax (design §4.9).
+        self.start_error: str | None = None
         #: Why the last process ended unexpectedly, or failed to start.
         self.failure: str | None = None
         #: Set when the process that started wasn't the Codex the check verified (§4.1 item 6).
@@ -314,6 +319,7 @@ class CodexSupervisor:
             process = await self._spawn(plan)
         except OSError as failure:
             return f"Codex could not be started: {failure.strerror or failure}"
+        self.pid = process.pid
         tail = _StderrTail()
         connection = Connection(
             process.stdout,  # type: ignore[arg-type]
@@ -329,6 +335,7 @@ class CodexSupervisor:
         self._connection = None
         self.running_sha256 = None
         await _end(process, connection, waits)
+        self.pid = None
         await connection.stop(ended or "Codex's process was stopped")
         draining.cancel()
         self._turns.forget_all()
@@ -347,6 +354,7 @@ class CodexSupervisor:
             await self._initialize(connection, plan)
         except _StartFailedError as failure:
             logger.warning("codex: start failed: %s (last error line: %s)", failure, tail.last())
+            self.start_error = tail.last() or failure.reason
             if not failure.identity:
                 return failure.reason, self._timings.failure_waits
             self.identity_failure = failure.reason
@@ -392,6 +400,7 @@ class CodexSupervisor:
     def _became_ready(self, connection: Connection, plan: LaunchPlan) -> None:
         self._connection = connection
         self.running_sha256 = plan.sha256
+        self.start_error = None
         self.since = datetime.now(UTC)
         if self._started_before:
             self._restarts.append(self._clock())
