@@ -598,6 +598,21 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
    `style` attribute, which beats any stylesheet rule that does not say this. So
    the attribute was set twice and the paragraph stayed on screen twice. */
 .card .help-body[hidden]{display:none!important}
+/* A tile's details in a tooltip (the Codex tile, 13 September 2026). The tile keeps its
+   neighbours' height, and what a person reads only when they ask floats over the row
+   below instead of growing this one. The mark is the question mark above; the panel
+   opens while the tile is hovered and while anything in it has keyboard focus, because
+   a keyboard has no hover. It opens right-aligned so the rightmost tile's panel stays on
+   the page, and the open tile is lifted above later cards, each of which is its own
+   stacking context and would otherwise paint over the panel. */
+.card .kpi-tip-mark{position:absolute;top:9px;right:9px;display:flex}
+.card .kpi-tip{position:absolute;top:32px;right:6px;z-index:30;width:min(340px,80vw);
+  padding:10px 12px;border:1px solid rgba(var(--rgb),.35);border-radius:6px;background:#07121a;
+  box-shadow:0 10px 28px #000a;color:#d9e3ed;font:12px/1.55 Inter,-apple-system,sans-serif;
+  text-align:left;visibility:hidden;opacity:0;transition:opacity .12s;pointer-events:none}
+.card.kpi:hover .kpi-tip,.card.kpi:focus-within .kpi-tip{visibility:visible;opacity:1}
+.card.kpi:hover,.card.kpi:focus-within{z-index:30}
+.card .kpi-tip small{font-size:11px;color:#8ea0b2}
 .entry b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .entry small{font:10px/1 "SFMono-Regular",Consolas,monospace;color:#6f8093;
   font-variant-numeric:tabular-nums}
@@ -9479,7 +9494,52 @@ const CODEX_MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct',
 function codexTile(codex){
  if(!codex.live)return ['Codex','—',codexUnreadWords(),'ravis',false];
  const tight=codexTightest(codex.usage);
- return ['Codex',codexFigure(codex,tight),codexFigureNote(codex,tight),'ravis',true,codexTileDetail(codex)];
+ return ['Codex',codexFigure(codex,tight),safe(codexTileLine(codex,tight)),'ravis',true,codexTip(codex)];
+}
+
+/* The tile's one line (the owner, 13 September 2026: the full tile was too big): the
+   tightest window and when it resets, a chip when Codex isn't ready, and one when the
+   reading is stale. Signed out, the line is the way to sign in, since that is the
+   action. Everything else is in the tooltip. */
+const CODEX_SHORT={untested_version:'paused',runtime_down:'restarting',account_changed:'different account',
+ quota_exhausted:'used up',sign_in_expired:'signed out',checking:'checking',not_available:'not available'};
+
+function codexTileLine(codex,tight){
+ const stale=codexUsage(codex).stale?' <span class="chip warn">stale</span>':'';
+ return codexTileWords(codex,tight)+codexNotReadyChip(codex,tight)+stale;
+}
+
+function codexTileWords(codex,tight){
+ if(tight)return escapeHtml(`${String(tight.label||'window').replace(/ window$/,'')} · resets ${codexResetIn(tight.resets_at)}`);
+ if(codex.account)return 'not read yet';
+ if(codexCanSignIn(codex))return '<a href="#" onclick="go(\'ravis\',\'Credentials\');return false" style="color:inherit">sign in on Credentials</a>';
+ return 'no allowance to read';
+}
+
+/* Only beside a figure that is not already the state's own words. */
+function codexNotReadyChip(codex,tight){
+ if(codex.state==='signed_in'||!(tight||codex.account))return '';
+ return ` <span class="chip warn">${escapeHtml(CODEX_SHORT[codex.state]||String(codex.state))}</span>`;
+}
+
+function codexResetIn(iso){
+ const ms=Date.parse(iso)-Date.now();
+ if(!isFinite(ms))return 'at a time not given';
+ return ms<=0?'now':`in ${codexIn(ms)}`;
+}
+
+function codexTip(codex){
+ return `<button class="help kpi-tip-mark" type="button" aria-label="Codex allowance details" aria-describedby="codex-allowance-tip">?</button><div class="kpi-tip" role="tooltip" id="codex-allowance-tip">${codexTileDetail(codex)}</div>`;
+}
+
+/* The exact reset for the tooltip: always the day and date, then how long. */
+function codexExactReset(iso){
+ const at=new Date(Date.parse(iso));
+ const ms=at.getTime()-Date.now();
+ if(!isFinite(ms))return 'at a time RAVIS did not give';
+ const hm=String(at.getHours()).padStart(2,'0')+':'+String(at.getMinutes()).padStart(2,'0');
+ const when=`${CODEX_DAYS[at.getDay()]} ${at.getDate()} ${CODEX_MONTHS[at.getMonth()]} ${hm}`;
+ return ms<=0?`${when} (passed; waiting for a new reading)`:`${when} (in ${codexIn(ms)})`;
 }
 
 function codexUnreadWords(){
@@ -9503,14 +9563,8 @@ function codexFigure(codex,tight){
  return (CODEX_STATES[codex.state]||[String(codex.state)])[0];
 }
 
-function codexFigureNote(codex,tight){
- if(tight)return `${tight.label||'a window'} · resets ${codexReset(tight.resets_at)}${codexUsage(codex).stale?' · stale':''}`;
- if(codex.account)return 'the plan’s allowance hasn’t been read yet';
- return codex.reason||'';
-}
-
 function codexTileDetail(codex){
- return `<div style="margin-top:8px;font-size:12px;line-height:1.55">
+ return `<div>
    <div>${codexStateChip(codex.state)} ${escapeHtml(codex.reason||'')}</div>
    ${codexPlanLine(codex.account)}
    ${codexWindowRows(codex)}
@@ -9535,7 +9589,7 @@ function codexWindowRows(codex){
 
 function codexWindowRow(w){
  const left=typeof w.remaining_percent==='number'?`${w.remaining_percent}% left`:'unknown';
- return `<div>${escapeHtml(w.label||'a window')}: <b>${escapeHtml(left)}</b> · resets ${escapeHtml(codexReset(w.resets_at))}</div>`;
+ return `<div>${escapeHtml(w.label||'a window')}: <b>${escapeHtml(left)}</b> · resets ${escapeHtml(codexExactReset(w.resets_at))}</div>`;
 }
 
 function codexStaleLine(usage){
@@ -9543,11 +9597,7 @@ function codexStaleLine(usage){
  return `<div><span class="chip warn">stale</span> last read ${escapeHtml(codexAgo(usage.observed_at))} — may be out of date</div>`;
 }
 
-function codexTileFoot(codex){
- const signIn=!codex.account&&codexCanSignIn(codex)
-  ?' · <a href="#" onclick="go(\'ravis\',\'Credentials\');return false" style="color:inherit">sign in on RAVIS → Credentials</a>':'';
- return 'your ChatGPT plan’s allowance, not money'+signIn;
-}
+function codexTileFoot(){return 'your ChatGPT plan’s allowance, not money'}
 
 /* The local clock, 24-hour, and the day too when it isn't today; then how long. A
    reset already past says so rather than counting down from a negative. */

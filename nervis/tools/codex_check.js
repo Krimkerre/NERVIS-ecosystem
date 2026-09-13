@@ -424,6 +424,20 @@ async function overview(state, codexStatus = 200) {
   return card == null ? null : card.split('<div class="card ')[0];
 }
 
+/* The tile's visible part, and its tooltip: the tooltip is the tile's last element. */
+function tileParts(tile) {
+  const at = tile.indexOf('<div class="kpi-tip"');
+  return { visible: at < 0 ? tile : tile.slice(0, at), tip: at < 0 ? "" : tile.slice(at) };
+}
+
+/* The owner's rule (13 September 2026): the tile keeps its neighbours' height, so its
+   visible part is the figure and one line; no row of its own under them. */
+function compact(label, visible) {
+  if (/<div\b/.test(visible) || (visible.match(/<small\b/g) || []).length > 1) {
+    failures.push(`${label}: the visible tile grew rows of its own; the details belong in the tooltip.`);
+  }
+}
+
 async function theAllowanceSitsBesideSpend() {
   const signedIn = codex("signed_in", "Codex is signed in with a ChatGPT Plus plan.",
     { account: ACCOUNT, usage: knownUsage(62, 80) });
@@ -434,34 +448,56 @@ async function theAllowanceSitsBesideSpend() {
   }
   if (shown.html.includes("Active profile")) failures.push("RAVIS → Dashboard still draws the Active profile tile.");
   if (!shown.html.includes("resetSpend()")) failures.push("the Spend tile lost its Reset to 0.");
-  expect("the Codex tile, signed in", shown.codex,
-    ["62% left", "5-hour window · resets", "(in 2 h 10 min)", "weekly window: <b>80% left</b>",
-     "signed in", "ChatGPT Plus plan", "not money"], ["stale", "unknown"]);
+
+  const { visible, tip } = tileParts(shown.codex);
+  expect("the Codex tile, signed in", visible,
+    ["62% left", "5-hour · resets in 2 h 10 min", 'aria-describedby="codex-allowance-tip"'],
+    ["weekly", "ChatGPT Plus plan", HINT, "not money", "is signed in with", 'class="chip']);
+  compact("the Codex tile, signed in", visible);
+  expect("the Codex tooltip, signed in", tip,
+    ['role="tooltip"', 'id="codex-allowance-tip"', "Codex is signed in with a ChatGPT Plus plan.",
+     "ChatGPT Plus plan", HINT, "weekly window: <b>80% left</b>", "not money"]);
+  if (!/5-hour window: <b>62% left<\/b> · resets (Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2} [A-Z][a-z]{2} \d\d:\d\d \(in 2 h 10 min\)/.test(tip)) {
+    failures.push("the Codex tooltip does not give the 5-hour window's exact reset day, date and time.");
+  }
   if (/[$€£]|spent|cost|priced/i.test(shown.codex.replace(/<[^>]*>/g, ""))) {
     failures.push("the Codex tile carries money wording, beside a tile that is money.");
   }
-
-  const cases = [
-    ["signed in, allowance not read yet",
-     codex("signed_in", "Codex is signed in.", { account: ACCOUNT }), ["unknown", "no figure is shown"]],
-    ["signed out", codex("signed_out", "Codex is signed out."),
-     ["signed out", "Codex is signed out.", "go('ravis','Credentials')"]],
-    ["not installed", codex("not_installed", "The Homebrew link does not lead to a file."),
-     ["not installed", "does not lead to a file"]],
-  ];
-  for (const [label, state, present] of cases) {
-    const tile = (await dashboard(state)).codex;
-    expect(`the Codex tile, ${label}`, tile, present);
-    if (/\d\s*%/.test(tile)) failures.push(`the Codex tile, ${label}: draws a percentage RAVIS did not give.`);
+  const source = require("fs").readFileSync(require("path").join(__dirname, "..", "index.html"), "utf8");
+  for (const [rule, how] of [[".card.kpi:hover .kpi-tip", "hover"], [".card.kpi:focus-within .kpi-tip", "keyboard focus"]]) {
+    if (!source.includes(rule)) failures.push(`the Codex tooltip does not open on ${how}: no ${rule} rule.`);
   }
 
-  const usedUp = (await dashboard(codex("quota_exhausted", "The allowance is used up until 04:30.",
-    { account: ACCOUNT, usage: knownUsage(0, 80) }))).codex;
-  expect("the Codex tile, used up", usedUp, ["0% left", "allowance used up", "used up until 04:30"]);
+  const cases = [
+    ["signed in, allowance not read yet", codex("signed_in", "Codex is signed in.", { account: ACCOUNT }),
+     ["unknown", "not read yet"], ["no figure is shown", "Codex is signed in."]],
+    ["signed out", codex("signed_out", "Codex is signed out."),
+     ["signed out", "go('ravis','Credentials')"], ["Codex is signed out.", "not money"]],
+    ["not installed", codex("not_installed", "The Homebrew link does not lead to a file."),
+     ["not installed"], ["does not lead to a file"]],
+  ];
+  for (const [label, state, onTile, inTip] of cases) {
+    const parts = tileParts((await dashboard(state)).codex);
+    expect(`the Codex tile, ${label}`, parts.visible, onTile);
+    expect(`the Codex tooltip, ${label}`, parts.tip, inTip);
+    compact(`the Codex tile, ${label}`, parts.visible);
+    if (/\d\s*%/.test(parts.visible + parts.tip)) failures.push(`the Codex tile, ${label}: draws a percentage RAVIS did not give.`);
+  }
 
-  const stale = (await dashboard(codex("signed_in", "Codex is signed in.",
-    { account: ACCOUNT, usage: knownUsage(62, 80, { stale: true, observed_at: later(-42 * 60) }) }))).codex;
-  expect("the Codex tile, stale", stale, ["62% left", "stale", "last read 42 min ago", "may be out of date"]);
+  const usedUp = tileParts((await dashboard(codex("quota_exhausted", "The allowance is used up until 04:30.",
+    { account: ACCOUNT, usage: knownUsage(0, 80) }))).codex);
+  expect("the Codex tile, used up", usedUp.visible, ["0% left", ">used up<"], ["used up until 04:30"]);
+  expect("the Codex tooltip, used up", usedUp.tip, ["allowance used up", "used up until 04:30"]);
+
+  const paused = tileParts((await dashboard(codex("untested_version", "The file rules are not yet proven.",
+    { account: ACCOUNT, usage: knownUsage(62, 80) }))).codex);
+  expect("the Codex tile, paused", paused.visible, ["62% left", ">paused<"], ["not yet proven"]);
+
+  const stale = tileParts((await dashboard(codex("signed_in", "Codex is signed in.",
+    { account: ACCOUNT, usage: knownUsage(62, 80, { stale: true, observed_at: later(-42 * 60) }) }))).codex);
+  expect("the Codex tile, stale", stale.visible, ["62% left", ">stale<"], ["last read"]);
+  compact("the Codex tile, stale", stale.visible);
+  expect("the Codex tooltip, stale", stale.tip, ["last read 42 min ago", "may be out of date"]);
 
   for (const [label, status] of [["a RAVIS from before Codex", 404], ["RAVIS not answering the read", 0]]) {
     const tile = (await dashboard(codex("signed_in", "x"), status)).codex;
@@ -471,7 +507,7 @@ async function theAllowanceSitsBesideSpend() {
   }
 
   const tag = ' <vxs onerror=vxjs>" vxatr=vxjs';
-  const poisoned = await dashboard(codex("signed_in" + tag, "In" + tag, {
+  const poisoned = await dashboard(codex("untested_version" + tag, "In" + tag, {
     account: { ...ACCOUNT, email_hint: HINT + tag, plan: "plus" + tag },
     usage: { ...knownUsage(62, 80), stale: true, observed_at: "then" + tag,
              windows: windowsLeft(62, 80).map((w) => ({ ...w, label: w.label + tag, resets_at: "soon" + tag })) } }));

@@ -40,6 +40,17 @@ For R2:
   `/v1/models` lists `ravis/codex` only with `X-Clarvis-Engines: codex`; chat completions for `ravis/codex` and
   `ravis/codex/anything` → 400 `agent_backend_not_a_chat_model`; `~/.local/share/ravis-codex-scratch` created, empty.
 
+## From N2's first part (ecosystem e173c9a, b3a15d4 and the compact tile; NERVIS 0.28.12–0.28.14, 13 Sep 2026)
+For N2 (the rest):
+- Still to build: the dashboard's task **Stop**. It needs R3's task list (`runs` with `id` and `turn_id` for named
+  callers), the keyword-only `headers` argument on `ravis_peer.configure` (F-A2, for the page's `Idempotency-Key`)
+  and the NERVIS route `POST /api/v1/ravis/codex/runs/{sid}/stop`. Also unbuilt: the version check and accept routes
+  and buttons, and the task table.
+- Built: the sign-in on RAVIS → Credentials (five control routes, including a gated `GET` of the waiting sign-in),
+  the Codex allowance tile beside Spend in place of the Active profile tile (compact, details in a tooltip) and the
+  Overview line; all gated by `nervis/tools/codex_check.js`. `configure` gained a keyword-only `timeout`, not
+  `headers`.
+
 ## From R2 (ecosystem, RAVIS 0.23.9, 13 Sep 2026)
 For Cal:
 - Build the dev-only calibration route first (`POST /api/v1/codex/calibration/runs`, only while

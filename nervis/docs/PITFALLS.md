@@ -431,8 +431,10 @@ Since this list was written, fourteen of them became automated:
   travel through the relay; and nothing RAVIS sends to inject markup, the address in the
   `href` included. It also renders RAVIS → Dashboard and the Overview against recorded
   allowances, and fails unless the headline row is Decisions, Local, Spend, Codex with no
-  Active profile tile; the Codex tile shows each window's remaining allowance and reset,
-  *unknown* with no percentage, *stale* with its age and no money wording, and draws absent
+  Active profile tile; the Codex tile stays compact (the figure, the tightest window's reset,
+  a chip when Codex isn't ready or the reading is stale) while its tooltip, which must open on
+  hover and on keyboard focus, holds the reason, the plan, each window's exact reset, the
+  reading's age and that it isn't money; *unknown* draws no percentage; and the tile draws absent
   for a RAVIS that doesn't answer or predates Codex; and the Overview's line shows the
   tightest window and goes absent with RAVIS. And it fails when a stored key's ● is escaped
   into text, which `check.py` also refuses page-wide. Listed in `tools/dashboard_gates.txt`.

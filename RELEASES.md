@@ -358,7 +358,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.13
+## NERVIS — 0.28.14
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The Codex tile on RAVIS → Dashboard is compact now**, about the height of Spend beside it. It
+  shows what is left ("44% left", or unknown, or the state), one line with the tightest window and
+  when it resets ("weekly · resets in 6 days"), a small chip when Codex isn't ready ("paused") or the
+  reading is stale, and the sign-in link when signed out.
+- **The rest is in a tooltip** that opens when you hover the tile or tab to its question mark:
+  RAVIS's reason, the plan and account, every window with its exact reset day and time, how long ago
+  a stale reading was taken, and that this is the plan's allowance, not money. The Overview's Codex
+  line is unchanged.
+
+### 0.28.13
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

@@ -558,7 +558,9 @@ returns the sign-in page's address; every answer is marked `no-store`. **The all
 same day (0.28.13), as a tile rather than a card:** at the owner's request it sits in the RAVIS
 Dashboard's headline row beside Spend, in place of the active profile's tile, with the state and
 reason, the plan, each window's remaining allowance and reset, *unknown* rather than 0%, and *stale*
-with its age. The task table and its Stop wait for RAVIS to list runs (R3).
+with its age. Since 0.28.14 the tile itself shows only the figure, the tightest window's reset and a
+chip when Codex isn't ready or the reading is stale; the rest opens in a tooltip on hover or keyboard
+focus. The task table and its Stop wait for RAVIS to list runs (R3).
 
 The RAVIS diagnostics view exposes virtual pool, actual model, execution path, **transparent vs
 translated**, route reason, fallback, latency, cost and SIRVIS evidence.

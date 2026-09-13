@@ -289,7 +289,9 @@ profile tile gave way to a **Codex** tile beside Spend, showing how much of the 
 allowance is left in each window and when it resets (unknown is never shown as 0%); the
 Overview gained a one-line Codex summary; and the provider key rows on Providers and
 Credentials stopped showing a stray character code where the dot before a stored key
-belongs.
+belongs. The Codex tile was then made compact at the owner's request: the figure and the
+tightest window's reset stay on the tile, and the details open in a tooltip on hover or
+keyboard focus.
 
 As of 12 September 2026: the dashboard no longer reads RAVIS straight from the
 browser. Every open tab used to share RAVIS's one anonymous allowance of sixty

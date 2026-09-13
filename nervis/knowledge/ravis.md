@@ -403,15 +403,18 @@ when, but never where.
 
 RAVIS → Dashboard's headline row has a **Codex** tile beside Spend (since 13 September
 2026, where the Active profile tile used to be; the active profile is on RAVIS →
-Settings). It leads with what is left in the window that runs out first — "62% left" —
-and lists each window, the 5-hour and the weekly one, with what is left and when it
-resets, in this Mac's time and as "in 2 h 10 min". It also shows Codex's state with
-RAVIS's reason, and the plan. The Overview carries the same in one line.
+Settings). It is kept compact: what is left in the window that runs out first — "62%
+left" — and one line with that window and when it resets ("weekly · resets in 6 days"),
+with a small chip when Codex isn't ready (such as "paused") or the reading is stale.
+Hovering the tile, or tabbing to its question mark, opens a tooltip with the rest:
+RAVIS's reason, the plan and account hint, every window (the 5-hour and the weekly one)
+with what is left and its exact reset day and time, how old a stale reading is, and
+that this is the plan's allowance, not money. The Overview carries a one-line summary.
 
 It is the ChatGPT plan's allowance, not money, and never a cost. **Unknown** means RAVIS
 hasn't read the allowance yet — while Codex is idle it reads it every 15 minutes — and is
 never shown as 0%. **Stale** means the last reading is more than 30 minutes old, and the
-tile says how old. Signed out, the tile links to RAVIS → Credentials.
+tooltip says how old. Signed out, the tile links to RAVIS → Credentials.
 
 ## Trying a model on purpose, so it can be measured at all
 
