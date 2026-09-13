@@ -140,12 +140,12 @@
     "CODEX_NOT_READY": {
       "status": [409],
       "retryable": false,
-      "where": "session create and turns while Codex's state is not ready, including unproven file rules and a changed account"
+      "where": "session create and turns while Codex's state is not ready, including unproven file rules, a changed account and, since R4, a new Codex build waiting to run (reason codex_update_pending)"
     },
     "CODEX_RUNTIME_UNAVAILABLE": {
       "status": [503],
       "retryable": true,
-      "where": "session create, transcript, and a sign-in whose start timed out"
+      "where": "session create, transcript, a sign-in whose start timed out, and since R4 every agent-session and project-lock route while RAVIS is still reconciling after a restart"
     },
     "CODEX_RUN_IN_PROGRESS": {
       "status": [409],
@@ -175,7 +175,7 @@
     "CONFIRMATION_MISMATCH": {
       "status": [409, 422],
       "retryable": false,
-      "where": "owner-stop (409) and lock takeover (422) whose confirmation does not match"
+      "where": "owner-stop (409); lock takeover (422) whose confirmation does not match, whose workspace_root isn't the lock's own root, or whose lock id is unknown"
     },
     "DECISION_NOT_ALLOWED": {
       "status": [422],
@@ -216,12 +216,12 @@
     "INVALID_REQUEST_BODY": {
       "status": [422],
       "retryable": false,
-      "where": "a Codex admin route (sign-in, sign-out, account/confirm, accept-version, reprove), or since R3 an agent-session route, whose body is not a JSON object, lacks a field the route needs, or names a value the route doesn't take (a mode, a turn kind, a settle next)"
+      "where": "a Codex admin route (sign-in, sign-out, account/confirm, accept-version, reprove), or since R3 an agent-session route and since R4 a project-lock route, whose body is not a JSON object, lacks a field the route needs, or names a value the route doesn't take (a mode, a turn kind, a settle next, a transfer's to); and a lock heartbeat, release or transfer without X-Lock-Lease"
     },
     "LEASE_REVOKED": {
       "status": [409],
       "retryable": false,
-      "where": "heartbeat from a holder whose lock was taken over"
+      "where": "heartbeat, release or transfer with a lease that no longer holds the lock: taken over, released, moved to the other engine, or never valid"
     },
     "LOCK_SUPERSEDED": {
       "status": [409],
@@ -231,7 +231,7 @@
     "LOCK_TRANSFER_INVALID": {
       "status": [409],
       "retryable": false,
-      "where": "session create and turns with a transfer token that is unknown, expired or for another root"
+      "where": "session create, turns and lock create with a transfer token that is unknown, expired or for another root"
     },
     "NESTED_PROJECT_LOCKED": {
       "status": [409],
@@ -261,7 +261,7 @@
     "PROCESSES_NOT_CONFIRMED_GONE": {
       "status": [409],
       "retryable": false,
-      "where": "settle-claim, settle, lock release and lock transfer before the holder's processes are confirmed gone"
+      "where": "settle-claim, settle, lock release, lock transfer and lock takeover before the holder's processes are confirmed gone (a takeover's details name them as leftover)"
     },
     "PROJECT_LOCKED": {
       "status": [409],
@@ -430,6 +430,10 @@
     "The transcript's turn entries follow Codex's thread/turns/list summary view and are fixed against calibration's transcripts.",
     "Decided by R3: the deltas_skipped marker is a frame with no id (so it never moves a cursor), event deltas_skipped, data {session_id, after: <the cursor>}, sent before the replayed events. A question's options are its labels as strings, and a window's answers map is {question id: answer text}. A normalised stream item carries its kind under type. The snapshot carries no list of recent completed items (the design's last 200): R3 follows these fixtures, and a window rebuilds progress from the settle's git reconciliation.",
     "Decided by R3: a session settled with next: idle releases its project lock and its checkout lock file (lock: null), and a turn takes the lock back atomically; next: transfer keeps both, reserved for the destination's transfer token (R4 mints it); next: end archives the thread and releases.",
-    "Settled by calibration's harness (Cal): the shared lock rule is codex/lock_rule.py and the checkout lock file codex/lock_file.py. R3's project-lock seam is agent/locks.py and its process clean-up seam agent/cleanup.py; M29's fourth increment (R4) fills both."
+    "Settled by calibration's harness (Cal): the shared lock rule is codex/lock_rule.py and the checkout lock file codex/lock_file.py. R3's project-lock seam is agent/locks.py and its process clean-up seam agent/cleanup.py; M29's fourth increment (R4) fills both.",
+    "Decided by R4: the checkout lock file's leftover entries are {pid, start, comm}, start as ps -o lstart= in the C locale (lock-rule-cases.json → lock_file_leftover). RAVIS writes the holding Codex session's recorded command processes there at each two-second look, and [] once they are confirmed gone. A window that finds a gone RAVIS holder may end exactly those, each by pid and start time, never by group.",
+    "Decided by R4: GET /api/v1/codex → account.fingerprint_sha256 is the current account's fingerprint, in the form SessionView → codex.account_fingerprint carries it, so a checkpoint's account can be compared with the current one. Named callers only; an anonymous reader doesn't get the field.",
+    "Decided by R4: every agent-session and project-lock route answers 503 CODEX_RUNTIME_UNAVAILABLE until a restart's reconciliation has run. Session create and turns answer 409 CODEX_NOT_READY {state: signed_in, reason: codex_update_pending} while a new Codex build waits to run, and a turn only waiting for an answer becomes paused_for_update ten minutes after the build appears.",
+    "Decided by R4: a replayed transfer returns the same transfer token within a RAVIS run, and a new one for the same live transfer after a restart (project-locks.json → decided_in_r4)."
   ]
 }

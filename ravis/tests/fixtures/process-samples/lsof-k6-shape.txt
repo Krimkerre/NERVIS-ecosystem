@@ -1,0 +1,18 @@
+p30870
+fcwd
+n/Users/owner/Documents/coding/NERVIS workspace/project-a
+p30871
+fcwd
+n/Users/owner/Documents/coding/NERVIS workspace/project-a
+p30880
+fcwd
+n/Users/owner/Documents/coding/NERVIS workspace/project-a
+p30890
+fcwd
+n/Users/owner/Documents/coding/NERVIS workspace/project-b
+p30891
+fcwd
+n/Users/owner/Documents/coding/NERVIS workspace/project-b
+p30900
+fcwd
+n/Users/owner/Documents/coding/NERVIS workspace/project-b

@@ -226,6 +226,9 @@ def _account_block(reading: Reading) -> dict[str, Any] | None:
         "plan": account.plan,
         "email_hint": account.email_hint,
         "fingerprint": account.strength,
+        # The fingerprint itself, so a window can compare a checkpoint's account with the current
+        # one (C3); a sha256, never the account. Named callers only (`CodexService.snapshot`).
+        "fingerprint_sha256": account.fingerprint,
         "fingerprint_matches": matches,
         # A plan change is a notice only (design §3.4), and only means something for one account.
         "plan_changed": matches

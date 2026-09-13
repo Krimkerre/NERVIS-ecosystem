@@ -311,6 +311,8 @@ class CodexService:
             # `asyncio.wait` never cancels what it waits on, and never waits past its budget.
             budget = sum(self._timings.supervisor.shutdown_waits) + 1.0
             await asyncio.wait({supervisor}, timeout=budget)
+        # Then whatever the tasks' commands left behind, by their recorded pid and start time.
+        await self.agents.end_recorded_processes()
         pending = [
             *self._tasks.values(), self._reproof_task, self._version_task, self._calibration_task,
         ]
@@ -707,7 +709,10 @@ class CodexService:
             return paused, "strict_file_rules_unproven"
         if state != "signed_in":
             return state, reason
-        return None if proven else ("untested_version", "strict_file_rules_unproven")
+        if not proven:
+            return "untested_version", "strict_file_rules_unproven"
+        # A new build is on disk: no new task or turn until it runs (design §4.4, review AL5).
+        return ("signed_in", "codex_update_pending") if self.update_pending() else None
 
     def profile_name(self) -> str | None:
         return self._profile.name if self._profile is not None else None
@@ -717,6 +722,15 @@ class CodexService:
 
     def running_sha256(self) -> str | None:
         return self._supervisor.running_sha256
+
+    def app_server_pid(self) -> int | None:
+        """The running app-server's pid: every task's commands are its descendants (§4.5)."""
+        return self._supervisor.pid
+
+    def update_pending(self) -> bool:
+        """A new Codex build is on disk while the old one still runs (design §4.4, review AL5)."""
+        running, installed = self._supervisor.running_sha256, self.runtime.report.installed_sha256
+        return running is not None and installed is not None and installed != running
 
     # ── The state ────────────────────────────────────────────────────────────
 
@@ -760,6 +774,8 @@ class CodexService:
         body["revision"] = self._revision
         if not named:
             body["runs"] = self.agents.runs(named=False)
+            if isinstance(body["account"], dict):
+                body["account"].pop("fingerprint_sha256", None)
         return body
 
     def _state_moved(self, reason_code: str) -> None:

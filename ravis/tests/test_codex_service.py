@@ -37,6 +37,7 @@ from tests.codex_rig import (
     state_of,
 )
 
+from ravis.codex.account import account_fingerprint
 from ravis.config import data_directory
 from ravis.ecosystem.capabilities import BUILD_VERSION
 
@@ -314,7 +315,13 @@ def test_signed_in_has_the_fixtures_shape_with_a_hint_and_never_an_email(tmp_pat
     assert [model["id"] for model in body["models"]] == ["gpt-6-astra", "gpt-5.6-sol"]
     assert [window["remaining_percent"] for window in body["usage"]["windows"]] == [62, 80]
     assert body["usage"]["allowance_not_cost"] is True
-    assert keys(anonymous) == keys(named) == keys(body)
+    assert keys(named) == keys(body)
+    # The account's own fingerprint, for a window comparing a checkpoint: named callers only.
+    assert named["account"]["fingerprint_sha256"] == account_fingerprint(
+        "chatgpt", "owner@example.com", None, "plus")[0]
+    assert "fingerprint_sha256" not in anonymous["account"]
+    anonymous["account"]["fingerprint_sha256"] = named["account"]["fingerprint_sha256"]
+    assert keys(anonymous) == keys(named)
 
 
 def test_usage_codex_cant_read_is_unknown_never_zero(tmp_path: Path) -> None:

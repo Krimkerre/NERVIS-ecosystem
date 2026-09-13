@@ -38,6 +38,10 @@ LOCK_COLUMNS = frozenset({
 SESSIONS_KEPT = timedelta(days=30)
 PROCESSES_KEPT = timedelta(hours=24)
 ANSWERS_KEPT = timedelta(hours=24)
+#: A deleted thread's record, kept as long as a session's, then dropped.
+THREADS_KEPT = timedelta(days=30)
+#: How many of RAVIS's own past instances are remembered for the restart adoption rule.
+INSTANCES_KEPT = 20
 
 
 def _utc_now() -> datetime:
@@ -199,6 +203,81 @@ class AgentStore:
     def delete_lock(self, lock_id: str) -> None:
         self._execute("DELETE FROM project_lock WHERE id = ?", (lock_id,))
 
+    def lock(self, lock_id: str) -> dict[str, Any] | None:
+        rows = self._execute("SELECT * FROM project_lock WHERE id = ?", (lock_id,))
+        return rows[0] if rows else None
+
+    # ── Recorded command processes (design §4.5 item 3) ──────────────────────
+
+    def record_process(
+        self, session_id: str, turn_id: str | None, identity: tuple[int, str], comm: str,
+        attribution: str,
+    ) -> None:
+        """A process attributed to a task: once per task, pid and start time (migration 9)."""
+        pid, start = identity
+        self._execute(
+            "INSERT OR IGNORE INTO agent_process "
+            "(session_id, turn_id, pid, start_time, comm, attribution, recorded_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (session_id, turn_id, pid, start, comm, attribution, self.stamp()),
+        )
+
+    def live_processes(self, session_id: str | None = None) -> list[dict[str, Any]]:
+        """Recorded processes not yet confirmed gone: one task's, or every task's."""
+        if session_id is None:
+            return self._execute("SELECT * FROM agent_process WHERE confirmed_gone_at IS NULL")
+        return self._execute(
+            "SELECT * FROM agent_process WHERE session_id = ? AND confirmed_gone_at IS NULL",
+            (session_id,),
+        )
+
+    def confirm_gone(self, session_id: str, identities: list[tuple[int, str]]) -> None:
+        for pid, start in identities:
+            self._execute(
+                "UPDATE agent_process SET confirmed_gone_at = ? "
+                "WHERE session_id = ? AND pid = ? AND start_time = ? AND confirmed_gone_at IS NULL",
+                (self.stamp(), session_id, pid, start),
+            )
+
+    # ── RAVIS's own instances (the restart adoption rule, design §6.3) ───────
+
+    def instances(self) -> list[dict[str, Any]]:
+        """Every RAVIS instance recorded so far, newest first."""
+        return self._execute("SELECT * FROM ravis_instance ORDER BY started_at DESC, rowid DESC")
+
+    def record_instance(self, pid: int, pid_start: str) -> None:
+        """This instance, kept with the last few: a lock file may name any of them."""
+        self._execute(
+            "INSERT INTO ravis_instance (pid, pid_start, started_at) VALUES (?, ?, ?)",
+            (pid, pid_start, self.stamp()),
+        )
+        self._execute(
+            "DELETE FROM ravis_instance WHERE rowid NOT IN "
+            "(SELECT rowid FROM ravis_instance ORDER BY rowid DESC LIMIT ?)",
+            (INSTANCES_KEPT,),
+        )
+
+    # ── Codex's threads, kept past their task's records (design §4.10) ───────
+
+    def remember_thread(self, thread_id: str, workspace_root: str, git_dir: str | None) -> None:
+        self._execute(
+            "INSERT INTO agent_thread (thread_id, workspace_root, git_dir, last_used_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT (thread_id) DO UPDATE SET "
+            "last_used_at = excluded.last_used_at, deleted_at = NULL",
+            (thread_id, workspace_root, git_dir, self.stamp()),
+        )
+
+    def unused_threads(self, unused_for: timedelta) -> list[dict[str, Any]]:
+        """Threads not used for this long and not yet deleted."""
+        return self._execute(
+            "SELECT * FROM agent_thread WHERE deleted_at IS NULL AND last_used_at < ?",
+            (iso(self._now() - unused_for),),
+        )
+
+    def thread_deleted(self, thread_id: str) -> None:
+        self._execute("UPDATE agent_thread SET deleted_at = ? WHERE thread_id = ?",
+                      (self.stamp(), thread_id))
+
     # ── Retention ────────────────────────────────────────────────────────────
 
     def enforce_retention(self) -> None:
@@ -217,3 +296,5 @@ class AgentStore:
         )
         self._execute("DELETE FROM agent_idempotency WHERE created_at < ?",
                       (iso(now - ANSWERS_KEPT),))
+        self._execute("DELETE FROM agent_thread WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+                      (iso(now - THREADS_KEPT),))

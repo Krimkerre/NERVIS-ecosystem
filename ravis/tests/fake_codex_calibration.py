@@ -22,8 +22,11 @@ module. It acts out what calibration asks of a real Codex, closely enough that e
   "local/private network addresses" line. `config/batchWrite` is answered by the relay half; each
   write it logs (`config_written`) is applied here when its status is `ok`, reaching threads already
   running, and `config/read` with `includeLayers` shows the written sites in a user layer.
-- **Real long-running processes for K6**, `sh -c 'sleep 600; true'` each tagged with its project's
-  `WRITABLE_ROOT_0=<root>` or listed as a background terminal, all ended when the fake exits.
+- **Real long-running processes for K6**, shaped like Codex 0.154.0's (K6's transcripts,
+  `cal_d2185ed08f50`): `sh -c 'sleep 600; true'` started in the thread's folder, in a session of its
+  own, with no sandbox parameter in its arguments (the real wrapper replaces itself); the ones
+  Codex keeps as background terminals are listed with `osPid: null`, as Codex lists them. All are
+  ended when the fake exits.
 
 **Faults** (`calibration_faults` in the scenario) switch one behaviour to the failing one:
 `plugins_on`, `exec_leaks`, `decoy_readable_escalated`, `roots_from_cwd`, `deny_loses_to_write`,
@@ -58,11 +61,12 @@ ESCALATE = re.compile(r"^Ask for escalated permissions when you run commands (.+
 GRANT = re.compile(r"^Before running command (\d+), ask for permission to read (\S+) with")
 CREATE = re.compile(r"Create the file (\S+) containing the line (\S+),")
 REMEMBER = re.compile(r"Remember the word (\S+)\.")
+#: K6's long-running commands, and whether Codex keeps each as a background terminal.
 LONG_RUNNING = {
-    "sleep 600 &": ("ravis-fake-background", False, True),
-    "script -q /dev/null sleep 600": ("ravis-fake-pty", True, False),
-    "python3 -m http.server 0 --bind 127.0.0.1": ("ravis-fake-server", True, True),
-    "sleep 600": ("ravis-fake-foreground", True, False),
+    "sleep 600 &": False,
+    "script -q /dev/null sleep 600": True,
+    "python3 -m http.server 0 --bind 127.0.0.1": True,
+    "sleep 600": True,
 }
 PROCESSES: list[dict[str, Any]] = []
 
@@ -422,11 +426,11 @@ def _approval(context: dict[str, Any], item: dict[str, Any], text: str, escalate
 
 
 def _spawn(context: dict[str, Any], item: dict[str, Any], text: str) -> None:
-    tag, terminal, sandboxed = LONG_RUNNING[text]
+    """As Codex runs one: in the thread's folder, its own session, no sandbox parameter shown."""
+    terminal = LONG_RUNNING[text]
     thread = context["thread"]
-    extra = [f"WRITABLE_ROOT_0={Path(thread['cwd']).resolve()}"] if sandboxed else []
-    process = subprocess.Popen(["/bin/sh", "-c", "sleep 600; true", tag, *extra],
-                               start_new_session=True)
+    process = subprocess.Popen(["/bin/sh", "-c", "sleep 600; true"],
+                               cwd=Path(thread["cwd"]).resolve(), start_new_session=True)
     record = {"thread_id": context["thread_id"], "process": process, "terminal": terminal,
               "processId": str(uuid.uuid4()), "command": text, "itemId": item["id"]}
     PROCESSES.append(record)
@@ -513,7 +517,8 @@ def _resume(api: Any, params: dict[str, Any]) -> dict[str, Any] | str:
 
 def _terminals(_api: Any, params: dict[str, Any]) -> dict[str, Any]:
     return {"data": [
-        {"processId": r["processId"], "osPid": r["process"].pid, "command": r["command"],
+        # Codex 0.154.0 lists no `osPid` for a background terminal (K6's transcripts).
+        {"processId": r["processId"], "osPid": None, "command": r["command"],
          "cwd": "", "itemId": r["itemId"]}
         for r in PROCESSES
         if r["thread_id"] == params.get("threadId") and r["terminal"]

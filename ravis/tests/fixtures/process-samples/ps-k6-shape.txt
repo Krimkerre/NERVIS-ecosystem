@@ -1,0 +1,10 @@
+  501     1   501 Ss   Sun Sep 13 18:30:00 2026     /Users/owner/Documents/coding/NERVIS-ecosystem/ravis/.venv/bin/python -m ravis serve
+ 4411   501  4411 Ss   Sun Sep 13 18:30:02 2026     /opt/homebrew/bin/codex app-server --listen stdio:// -c analytics.enabled=false
+30870  4411 30870 Ss+  Sun Sep 13 18:37:15 2026     script -q /dev/null sleep 600
+30871 30870 30871 Ss+  Sun Sep 13 18:37:15 2026     sleep 600
+30880  4411 30880 Ss+  Sun Sep 13 18:37:16 2026     sleep 600
+30890  4411 30890 Ss+  Sun Sep 13 18:37:15 2026     script -q /dev/null sleep 600
+30891 30890 30891 Ss+  Sun Sep 13 18:37:15 2026     sleep 600
+30900  4411 30900 Ss+  Sun Sep 13 18:37:17 2026     sleep 600
+30910  4411 30910 Z    Sun Sep 13 18:37:14 2026     <defunct>
+52000     1 52000 S    Sun Sep 13 17:00:00 2026     node /Users/owner/.nvm/versions/node/v22.9.0/bin/vite

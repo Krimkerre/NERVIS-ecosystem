@@ -291,11 +291,15 @@ def steps(context: dict[str, Any], count: str) -> None:
 
 
 def spawn(context: dict[str, Any], _rest: str) -> None:
-    """A long-running command: a shell and its `sleep`, the shell carrying the sandbox parameter."""
+    """A long-running command, shaped like a real Codex child (calibration K6, Codex 0.154.0).
+
+    Codex runs `/bin/zsh -lc '<command>'` through `sandbox-exec` in a pseudo-terminal: its own
+    session, started in the project's folder, a child of the app-server — and because the wrapper
+    replaces itself, **no sandbox parameter shows in its arguments**. A shell with a `sleep` child.
+    """
     root = Path(context["cwd"]).resolve()
     process = subprocess.Popen(
-        ["/bin/sh", "-c", "sleep 60; true", "relay-task", f"WRITABLE_ROOT_0={root}"],
-        start_new_session=True,
+        ["/bin/sh", "-c", "sleep 60; true"], cwd=root, start_new_session=True,
     )
     context["api"].log("relay_spawned", pid=process.pid, root=str(root))
     # Collected when it exits, as Codex collects its commands, so it never lingers as a zombie.

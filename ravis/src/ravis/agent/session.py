@@ -48,7 +48,14 @@ from typing import Any, Protocol
 
 from ravis.agent import calibration_dependent as calibrated
 from ravis.agent import refusals
-from ravis.agent.cleanup import CleanupTimings, Confirmation, ProcessCleanup, leftover_view
+from ravis.agent.attribution import SampledTask
+from ravis.agent.cleanup import (
+    CleanupTimings,
+    Confirmation,
+    ProcessCleanup,
+    leftover_view,
+    lock_file_leftover,
+)
 from ravis.agent.events import EventLog
 from ravis.agent.locks import ProjectLocks
 from ravis.agent.redact import command_hidden
@@ -117,6 +124,8 @@ class CodexHost(Protocol):
     def profile_name(self) -> str | None: ...
     def account_fingerprint(self) -> str | None: ...
     def running_sha256(self) -> str | None: ...
+    def app_server_pid(self) -> int | None: ...
+    def update_pending(self) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -475,7 +484,14 @@ class AgentSession:
         self._context.store.update_session(
             self.id, codex_thread_id=self.thread_id, model=self.model
         )
+        self._remember_thread()
         self._hold_thread()
+
+    def _remember_thread(self) -> None:
+        """The thread and when it was last used, kept past the task's records (90-day sweep)."""
+        if self.thread_id is not None:
+            self._context.store.remember_thread(
+                self.thread_id, str(self.root), str(self.git_dir) if self.git_dir else None)
 
     def _hold_thread(self) -> None:
         if self.thread_id is None:
@@ -531,6 +547,7 @@ class AgentSession:
         for feedback in queued:
             self.emit("feedback", text=feedback, how="delivered_in_turn")
         self._turn = _Turn(kind=kind, started_at=datetime.now(UTC))
+        self._remember_thread()
         self.stop_requested, self.stopped_by = False, None
         self.processes = Processes()
         self.set_state("starting")
@@ -886,6 +903,20 @@ class AgentSession:
         """The unanswered-request policy (design §4.8): decline, end the turn, keep the thread."""
         self._end_turn_as("policy_timeout", "policy_timeout")
 
+    def pause_for_update(self) -> None:
+        """A new Codex build, and this turn only waits for an answer: paused like the policy (AL5).
+
+        Its open requests get their stop responses, the turn ends, the thread is kept, and the task
+        reads `paused_for_update` until a window settles it — so Codex can be swapped once idle.
+        """
+        if self.state == "waiting_on_you":
+            self._end_turn_as("update", "turn_ended")
+
+    def sampled_task(self) -> SampledTask:
+        """This task as a look at Codex's processes needs it (`attribution.py`)."""
+        return SampledTask(self.id, self.active_turn_id or self.last_turn_id, self.root,
+                           self._turn.started_at, self.thread_id if self.thread_loaded else None)
+
     def _end_turn_as(self, reason: str, resolved_by: str) -> None:
         if self._turn.end_reason is not None:
             return
@@ -957,8 +988,7 @@ class AgentSession:
 
     async def _conclude_turn(self) -> None:
         """Steps 2-6 of the end sequence, `turn.completed`, then the state that follows."""
-        confirmation = await self._context.cleanup.end(
-            self.thread_id if self.thread_loaded else None, self.root, self._turn.started_at)
+        confirmation = await self._context.cleanup.end(self.sampled_task())
         self._set_processes(confirmation)
         status, error = self._outcome()
         completed: dict[str, Any] = {"turn_id": self.active_turn_id, "status": status}
@@ -983,6 +1013,8 @@ class AgentSession:
     def _set_processes(self, confirmation: Confirmation) -> None:
         self.processes = Processes(confirmation.attributed, confirmation.confirmed_gone,
                                    confirmation.leftover)
+        # What still runs, in the checkout lock file too: a window ends it if RAVIS is down (§6.3).
+        self._context.locks.record_family(self.id, lock_file_leftover(confirmation.leftover))
 
     def _outcome(self) -> tuple[str, dict[str, Any] | None]:
         turn = self._turn
@@ -1026,7 +1058,9 @@ class AgentSession:
         """`POST …/leftover {action: stop_them}`, under the action lock."""
         if self.state != "leftover":
             raise refusals.no_leftover()
-        confirmation = await self._context.cleanup.end(None, self.root, self._turn.started_at)
+        # The owner pressed Stop them: the leftovers the chat named are signalled too.
+        confirmation = await self._context.cleanup.end(self.sampled_task(),
+                                                       also=self.processes.leftover)
         self._set_processes(confirmation)
         if confirmation.confirmed_gone:
             self.set_state(self._after_leftover)
@@ -1171,7 +1205,8 @@ class AgentSession:
             self.active_turn_id = None
             self.set_state("uncertain")
         if self.needs_settle or self.state == "leftover":
-            confirmation = await self._context.cleanup.end(None, self.root, None)
+            # Codex's process died with the last RAVIS: only what was recorded can be found.
+            confirmation = await self._context.cleanup.end_recorded(self.id)
             self._set_processes(confirmation)
             if not confirmation.confirmed_gone:
                 self._after_leftover = self.state if self.needs_settle else "uncertain"

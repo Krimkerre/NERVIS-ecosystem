@@ -81,12 +81,13 @@ def test_a_read_endpoint_does_not_accept_a_write() -> None:
 def test_every_write_this_surface_serves_is_one_it_declares() -> None:
     """The mutation surface, asserted rather than described.
 
-    RAVIS serves twenty-eight writes: two on a provider credential, one on a provider's
+    RAVIS serves thirty-three writes: two on a provider credential, one on a provider's
     enabled flag, one on its model filter, one on a pool's membership, one
     curating every pool, one lifting a tool-refusal suppression, seven for
     Codex (sign-in, its cancellation, sign-out, account confirmation, accepting
-    and revoking a build, and the file-rules re-test), and fourteen on Codex tasks
-    (the agent-session relay, the owner Stop among them). Each is
+    and revoking a build, and the file-rules re-test), fourteen on Codex tasks
+    (the agent-session relay, the owner Stop among them), and five on the project
+    lock. Each is
     deliberate; what is not acceptable is another appearing without anybody
     noticing, which is exactly what happened to the fifth -- it shipped while
     the module said "Reads only. No endpoint here mutates", and without the
@@ -148,6 +149,15 @@ def test_every_write_this_surface_serves_is_one_it_declares() -> None:
         "DELETE /api/v1/agent-sessions/{sid}",
         "POST /api/v1/agent-sessions/{sid}/reissue-token",
         "POST /api/v1/agent-sessions/{sid}/owner-stop",
+        # Added deliberately, 13 September 2026 (M29's fourth increment, RAVIS.md §15.1.2):
+        # the project lock for Clarvis's own runs. Every one needs a Clarvis client credential;
+        # heartbeat and release the lease too, transfer the lease or the holding task's token.
+        # Each is tested in `tests/test_project_locks.py`; the route table in the identity file.
+        "POST /api/v1/project-locks",
+        "POST /api/v1/project-locks/{lid}/heartbeat",
+        "POST /api/v1/project-locks/{lid}/release",
+        "POST /api/v1/project-locks/{lid}/takeover",
+        "POST /api/v1/project-locks/{lid}/transfer",
         "DELETE /api/v1/codex/accept-version/{sha256}",
         # The file-rules re-test: the one write that starts Codex work, so only the
         # owner's command-line credential may call it, never NERVIS's (F-A3).

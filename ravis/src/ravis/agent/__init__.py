@@ -1,4 +1,4 @@
-"""Codex agent sessions: the relay Clarvis runs a coding task through (M29's third increment, R3).
+"""Codex agent sessions and the project lock (M29's third and fourth increments, R3 and R4).
 
 RAVIS runs one Codex process for the whole Mac (`ravis.codex`). This package is what turns it into
 tasks a Clarvis window can start, follow, answer, steer, stop and reattach to after closing
@@ -21,18 +21,24 @@ code and the event stream — is the fixtures in `tests/fixtures/relay-contract/
 | `events.py` | each task's event ids, its two replay buffers and the SSE frames |
 | `redact.py` | command output that might hold a secret, hidden before it is relayed |
 | `sites.py` | a site Codex's network proxy blocked, asked of the owner; the allowlist, added live |
-| `store.py` | migration 8's tables: sessions, turns, requests, locks, kept answers |
+| `store.py` | migrations 8 and 9: sessions, turns, requests, processes, locks, threads |
 | `calibration_dependent.py` | **every value calibration's `summary.json` replaces**, in one place |
-| `locks.py` | **the R4 seam:** the project lock as a Codex session needs it |
-| `cleanup.py` | **the R4 seam:** ending one task's command processes and confirming they are gone |
+| `locks.py` | the project lock as a Codex session holds it, and the views both engines share |
+| `lock_api.py` | Clarvis's own runs taking the lock: acquire, adopt, takeover, transfer |
+| `lock_routes.py` | the HTTP edge, `/api/v1/project-locks…` |
+| `group_kill.py` | a taken-over window's running command, stopped with its group and descendants |
+| `reconcile.py` | the restart adoption rule for the locks a Codex session held |
+| `attribution.py` | looking at Codex's processes every 2 s while a turn runs, and recording them |
+| `cleanup.py` | ending one task's command processes and confirming they are gone |
 
 **Nothing here lets a real task start before calibration passes.** Creating a session and starting
 a turn both need Codex's state to be `signed_in` *and* its strict file rules `proven`; until
 calibration (or the re-test) proves them, both are refused with 409 `CODEX_NOT_READY`
 (`sessions.py`, `readiness`).
 
-**What M29's fourth increment (R4) adds** on the two seams: the `/api/v1/project-locks` routes
-(create, heartbeat, release, takeover, transfer, read), the restart adoption rule and
-reconciliation, recording attributed processes in `agent_process` while turns run, and the
-process-group kill at a takeover.
+**What M29's fourth increment (R4) added:** the `/api/v1/project-locks` routes (create, heartbeat,
+release, takeover, transfer, read); per-task process attribution by Codex's process tree, each
+command's folder and pid-plus-start identity, recorded in `agent_process` and in the checkout lock
+file; restart reconciliation with the adoption rule; the group-and-descendants kill at a takeover;
+interrupting turns at shutdown; `paused_for_update`; and the 90-day sweep of Codex's threads.
 """

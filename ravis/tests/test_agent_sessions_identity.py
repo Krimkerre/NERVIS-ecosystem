@@ -118,7 +118,7 @@ def test_the_route_table_keeps_the_owner_stop_apart_and_stop_only() -> None:
     assert [(sorted(r.methods), r.path) for r in owner_router.routes] == [  # type: ignore[attr-defined]
         (["POST"], OWNER_STOP)
     ]
-    listed = fixture("agent-sessions.json")["routes"]
+    listed = fixture("agent-sessions.json")["routes"] + fixture("project-locks.json")["routes"]
     contract = {(r["method"], r["path"].split("?")[0]) for r in listed}
     served = {(method, route.path) for route in relay for method in route.methods}
     stream = fixture("event-stream.json")["route"]

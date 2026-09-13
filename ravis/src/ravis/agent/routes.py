@@ -48,15 +48,21 @@ SETTLE_NEXT = frozenset({"idle", "end", "transfer"})
 OWNER_SOURCES = frozenset({"menu_bar", "dashboard"})
 
 
-def _sessions(request: Request) -> AgentSessions:
-    return request.app.state.codex_service.agents  # type: ignore[no-any-return]
+def sessions_of(request: Request) -> AgentSessions:
+    """Every task and lock — once a restart's reconciliation has finished (design §4.4)."""
+    sessions: AgentSessions = request.app.state.codex_service.agents
+    if not sessions.ready:
+        raise refusals.runtime_unavailable(
+            "RAVIS is still recovering its Codex tasks after a restart; try again in a moment."
+        )
+    return sessions
 
 
 def _invalid(message: str) -> CodexRefusalError:
     return CodexRefusalError("INVALID_REQUEST_BODY", 422, message)
 
 
-async def _body(request: Request) -> tuple[bytes, dict[str, Any]]:
+async def json_body(request: Request) -> tuple[bytes, dict[str, Any]]:
     """The raw body and its JSON object; an empty body is `{}`."""
     raw = await request.body()
     if not raw.strip():
@@ -71,7 +77,7 @@ async def _body(request: Request) -> tuple[bytes, dict[str, Any]]:
 
 
 def _session(request: Request, sid: str) -> AgentSession:
-    return _sessions(request).session_for(sid, request.headers.get(TOKEN_HEADER))
+    return sessions_of(request).session_for(sid, request.headers.get(TOKEN_HEADER))
 
 
 def _text(body: dict[str, Any], name: str) -> str | None:
@@ -84,9 +90,9 @@ def _text(body: dict[str, Any], name: str) -> str | None:
 
 @router.post("")
 async def create_session(request: Request) -> JSONResponse:
-    sessions = _sessions(request)
+    sessions = sessions_of(request)
     key = required_key(request)
-    raw, body = await _body(request)
+    raw, body = await json_body(request)
     window = mapping(body.get("window"))
     where = scope("create", body.get("workspace_root"), window.get("id"))
     kept = sessions.kept.find(where, key, body_sha256(raw))
@@ -111,7 +117,7 @@ def _with_token(sessions: AgentSessions, where: str, key: str, body: dict[str, A
 
 @router.get("")
 async def list_sessions(request: Request) -> dict[str, Any]:
-    return _sessions(request).listed(request.query_params.get("workspace_root"))
+    return sessions_of(request).listed(request.query_params.get("workspace_root"))
 
 
 @router.get("/{sid}")
@@ -154,7 +160,7 @@ async def stream_events(sid: str, request: Request) -> StreamingResponse:
             raise refusals.event_cursor_expired(replay)
         first = _replayed(session, replay, cursor)
         sent = replay.events[-1].id if replay.events else cursor
-    heartbeat = _sessions(request).timings.stream_heartbeat_seconds
+    heartbeat = sessions_of(request).timings.stream_heartbeat_seconds
     return StreamingResponse(
         _stream(request, session, subscriber, first, sent, heartbeat),
         media_type="text/event-stream",
@@ -203,9 +209,9 @@ async def _replay_or(request: Request, session: AgentSession, name: str, *extra:
                      ) -> tuple[str, str, bytes, dict[str, Any], JSONResponse | None]:
     """The key, scope and body of a keyed route — and the kept answer, when this is a retry."""
     key = required_key(request)
-    raw, body = await _body(request)
+    raw, body = await json_body(request)
     where = scope(name, session.id, *extra)
-    kept = _sessions(request).kept.find(where, key, body_sha256(raw))
+    kept = sessions_of(request).kept.find(where, key, body_sha256(raw))
     replayed = JSONResponse(kept[1], status_code=kept[0]) if kept is not None else None
     return key, where, raw, body, replayed
 
@@ -222,7 +228,7 @@ async def start_turn(sid: str, request: Request) -> JSONResponse:
     lock = mapping(body.get("lock"))
     async with session.action_lock:
         answer = await session.turn(kind, text, _text(lock, "transfer_token"))
-    _sessions(request).kept.keep(where, key, body_sha256(raw), 202, answer)
+    sessions_of(request).kept.keep(where, key, body_sha256(raw), 202, answer)
     return JSONResponse(answer, status_code=202)
 
 
@@ -237,14 +243,14 @@ async def steer(sid: str, request: Request) -> JSONResponse:
         raise refusals.empty_steer()
     async with session.action_lock:
         answer = await session.steer(text, _text(body, "expected_turn_id"))
-    _sessions(request).kept.keep(where, key, body_sha256(raw), 202, answer)
+    sessions_of(request).kept.keep(where, key, body_sha256(raw), 202, answer)
     return JSONResponse(answer, status_code=202)
 
 
 @router.post("/{sid}/interrupt")
 async def interrupt(sid: str, request: Request) -> JSONResponse:
     session = _session(request, sid)
-    _, body = await _body(request)
+    _, body = await json_body(request)
     if body.get("reason", "stop") not in INTERRUPT_REASONS:
         raise _invalid("reason must be stop, switch or scope_change.")
     async with session.action_lock:
@@ -271,7 +277,7 @@ async def answer_request(sid: str, rid: str, request: Request) -> JSONResponse:
         audit.record(request, "ravis.agent_session.site_decided", session_id=sid, request_id=rid,
                      host=host, decision=answer["decision_kind"],
                      decided_at=iso(datetime.now(UTC)))
-    _sessions(request).kept.keep(where, key, body_sha256(raw), 200, answer)
+    sessions_of(request).kept.keep(where, key, body_sha256(raw), 200, answer)
     return JSONResponse(answer)
 
 
@@ -282,7 +288,7 @@ async def answer_request(sid: str, rid: str, request: Request) -> JSONResponse:
 async def presence(sid: str, request: Request) -> Response:
     """The panel's heartbeat. Deliberately not serialised: it changes no task (design §3.5.3)."""
     session = _session(request, sid)
-    _, body = await _body(request)
+    _, body = await json_body(request)
     window, host, connected = body.get("window_id"), body.get("host"), body.get("panel_connected")
     if not isinstance(window, str) or not window or not isinstance(connected, bool):
         raise _invalid("presence needs window_id, host and panel_connected.")
@@ -293,7 +299,7 @@ async def presence(sid: str, request: Request) -> Response:
 @router.post("/{sid}/mode")
 async def change_mode(sid: str, request: Request) -> dict[str, Any]:
     session = _session(request, sid)
-    _, body = await _body(request)
+    _, body = await json_body(request)
     if body.get("mode") not in calibrated.MODES:
         raise _invalid(f"mode must be one of {', '.join(calibrated.MODES)}.")
     async with session.action_lock:
@@ -303,7 +309,7 @@ async def change_mode(sid: str, request: Request) -> dict[str, Any]:
 @router.post("/{sid}/leftover")
 async def stop_leftovers(sid: str, request: Request) -> dict[str, Any]:
     session = _session(request, sid)
-    _, body = await _body(request)
+    _, body = await json_body(request)
     if body.get("action") != "stop_them":
         raise _invalid("action must be stop_them.")
     async with session.action_lock:
@@ -316,7 +322,7 @@ async def stop_leftovers(sid: str, request: Request) -> dict[str, Any]:
 @router.post("/{sid}/settle-claim")
 async def claim_settle(sid: str, request: Request) -> dict[str, Any]:
     session = _session(request, sid)
-    _, body = await _body(request)
+    _, body = await json_body(request)
     window = _text(body, "window_id")
     if window is None:
         raise _invalid("settle-claim needs the claiming window's window_id.")
@@ -336,14 +342,14 @@ async def settle(sid: str, request: Request) -> JSONResponse:
                        "transfer.")
     async with session.action_lock:
         answer = await session.settle(claim, str(next_step))
-    _sessions(request).kept.keep(where, key, body_sha256(raw), 200, answer)
+    sessions_of(request).kept.keep(where, key, body_sha256(raw), 200, answer)
     return JSONResponse(answer)
 
 
 @router.post("/{sid}/cancel")
 async def cancel(sid: str, request: Request) -> JSONResponse:
     session = _session(request, sid)
-    await _body(request)
+    await json_body(request)
     async with session.action_lock:
         answer = await session.cancel()
     return JSONResponse(answer, status_code=202)
@@ -359,9 +365,9 @@ async def end_session(sid: str, request: Request) -> dict[str, Any]:
 @router.post("/{sid}/reissue-token")
 async def reissue_token(sid: str, request: Request) -> JSONResponse:
     """A new token for a window that lost its file: the client credential, no token (§3.5.1)."""
-    sessions = _sessions(request)
+    sessions = sessions_of(request)
     key = required_key(request)
-    raw, body = await _body(request)
+    raw, body = await json_body(request)
     where = scope("reissue-token", sid)
     kept = sessions.kept.find(where, key, body_sha256(raw))
     if kept is not None:
@@ -379,11 +385,11 @@ async def reissue_token(sid: str, request: Request) -> JSONResponse:
 @owner_router.post("/{sid}/owner-stop")
 async def owner_stop(sid: str, request: Request) -> JSONResponse:
     """Stop a task from the menu bar or the dashboard, after the owner confirmed it (§3.5.5)."""
-    sessions = _sessions(request)
+    sessions = sessions_of(request)
     application_id = request.state.identity.application_id
     key = required_key(request)
     sessions.count_owner_stop(application_id)
-    raw, body = await _body(request)
+    raw, body = await json_body(request)
     where = scope("owner-stop", sid, application_id)
     kept = sessions.kept.find(where, key, body_sha256(raw))
     if kept is not None:

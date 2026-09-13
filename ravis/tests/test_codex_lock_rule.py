@@ -42,7 +42,7 @@ from ravis.codex.lock_rule import (
     parse_sysctl_seconds,
     probe_process,
 )
-from ravis.codex.process_table import attribute, parse_rows
+from ravis.codex.process_table import TaskClaim, attribute_processes, parse_rows
 
 CASES = json.loads(
     (Path(__file__).resolve().parent / "fixtures" / "lock-rule-cases.json").read_text()
@@ -151,15 +151,16 @@ def test_the_process_table_leaves_out_zombies_and_matches_roots_with_spaces() ->
     )
 
     rows = parse_rows(table)
-    attributed, unattributed = attribute(
-        rows, app_server_pid=100, roots={"A": Path("/w s/a"), "B": Path("/w s/b")}, terminals={}
+    result = attribute_processes(
+        rows, app_server_pid=100,
+        tasks={"A": TaskClaim(Path("/w s/a")), "B": TaskClaim(Path("/w s/b"))},
     )
 
     assert [row.pid for row in rows] == [100, 101, 102]
-    assert {pid: (entry.owner, entry.rule) for pid, entry in attributed.items()} == {
+    assert {pid: (entry.owner, entry.rule) for pid, entry in result.attributed.items()} == {
         101: ("A", "sandbox_root"), 102: ("A", "parent"),
     }
-    assert unattributed == []
+    assert result.unattributed == [] and not result.ambiguous
 
 
 # ── The lock file ───────────────────────────────────────────────────────────

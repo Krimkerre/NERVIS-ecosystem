@@ -45,6 +45,10 @@
       "running_command": null
     }
   },
+  "lock_file_leftover": {
+    "entry": {"pid": 51310, "start": "Sun Sep 13 05:41:07 2026", "comm": "sleep"},
+    "rule": "leftover lists the holding Codex session's recorded command processes, written by RAVIS at each look and emptied once they are confirmed gone; start is ps -o lstart= in the C locale. A window that finds a gone RAVIS holder ends exactly these, each individually by pid and start time, never by group, then confirms"
+  },
   "verdict_cases": [
     {
       "name": "the holder's pid is not running",

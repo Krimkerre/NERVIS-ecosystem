@@ -399,6 +399,10 @@ class Settings(BaseSettings):
     # a Clarvis panel attached, and with none, before RAVIS declines it and pauses the task.
     agent_unanswered_attached_seconds: float = 7200.0
     agent_unanswered_detached_seconds: float = 1800.0
+    # How long Codex's own history of a task (its thread) is kept unused before RAVIS deletes it
+    # with `thread/delete` — unless a Clarvis checkpoint in the project still names the thread
+    # (design §4.10, owner decision D3).
+    agent_history_retention_days: int = 90
 
     database_path: str = "ravis.db"
     log_level: str = "INFO"

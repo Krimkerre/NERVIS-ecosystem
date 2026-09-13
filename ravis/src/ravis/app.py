@@ -41,6 +41,7 @@ from ravis.admission import (
     cors_headers,
     is_preflight,
 )
+from ravis.agent.lock_routes import router as project_locks_router
 from ravis.agent.routes import owner_router as agent_owner_router
 from ravis.agent.routes import router as agent_router
 from ravis.api.management import management_router
@@ -119,6 +120,8 @@ def create_app(settings: Settings) -> Any:
     # every other agent-session route behind the Clarvis client check (`agent/routes.py`).
     api.include_router(agent_owner_router)
     api.include_router(agent_router)
+    # The project lock for both engines (M29's fourth increment), behind the same client check.
+    api.include_router(project_locks_router)
     if settings.codex_calibration:
         # Dev-only, with the owner present: without the setting these paths don't exist at all.
         api.include_router(calibration_router)

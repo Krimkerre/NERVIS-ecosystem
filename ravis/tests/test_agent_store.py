@@ -50,16 +50,42 @@ def test_migration_8_is_backed_up_first_and_rolls_back_to_7(
         patched.setattr(storage, "MIGRATIONS", storage.MIGRATIONS[:7])
         assert prepare_database(str(path)).schema_version == 7
     migrated = prepare_database(str(path))
-    assert migrated.schema_version == 8
+    assert migrated.schema_version == storage.MIGRATIONS[-1][0]
     assert (tmp_path / "ravis.db.v7.bak").exists()
     tables = {row[0] for row in sqlite3.connect(path).execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert {"agent_session", "agent_request", "agent_turn", "agent_process", "project_lock",
-            "agent_idempotency"} <= tables
+            "agent_idempotency", "ravis_instance", "agent_thread"} <= tables
     assert restore_backup(path, 7) == 7
     restored = {row[0] for row in sqlite3.connect(path).execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "agent_session" not in restored
+
+
+def test_migration_9_is_backed_up_first_and_records_each_process_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R4's migration, on a throwaway database only: instances, kept threads, one row a process."""
+    path = tmp_path / "ravis.db"
+    with monkeypatch.context() as patched:
+        patched.setattr(storage, "MIGRATIONS", storage.MIGRATIONS[:8])
+        assert prepare_database(str(path)).schema_version == 8
+    store = AgentStore(prepare_database(str(path)))
+    assert (tmp_path / "ravis.db.v8.bak").exists()
+    for _ in range(2):
+        store.record_process("as_1", "turn-1", (4411, "Sun Sep 13 05:10:02 2026"), "sleep",
+                             "command_cwd")
+    store.record_process("as_1", "turn-1", (4411, "Sun Sep 13 06:00:00 2026"), "sleep", "parent")
+    assert len(store.live_processes("as_1")) == 2
+    store.confirm_gone("as_1", [(4411, "Sun Sep 13 05:10:02 2026")])
+    assert [row["start_time"] for row in store.live_processes()] == ["Sun Sep 13 06:00:00 2026"]
+    for number in range(storage_instances_over := 25):
+        store.record_instance(1000 + number, "Sun Sep 13 05:10:02 2026")
+    assert len(store.instances()) == 20 and store.instances()[0]["pid"] == 1000 + 24
+    assert storage_instances_over == 25
+    assert restore_backup(path, 8) == 8
+    assert "ravis_instance" not in {row[0] for row in sqlite3.connect(path).execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
 def _session(session_id: str, ended_at: str | None) -> dict[str, Any]:

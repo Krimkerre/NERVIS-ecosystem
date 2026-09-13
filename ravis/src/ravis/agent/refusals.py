@@ -79,6 +79,57 @@ def nested_project_locked(lock: dict[str, Any]) -> CodexRefusalError:
     )
 
 
+def lock_held_by(
+    lock: dict[str, Any], *, takeover_allowed: bool, attach_session_id: str | None
+) -> CodexRefusalError:
+    """A lock create on a held root: who holds it, and whether a takeover may follow."""
+    codex = attach_session_id is not None
+    message = ("Codex is already working on this project." if codex
+               else "Another Clarvis window holds this project.")
+    details: dict[str, Any] = {"lock": lock, "takeover_allowed": takeover_allowed}
+    if codex:
+        details["attach_session_id"] = attach_session_id
+    return CodexRefusalError("PROJECT_LOCKED", 409, message, **details)
+
+
+def lease_revoked(taken_over_by: str | None) -> CodexRefusalError:
+    """The fence: this lease no longer holds the lock."""
+    return CodexRefusalError("LEASE_REVOKED", 409, "Another window took over this task.",
+                             taken_over_by=taken_over_by)
+
+
+def lease_required() -> CodexRefusalError:
+    return CodexRefusalError("INVALID_REQUEST_BODY", 422, "X-Lock-Lease is required.")
+
+
+def holder_active() -> CodexRefusalError:
+    return CodexRefusalError(
+        "HOLDER_ACTIVE", 409,
+        "Another Clarvis window is working on this project; stop it there first.",
+    )
+
+
+def attach_instead(session_id: str | None) -> CodexRefusalError:
+    return CodexRefusalError(
+        "ATTACH_INSTEAD", 409, "Codex sessions are attached, never taken over.",
+        session_id=session_id,
+    )
+
+
+def takeover_confirmation_mismatch() -> CodexRefusalError:
+    return CodexRefusalError(
+        "CONFIRMATION_MISMATCH", 422, "The lock's holder changed; look again before taking over."
+    )
+
+
+def run_processes_not_confirmed_gone(**details: Any) -> CodexRefusalError:
+    """A lock release, transfer or takeover while a run's processes may still be running."""
+    return CodexRefusalError(
+        "PROCESSES_NOT_CONFIRMED_GONE", 409, "Something this run started is still running.",
+        **details,
+    )
+
+
 def lock_superseded() -> CodexRefusalError:
     return CodexRefusalError(
         "LOCK_SUPERSEDED",

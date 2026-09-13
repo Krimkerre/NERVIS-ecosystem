@@ -35,7 +35,8 @@ from ravis.agent.store import ANSWERS_KEPT, AgentStore
 from ravis.codex.idempotency import valid_key
 from ravis.codex.refusals import idempotency_key_required, idempotency_key_reused
 
-TOKEN_FIELD = "session_token"
+#: The fields a kept answer never stores: each is a capability, held in memory only (below).
+TOKEN_FIELDS = ("session_token", "lease_token", "transfer_token")
 
 
 def required_key(request: Request) -> str:
@@ -73,10 +74,10 @@ class KeptResponses:
     def keep(
         self, where: str, key: str, digest: str, status: int, body: dict[str, Any]
     ) -> None:
-        stored = {name: value for name, value in body.items() if name != TOKEN_FIELD}
+        stored = {name: value for name, value in body.items() if name not in TOKEN_FIELDS}
         self._store.keep_answer(where, key, digest, status, json.dumps(stored))
-        token = body.get(TOKEN_FIELD)
-        if isinstance(token, str):
+        token = next((body[name] for name in TOKEN_FIELDS if isinstance(body.get(name), str)), None)
+        if token is not None:
             self.remember(where, key, token)
 
     def remember(self, where: str, key: str, token: str) -> None:

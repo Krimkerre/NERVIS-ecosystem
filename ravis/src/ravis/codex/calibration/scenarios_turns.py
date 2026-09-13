@@ -1,11 +1,13 @@
 """The questions about turns and processes: K4, K11, K12, K7, K6 and K13 (design §10.4).
 
 **K6 is the one that signals processes.** It uses `process_table.py`: a snapshot of the process
-table, each of the app-server's descendants attributed to project A or B by the design's rules, and
-the end sequence for A's alone — then it checks every A process is gone and every B process still
-runs, and ends B's the same way whatever happened. Only processes that were the app-server's
-descendants in the snapshot are ever signalled, each individually and only while its start time
-still matches; never a process group.
+table, each of Codex's processes attributed to project A or B by the rule a task's Stop uses (R4) —
+RAVIS's own app-server's tree, each command root's working folder read with `lsof` while its
+project's turn runs, parents, terminals, and pid plus start time — and the end sequence for A's
+alone; then it checks every A process is gone and every B process still runs, and ends B's the same
+way whatever happened. The first real run (`cal_d2185ed08f50`) found nothing by the sandbox's
+arguments: `sandbox-exec` replaces itself with the command, so they never show. A process no rule
+finds, or both projects claim, is reported and never signalled; nothing is ever signalled by group.
 
 **K7 is judged on RAVIS's side** (Cal-2). Codex 0.154.0 ends an interrupted turn within moments but
 never resolves the request it had open (`cal_d2185ed08f50`), so K7 passes when the turn ends
@@ -19,7 +21,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,8 +38,11 @@ from ravis.codex.calibration.scenarios import GRANULAR_NO_SANDBOX_APPROVAL, q
 from ravis.codex.process_table import (
     Attributed,
     ProcessRow,
-    attribute,
+    TaskClaim,
+    attribute_processes,
+    descendants,
     end_processes,
+    read_cwds,
     snapshot,
 )
 from ravis.codex.rpc import CodexRpcError, CodexUnavailableError
@@ -270,12 +277,14 @@ async def k6(ctx: ScenarioContext) -> ScenarioResult:
     session = ctx.session("K6")
     commands = [Listed(text) for text in K6_COMMANDS]
     found: tuple[dict[int, Attributed], list[ProcessRow]] = ({}, [])
+    # Both turns start after this moment: a command root's folder counts only for what began since.
+    began = datetime.now(UTC)
     try:
         for project in ctx.plan.projects:
             await session.start_thread(project.label, project)
             session.expect(project.label, commands)
             await session.start_turn(project.label, command_prompt("K6", commands))
-        found, started = await _wait_for_processes(ctx, session, len(commands))
+        found, started = await _wait_for_processes(ctx, session, len(commands), began)
         return await _stop_a(ctx, session, found, started)
     except (CodexRpcError, CodexUnavailableError) as refusal:
         return session.result("inconclusive", f"Codex refused a request: {refusal}")
@@ -285,14 +294,14 @@ async def k6(ctx: ScenarioContext) -> ScenarioResult:
 
 
 async def _wait_for_processes(
-    ctx: ScenarioContext, session: Session, expected: int
+    ctx: ScenarioContext, session: Session, expected: int, began: datetime
 ) -> tuple[tuple[dict[int, Attributed], list[ProcessRow]], bool]:
     """Answer Codex and look at the process table until both projects show their commands."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + ctx.timings.processes_start_seconds
     while True:
         await session.drive(lambda: False, 0.2)
-        found = await _attributed(ctx, session)
+        found = await _attributed(ctx, session, began)
         owners = [entry.owner for entry in found[0].values()]
         if all(owners.count(key) >= expected for key in ("A", "B")):
             return found, True
@@ -301,12 +310,26 @@ async def _wait_for_processes(
 
 
 async def _attributed(
-    ctx: ScenarioContext, session: Session
+    ctx: ScenarioContext, session: Session, began: datetime
 ) -> tuple[dict[int, Attributed], list[ProcessRow]]:
+    """(each project's processes, everything else of Codex's) by a task's Stop rule (R4).
+
+    A process both projects claim is put with the unattributed: reported, never signalled.
+    """
     pid = ctx.codex.app_server_pid()
     rows = await asyncio.to_thread(snapshot)
     if pid is None or rows is None:
         return {}, []
+    folders = await asyncio.to_thread(read_cwds, [row.pid for row in descendants(rows, pid)])
+    tasks = {key: TaskClaim(Path(os.path.realpath(log.project.root)), began)
+             for key, log in session.threads.items()}
+    result = attribute_processes(rows, app_server_pid=pid, tasks=tasks, cwds=folders or {},
+                                 terminals=await _terminal_pids(session))
+    return result.attributed, [*result.unattributed, *(a.row for a in result.ambiguous.values())]
+
+
+async def _terminal_pids(session: Session) -> dict[int, str]:
+    """Each background terminal's `osPid`, by project (Codex 0.154.0 lists none)."""
     terminals: dict[int, str] = {}
     for key, log in session.threads.items():
         listed = await session.request(
@@ -315,8 +338,7 @@ async def _attributed(
         for terminal in _terminals(listed):
             if isinstance(terminal.get("osPid"), int):
                 terminals[terminal["osPid"]] = key
-    roots = {key: log.project.root for key, log in session.threads.items()}
-    return attribute(rows, app_server_pid=pid, roots=roots, terminals=terminals)
+    return terminals
 
 
 async def _stop_a(

@@ -262,6 +262,32 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        9,
+        "Process recording, RAVIS's instances and kept Codex threads, per RAVIS.md §17 (M29, R4)",
+        """
+        -- Each RAVIS start records its own pid and process start time (design §6.3, the restart
+        -- adoption rule): on the next start, a checkout lock file naming one of these is RAVIS's
+        -- own and may be rewritten; a file naming anyone else is never touched.
+        CREATE TABLE IF NOT EXISTS ravis_instance (
+            pid        INTEGER NOT NULL,
+            pid_start  TEXT NOT NULL,
+            started_at TEXT NOT NULL
+        );
+        -- One row per process per task: a process is its pid and start time together.
+        CREATE UNIQUE INDEX IF NOT EXISTS agent_process_identity
+            ON agent_process (session_id, pid, start_time);
+        -- Codex's threads, remembered past their task's 30-day records so the 90-day sweep can
+        -- delete Codex's own history (design §4.10). Ids, the project's path and times only.
+        CREATE TABLE IF NOT EXISTS agent_thread (
+            thread_id      TEXT PRIMARY KEY,
+            workspace_root TEXT NOT NULL,
+            git_dir        TEXT,
+            last_used_at   TEXT NOT NULL,
+            deleted_at     TEXT
+        );
+        """,
+    ),
 ]
 
 

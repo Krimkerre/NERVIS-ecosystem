@@ -754,6 +754,43 @@
               }
             }
           }
+        },
+        {
+          "name": "the old window's command couldn't be confirmed gone",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/project-locks/pl_01J9ZK8P9Q0R1S2T3U4V5W6X7Y/takeover",
+            "headers": {
+              "Content-Type": "application/json",
+              "Idempotency-Key": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+            },
+            "body": {
+              "workspace_root": "/Users/owner/Documents/coding/add-utc-demo",
+              "window": {
+                "id": "win-code-server-7f3a2b",
+                "host": "code-server",
+                "pid": 50211,
+                "pid_start": "Sun Sep 13 05:30:40 2026"
+              },
+              "confirm": {"holder_window_id": "win-desktop-1c9e4d", "holder_since": "2026-09-13T01:42:00Z"}
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "PROCESSES_NOT_CONFIRMED_GONE",
+                "message": "Something this run started is still running.",
+                "retryable": false,
+                "details": {
+                  "leftover": [{"pid": 48210, "start": "Sun Sep 13 05:41:07 2026", "comm": "npm"}]
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
         }
       ]
     },
@@ -922,6 +959,17 @@
         }
       ]
     }
+  ],
+  "decided_in_r4": [
+    "PROJECT_LOCKED on lock create carries takeover_allowed — true only for a clarvis_run holder that is gone, unresponsive, or alive and waiting on its owner — and attach_session_id only when a Codex session holds the project.",
+    "A takeover takes only the exact root it names: a workspace_root that isn't the lock's own root, a folder around or inside it included, is 422 CONFIRMATION_MISMATCH, and so is an unknown lock id. A window in a nested folder gets NESTED_PROJECT_LOCKED for its own folder and must open the locked folder to take that lock over.",
+    "When RAVIS serves takeover_allowed and the checkout holds no lock file, the taking window creates its own file first, then posts takeover. RAVIS never needs, writes or deletes a window's lock file.",
+    "A takeover revokes the old lease first, then stops the old window's running_command (its last heartbeat's, else its lock file's) with its group and descendants. If that can't be confirmed, the lock stays leftover with the old holder, nobody holds a lease, and the answer is 409 PROCESSES_NOT_CONFIRMED_GONE {leftover: [{pid, start, comm}]}; a later takeover tries again.",
+    "A transfer from a Codex session (its token) writes state transferring into RAVIS's checkout lock file once, then stops heartbeating it. The destination window deletes that file only while its heartbeat is unchanged, creates its own, then posts lock create with the transfer_token; RAVIS lets go of its descriptor and never writes that file again.",
+    "A transfer token that expires releases nothing: the lock stays transferring with its source. A window takes it back by heartbeating state running; a Codex session by starting a turn.",
+    "A retried create, takeover or transfer returns its first answer. Its lease or token is held in memory only; after a RAVIS restart the retry gets a new one, and the one lost with the first answer stops working.",
+    "adopt_file_lock — or any lock create whose checkout lock file names the caller, over a row a restart superseded — replaces RAVIS's row with the window's lock. The superseded Codex session then holds no lock, and a window holding the project may settle it (F-A9).",
+    "heartbeat, release and transfer with a lease that doesn't hold the lock get 409 LEASE_REVOKED {taken_over_by: the window that took it over, else the lock's current holder, else null}. Release answers 200 {lock: null}."
   ],
   "takeover_rules": [
     {"holder_verdict": "gone", "takeover": "allowed, no confirmation"},
