@@ -2,6 +2,35 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From RAVIS 0.26.1 (ecosystem, 14 September 2026) — the skills loop in the live stack
+- **Found live** after the restart onto `214addc`/`e434cf9`: `GET /api/v1/codex` stuck on `runtime_down` "Codex found a
+  change in its skills…", `ravis.codex.state_changed` about 3 a second, `.run/ravis.log` about 1.5 MB a minute.
+- **Measured by the lead** (throwaway app-server, `scratchpad/skills_notify_probe.py`): `skills/extraRoots/set` makes
+  Codex 0.154.0 send `skills/changed`; `skills/list` (either `forceReload`) and `skills/config/write` (change or not)
+  send nothing. 0.26.0's `CodexSkills._apply` named the folder every time, so each apply caused the next.
+- **Fixed at the root:** `CodexSkills` remembers the folder the running process was told and names it only when not;
+  `CodexService._process_ended` calls `CodexSkills.process_ended`, which forgets it and moves a process count, so an
+  answer landing after its process ended is never remembered. No debounce, no timer. The one `skills/changed`
+  answering the naming causes one more apply, which names nothing.
+- **And that answer doesn't hold tasks back** (`CodexSkills.own_change`, `CodexService._skills_changed`): with the fake
+  sending the notification, 12 agent-session tests and 5 calibration tests failed on `CODEX_NOT_READY` "switching
+  them to your choices" — the state flipped to checking for a moment after every start, and anything asked for
+  then was refused. RAVIS counts one expected `skills/changed` per naming, before sending (Codex may notify before it
+  answers), uncounts it if the call fails, and resets on process end; that one re-applies without `checking`. A
+  real change still holds tasks. Not a timer: if Codex ever sent two per naming, the second would hold tasks briefly.
+- **The fake Codex now sends `skills/changed` after `skills/extraRoots/set`** (`fake_codex_skills.py`). 0.26.0's
+  tests passed because it didn't; with it, the unfixed code never reaches `signed_in`.
+- **Tests and guard proof:** `test_naming_the_folder_makes_codex_say_its_skills_changed_and_ravis_settles` (settles
+  within a bounded wait, names the folder once per process, re-applies on a real change, never flips the state once
+  ready, publishes under 20 state changes) and `test_a_burst_of_skills_changed_ends_applied_after_a_bounded_number_of_applies`
+  (20 notifications: at most 10 lists and 10 state changes). RAVIS suite 1654 passed in a snapshot before the loop
+  test's assertion was corrected (it indexed `moves[-1]` with one move); the skills file then passed in a fresh snapshot.
+  `scratchpad/skills_loop_guard_proof.py`, after the loop test passed unbroken: removing the "already told" check fails
+  on "RAVIS never stopped applying Codex's skills"; not forgetting on process end fails on "told again"; letting the
+  own answer hold tasks back fails on the extra state change. 3 of 3 caught.
+- **Lesson for fakes:** a notification a request causes is part of that request's shape; probe for it before
+  writing the fake (the 0.26.0 probe listed and switched, but never watched for notifications).
+
 ## From skills, NERVIS's part (ecosystem, NERVIS 0.30.0, 14 September 2026) — the Codex card's Skills
 Built against RAVIS 0.26.0 (`214addc`), whose `SkillsView` and `POST /api/v1/codex/skills` it reads and forwards.
 - **Built — the route** (`nervis/src/nervis/api/routes.py`, `switch_codex_skill`): `POST /api/v1/ravis/codex/skills`

@@ -502,6 +502,11 @@ class CodexService:
         """
         if self._supervisor.state != "running":
             return
+        if self.skills.own_change():
+            # Codex answering RAVIS's own naming of the folder: nothing on disk changed, so tasks
+            # don't wait; one more apply confirms it and settles (RAVIS 0.26.1).
+            self._apply_skills_soon()
+            return
         if self._skills == SKILLS_APPLIED:
             self._skills, self._skills_detail = SKILLS_CHECKING, None
         self._apply_skills_soon()
@@ -529,6 +534,7 @@ class CodexService:
         self._process_generation += 1
         self._default_sites = SITES_PENDING
         self._skills, self._skills_detail = SKILLS_PENDING, None
+        self.skills.process_ended()
         if self._sign_in.waiting and not self._stopping:
             # Lost while RAVIS runs on: say so now, and no restart needs to report it later.
             self._sign_in.fail(f"Codex's process stopped during sign-in ({reason}); start again.")

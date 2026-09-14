@@ -30,13 +30,25 @@ where they are kept.
 
 **Applied each time Codex's process becomes ready, before any task** (`CodexService`), and again
 whenever Codex says its skills changed (`skills/changed`): the folder is made, with a short
-`README.md`, if it isn't there; `skills/extraRoots/set` names it (whether Codex keeps extra roots
-across its own restart is unmeasured, so it is sent at every start); `skills/list` reads every
-skill; and `skills/config/write` switches, by path, each one whose state isn't the owner's choice.
+`README.md`, if it isn't there; `skills/extraRoots/set` names it, **once per Codex process**;
+`skills/list` reads every skill; and `skills/config/write` switches, by path, each one whose state
+isn't the owner's choice.
 The list is read again until it agrees, at most `APPLY_ROUNDS` times. Until it agrees, or when
 anything fails, no task starts and `GET /api/v1/codex` says why: a personal skill is never silently
 on. **A task can never write into the folder**: `roots.py` refuses a task root that is, holds or
 lies inside it.
+
+**Why the folder is named once per process** (live, RAVIS 0.26.0, 14 September 2026). Measured on
+Codex 0.154.0: `skills/extraRoots/set` makes Codex send `skills/changed`, while `skills/list` and
+`skills/config/write` send nothing. 0.26.0 named the folder at every apply, so each apply caused
+the next: RAVIS stayed "switching skills" for good, no task started, and every round published a
+state change to NERVIS. Now RAVIS remembers that the running process was told, and the one
+`skills/changed` answering it causes one more apply, which names nothing and settles. **That
+answer doesn't hold tasks back** (`own_change`): nothing on disk changed, and while it flipped the
+state to "switching skills", a task asked for just after a start was refused. It is counted before
+the call is sent, since Codex may notify before it answers, and uncounted if the call fails. A
+process that ends is forgotten (`process_ended`); whether Codex keeps extra roots across its own
+restart is unmeasured, so a new process is told again.
 
 **What isn't measured.** That a skill switched off is really left out of the model's instructions
 in a turn (that needs a real turn, which spends allowance); and whether a change reaches a Codex
@@ -313,9 +325,28 @@ class CodexSkills:
         self._seconds = seconds
         self._lock: asyncio.Lock | None = None
         self._lock_loop: asyncio.AbstractEventLoop | None = None
+        #: The folder the running Codex process was named, and which process that is:
+        #: `process_ended` moves the count, so an answer after its process ended isn't remembered.
+        self._told: str | None = None
+        self._process = 0
+        #: How many `skills/changed` RAVIS's own naming of the folder has yet to cause: one each.
+        self._own_changes = 0
 
     def folder(self) -> Path:
         return codex_skills_folder(self._settings)
+
+    def process_ended(self) -> None:
+        """The Codex process ended: the next one hasn't been told the folder."""
+        self._told = None
+        self._own_changes = 0
+        self._process += 1
+
+    def own_change(self) -> bool:
+        """Whether a `skills/changed` is the one RAVIS's own naming caused; each is taken once."""
+        if self._own_changes <= 0:
+            return False
+        self._own_changes -= 1
+        return True
 
     def wanted(self, skill: Skill) -> bool:
         """On or off, as the owner chose, or as its source starts when they never switched it."""
@@ -392,6 +423,22 @@ class CodexSkills:
                                      timeout=self._seconds)
         return listed_skills(result, folder)
 
+    async def _name_folder(self, folder: Path) -> None:
+        """`skills/extraRoots/set`, once per Codex process: naming it makes Codex send
+        `skills/changed`, so naming it at every apply would make every apply cause the next."""
+        if self._told == str(folder):
+            return
+        process = self._process
+        self._own_changes += 1  # before sending: Codex may notify before it answers
+        try:
+            await self._request("skills/extraRoots/set", {"extraRoots": [str(folder)]},
+                                timeout=self._seconds)
+        except (CodexRpcError, CodexUnavailableError):
+            self._own_changes = max(0, self._own_changes - 1)
+            raise
+        if process == self._process:
+            self._told = str(folder)
+
     async def _apply(self) -> tuple[SkillsOutcome, list[Skill]]:
         """The folder made and named, then list and switch until the list agrees (lock held)."""
         folder = self.folder()
@@ -401,8 +448,7 @@ class CodexSkills:
             why = failure.strerror or type(failure).__name__
             return (SKILLS_FOLDER_NOT_MADE, f"the skills folder {folder} can't be made: {why}"), []
         try:
-            await self._request("skills/extraRoots/set", {"extraRoots": [str(folder)]},
-                                timeout=self._seconds)
+            await self._name_folder(folder)
             for _ in range(APPLY_ROUNDS):
                 skills = await self._list()
                 if skills is None:

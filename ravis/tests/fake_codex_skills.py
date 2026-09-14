@@ -8,8 +8,10 @@ sign-in, no turns), and acted out here in the stable v2 schema's shapes:
   `$CODEX_HOME/skills/.system` (`system`), under each extra root (`user` as well — so scope alone
   can't tell the NERVIS folder from the owner's own), and under the scenario's project folder
   (`repo`). Each is `enabled` unless a write switched it off.
-- **`skills/extraRoots/set {extraRoots}`** answers `{}`. The roots last as long as this process
-  only: whether Codex keeps them across a restart is unmeasured, so the fake assumes not.
+- **`skills/extraRoots/set {extraRoots}`** answers `{}`, **then sends `skills/changed`**, as Codex
+  0.154.0 does (measured live after RAVIS 0.26.0 looped on it); `skills/list` and
+  `skills/config/write` send nothing. The roots last as long as this process only: whether Codex
+  keeps them across a restart is unmeasured, so the fake assumes not.
 - **`skills/config/write {path | name, enabled}`** answers `{effectiveEnabled}`, and keeps the
   switch in a file in the Codex home, as Codex keeps it in `config.toml`, so it outlives a restart.
 
@@ -26,6 +28,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +66,8 @@ def _extra_roots(api: Any, params: dict[str, Any]) -> dict[str, Any] | str:
         return "Invalid request: extraRoots must be absolute paths"
     api.state["skill_roots"] = list(roots)
     api.log("skills_roots", roots=roots)
+    # Just after the answer, as Codex orders a notification its own request caused.
+    threading.Timer(0.01, api.notify, args=("skills/changed", {})).start()
     return {}
 
 

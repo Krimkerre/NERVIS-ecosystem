@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,19 @@ def writes(rig: Any, after: int = 0) -> list[tuple[str, bool]]:
             for record in rig.server.records("skills_written")[after:]]
 
 
+def settle(rig: Any, quiet: float = 1.0, seconds: float = 15.0) -> None:
+    """Wait until RAVIS has listed Codex's skills no more for `quiet` seconds; fail, rather than
+    wait for ever, when it never stops — the 0.26.0 loop."""
+    deadline = time.monotonic() + seconds
+    count, since = len(rig.server.records("skills_listed")), time.monotonic()
+    while time.monotonic() - since < quiet:
+        assert time.monotonic() < deadline, "RAVIS never stopped applying Codex's skills"
+        time.sleep(0.1)
+        now = len(rig.server.records("skills_listed"))
+        if now != count:
+            count, since = now, time.monotonic()
+
+
 def codex_state(relay: Any) -> dict[str, Any]:
     return relay.call("GET", "/api/v1/codex", caller="client.nervis").json()  # type: ignore[no-any-return]
 
@@ -130,6 +144,69 @@ def test_codex_starts_with_nervis_and_built_in_skills_on_and_personal_skills_off
     assert set(example) == set(view)
     assert all(set(skill) == set(view["skills"][0]) for skill in example["skills"])
     assert {skill["source"] for skill in example["skills"]} == {"nervis", "personal", "built_in"}
+
+
+def test_naming_the_folder_makes_codex_say_its_skills_changed_and_ravis_settles(
+    tmp_path: Path,
+) -> None:
+    """RAVIS 0.26.0 in the live stack: `skills/extraRoots/set` makes Codex send `skills/changed`,
+    and naming the folder at every apply kept RAVIS "switching skills" for good, publishing state
+    changes several times a second. The folder is named once per Codex process now: the one
+    notification answering it causes one more apply, which settles."""
+    rig = skills_rig(tmp_path)
+    home_skills = real(tmp_path) / "home" / ".agents" / "skills"
+    with serving(rig) as relay:
+        assert relay.ready()["state"] == "signed_in"
+        settle(rig)
+        assert codex_state(relay)["state"] == "signed_in"
+        assert len(rig.server.records("skills_roots")) == 1
+        # Codex's answer to RAVIS's own naming never held tasks back: once ready, the state stayed.
+        moves = rig.published("ravis.codex.state_changed")
+        ready = next(at for at, move in enumerate(moves) if move["to"] == "signed_in")
+        assert moves[ready + 1:] == [], moves
+        # A real change on disk still applies again, without naming the folder again.
+        foundry = skill_file(home_skills, "microsoft-foundry", "Deploy to Azure AI Foundry.")
+        rig.server.send("notify", method="skills/changed", params={})
+        eventually(lambda: (str(foundry), False) in writes(rig), 15, "the new skill switched off")
+        eventually(lambda: codex_state(relay)["state"] == "signed_in", 15, "tasks allowed again")
+        assert len(rig.server.records("skills_roots")) == 1
+        # A new Codex process is told again, once, and settles too.
+        rig.server.send("crash", status=3)
+        eventually(lambda: len(rig.server.records("skills_roots")) == 2, 15, "told again")
+        eventually(lambda: codex_state(relay)["state"] == "signed_in", 15, "Codex ready again")
+        settle(rig)
+        assert len(rig.server.records("skills_roots")) == 2
+        assert codex_state(relay)["state"] == "signed_in"
+    moves = rig.published("ravis.codex.state_changed")
+    assert len(moves) < 20, f"{len(moves)} state changes published"
+
+
+def test_a_burst_of_skills_changed_ends_applied_after_a_bounded_number_of_applies(
+    tmp_path: Path,
+) -> None:
+    """Codex's watcher can report many file changes at once. Notifications arriving while RAVIS
+    applies fold into one more apply, so a burst ends applied, and the state moves a bounded number
+    of times rather than once per notification."""
+    rig = skills_rig(tmp_path)
+    with serving(rig) as relay:
+        assert relay.ready()["state"] == "signed_in"
+        time.sleep(0.5)
+        lists = len(rig.server.records("skills_listed"))
+        moves = len(rig.published("ravis.codex.state_changed"))
+        for _ in range(20):
+            rig.server.send("notify", method="skills/changed", params={})
+        eventually(lambda: len(rig.server.records("skills_listed")) > lists, 15,
+                   "an apply after the burst")
+        eventually(lambda: codex_state(relay)["state"] == "signed_in", 15,
+                   "applied after the burst")
+        settle(rig)
+        assert codex_state(relay)["state"] == "signed_in"
+        applies = len(rig.server.records("skills_listed")) - lists
+        published = len(rig.published("ravis.codex.state_changed")) - moves
+    # One apply per notification would list about 20 times and move the state about 40 times.
+    assert 1 <= applies <= 10, f"{applies} lists for 20 notifications"
+    assert published <= 10, f"{published} state changes for 20 notifications"
+    assert len(rig.server.records("skills_roots")) == 1
 
 
 def test_a_skill_added_later_starts_off_when_personal_and_on_in_the_nervis_folder(

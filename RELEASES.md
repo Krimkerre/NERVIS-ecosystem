@@ -1234,7 +1234,23 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.26.0
+## RAVIS — 0.26.1
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Codex tasks start again after 0.26.0 got stuck "switching skills".** After the restart on
+  0.26.0, RAVIS said "Codex found a change in its skills, and RAVIS is switching them" and never
+  finished, so no Codex task could start. It also sent NERVIS a state change about three times a
+  second and filled its log. The cause: telling Codex where NERVIS's skills folder is makes Codex
+  say its skills changed, and RAVIS told it again every time it checked the skills, so each check
+  started the next. RAVIS now tells each Codex process once, checks once more when Codex answers,
+  and stops. A skill file you really change is still noticed, and a restarted Codex is told again.
+- **A task started just after RAVIS or Codex starts isn't turned away any more.** Codex's answer to
+  RAVIS telling it about the folder briefly made RAVIS say it was switching skills, and a task asked
+  for in that moment was refused. That answer no longer holds tasks back, because no skill changed.
+- Nothing else changed.
+
+### 0.26.0
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
