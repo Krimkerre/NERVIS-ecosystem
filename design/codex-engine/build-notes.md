@@ -2,6 +2,82 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From N2b and N1b (ecosystem, NERVIS 0.29.0, 14 September 2026) — the Codex card, the version routes and the menu bar's Codex line
+Built against RAVIS 0.25.1 (R5b), whose `runs[]` carry `model`, `effort` and `reopening` because NERVIS
+asked for them: every agent-session read refuses NERVIS.
+- **Built — NERVIS's routes** (`nervis/src/nervis/api/routes.py`): four control routes behind
+  `require_control`, each through `_codex_control` with NERVIS's RAVIS admin credential and `no-store`.
+  `POST /api/v1/ravis/codex/runs/{sid}/stop` → `owner-stop`: `sid` held to `as_[0-9A-Za-z]{10,40}` and
+  `Idempotency-Key` to `[A-Za-z0-9_-]{16,128}`, each else 400 without forwarding, in the contract's words;
+  the body built from the page's `project` and `turn_id` only, with `source: dashboard`; the page's key
+  forwarded. `DELETE /api/v1/ravis/codex/sites/{host}`: a host name's shape (labels of letters, digits and
+  inner hyphens, at most 253), else 400. `GET /api/v1/ravis/codex/version-check` and
+  `POST /api/v1/ravis/codex/accept-version`, waiting 210 s (`CODEX_VERSION_TIMEOUT_SECONDS`), since RAVIS
+  may run the checks then: three runs of the build at 30 s and two throwaway starts at 15 s a call.
+  `ravis_peer.configure` gained keyword-only `headers`; a key named `authorization` in any case raises
+  `ValueError` before anything is sent, and `_credential_call` writes the credential after them anyway.
+- **Built — the Codex card** (`nervis/index.html`: `codexCard`, `CODEX_CARD`) under RAVIS → Dashboard's
+  headline tiles. Tasks: every `run_states` word said in words, the wait, `model · effort` (a null is
+  Codex's default; a RAVIS that sends neither draws nothing), *reconnecting* with its hosts, editors, and
+  **Stop…**. Allowed sites: `API.ravis.codexSites()`, a plain fetch outside `live()`, so its 503 while
+  Codex isn't running never sets `OUTCOME.ravis` for the other RAVIS cards; **Remove** beside `added`
+  only; the defaults in a closed `<details>`. Version: the build's words, **Check this version** → each
+  check worded and what changed → **Use this version…**. The Overview's line counts the tasks, and
+  `codexOpenCard()` opens the screen and scrolls to the card. The tile and the Credentials card are
+  unchanged.
+- **Built — the launcher** (`tools/run.py`): `CODEX_RUN_FIELDS` gained `model`, `effort` and
+  `reopening` (cut to `{since}`: the menu prints no hosts); the block gained `signed_in` and
+  `runtime {version, verdict, strict_rules}`; all None when RAVIS couldn't be asked.
+- **Built — the menu** (`nervis/packaging/macos/NERVISMenu.swift`): `StackReport.Codex`, decoded with
+  `try?` so an entry the app can't read costs the Codex line only; `CodexLine` (words, tone, offers) and
+  `CodexWords` (dialogs and exit codes). The row opens `address` and is never red; a line per task
+  holds that task's submenu (Open the Codex card, model and effort, reconnecting, then **Stop this
+  task…** or why there is nothing to stop); the allowance per window; **Re-test the file rules…** for
+  `verdict: accepted` with unproven rules, and otherwise, for `untested`, **Accept Codex … on the Codex
+  card first…**; **Sign in to Codex…** / **Cancel the Codex sign-in**. Every completion goes through
+  `launcher.capture`, which hands back on the run loop, never `DispatchQueue.main`.
+- **Decided here:**
+  - Stop, Remove and Use this version take two clicks (the page's `armed` rule), not `confirm()`: the
+    lead agreed, since `codex_check.js` already failed any `confirm()` on the Codex card. The armed
+    button names the folder. The Idempotency-Key is kept per `id|turn|folder` for the page's life, so a
+    retry after a lost answer reuses it and another task or turn gets its own.
+  - Stop only beside `running` or `waiting_on_you` with an id, turn and folder (RAVIS's `_confirmed`
+    stops starting, running, waiting and stopping sessions, which it lists as those two). A task this
+    page stopped reads "stopping…" while RAVIS lists it working on that turn, then "stopped — open the
+    project in an editor to review it" when RAVIS lists it `completed_needs_review`.
+  - The version report is offered for `untested` and `accepted` builds, Use this version only for
+    `untested` with checks 1 to 6 passed, and a report is dropped once `installed_sha256` moves. The
+    card says before the button that accepting neither starts the re-test nor spends allowance
+    (`codex-admin.json`: acceptance records `unproven`; `reprove` is `owner_cli` only).
+  - The re-test in the menu is offered only for `accepted` builds: RAVIS's `_reproof_refusal` refuses
+    every other verdict, and the menu points an untested build to the card instead.
+  - The menu's Codex row opens the card, as the brief asks, so the task controls sit in each task
+    line's submenu rather than the row's (an item with a submenu can't also be clicked). It also carries
+    Sign in and Cancel the sign-in, from design §7.1's submenu.
+  - NERVIS forwards a site's name only in host-name shape, so no wildcard default can be sent; RAVIS
+    still words everything else about a host.
+- **Tests:** `nervis/tests/test_ravis_codex_card.py` (new: `owner-stop.json`'s `nervis_route` examples and
+  every owner Stop answer replayed; the key's and the id's shapes at both ends; source and
+  confirmation; `configure`'s headers; the route table and NERVIS's source scanned for agent-session and
+  project-lock routes; NERVIS's Codex routes equal to `nervis_control_routes`; sites; the version
+  routes' wait; `no-store`; no credential), `test_control_token.py` (the four routes) and
+  `test_launcher_codex.py` (the new fields, a RAVIS before 0.25.1, nothing past the listed fields
+  printed, `signed_in`). NERVIS has 1430 tests, the repository 3652. `nervis/tools/codex_check.js` gained
+  the card's cases, numbered 8 to 12 in its header, reading `codex-state.json` and `codex-admin.json`.
+- **Guard proof:** 61 of 61. 29 breaks of the page, each caught by `codex_check.js`; 19 of the routes and
+  6 of the launcher, each caught by pytest — the first run missed `signed_in` hard-coded true, so a test
+  with a signed-out reading was added, and the break was then caught; and 7 of the menu, each compiled
+  into the scratch folder and seen in its `--print-menu` output, since the Swift has no test suite.
+- **Unverified:** nothing ran against the live RAVIS or a real Codex (no stop, no removal, no version
+  check or acceptance). The menu app was compiled with `swiftc` into the scratch folder and its menu
+  printed from recorded status answers; it was not built into a bundle or opened, so its dialogs, the
+  run-loop completions and the six-minute re-test wait weren't exercised. The version check's real
+  duration against the 210 s wait is unmeasured, and the card wasn't looked at in a browser.
+- **For P (packaging):** reinstall NERVIS editable (its version changed) and restart the stack, so
+  NERVIS serves 0.29.0; `tools/run.py`'s changes take effect at once. Rebuild the menu app with
+  `nervis/packaging/macos/build_app.sh`, which also refreshes `/Applications/NERVIS.app`, then `kill -9`
+  the running app's PID and `open /Applications/NERVIS.app`; the stack stays up.
+
 ## From R5b (ecosystem, RAVIS 0.25.1, 14 September 2026) — a task's model, effort and reconnecting in `runs`
 NERVIS's task card couldn't show a Codex task's model, effort or reconnecting state: every
 agent-session read refuses NERVIS, and `nervis_control_routes.never` rules out new routes for it.
