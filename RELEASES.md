@@ -416,7 +416,41 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.19
+## NERVIS — 0.29.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **RAVIS → Dashboard has a Codex card.** It lists each Codex task RAVIS is running or holding: the
+  project folder, its state in words, how long it has waited, the model and effort it runs at, and
+  "reconnecting" while RAVIS reopens a task so a site you just allowed can be reached (the last three
+  need RAVIS 0.25.1).
+- **Stop… is the only thing the dashboard can do to a Codex task.** It sits beside a running or
+  waiting task and takes two clicks. It stops Codex's current step and its commands and keeps the
+  work in the project; it never approves, answers, steers or starts anything. If the task moved on
+  since the page read it, nothing is stopped and the card says the task changed. A retried click is
+  never acted on twice: the page sends RAVIS the same Idempotency-Key.
+- **The card lists the sites Codex may reach.** RAVIS's defaults are folded away and can't be
+  removed; each site you allowed in Clarvis has Remove, in two clicks. A removed site stops reaching
+  Codex conversations that start or reopen afterwards.
+- **A new Codex version can be accepted from the card.** When Homebrew installs a build RAVIS hasn't
+  tested, Check this version shows RAVIS's seven checks and what changed, and Use this version…
+  accepts it, in two clicks. Accepting doesn't start the file-rules re-test and spends none of your
+  plan's allowance; tasks stay paused until the re-test, which starts only from the menu bar.
+- **The Overview's Codex line counts the tasks** — "2 tasks · 1 waiting for your answer" — and opens
+  the card.
+- **The menu bar app has a Codex line** under the model runtimes, which opens the card: the state or
+  the task count, each task with its wait, and the allowance. Each task's submenu has Stop this
+  task…, behind a confirmation naming its folder; Re-test the file rules… appears for an accepted
+  build whose rules aren't proven, and says first that it uses one short Codex turn of your
+  allowance; Sign in to Codex… appears while Codex is signed out. The line is never red. The app in
+  /Applications shows it once it has been rebuilt.
+- Under the hood: four control routes (a task's Stop, removing a site, the version report and
+  accepting a version), each checking the page's control token and presenting NERVIS's RAVIS admin
+  key. A Stop's task id and Idempotency-Key and a site's name are checked before anything reaches
+  RAVIS. `tools/run.py status --json` carries each task's model, effort and reconnecting, whether an
+  account is signed in, and the Codex build's version and verdict.
+
+### 0.28.19
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

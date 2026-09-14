@@ -2104,10 +2104,16 @@ CODEX_CARD = f"{DASHBOARD}#/{SCREENS['RAVIS']}"
 CODEX_READ_TIMEOUT = 1.5
 #: What each task carries into `status --json`: its line in the menu, and the confirmation its Stop
 #: sends back (§3.5.5). A folder name only — RAVIS gives out no path, request text or command.
+#: Since RAVIS 0.25.1 also the model and effort the task runs at, and `reopening`: whether RAVIS is
+#: reopening the task's Codex conversation so a newly allowed site reaches it, cut to when it began.
 CODEX_RUN_FIELDS = (
     "id", "turn_id", "project", "state", "since", "age_minutes", "waiting_minutes",
-    "attached_windows",
+    "attached_windows", "model", "effort", "reopening",
 )
+#: What the menu needs of the Codex build RAVIS runs: which version, whether RAVIS tested it or the
+#: owner accepted it, and whether its file rules are proven — which decides whether the menu offers
+#: the file-rules re-test (RAVIS runs it only for an accepted build whose rules are unproven).
+CODEX_RUNTIME_FIELDS = ("version", "verdict", "strict_rules")
 #: What each allowance window carries: what is left of it, and when it resets.
 CODEX_WINDOW_FIELDS = ("label", "remaining_percent", "resets_at")
 CODEX_RAVIS_DOWN = "RAVIS is not answering, so Codex's state is not known."
@@ -2161,18 +2167,49 @@ def _codex_block(reading: dict[str, object]) -> dict[str, object]:
     dashboard's card reads RAVIS for itself.
     """
     usage = _mapping(reading.get("usage"))
+    account = _mapping(reading.get("account"))
     known = usage.get("known") is True
     return {
         "state": reading["state"],
         "reason": _text(reading.get("reason")),
-        "plan": _text(_mapping(reading.get("account")).get("plan")),
+        "plan": _text(account.get("plan")),
+        # Whether an account is signed in at all, so the menu offers Sign in only where RAVIS would
+        # start one: Codex paused for re-testing can be either.
+        "signed_in": account.get("signed_in") is True,
         "usage_known": known,
         "stale": usage.get("stale") is True,
         "windows": _picked(usage.get("windows"), CODEX_WINDOW_FIELDS) if known else [],
-        "runs": _picked(reading.get("runs"), CODEX_RUN_FIELDS),
+        "runs": _codex_runs(reading.get("runs")),
+        "runtime": _codex_runtime(reading.get("runtime")),
         "sign_in_waiting": _mapping(reading.get("sign_in")).get("state") == "waiting_for_browser",
         "address": CODEX_CARD,
     }
+
+
+def _codex_runs(rows: object) -> list[dict[str, object]] | None:
+    """Each task as the menu draws it (`CODEX_RUN_FIELDS`), with `reopening` cut to when it began.
+
+    The menu says only that Codex is reconnecting a task, so the sites being reopened for stay with
+    RAVIS and the dashboard, which reads RAVIS for itself. A RAVIS before 0.25.1 sends no model,
+    effort or reopening, and each is None here: never a guess.
+    """
+    runs = _picked(rows, CODEX_RUN_FIELDS)
+    for run in runs or []:
+        reopening = run["reopening"]
+        run["reopening"] = (
+            {"since": _text(reopening.get("since"))} if isinstance(reopening, dict) else None
+        )
+    return runs
+
+
+def _codex_runtime(runtime: object) -> dict[str, object] | None:
+    """The Codex build RAVIS runs, cut to `CODEX_RUNTIME_FIELDS`; None when RAVIS reported none.
+
+    No sha256, signature or schema: the menu names the version and decides on the two words.
+    """
+    if not isinstance(runtime, dict):
+        return None
+    return {field: _text(runtime.get(field)) for field in CODEX_RUNTIME_FIELDS}
 
 
 def _codex_unknown(reason: str) -> dict[str, object]:
@@ -2184,9 +2221,9 @@ def _codex_unknown(reason: str) -> dict[str, object]:
     state word is RAVIS's own.
     """
     return {
-        "state": "ravis_not_answering", "reason": reason, "plan": None, "usage_known": False,
-        "stale": None, "windows": [], "runs": None, "sign_in_waiting": None,
-        "address": CODEX_CARD,
+        "state": "ravis_not_answering", "reason": reason, "plan": None, "signed_in": None,
+        "usage_known": False, "stale": None, "windows": [], "runs": None, "runtime": None,
+        "sign_in_waiting": None, "address": CODEX_CARD,
     }
 
 

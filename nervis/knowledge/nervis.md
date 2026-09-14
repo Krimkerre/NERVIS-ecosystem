@@ -284,6 +284,20 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
+As of 14 September 2026 (NERVIS 0.29.0): RAVIS → Dashboard has a **Codex card** under the
+headline tiles. It lists each Codex task RAVIS is running or holding — the project folder, its
+state, how long it has waited, the model and effort it runs at, and "reconnecting" while RAVIS
+reopens a task so a site the owner just allowed can be reached — with **Stop…** beside a running or
+waiting task. Stop is the only thing the dashboard can do to a task: it takes two clicks, and it
+never approves, answers, steers or starts anything. The card also lists the websites Codex's commands
+may reach, with **Remove** beside the ones the owner allowed (RAVIS's defaults can't be removed),
+and, when Homebrew installs a Codex version RAVIS hasn't tested, **Check this version** and **Use
+this version…**, which accepts it without starting the file-rules re-test or spending any allowance.
+The Overview's Codex line now counts the tasks and opens the card. The menu bar app gained a Codex
+line under the model runtimes, with **Stop this task…** for each task, **Re-test the file rules…**
+for an accepted version whose rules aren't proven yet, and **Sign in to Codex…**; the copy of the
+app in /Applications shows it once it has been rebuilt.
+
 As of 13 September 2026: RAVIS → Credentials has a card for signing RAVIS's own
 Codex in to the ChatGPT plan. **Sign in with ChatGPT** opens OpenAI's page in a new
 tab; the card follows the sign-in by itself, then shows the account as a hint with

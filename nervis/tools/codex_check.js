@@ -23,6 +23,26 @@
  *   6. **Refusals are said plainly**: the ports held, a RAVIS too old to offer this.
  *   7. **Nothing RAVIS sends can inject markup**, the sign-in address included, which
  *      lands in an href.
+ *
+ * And the Codex card on RAVIS → Dashboard (N2b, 14 September 2026):
+ *
+ *   8. **Every task RAVIS lists is said in words** — each state in RAVIS's own list, how long
+ *      it has waited, its model and effort when RAVIS gives them and nothing when it doesn't,
+ *      and "reconnecting" only while RAVIS reopens it; every Codex state word too.
+ *   9. **Stop is the only task control.** Stop… sits only beside a task RAVIS would stop, takes
+ *      two clicks and never `confirm()`, and sends one POST to NERVIS's Stop route with the
+ *      control header, the folder and turn its row showed, and the page's Idempotency-Key —
+ *      the same key when the click is retried, another for another task. No button reads
+ *      Approve, Allow, Answer, Steer, Re-test, Start, Continue or Settle, and no request reaches
+ *      an agent-session, project-lock, re-test or calibration route, or allows a site.
+ *  10. **Every refusal and every missing answer is said plainly**, and a refused Stop reads the
+ *      tasks again.
+ *  11. **Remove sits beside the sites the owner added and never beside a default**, which stay
+ *      folded away; it takes two clicks and redraws from RAVIS's answer. A new Codex build's
+ *      report comes from NERVIS's control route, says each check and what changed, and says
+ *      before Use this version that accepting neither starts the re-test nor spends allowance.
+ *  12. **Nothing RAVIS sends can inject markup** into the card, nor break out of a quoted
+ *      handler argument; and the Overview's line counts the tasks and opens the card.
  */
 
 const { loadPage } = require("./page_context.js");
@@ -65,21 +85,30 @@ function answer(status, body) {
 }
 
 /* A recorded RAVIS behind NERVIS. `ravis.state` is what the relayed `GET /api/v1/codex`
-   answers; `ravis.control["POST /sign-in"]` and its siblings answer NERVIS's control
-   routes. Every Codex call is logged, with how many tabs were open when it was sent. */
-function world({ state, codexStatus = 200, control = {}, reads = {} }) {
-  const ravis = { state, codexStatus, control };
+   answers; `ravis.sites`, when given, answers the relayed `GET /api/v1/codex/sites`;
+   `ravis.control["POST /sign-in"]` and its siblings answer NERVIS's control routes. Every
+   Codex control call is logged in `sent`, with how many tabs were open when it was sent,
+   and every request of any kind in `requests`, so a request the card must never make is
+   seen wherever it was aimed. */
+function world({ state, codexStatus = 200, control = {}, reads = {}, sites = null }) {
+  const ravis = { state, codexStatus, control, sites, codexReads: 0 };
   const sent = [];
+  const requests = [];
   const tabs = [];
   const fetchImpl = (url, init = {}) => {
     const address = String(url);
     const method = (init.method || "GET").toUpperCase();
+    requests.push({ address, method });
     if (address.endsWith("/api/v1/relay/ravis/api/v1/providers/credentials")) {
       return answer(200, { items: [KEY_ROW] });
     }
     const read = Object.keys(reads).find((path) => address.includes(path));
     if (read) return answer(200, reads[read]);
+    if (address.endsWith("/api/v1/relay/ravis/api/v1/codex/sites")) {
+      return ravis.sites ? ravis.sites() : answer(200, { defaults: DEFAULT_SITES, added: [] });
+    }
     if (address.endsWith("/api/v1/relay/ravis/api/v1/codex")) {
+      ravis.codexReads += 1;
       if (ravis.codexStatus === 0) return Promise.reject(new TypeError("fetch failed"));
       return answer(ravis.codexStatus, ravis.state);
     }
@@ -105,7 +134,7 @@ function world({ state, codexStatus = 200, control = {}, reads = {} }) {
     failures.push("the Codex card called confirm(), which a browser can mute for good.");
     return true;
   };
-  return { ...loaded, ravis, sent, tabs };
+  return { ...loaded, ravis, sent, requests, tabs };
 }
 
 const run = (page, code) => vm.runInContext(code, page.context);
@@ -598,6 +627,542 @@ async function codexSitsBesideTheClarvisPools() {
   if (/<vxs|"\s*vxatr=/.test(poisoned)) failures.push("RAVIS's text broke out of the Pools screen's Codex row.");
 }
 
+/* 10 — the Codex card on RAVIS → Dashboard (N2b, 14 September 2026): each task RAVIS lists with
+   its state, waiting time, model and effort, and "reconnecting"; Stop, the only task control, in
+   two clicks, carrying the confirmation and the page's own Idempotency-Key; the allowed sites, with
+   Remove beside the owner's only; and a new build's report with Use this version, in two clicks. */
+const { readFileSync } = require("node:fs");
+const { join } = require("node:path");
+/* RAVIS's contract, read rather than copied, so a state or check RAVIS adds reaches this gate. */
+const RELAY_CONTRACT = join(__dirname, "..", "..", "ravis", "tests", "fixtures", "relay-contract");
+const STATE_CONTRACT = JSON.parse(readFileSync(join(RELAY_CONTRACT, "codex-state.json"), "utf8"));
+const ADMIN_CONTRACT = JSON.parse(readFileSync(join(RELAY_CONTRACT, "codex-admin.json"), "utf8"));
+const VERSION_REPORT = ADMIN_CONTRACT.routes
+  .find((route) => route.method === "GET" && route.path === "/api/v1/codex/version-check")
+  .examples[0].response.body;
+const SID_A = "as_01J9ZK4T6Q8M2V7R3N5B1C0D";
+const SID_B = "as_01J9ZK7W1X2Y3Z4A5B6C7D8E";
+const TURN_A = "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41";
+const TURN_B = "019a1c30-2e3f-7d4c-b5a6-7f8e9d0c1b23";
+const KEY_SHAPE = /^[A-Za-z0-9_-]{16,128}$/;
+const DEFAULT_SITES = ["registry.npmjs.org", "pypi.org", "*.crates.io", "github.com"];
+const SHA_NEW = VERSION_REPORT.version_check.sha256;
+/* Each task state RAVIS lists, with the words the card must say for it: written out, and held
+   against RAVIS's own list, so a state RAVIS adds fails here until the card words it. */
+const RUN_WORDS = {
+  running: "running", waiting_on_you: "waiting for your answer",
+  paused_unanswered: "paused — waited 30 min", paused_for_update: "paused — Codex updated",
+  completed_needs_review: "finished — needs review", uncertain: "uncertain",
+  leftover: "processes left over", clarvis_engine: "Clarvis's own engine",
+};
+
+const refusal = (code, message, details = {}) =>
+  ({ error: { code, message, retryable: false, details } });
+const task = (extra = {}) => ({
+  id: SID_A, turn_id: TURN_A, project: "add-utc-demo", state: "running", since: later(-42 * 60),
+  age_minutes: 42, waiting_minutes: null, attached_windows: 1, paused_reason: null,
+  model: "gpt-6-astra", effort: "medium", reopening: null, ...extra,
+});
+const busy = (runs, extra = {}) => codex("signed_in", "Codex is signed in with a ChatGPT Plus plan.",
+  { account: ACCOUNT, usage: knownUsage(62, 80), runs, ...extra });
+const NEW_BUILD = { source: "homebrew", version: "0.155.0", installed_sha256: SHA_NEW,
+                    running_sha256: SHA_NEW, verdict: "untested", strict_rules: "unproven" };
+const untested = (runtime = {}, extra = {}) => codex("untested_version",
+  "Codex changed (now 0.155.0) and needs re-testing before new work.",
+  { account: ACCOUNT, usage: knownUsage(62, 80), runtime: { ...NEW_BUILD, ...runtime }, ...extra });
+const failing = () => Promise.reject(new TypeError("fetch failed"));
+const answering = (status, body) => (status ? answer(status, body) : failing());
+
+/* The words a person reads: the page escapes ' and " as it writes them. The injection checks read
+   the markup itself, never this. */
+const readable = (html) => html.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+const words = (label, html, present, absent = []) => expect(label, readable(html), present, absent);
+const buttons = (html) =>
+  [...html.matchAll(/<button\b[^>]*>([^<]*)<\/button>/g)].map((found) => readable(found[1]).trim());
+const calls = (page, route) => page.sent.filter((call) => call.route === route);
+const stopOf = (id) => `CODEX_CARD.stop(${JSON.stringify(id)})`;
+const removeOf = (host) => `CODEX_CARD.remove(${JSON.stringify(host)})`;
+
+async function drawCard(state, { control = {}, sites = null, codexStatus = 200, random = true } = {}) {
+  const page = world({ state, codexStatus, control, sites,
+                       reads: { "/api/v1/relay/ravis/api/v1/usage": USAGE_READ } });
+  // The browser's random source, which the harness doesn't carry; left out, the page's fallback runs.
+  if (random) page.context.crypto = require("node:crypto").webcrypto;
+  await quiet();
+  page.exported.state.app = "ravis";
+  page.exported.state.view = "Dashboard";
+  await run(page, "ravis()");
+  return page;
+}
+
+/* The card's inner slot: cut out of the screen on the first draw, and the slot's own markup once a
+   click has redrawn it (the harness doesn't parse markup, as `slotOf` above explains). */
+function cardOf(page) {
+  const slot = page.elements.get("codex-card-body");
+  if (slot && slot.innerHTML) return slot.innerHTML;
+  const content = page.elements.get("sel:#content");
+  const html = content ? content.innerHTML : "";
+  const start = html.indexOf('<div id="codex-card-body">');
+  if (start < 0) return "";
+  const end = html.indexOf('<div class="card ', start);
+  return html.slice(start, end < 0 ? html.length : end);
+}
+
+async function everyCodexStateIsWorded() {
+  const page = world({ state: busy([]) });
+  await quiet();
+  for (const { state } of STATE_CONTRACT.states) {
+    const chip = readable(run(page, `codexStateChip(${JSON.stringify(state)})`));
+    if (state.includes("_") && chip.includes(state)) failures.push(`Codex's state ${state} is drawn as its raw word.`);
+  }
+  for (const word of STATE_CONTRACT.run_states) {
+    const shown = { id: SID_A, turn_id: TURN_A, state: word };
+    const chip = readable(run(page, `codexTaskStateChip(${JSON.stringify(shown)})`));
+    if (!Object.hasOwn(RUN_WORDS, word)) failures.push(`RAVIS lists a task state this gate doesn't word: ${word}.`);
+    else if (!chip.includes(RUN_WORDS[word]) || (word.includes("_") && chip.includes(word))) {
+      failures.push(`a ${word} task is not said in words: ${chip}.`);
+    }
+  }
+}
+
+async function theTaskListSaysEveryTask() {
+  for (const word of Object.keys(RUN_WORDS)) {
+    const engine = word === "clarvis_engine";
+    const listed = task(engine ? { state: word, id: null, turn_id: null, model: null, effort: null }
+                               : { state: word });
+    const html = cardOf(await drawCard(busy([listed])));
+    words(`a ${word} task`, html, ["add-utc-demo", RUN_WORDS[word]], word.includes("_") ? [word] : []);
+    const stops = buttons(html).filter((label) => label === "Stop…").length;
+    const offered = word === "running" || word === "waiting_on_you" ? 1 : 0;
+    if (stops !== offered) failures.push(`a ${word} task draws ${stops} Stop… buttons, not ${offered}.`);
+  }
+
+  const reopening = { group_id: "sg_01J9ZKE8F9G0H1J2K3L4M5N6P7", hosts: ["download.pytorch.org"],
+                      since: later(-60) };
+  const rich = cardOf(await drawCard(busy([
+    task({ state: "waiting_on_you", waiting_minutes: 12, attached_windows: 0 }),
+    task({ id: SID_B, turn_id: TURN_B, project: "weather-cli", effort: null, age_minutes: 14,
+           attached_windows: 2, reopening }),
+  ])));
+  words("the task list", rich, ["waiting 12 min", "no editor open", "gpt-6-astra · medium effort",
+    "gpt-6-astra · default effort", "started 14 min ago", "2 editors open", "reconnecting",
+    "download.pytorch.org", "Answer a Codex task in Clarvis"]);
+  if ((rich.match(/>reconnecting</g) || []).length !== 1) {
+    failures.push("the task list says reconnecting beside a task RAVIS isn't reopening, or beside none.");
+  }
+
+  const older = task();
+  for (const field of ["model", "effort", "reopening"]) delete older[field];
+  words("a task from a RAVIS before 0.25.1", cardOf(await drawCard(busy([older]))),
+    ["add-utc-demo", "running"], ["medium effort", "default effort", "default model", "reconnecting",
+                                  "undefined", "null"]);
+  words("no tasks", cardOf(await drawCard(busy([]))), ["No Codex task is running or waiting."], ["Stop…"]);
+  words("a RAVIS that listed no tasks", cardOf(await drawCard(busy(null))),
+    ["didn't list Codex's tasks"], ["Stop…"]);
+  for (const [label, status, reason] of [["a RAVIS from before Codex", 404, "report Codex"],
+                                         ["RAVIS not answering", 0, "did not answer"]]) {
+    const html = cardOf(await drawCard(busy([task()]), { codexStatus: status }));
+    if (!html) failures.push(`the Codex card, ${label}: not drawn; it should say why it has nothing.`);
+    words(`the Codex card, ${label}`, html, [reason], ["add-utc-demo", "Stop…", "allowed sites"]);
+  }
+}
+
+async function stopIsTheOnlyTaskControl() {
+  const view = { defaults: DEFAULT_SITES, added: ["download.pytorch.org"] };
+  const runs = Object.keys(RUN_WORDS).map((word, at) => task({
+    state: word, project: `project-${at}`,
+    id: word === "clarvis_engine" ? null : `as_01J9ZK4T6Q8M2V7R3N5B1C${String(at).padStart(2, "0")}`,
+  }));
+  const first = runs[0].id;
+  const page = await drawCard(untested({}, { runs }), {
+    sites: () => answer(200, view),
+    control: {
+      [`POST /runs/${first}/stop`]: () => answer(202, { state: "stopping" }),
+      "DELETE /sites/download.pytorch.org": () => answer(200, { ...view, added: [] }),
+      "GET /version-check": () => answer(200, VERSION_REPORT),
+      "POST /accept-version": () => answer(200, untested({ verdict: "accepted" }, { runs })),
+    },
+  });
+  const labels = new Set();
+  const called = new Set();
+  const look = () => {
+    const html = cardOf(page);
+    buttons(html).forEach((label) => labels.add(label));
+    for (const handler of html.matchAll(/\bon[a-z]+="([^"]*)"/g)) {
+      for (const name of handler[1].matchAll(/([A-Za-z_$][\w$.]*)\s*\(/g)) called.add(name[1]);
+    }
+  };
+  look();
+  await run(page, "CODEX_CARD.check()");
+  look();
+  const clicks = [stopOf(first), removeOf("download.pytorch.org"), "CODEX_CARD.accept()"];
+  for (const click of clicks) {
+    await run(page, click); // the first click arms, and says what the second would do
+    look();
+    await run(page, "CODEX_CARD.disarm()");
+  }
+  for (const click of clicks) {
+    await run(page, click);
+    await run(page, click); // and the second sends it
+    look();
+  }
+
+  const allowed = /^(Stop…|Remove|Check this version|Use this version…|Keep it running|Keep it|Not now|Click again to (stop the task in|remove|accept Codex) .+)$/;
+  for (const label of labels) {
+    if (!allowed.test(label)) failures.push(`the Codex card draws a button it has no business drawing: ${JSON.stringify(label)}.`);
+    if (/\b(approve|allow|answer|steer|re-?test|start|continue|carry on|settle|run)\b/i.test(label)) {
+      failures.push(`the Codex card offers a task control beside Stop: ${JSON.stringify(label)}.`);
+    }
+  }
+  for (const needed of ["Stop…", "Remove", "Check this version", "Use this version…"]) {
+    if (!labels.has(needed)) failures.push(`the task-control check never saw ${needed}, so it proved nothing about it.`);
+  }
+  const own = ["CODEX_CARD.stop", "CODEX_CARD.remove", "CODEX_CARD.disarm", "CODEX_CARD.check", "CODEX_CARD.accept"];
+  for (const name of called) {
+    if (!own.includes(name)) failures.push(`a control on the Codex card calls ${name}, which isn't one of the card's own.`);
+  }
+  for (const request of page.requests) {
+    if (/agent-sessions|project-locks|reprove|calibration/.test(request.address)) {
+      failures.push(`the Codex card sent ${request.method} ${request.address}, a route NERVIS never reaches.`);
+    }
+    if (request.method !== "GET" && request.address.includes("/relay/")) {
+      failures.push(`the Codex card wrote through the read-only relay: ${request.method} ${request.address}.`);
+    }
+    if (request.method === "POST" && request.address.includes("/codex/sites")) {
+      failures.push("the Codex card tried to allow a site; only the owner's click in Clarvis adds one.");
+    }
+  }
+  const tasks = page.sent.filter((call) => /^POST \/runs\//.test(call.route || ""));
+  if (tasks.length !== 1 || tasks[0].route !== `POST /runs/${first}/stop`) {
+    failures.push(`the Codex card's task requests were ${JSON.stringify(tasks.map((call) => call.route))}, not the one Stop.`);
+  }
+}
+
+async function stopSendsTheConfirmationAndThePagesOwnKey() {
+  let tries = 0;
+  const runs = [task({ state: "waiting_on_you", waiting_minutes: 12 }),
+                task({ id: SID_B, turn_id: TURN_B, project: "weather-cli" })];
+  const page = await drawCard(busy(runs), { control: {
+    [`POST /runs/${SID_A}/stop`]: () => (++tries === 1
+      ? answer(502, { message: "RAVIS did not answer: ConnectTimeout" })
+      : answer(202, { state: "stopping" })),
+    [`POST /runs/${SID_B}/stop`]: () => answer(202, { state: "stopping" }),
+  } });
+
+  await run(page, stopOf(SID_A));
+  if (calls(page, `POST /runs/${SID_A}/stop`).length) failures.push("one click on Stop… sent the stop; it takes two.");
+  words("Stop, armed", cardOf(page), ["Click again to stop the task in add-utc-demo", "Keep it running"]);
+  await run(page, stopOf(SID_A));
+  const [sentOnce] = calls(page, `POST /runs/${SID_A}/stop`);
+  if (!sentOnce) {
+    failures.push("the second click on Stop sent nothing to NERVIS's Stop route.");
+    return;
+  }
+  const key = sentOnce.headers["Idempotency-Key"];
+  if (!("x-nervis-control" in sentOnce.headers)) failures.push("the Stop carried no control header, so NERVIS refuses it.");
+  if (!KEY_SHAPE.test(key || "")) failures.push(`the Stop's Idempotency-Key ${JSON.stringify(key)} isn't 16 to 128 letters, digits, - or _.`);
+  if (JSON.stringify(sentOnce.body) !== JSON.stringify({ project: "add-utc-demo", turn_id: TURN_A })) {
+    failures.push(`the Stop sent ${JSON.stringify(sentOnce.body)}, not the folder and turn its row showed.`);
+  }
+  words("a Stop RAVIS didn't answer", cardOf(page), ["didn't answer", "Click Stop again"], ["stopping…"]);
+
+  await run(page, stopOf(SID_A));
+  await run(page, stopOf(SID_A));
+  const retried = calls(page, `POST /runs/${SID_A}/stop`);
+  if (retried.length !== 2 || retried[1].headers["Idempotency-Key"] !== key) {
+    failures.push("a retried Stop didn't reuse the page's Idempotency-Key, so RAVIS could act on it twice.");
+  }
+  const stopped = cardOf(page);
+  words("a Stop RAVIS accepted", stopped, ["stopping…", "Stopping Codex's task in add-utc-demo"]);
+  if (stopped.includes(`CODEX_CARD.stop('${SID_A}')`)) failures.push("a task already stopping still offers Stop.");
+
+  await run(page, stopOf(SID_B));
+  await run(page, stopOf(SID_B));
+  const [other] = calls(page, `POST /runs/${SID_B}/stop`);
+  if (!other || other.headers["Idempotency-Key"] === key) failures.push("another task's Stop reused the first task's Idempotency-Key.");
+
+  page.ravis.state = busy([task({ state: "completed_needs_review" }), runs[1]]);
+  await run(page, "CODEX_CARD.redraw()");
+  words("a task stopped from this page", cardOf(page), ["stopped — open the project in an editor"]);
+  for (const id of [SID_A, "as_01J9ZK0000000000UNKNOWN0"]) {
+    await run(page, stopOf(id));
+    await run(page, stopOf(id));
+  }
+  if (calls(page, `POST /runs/${SID_A}/stop`).length !== 2 || page.sent.some((call) => call.route.includes("UNKNOWN"))) {
+    failures.push("Stop was sent for a task that is no longer running, or one the card never showed.");
+  }
+
+  const plain = await drawCard(busy(runs), { random: false,
+    control: { [`POST /runs/${SID_A}/stop`]: () => answer(202, { state: "stopping" }) } });
+  await run(plain, stopOf(SID_A));
+  await run(plain, stopOf(SID_A));
+  const [fallback] = calls(plain, `POST /runs/${SID_A}/stop`);
+  if (!fallback || !KEY_SHAPE.test(fallback.headers["Idempotency-Key"] || "")) {
+    failures.push("without the browser's random source, Stop sent no usable Idempotency-Key.");
+  }
+}
+
+async function everyStopRefusalIsSaid() {
+  const cases = [
+    ["the task changed", 409, refusal("CONFIRMATION_MISMATCH", "That task changed; refresh and try again."),
+     ["The task changed", "The list is fresh now"]],
+    ["nothing running", 409, refusal("NOTHING_RUNNING", "That task isn't running."), ["isn't running any more"]],
+    ["an unknown task", 404, refusal("AGENT_SESSION_NOT_FOUND", "No such agent session."), ["no longer has that task"]],
+    ["RAVIS refusing NERVIS's key", 403, refusal("OWNER_STOP_NOT_ALLOWED", "Only the owner's menu bar or the dashboard may stop a task this way; editors use interrupt."),
+     ["admin key"]],
+    ["too many stops", 429, refusal("RATE_LIMITED", "Too many stop requests; try again shortly."), ["too many stop requests"]],
+    ["NERVIS holding no admin key", 403, { message: "NERVIS holds no admin credential for RAVIS, so it cannot change its configuration." },
+     ["admin key", "NERVIS holds no admin credential"]],
+    ["NERVIS refusing the key", 400, { message: "The Stop request needs an Idempotency-Key of 16 to 128 letters, digits, - or _." },
+     ["Idempotency-Key of 16 to 128"]],
+    ["a NERVIS restarted since the page loaded", 403, refusal("CONTROL_TOKEN_REQUIRED", "changing RAVIS's configuration through NERVIS needs the dashboard's control token"),
+     ["Reload the page"]],
+    ["a NERVIS from before Stop", 404, { detail: "Not Found" }, ["NERVIS 0.29.0"]],
+    ["RAVIS not answering NERVIS", 502, { message: "RAVIS did not answer: ConnectError" }, ["didn't answer", "Click Stop again"]],
+    ["NERVIS not answering", 0, null, ["NERVIS didn't answer"]],
+  ];
+  for (const [label, status, body, expected] of cases) {
+    const page = await drawCard(busy([task()]), {
+      control: { [`POST /runs/${SID_A}/stop`]: () => answering(status, body) } });
+    const reads = page.ravis.codexReads;
+    await run(page, stopOf(SID_A));
+    await run(page, stopOf(SID_A));
+    words(`a Stop refused: ${label}`, cardOf(page), expected, ["stopping…"]);
+    if (page.ravis.codexReads === reads) failures.push(`a Stop refused (${label}) didn't read the tasks again.`);
+  }
+}
+
+async function theAllowedSitesOfferRemoveOnlyForTheOwners() {
+  let view = { defaults: DEFAULT_SITES, added: ["download.pytorch.org", "huggingface.co", "weird/host.example"] };
+  const page = await drawCard(busy([]), { sites: () => answer(200, view), control: {
+    "DELETE /sites/huggingface.co": () => {
+      view = { ...view, added: view.added.filter((host) => host !== "huggingface.co") };
+      return answer(200, view);
+    },
+    "DELETE /sites/weird%2Fhost.example": () => answer(400, { message: "'weird/host.example' is not a site name NERVIS will forward to RAVIS" }),
+  } });
+  const html = cardOf(page);
+  words("the allowed sites", html, ["RAVIS's 4 default sites, and 3 sites you added", "download.pytorch.org",
+    "huggingface.co", "never removed here", "stops reaching Codex conversations that start or reopen"]);
+  const folded = html.match(/<details\b[^>]*id="codex-default-sites"[^>]*>/);
+  if (!folded || /\sopen\b/.test(folded[0])) failures.push("the default sites aren't folded away under their own heading.");
+  for (const host of DEFAULT_SITES) {
+    if (html.includes(`CODEX_CARD.remove('${host}')`)) failures.push(`a default site, ${host}, has Remove.`);
+    if (!html.slice(html.indexOf('id="codex-default-sites"')).includes(host)) failures.push(`a default site, ${host}, isn't listed.`);
+  }
+  for (const host of view.added) {
+    if (!html.includes(`CODEX_CARD.remove('${host}')">Remove</button>`)) failures.push(`a site you added, ${host}, has no Remove.`);
+  }
+
+  for (const host of ["pypi.org", "*.crates.io", "not-listed.example"]) {
+    await run(page, removeOf(host));
+    await run(page, removeOf(host));
+  }
+  if (page.sent.some((call) => (call.route || "").startsWith("DELETE"))) {
+    failures.push("Remove sent RAVIS a site that isn't one you added.");
+  }
+  await run(page, removeOf("huggingface.co"));
+  if (calls(page, "DELETE /sites/huggingface.co").length) failures.push("one click on Remove removed the site; it takes two.");
+  words("Remove, armed", cardOf(page), ["Click again to remove huggingface.co", "Keep it"]);
+  await run(page, removeOf("huggingface.co"));
+  const [removal] = calls(page, "DELETE /sites/huggingface.co");
+  if (!removal || !("x-nervis-control" in removal.headers) || removal.body !== null) {
+    failures.push("the second click on Remove didn't send DELETE to NERVIS's site route with the control header and no body.");
+  }
+  words("after Remove", cardOf(page), ["huggingface.co removed", "2 sites you added"], ["CODEX_CARD.remove('huggingface.co')"]);
+  await run(page, removeOf("weird/host.example"));
+  await run(page, removeOf("weird/host.example"));
+  if (!calls(page, "DELETE /sites/weird%2Fhost.example").length) failures.push("a site's name wasn't encoded into NERVIS's address.");
+  words("a site name NERVIS won't forward", cardOf(page), ["is not a site name NERVIS will forward"]);
+
+  const refusals = [
+    ["a default site", 409, refusal("SITE_NOT_REMOVED", "That is one of RAVIS's default sites, so it stays allowed.",
+      { host: "huggingface.co", reason: "default_site" }), ["one of RAVIS's default sites"]],
+    ["Codex not taking it", 409, refusal("SITE_NOT_REMOVED", "Codex didn't remove that site, so it stays allowed.",
+      { host: "huggingface.co", reason: "overridden" }), ["stays allowed", "try again in a moment"]],
+    ["a name RAVIS won't take", 422, refusal("SITES_REFUSED", "huggingface.co can't be removed as a site.",
+      { refused: [{ host: "huggingface.co", reason: "not_a_host_name" }] }), ["doesn't take huggingface.co as a site name"]],
+    ["RAVIS refusing NERVIS's key", 403, refusal("FORBIDDEN", "An admin credential is required."), ["admin key"]],
+    ["NERVIS not answering", 0, null, ["NERVIS didn't answer"]],
+  ];
+  for (const [label, status, body, expected] of refusals) {
+    const refused = await drawCard(busy([]), {
+      sites: () => answer(200, { defaults: DEFAULT_SITES, added: ["huggingface.co"] }),
+      control: { "DELETE /sites/huggingface.co": () => answering(status, body) } });
+    await run(refused, removeOf("huggingface.co"));
+    await run(refused, removeOf("huggingface.co"));
+    words(`Remove refused: ${label}`, cardOf(refused), expected, ["huggingface.co removed"]);
+  }
+
+  const unread = [
+    ["Codex not running", () => answer(503, refusal("CODEX_RUNTIME_UNAVAILABLE", "Codex isn't running, so the sites it allows can't be read; try again in a moment.")),
+     ["Codex isn't running, so the sites it allows can't be read"]],
+    ["a RAVIS from before the sites", () => answer(404, { detail: "Not Found" }), ["RAVIS 0.25.0 does"]],
+    ["RAVIS refusing the read", () => answer(403, refusal("FORBIDDEN", "A Clarvis, NERVIS or admin credential is required.")), ["refused NERVIS's read"]],
+    ["RAVIS not answering", failing, ["didn't answer the read of the sites"]],
+  ];
+  for (const [label, sites, expected] of unread) {
+    const page = await drawCard(busy([task()]), { sites });
+    words(`the allowed sites, ${label}`, cardOf(page), expected, [">Remove<"]);
+    const screen = page.elements.get("sel:#content").innerHTML;
+    if (!screen.includes("62% left") || !cardOf(page).includes("add-utc-demo")) {
+      failures.push(`the allowed sites, ${label}: a failed read of the sites took the rest of RAVIS's cards down with it.`);
+    }
+  }
+}
+
+async function aNewBuildIsReportedAndAcceptedInTwoClicks() {
+  const page = await drawCard(untested(), { control: {
+    "GET /version-check": () => answer(200, VERSION_REPORT),
+    "POST /accept-version": () => {
+      page.ravis.state = untested({ verdict: "accepted" });
+      return answer(200, page.ravis.state);
+    },
+  } });
+  words("a build RAVIS hasn't tested", cardOf(page), ["Codex 0.155.0 (Homebrew)", "a build RAVIS has not tested",
+    "file rules not yet re-tested", "new tasks are paused"], ["Use this version", "version report"]);
+  if (!buttons(cardOf(page)).includes("Check this version")) failures.push("a build RAVIS hasn't tested has no Check this version.");
+
+  await run(page, "CODEX_CARD.check()");
+  const [asked] = calls(page, "GET /version-check");
+  if (!asked || !("x-nervis-control" in asked.headers)) failures.push("Check this version didn't ask NERVIS's version route with the control header.");
+  if (page.requests.some((request) => request.address.includes("/relay/ravis/api/v1/codex/version-check"))) {
+    failures.push("the version report was read through the relay, which carries no admin credential.");
+  }
+  const report = cardOf(page);
+  words("the version report", report, [
+    "signed by OpenAI's team", "the file checked is the one installed", "its version reads correctly",
+    "Codex's protocol descriptions generate", "every call RAVIS makes to Codex is still there",
+    "it starts and answers in a throwaway home", "the file rules still load the same way",
+    "AdditionalPermissionProfile changed", "1 of 7 checks didn't pass",
+    "the part of Codex the file rules depend on changed", "ThreadItem", "14 other definitions changed",
+    "doesn't start that re-test", "spends none of your plan's allowance", "Re-test the file rules",
+    "one short Codex turn"]);
+  if (!buttons(report).includes("Use this version…")) failures.push("an acceptable build's report has no Use this version.");
+  await run(page, "CODEX_CARD.accept()");
+  if (calls(page, "POST /accept-version").length) failures.push("one click on Use this version accepted the build; it takes two.");
+  words("Use this version, armed", cardOf(page), ["Click again to accept Codex 0.155.0", "Not now"]);
+  await run(page, "CODEX_CARD.accept()");
+  const [accepted] = calls(page, "POST /accept-version");
+  if (!accepted || !("x-nervis-control" in accepted.headers) || JSON.stringify(accepted.body) !== JSON.stringify({ sha256: SHA_NEW })) {
+    failures.push(`Use this version sent ${JSON.stringify(accepted && accepted.body)}, not the reported build's sha256 with the control header.`);
+  }
+  words("after accepting", cardOf(page), ["accepted by you", "Codex 0.155.0 accepted", "New tasks stay paused",
+    "Re-test the file rules"], ["Use this version"]);
+  page.ravis.state = untested({ installed_sha256: "0".repeat(64), version: "0.156.0" });
+  await run(page, "CODEX_CARD.redraw()");
+  words("after another build was installed", cardOf(page), ["Codex 0.156.0", "Check this version"], ["ThreadItem"]);
+
+  const refusals = [
+    ["another build installed since the report", "accept", 409, refusal("CODEX_HASH_MISMATCH", "That sha256 is not the installed Codex binary."),
+     ["changed again", "Check this version again"]],
+    ["a check failed at RAVIS", "accept", 409, refusal("CODEX_VERSION_CHECK_FAILED", "The version check failed, so this version can't be accepted."),
+     ["can't be accepted"]],
+    ["RAVIS refusing NERVIS's key", "check", 403, refusal("FORBIDDEN", "An admin credential is required."), ["admin key"]],
+    ["NERVIS not answering", "check", 0, null, ["NERVIS didn't answer"]],
+  ];
+  for (const [label, step, status, body, expected] of refusals) {
+    const refused = await drawCard(untested(), { control: {
+      "GET /version-check": () => (step === "check" ? answering(status, body) : answer(200, VERSION_REPORT)),
+      "POST /accept-version": () => answering(status, body),
+    } });
+    await run(refused, "CODEX_CARD.check()");
+    if (step === "accept") {
+      await run(refused, "CODEX_CARD.accept()");
+      await run(refused, "CODEX_CARD.accept()");
+    }
+    words(`the version report, ${label}`, cardOf(refused), expected);
+  }
+
+  const broken = JSON.parse(JSON.stringify(VERSION_REPORT));
+  broken.version_check.checks = broken.version_check.checks.map((check) =>
+    (check.name === "handshake" ? { name: "handshake", ok: false, detail: "initialize timed out" } : check));
+  const unacceptable = await drawCard(untested(), { control: { "GET /version-check": () => answer(200, broken) } });
+  await run(unacceptable, "CODEX_CARD.check()");
+  words("a build whose handshake failed", cardOf(unacceptable),
+    ["can't be accepted", "it starts and answers in a throwaway home", "initialize timed out"], ["Use this version"]);
+  if (buttons(cardOf(await drawCard(busy([])))).some((label) => /version/i.test(label))) {
+    failures.push("a build RAVIS tested offers a version button.");
+  }
+}
+
+async function nothingRavisSendsInjectsIntoTheCard() {
+  const tag = ' <vxs onerror=vxjs>" vxatr=vxjs';
+  const quote = "x');vxjs('";
+  const runs = [
+    task({ project: "add-utc-demo" + tag, model: "gpt" + tag, effort: "high" + tag,
+           reopening: { group_id: "sg" + tag, hosts: ["pypi.org" + tag], since: "then" + tag } }),
+    task({ id: SID_B, turn_id: TURN_B + tag, state: "waiting_on_you" + tag, project: quote, waiting_minutes: 3 }),
+    task({ id: quote, project: "quoted" }),
+  ];
+  const view = { defaults: ["pypi.org" + tag], added: ["huggingface.co" + tag, quote] };
+  const report = JSON.parse(JSON.stringify(VERSION_REPORT));
+  const check = report.version_check;
+  check.version = "0.155.0" + tag;
+  check.checks[0].name = "signature" + tag;
+  check.checks[6].detail = "changed" + tag;
+  check.protocol.used_definitions_changed = ["ThreadItem" + tag];
+  check.protocol.used_methods_missing = ["turn/start" + tag];
+  const page = await drawCard(untested({ version: "0.155.0" + tag, source: "brew" + tag }, { runs }), {
+    sites: () => answer(200, view),
+    control: {
+      "GET /version-check": () => answer(200, report),
+      [`POST /runs/${SID_A}/stop`]: () => answer(409, refusal("CONFIRMATION_MISMATCH" + tag, "changed" + tag)),
+      [`DELETE /sites/${encodeURIComponent(view.added[0])}`]: () => answer(409, refusal("SITE_NOT_REMOVED", "kept" + tag)),
+    },
+  });
+  const drawn = [cardOf(page)];
+  await run(page, "CODEX_CARD.check()");
+  drawn.push(cardOf(page));
+  await run(page, stopOf(SID_A));
+  drawn.push(cardOf(page));
+  await run(page, stopOf(SID_A));
+  drawn.push(cardOf(page));
+  await run(page, removeOf(view.added[0]));
+  drawn.push(cardOf(page));
+  await run(page, removeOf(view.added[0]));
+  drawn.push(cardOf(page));
+  if (!drawn.join("").includes("vxs")) failures.push("the injection probe never reached the Codex card, so it proved nothing.");
+  for (const html of drawn) {
+    if (/<vxs|"\s*vxatr=/.test(html)) {
+      const at = Math.max(0, html.search(/<vxs|"\s*vxatr=/) - 80);
+      failures.push(`RAVIS's text broke out of the Codex card's markup: …${html.slice(at, at + 140)}…`);
+    }
+    if (html.includes("');vxjs('")) failures.push("RAVIS's text broke out of a quoted handler argument on the Codex card.");
+  }
+}
+
+async function theOverviewCountsCodexsTasks() {
+  const cases = [
+    ["a task waiting", [task({ state: "waiting_on_you" }), task({ id: SID_B, turn_id: TURN_B, project: "weather-cli" }),
+      task({ id: null, turn_id: null, project: "notes-app", state: "clarvis_engine" })], "2 tasks · 1 waiting for your answer"],
+    ["a task needing you", [task({ state: "paused_unanswered" })], "1 task · 1 needs you in Clarvis"],
+    ["one running", [task()], "1 task running"],
+    ["none", [], "no tasks"],
+  ];
+  for (const [label, runs, phrase] of cases) {
+    words(`the Overview's Codex line, ${label}`, (await overview(busy(runs))) || "",
+      [phrase, "62% left in the 5-hour window", "the Codex card"]);
+  }
+  words("the Overview's Codex line, a RAVIS that lists no tasks", (await overview(busy(null))) || "",
+    ["62% left"], ["task"]);
+  words("the Overview's Codex line, RAVIS not answering", (await overview(busy([task()]), 0)) || "",
+    [], ["task", "% left"]);
+
+  const page = world({ state: busy([task()]), reads: { "/api/v1/relay/ravis/api/v1/usage": USAGE_READ } });
+  await quiet();
+  page.exported.state.app = "nervis";
+  page.exported.state.view = "Overview";
+  await run(page, "nervis()");
+  run(page, "codexOpenCard()");
+  await quiet();
+  if (page.exported.state.app !== "ravis" || page.exported.state.view !== "Dashboard") {
+    failures.push("the Overview's link to the Codex card doesn't open RAVIS → Dashboard.");
+  } else if (run(page, "CODEX_CARD.scroll") !== false || !cardOf(page)) {
+    failures.push("the Overview's link opened RAVIS → Dashboard without drawing the Codex card or bringing it into view.");
+  }
+}
+
 async function main() {
   await everyStateDrawsItsWords();
   await theAllowanceSitsBesideSpend();
@@ -610,6 +1175,15 @@ async function main() {
   await confirmSendsTheHintShown();
   await refusalsAreSaidPlainly();
   await nothingInjects();
+  await everyCodexStateIsWorded();
+  await theTaskListSaysEveryTask();
+  await stopIsTheOnlyTaskControl();
+  await stopSendsTheConfirmationAndThePagesOwnKey();
+  await everyStopRefusalIsSaid();
+  await theAllowedSitesOfferRemoveOnlyForTheOwners();
+  await aNewBuildIsReportedAndAcceptedInTwoClicks();
+  await nothingRavisSendsInjectsIntoTheCard();
+  await theOverviewCountsCodexsTasks();
 
   if (failures.length) {
     console.error("codex check failed:\n");
@@ -626,7 +1200,13 @@ async function main() {
     "allowance and reset, unknown with no percentage, stale with its age, no money, and goes " +
     "absent without RAVIS; the Overview carries its line; RAVIS → Pools draws a read-only Clarvis " +
     "Codex row after the Clarvis pools with its state, tightest window and sign-in link, and says " +
-    "why when RAVIS doesn't answer; and a stored key's dot is not escaped"
+    "why when RAVIS doesn't answer; a stored key's dot is not escaped; and the Codex card on " +
+    "RAVIS → Dashboard says every task in words with its wait, model, effort and reconnecting, " +
+    "offers Stop as its only task control, in two clicks, sending the folder, the turn and the " +
+    "page's own Idempotency-Key (the same one on a retry), words every refusal, offers Remove " +
+    "beside added sites only with the defaults folded, reports a new build and accepts it in two " +
+    "clicks saying it neither starts the re-test nor spends allowance, injects nothing, and the " +
+    "Overview counts the tasks and opens the card"
   );
 }
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -618,6 +619,9 @@ async def _codex_control(
     path: str,
     credential: str,
     body: dict[str, Any] | None = None,
+    *,
+    timeout: float = CODEX_CONTROL_TIMEOUT_SECONDS,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     """Forward one Codex control call to RAVIS and hand back exactly what RAVIS said.
 
@@ -628,12 +632,16 @@ async def _codex_control(
     RAVIS's status and body travel verbatim — 409 with the ports held, 422 for a body
     RAVIS will not take, 409 when Codex is not available — because each asks the page
     to say something different, and a flattened 200 or 500 would lose which.
+
+    `timeout` is longer only for the version report, and `headers` carries only a task
+    Stop's `Idempotency-Key`; `ravis_peer.configure` refuses any that names the
+    authorization header.
     """
     status, answered = await ravis_peer.configure(
         request.app.state.probe_client,
         request.app.state.registry.get("ravis"),
         method, path, credential, body,
-        timeout=CODEX_CONTROL_TIMEOUT_SECONDS,
+        timeout=timeout, headers=headers,
     )
     return JSONResponse(answered, status_code=status, headers={"cache-control": "no-store"})
 
@@ -693,6 +701,129 @@ async def confirm_codex_account(request: Request) -> Any:
     return await _codex_control(
         request, "POST", "/api/v1/codex/account/confirm",
         request.app.state.settings.ravis_admin_credential, body,
+    )
+
+
+# ── The Codex card on RAVIS → Dashboard: a task's Stop, a site, a new build ─────────
+#
+# N2b (14 September 2026). **Stop is the only thing the dashboard can do to a Codex task**
+# (owner decision (a)): nothing here approves, answers, steers or starts one, and RAVIS refuses
+# NERVIS's credentials on every agent-session route except its owner Stop. The four routes below
+# take the sign-in's hop: the page's control token checked, NERVIS's RAVIS admin credential
+# presented, RAVIS's status and body handed back as RAVIS said them, and every answer `no-store`.
+#
+# **What goes into RAVIS's address is held to a shape first.** A task id and a site's name are
+# spliced after RAVIS's base URL with the admin credential attached — the reason
+# `suppression_lift_path` exists — so one that doesn't fit is refused here with a 400, and RAVIS
+# never sees the request.
+
+#: RAVIS's task ids (`as_…`): the only shape a Stop puts into RAVIS's address (design §3.8).
+CODEX_TASK_ID = re.compile(r"as_[0-9A-Za-z]{10,40}")
+#: The page's own Idempotency-Key: long enough to be unique, and nothing that could end a header.
+CODEX_IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9_-]{16,128}")
+#: One label of a host name: letters and digits, with hyphens only inside.
+_SITE_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+#: A site's name as NERVIS forwards it: labels joined by single dots. Whether RAVIS allows it as a
+#: site at all — never a wildcard, an address or a local name — stays RAVIS's to say.
+CODEX_SITE_NAME = re.compile(rf"{_SITE_LABEL}(?:\.{_SITE_LABEL})*")
+#: The longest a host name can be spelled (RFC 1035), checked before the pattern runs.
+CODEX_SITE_NAME_LENGTH = 253
+#: Longer than RAVIS's own worst case for a version report, so RAVIS's answer arrives rather than
+#: NERVIS's "RAVIS did not answer": the new build's version and its two schema trees at up to 30 s
+#: each, then two throwaway starts of it, each waiting up to 15 s per call. A report RAVIS already
+#: holds for the installed build comes back at once.
+CODEX_VERSION_TIMEOUT_SECONDS = 210.0
+
+
+def _codex_refused(message: str) -> JSONResponse:
+    """NERVIS's own 400, for a value it will not put into RAVIS's address: nothing is sent."""
+    return JSONResponse(
+        {"message": message}, status_code=400, headers={"cache-control": "no-store"}
+    )
+
+
+@router.post("/ravis/codex/runs/{sid}/stop", dependencies=[Depends(require_control)])
+async def stop_codex_task(sid: str, request: Request) -> Any:
+    """Stop one Codex task for the owner, through RAVIS's owner Stop (`owner-stop.json`).
+
+    **The page sends a confirmation, not a command.** Its body is the task's folder name and
+    turn as the page showed them. RAVIS checks both against the task and answers 409
+    `CONFIRMATION_MISMATCH` when either has moved on, so a page left open can't stop a different
+    task, and nothing can stop one by its id alone. NERVIS forwards exactly those two, with
+    `source: dashboard` of its own: the page can't pass itself off as the menu bar, whose stops
+    RAVIS counts and audits apart.
+
+    **The page's `Idempotency-Key` travels with it**, the one header the page chooses. A click
+    retried after a lost answer carries the same key, so RAVIS replays its first answer rather
+    than acting twice. The id and the key are held to their shapes before anything is sent.
+    """
+    if not CODEX_TASK_ID.fullmatch(sid):
+        return _codex_refused(f"{sid!r} is not a Codex task id NERVIS will forward to RAVIS")
+    key = request.headers.get("idempotency-key", "")
+    if not CODEX_IDEMPOTENCY_KEY.fullmatch(key):
+        return _codex_refused(
+            "The Stop request needs an Idempotency-Key of 16 to 128 letters, digits, - or _."
+        )
+    page = await _json_body(request)
+    confirmation = {"project": page.get("project"), "turn_id": page.get("turn_id")}
+    return await _codex_control(
+        request, "POST", f"/api/v1/agent-sessions/{sid}/owner-stop",
+        request.app.state.settings.ravis_admin_credential,
+        {"source": "dashboard", "confirm": confirmation},
+        headers={"Idempotency-Key": key},
+    )
+
+
+@router.delete("/ravis/codex/sites/{host}", dependencies=[Depends(require_control)])
+async def remove_codex_site(host: str, request: Request) -> Any:
+    """Remove a site the owner added to those Codex's commands may reach (RAVIS 0.25.0).
+
+    RAVIS never removes one of its default sites (409 `SITE_NOT_REMOVED`, `default_site`), and the
+    card offers Remove only beside the sites the owner added. RAVIS answers with the list as Codex
+    holds it afterwards, which the card redraws from. A removed site stops reaching Codex
+    conversations started or reopened after this; one already open keeps it until it reopens.
+    """
+    if len(host) > CODEX_SITE_NAME_LENGTH or not CODEX_SITE_NAME.fullmatch(host):
+        return _codex_refused(f"{host!r} is not a site name NERVIS will forward to RAVIS")
+    return await _codex_control(
+        request, "DELETE", f"/api/v1/codex/sites/{host}",
+        request.app.state.settings.ravis_admin_credential,
+    )
+
+
+@router.get("/ravis/codex/version-check", dependencies=[Depends(require_control)])
+async def check_codex_version(request: Request) -> Any:
+    """RAVIS's report on the Codex build installed now: its seven checks and what changed.
+
+    **A read, gated like the writes,** for the reason RAVIS keeps it on an admin route: a report
+    RAVIS doesn't hold yet is work done on request — the new build is run in a throwaway home — not
+    a figure already in memory. It spends none of the plan's allowance: nothing is signed in there
+    and no model runs.
+    """
+    return await _codex_control(
+        request, "GET", "/api/v1/codex/version-check",
+        request.app.state.settings.ravis_admin_credential,
+        timeout=CODEX_VERSION_TIMEOUT_SECONDS,
+    )
+
+
+@router.post("/ravis/codex/accept-version", dependencies=[Depends(require_control)])
+async def accept_codex_version(request: Request) -> Any:
+    """Accept the installed Codex build, named by the sha256 the page's report showed.
+
+    **Accepting is trust, not proof** (review AM1). RAVIS records the build with its file rules
+    unproven, so new tasks stay paused until the re-test proves them on that exact build.
+    Accepting doesn't start that re-test, and no NERVIS route can: the owner starts it from the
+    menu bar, and it uses one short Codex turn of the plan's allowance. RAVIS answers with Codex's
+    whole state, which the card redraws from. A sha256 that is no longer the installed build is
+    RAVIS's 409 `CODEX_HASH_MISMATCH`, so a report left open can't accept a build it didn't
+    describe. RAVIS may run the checks first when it holds no report, hence the longer wait.
+    """
+    body = await _json_body(request)
+    return await _codex_control(
+        request, "POST", "/api/v1/codex/accept-version",
+        request.app.state.settings.ravis_admin_credential, body,
+        timeout=CODEX_VERSION_TIMEOUT_SECONDS,
     )
 
 

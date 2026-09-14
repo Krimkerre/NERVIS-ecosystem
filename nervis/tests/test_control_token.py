@@ -6,7 +6,9 @@ credential, and anonymous or ordinary inference callers get 403. NERVIS holds
 that credential and proxies seven of those mutations — provider enable, model
 filters, pool members, pool curation, credential write and delete, and lifting a
 tool-refusal suppression — and, since 13 September 2026, Codex's ChatGPT sign-in
-(start, read, cancel, sign out, confirm the account) — so until
+(start, read, cancel, sign out, confirm the account), and since 14 September the
+Codex card's four (a task's Stop, removing a site, the version report, accepting a
+version) — so until
 this, anything that could reach `127.0.0.1:8790` could change RAVIS's
 configuration without holding anything at all. The credential was moved out of
 the browser's reach and the decision to *use* it was left ungated.
@@ -57,6 +59,15 @@ MUTATIONS = (
     ("DELETE", "/api/v1/ravis/codex/sign-in", None),
     ("POST", "/api/v1/ravis/codex/sign-out", {}),
     ("POST", "/api/v1/ravis/codex/account/confirm", {"email_hint": None}),
+    # The Codex card on RAVIS → Dashboard (14 September 2026): a task's Stop, removing a site
+    # the owner added, and a new Codex build's report and acceptance. The version report is a
+    # read gated like the writes, because RAVIS runs the checks on request. The Stop carries no
+    # Idempotency-Key here, so past the gate NERVIS refuses it and nothing reaches RAVIS.
+    ("POST", "/api/v1/ravis/codex/runs/as_01J9ZK4T6Q8M2V7R3N5B1C0D/stop",
+     {"project": "add-utc-demo", "turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41"}),
+    ("DELETE", "/api/v1/ravis/codex/sites/example.invalid", None),
+    ("GET", "/api/v1/ravis/codex/version-check", None),
+    ("POST", "/api/v1/ravis/codex/accept-version", {"sha256": "0" * 64}),
 )
 
 

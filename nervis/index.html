@@ -3122,6 +3122,25 @@ const API={
      remaining_percent:62,resets_at:'2026-09-13T04:30:00Z'}],individual_limit:null,credits:null},
    runs:[],models:[],sign_in:{state:'idle',started_at:null,expires_at:null,error:null}}},
 
+  /* GET /api/v1/codex/sites — the sites Codex's commands may reach (RAVIS 0.25.0 on): RAVIS's
+     defaults, which are never removed, and the ones the owner added through Clarvis. Read
+     through the relay like `codex()`, with NERVIS's credential, which RAVIS accepts here.
+
+     **Not through `live()`.** RAVIS answers 503 while Codex isn't running, and `live()` keeps
+     one outcome per service: a site read that failed would make every other RAVIS card on the
+     screen say RAVIS failed. So this read keeps its own outcome — the status, whether NERVIS's
+     relay heard nothing, and RAVIS's error when it gave one — and the Codex card words it.
+     Never a mock: a list that wasn't read is said to be unread. */
+  async codexSites(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/codex/sites',readDeadline());
+    const body=await r.json().catch(()=>null);
+    if(r.ok&&body&&Array.isArray(body.defaults)&&Array.isArray(body.added))
+     return{live:true,defaults:body.defaults,added:body.added};
+    return{live:false,status:r.status,relayed:r.headers.get('x-nervis-relay'),error:(body&&body.error)||null};
+   }catch(e){return{live:false,status:0,relayed:null,error:null}}
+  },
+
   /* GET /api/v1/models — RAVIS's own view of the candidates, capability-evidenced
      per RAVIS.md §15.1. This is not a copy of SIRVIS's model list: it carries what
      RAVIS needs to decide eligibility, and for tools that means three fields
@@ -9636,8 +9655,9 @@ function codexAgo(iso){
  return minutes<60?`${minutes} min ago`:`${Math.floor(minutes/60)} h ${minutes%60} min ago`;
 }
 
-/* The Overview's one line (NERVIS.md §6): the state, and what is left in the tightest
-   window, in a card owned by RAVIS so it goes absent with RAVIS. */
+/* The Overview's one line (NERVIS.md §6): the state, the tasks, and what is left in the
+   tightest window, in a card owned by RAVIS so it goes absent with RAVIS. It controls
+   nothing, and links to the Codex card, where the tasks are listed. */
 function codexOverviewCard(codex){
  return `<div class="card full${liveClass(codex.live)}"><h3>Codex</h3>${cell(codexOverviewLine(codex),'ravis')}</div>`;
 }
@@ -9646,14 +9666,458 @@ function codexOverviewLine(codex){
  if(!codex.live)return `<div class="trace-step"><b>state</b><span>${escapeHtml(codexUnreadWords())}</span></div>`;
  const tight=codexTightest(codex.usage);
  const stale=codexUsage(codex).stale?' · stale':'';
- const said=tight
+ const allowance=tight
   ?`${tight.remaining_percent}% left in the ${tight.label||'tightest window'} · resets ${codexReset(tight.resets_at)}${stale}`
   :(codex.account?'allowance unknown':(codex.reason||''));
- return `<div class="trace-step"><b>${codexStateChip(codex.state)}</b><span>${escapeHtml(said)} · <a href="#" onclick="go('ravis','Dashboard');return false" style="color:inherit">RAVIS → Dashboard</a></span></div>`;
+ const said=[codexTasksPhrase(codex.runs),allowance].filter(Boolean).join(' · ');
+ return `<div class="trace-step"><b>${codexStateChip(codex.state)}</b><span>${escapeHtml(said)} · <a href="#" onclick="codexOpenCard();return false" style="color:inherit">the Codex card on RAVIS → Dashboard</a></span></div>`;
 }
 
-function liveRavisDashboard(decisions, usage, codex){
+/* "2 tasks · 1 waiting for your answer", counting Codex's tasks only: a project Clarvis's own
+   engine holds is listed by RAVIS too, and is not a Codex task. Nothing when RAVIS listed none
+   at all, since an older RAVIS saying nothing is not "no tasks". */
+function codexTasksPhrase(runs){
+ if(!Array.isArray(runs))return '';
+ const tasks=runs.filter(r=>r&&typeof r==='object'&&r.state!=='clarvis_engine');
+ if(!tasks.length)return 'no tasks';
+ const count=tasks.length===1?'1 task':`${tasks.length} tasks`;
+ const waiting=tasks.filter(r=>r.state==='waiting_on_you').length;
+ const needs=tasks.filter(r=>CODEX_NEEDS_YOU.includes(r.state)).length;
+ if(waiting)return `${count} · ${waiting} waiting for your answer`;
+ if(needs)return `${count} · ${needs} ${needs===1?'needs':'need'} you in Clarvis`;
+ return `${count} running`;
+}
+
+function codexOpenCard(){CODEX_CARD.scroll=true;go('ravis','Dashboard')}
+
+/* ── The Codex card on RAVIS → Dashboard: tasks, allowed sites, a new build ───────
+
+   N2b, 14 September 2026. Under the headline tiles: the tile beside Spend keeps the
+   allowance, and this card holds what needs a list — the Codex tasks RAVIS is running or
+   holding, the sites Codex's commands may reach, and a new Codex build waiting to be
+   accepted. The menu bar's Codex line opens this screen (`tools/run.py`, CODEX_CARD).
+
+   **Stop is the only thing this card can do to a task** (owner decision (a)). Answering,
+   approving and steering happen in Clarvis. The card reaches RAVIS only through NERVIS's
+   control routes, and the one for tasks forwards to RAVIS's owner Stop and nothing else;
+   `codex_check.js` fails on any button or request that would do more.
+
+   **Every change takes two clicks**, the page's rule (`armed`, above): the first says what
+   will happen, the second does it, because a `confirm()` the browser has muted returns
+   false for good and the button would silently do nothing. A Stop's request carries the
+   folder and turn its row showed, which RAVIS checks against the task, and the page's own
+   Idempotency-Key, kept per task and turn, so a click retried after a lost answer is
+   replayed by RAVIS rather than carried out twice.
+
+   **Only the card's inner slot is redrawn** after a click, like the sign-in card's, so the
+   decisions below it don't flicker through three reads. */
+
+/* Each task state RAVIS lists (`codex-state.json` → `run_states`), as the card says it. */
+const CODEX_RUN_STATES={
+ running:['running',''],
+ waiting_on_you:['waiting for your answer','warn'],
+ paused_unanswered:['paused — waited 30 min for an answer','warn'],
+ paused_for_update:['paused — Codex updated','warn'],
+ completed_needs_review:['finished — needs review','warn'],
+ uncertain:['uncertain — cut off mid-step','warn'],
+ leftover:['stopped, with processes left over','warn'],
+ clarvis_engine:["Clarvis's own engine, not Codex",'dim'],
+};
+/* What a Stop can reach. RAVIS stops a task that is starting, running, waiting for an answer
+   or already stopping, and lists all of those as running or waiting; anything else has stopped. */
+const CODEX_STOPPABLE=['running','waiting_on_you'];
+/* Tasks waiting on the owner in Clarvis — a question timed out, a review, a restart — rather
+   than working. */
+const CODEX_NEEDS_YOU=['paused_unanswered','paused_for_update','completed_needs_review','uncertain','leftover'];
+const CODEX_TASK_COLUMNS='1.1fr 1.5fr .9fr 1.2fr .8fr 1.5fr';
+/* RAVIS's seven checks on a new build (`codex-admin.json` → version-check), in plain words. */
+const CODEX_CHECKS={
+ signature:"signed by OpenAI's team",
+ sha256_installed:'the file checked is the one installed',
+ version_parse:'its version reads correctly',
+ schema_generation:"Codex's protocol descriptions generate",
+ used_methods_present:'every call RAVIS makes to Codex is still there',
+ handshake:'it starts and answers in a throwaway home',
+ strict_rules:'the file rules still load the same way',
+};
+const CODEX_VERDICTS={tested:'tested by RAVIS',accepted:'accepted by you, not tested by RAVIS',
+ untested:'a build RAVIS has not tested'};
+const CODEX_STOP_WORDS={
+ CONFIRMATION_MISMATCH:'The task changed since this page read it, so nothing was stopped. The list is fresh now: check it, and stop again if you still want to.',
+ NOTHING_RUNNING:"That task isn't running any more, so there was nothing to stop.",
+ AGENT_SESSION_NOT_FOUND:'RAVIS no longer has that task, so there was nothing to stop.',
+ OWNER_STOP_NOT_ALLOWED:"RAVIS didn't accept NERVIS's admin key for stopping a task, so nothing was stopped. Restarting the stack gives NERVIS a key RAVIS knows.",
+ RATE_LIMITED:'RAVIS took too many stop requests in a minute and turned this one away. Wait a moment, then click Stop again.',
+};
+const CODEX_VERSION_WORDS={
+ CODEX_HASH_MISMATCH:'The installed Codex changed again since this report, so nothing was accepted. Check this version again.',
+ CODEX_VERSION_CHECK_FAILED:"RAVIS's checks failed on this build, so it can't be accepted.",
+};
+
+/* A word's entry in one of the tables above, or null — for its own keys only, so a state
+   word RAVIS never sends, like `constructor`, can't pick up something the table inherits. */
+function codexLookup(table,word){return typeof word==='string'&&Object.hasOwn(table,word)?table[word]:null}
+
+function codexCardShown(){return state.app==='ravis'&&state.view==='Dashboard'}
+
+function codexCard(codex){
+ return `<div class="card full${liveClass(codex.live)}" id="codex-card"><h3>Codex tasks, allowed sites and version</h3>${cell(`<div id="codex-card-body">${codexCardBody(codex,CODEX_CARD.sites)}</div>`,'ravis')}</div>`;
+}
+
+function codexCardBody(codex,sites){
+ if(!codex.live)return `<div class="trace-step"><b>status</b><span>${escapeHtml(codexUnreadWords())}</span></div>`;
+ return codexCardNote(CODEX_CARD.note)+codexTasksPart(codex.runs)+codexSitesPart(sites)+codexVersionPart(codex);
+}
+
+function codexCardNote(note){
+ return note?`<div class="trace-step"><b>just now</b><span>${escapeHtml(note)}</span></div>`:'';
+}
+
+function codexTasksPart(runs){
+ const help=`<small class="mono dim" style="display:block;margin-top:6px">Answer a Codex task in Clarvis: open its project in VS Code or the browser editor, and Clarvis reconnects to it. <b>Stop</b> is the only thing this card can do to a task, and Codex's work so far stays in the project for you to review and save.</small>`;
+ if(!Array.isArray(runs))return `<div class="trace-step"><b>tasks</b><span>RAVIS didn't list Codex's tasks.</span></div>`;
+ const rows=runs.filter(r=>r&&typeof r==='object');
+ if(!rows.length)return `<div class="trace-step"><b>tasks</b><span>No Codex task is running or waiting.</span></div>${help}`;
+ return `<div class="table-row head" style="grid-template-columns:${CODEX_TASK_COLUMNS}"><span>Project</span><span>State</span><span>Waiting</span><span>Model · effort</span><span>Editors</span><span></span></div>
+  ${rows.map(codexTaskRow).join('')}${help}`;
+}
+
+function codexTaskRow(run){
+ return `<div class="table-row codex-task" style="grid-template-columns:${CODEX_TASK_COLUMNS};align-items:center">
+   <span class="mono"><b>${escapeHtml(run.project==null?'a folder RAVIS did not name':run.project)}</b></span>
+   <span>${codexTaskStateChip(run)}${codexReconnecting(run.reopening)}</span>
+   <span class="mono">${escapeHtml(codexTaskWait(run))}</span>
+   <span class="mono">${escapeHtml(codexModelWords(run))}</span>
+   <span class="mono dim">${escapeHtml(codexEditorWords(run.attached_windows))}</span>
+   <span>${codexStopControl(run)}</span></div>`;
+}
+
+/* A task this page stopped reads "stopping…" while RAVIS still lists it working, and then says
+   what to do next, rather than RAVIS's "finished — needs review". */
+function codexTaskStateChip(run){
+ const stopped=CODEX_CARD.stopping.get(run.id)===run.turn_id&&typeof run.turn_id==='string';
+ if(stopped&&CODEX_STOPPABLE.includes(run.state))return '<span class="chip busy">stopping…</span>';
+ if(stopped&&run.state==='completed_needs_review')return '<span class="chip warn">stopped — open the project in an editor to review it</span>';
+ const [words,tone]=codexLookup(CODEX_RUN_STATES,run.state)||[String(run.state),'dim'];
+ return `<span class="chip${tone?' '+tone:''}">${escapeHtml(words)}</span>`;
+}
+
+/* While RAVIS reopens the task's Codex conversation so a site the owner just allowed reaches
+   it (RAVIS 0.25.1, `reopening`): up to two minutes. */
+function codexReconnecting(reopening){
+ if(!reopening||typeof reopening!=='object')return '';
+ const hosts=Array.isArray(reopening.hosts)?reopening.hosts.map(String).join(', '):'';
+ return ` <span class="chip busy">reconnecting</span> <small class="dim">${escapeHtml(hosts?`so ${hosts} can be reached`:'so a newly allowed site can be reached')}, up to two minutes</small>`;
+}
+
+function codexTaskWait(run){
+ if(typeof run.waiting_minutes==='number')return `waiting ${codexMinutes(run.waiting_minutes)}`;
+ if(typeof run.age_minutes==='number')return `started ${codexMinutes(run.age_minutes)} ago`;
+ return '';
+}
+
+function codexMinutes(minutes){
+ return minutes<60?`${minutes} min`:`${Math.floor(minutes/60)} h ${minutes%60} min`;
+}
+
+/* The model and effort a task runs at, as RAVIS lists them (0.25.1). Nothing at all from a RAVIS
+   that doesn't send them, and nothing for Clarvis's own engine; a null is Codex's own default. */
+function codexModelWords(run){
+ if(run.state==='clarvis_engine'||!('model' in run||'effort' in run))return '';
+ const model=typeof run.model==='string'&&run.model?run.model:"Codex's default model";
+ const effort=typeof run.effort==='string'&&run.effort?`${run.effort} effort`:'default effort';
+ return `${model} · ${effort}`;
+}
+
+function codexEditorWords(count){
+ if(typeof count!=='number')return '';
+ return count===0?'no editor open':count===1?'1 editor open':`${count} editors open`;
+}
+
+/* Stop, only where RAVIS would stop something: a Codex task running or waiting, with the id,
+   folder and turn its confirmation sends back. */
+function codexCanStop(run){
+ return CODEX_STOPPABLE.includes(run.state)&&typeof run.id==='string'
+  &&typeof run.turn_id==='string'&&typeof run.project==='string';
+}
+
+function codexTaskKey(run){return `${run.id}|${run.turn_id}|${run.project}`}
+
+function codexStopControl(run){
+ if(!codexCanStop(run)||CODEX_CARD.stopping.get(run.id)===run.turn_id)return '';
+ const key='stop:'+codexTaskKey(run);
+ if(CODEX_CARD.busy===key)return '<span class="mono dim">sending the stop…</span>';
+ if(CODEX_CARD.armed===key)return `<button class="btn primary" onclick="CODEX_CARD.stop('${jsAttr(run.id)}')">Click again to stop the task in ${escapeHtml(run.project)}</button> <button class="btn" onclick="CODEX_CARD.disarm()">Keep it running</button>`;
+ return `<button class="btn" onclick="CODEX_CARD.stop('${jsAttr(run.id)}')" title="Stops Codex's current step and ends its commands. Asks you to click again first.">Stop…</button>`;
+}
+
+/* The sites Codex's commands may reach (RAVIS 0.25.0): the ones the owner added, each with
+   Remove, and RAVIS's defaults folded away, with no Remove, because RAVIS never removes one. */
+function codexSitesPart(sites){
+ const live=Boolean(sites&&sites.live);
+ return `<div class="trace-step" style="margin-top:12px"><b>allowed sites</b><span>${escapeHtml(live?codexSitesCount(sites):codexSitesUnread(sites||{}))}</span></div>${live?codexSitesList(sites):''}`;
+}
+
+function codexSitesCount(sites){
+ const added=sites.added.length;
+ return `RAVIS's ${sites.defaults.length} default sites, and ${added===1?'1 site':`${added} sites`} you added`;
+}
+
+function codexSitesUnread(sites){
+ if(sites.relayed||!sites.status)return "RAVIS didn't answer the read of the sites Codex may reach.";
+ if(sites.status===404||sites.status===405)return "This RAVIS doesn't list the sites Codex may reach; RAVIS 0.25.0 does.";
+ if(sites.status===401||sites.status===403)return `RAVIS refused NERVIS's read of the allowed sites (HTTP ${sites.status}).`;
+ return (sites.error||{}).message||`RAVIS answered HTTP ${sites.status} to the read of the allowed sites.`;
+}
+
+function codexSitesList(sites){
+ const added=sites.added.length?sites.added.map(codexSiteRow).join('')
+  :`<div class="trace-step"><b>added by you</b><span>none yet — Clarvis asks before a task needs a site that isn't listed</span></div>`;
+ return `${added}
+  <details class="explains" id="codex-default-sites"><summary>RAVIS's ${sites.defaults.length} default sites — always allowed, and never removed here</summary><div class="mono">${sites.defaults.map(host=>escapeHtml(host)).join(' · ')}</div></details>
+  <small class="mono dim" style="display:block;margin-top:6px">A removed site stops reaching Codex conversations that start or reopen afterwards; a task already running keeps reaching it until its conversation reopens. Clarvis asks again the next time a task is blocked from it.</small>`;
+}
+
+function codexSiteRow(host){
+ const name=String(host),key='site:'+name;
+ const action=CODEX_CARD.busy===key?'<span class="mono dim">removing…</span>'
+  :CODEX_CARD.armed===key?`<button class="btn primary" onclick="CODEX_CARD.remove('${jsAttr(name)}')">Click again to remove ${escapeHtml(name)}</button> <button class="btn" onclick="CODEX_CARD.disarm()">Keep it</button>`
+  :`<button class="btn" onclick="CODEX_CARD.remove('${jsAttr(name)}')">Remove</button>`;
+ return `<div class="table-row codex-site" style="grid-template-columns:1fr auto;align-items:center"><span class="mono">${escapeHtml(name)}</span><span>${action}</span></div>`;
+}
+
+/* The build RAVIS runs, and — when it is one RAVIS hasn't tested — its report and Use this
+   version. The re-test that proves its file rules is not here: it starts only from the menu bar,
+   because it spends a Codex turn of the plan's allowance and NERVIS never starts Codex work. */
+function codexVersionPart(codex){
+ const runtime=codex.runtime;
+ if(!runtime||typeof runtime!=='object')return '';
+ return `<div class="trace-step" style="margin-top:12px"><b>Codex version</b><span>${escapeHtml(codexRuntimeWords(runtime))}</span></div>
+  ${codexVersionNext(runtime)}${codexVersionReport(runtime)}`;
+}
+
+function codexRuntimeWords(runtime){
+ const verdict=codexLookup(CODEX_VERDICTS,runtime.verdict)||String(runtime.verdict);
+ const rules=runtime.strict_rules==='proven'?'file rules proven':'file rules not yet re-tested';
+ const source=runtime.source==='homebrew'?'Homebrew':String(runtime.source);
+ return `Codex ${runtime.version==null?'(version not given)':runtime.version} (${source}) · ${verdict} · ${rules}`;
+}
+
+function codexVersionNext(runtime){
+ if(runtime.verdict==='accepted'&&runtime.strict_rules!=='proven')
+  return `<small class="mono dim" style="display:block;margin:4px 0">New tasks stay paused until this build's file rules are re-tested. Re-test from the menu bar: <b>NERVIS → Codex → Re-test the file rules…</b> It uses one short Codex turn from your plan's allowance, and this page can't start it.</small>`;
+ if(runtime.verdict==='untested')
+  return `<small class="mono dim" style="display:block;margin:4px 0">Codex changed, so new tasks are paused. Check this version to see what changed. Accepting it is the first step; re-testing its file rules from the menu bar is the second.</small>`;
+ return '';
+}
+
+function codexVersionReport(runtime){
+ if(runtime.verdict!=='untested'&&runtime.verdict!=='accepted')return '';
+ if(CODEX_CARD.checking)return '<div class="trace-step"><b>version report</b><span class="mono dim">RAVIS is checking this build; the first check can take a couple of minutes…</span></div>';
+ if(!CODEX_CARD.report)return '<div style="margin-top:6px"><button class="btn" onclick="CODEX_CARD.check()">Check this version</button></div>';
+ return codexReportBody(CODEX_CARD.report,runtime);
+}
+
+function codexReportBody(report,runtime){
+ const checks=(Array.isArray(report.checks)?report.checks:[]).filter(c=>c&&typeof c==='object');
+ return `<div class="trace-step"><b>version report</b><span>${escapeHtml(codexReportVerdict(report,checks))}</span></div>
+  ${checks.map(codexCheckRow).join('')}${codexProtocolRow(report.protocol)}${codexAcceptPart(report,runtime,checks)}`;
+}
+
+function codexReportVerdict(report,checks){
+ const failed=checks.filter(c=>c.ok!==true).length;
+ const passed=failed?`${failed} of ${checks.length} checks didn't pass`:`all ${checks.length} checks passed`;
+ const rules=report.strict_rules==='proven'?'file rules proven':'file rules unproven';
+ return `Codex ${report.version==null?'(version not given)':report.version} · ${passed} · ${rules} · checked ${codexAgo(report.checked_at)}`;
+}
+
+function codexCheckRow(check){
+ const mark=check.ok===true?'<span class="chip">passed</span>':check.ok===false?'<span class="chip warn">failed</span>':'<span class="chip dim">not run</span>';
+ const words=codexLookup(CODEX_CHECKS,check.name)||String(check.name);
+ return `<div class="trace-step"><b>${mark}</b><span>${escapeHtml(words)}${check.detail?' — '+escapeHtml(check.detail):''}</span></div>`;
+}
+
+/* What changed since the build RAVIS tested, from the report's `protocol`. */
+function codexProtocolRow(protocol){
+ if(!protocol||typeof protocol!=='object')return '';
+ const list=field=>(Array.isArray(protocol[field])?protocol[field]:[]).map(String);
+ const lines=[protocol.stable_tree_changed||protocol.experimental_tree_changed
+  ?"Codex's protocol changed since the build RAVIS tested":"Codex's protocol is the same as the build RAVIS tested"];
+ if(protocol.strict_rules_surface_changed)lines.push('the part of Codex the file rules depend on changed');
+ if(list('used_methods_missing').length)lines.push(`calls RAVIS makes that are gone: ${list('used_methods_missing').join(', ')}`);
+ if(list('used_definitions_changed').length)lines.push(`shapes RAVIS reads that changed: ${list('used_definitions_changed').join(', ')}`);
+ if(protocol.other_definitions_changed>0)lines.push(`${Number(protocol.other_definitions_changed)} other definitions changed`);
+ return `<div class="trace-step"><b>what changed</b><span>${escapeHtml(lines.join(' · '))}</span></div>`;
+}
+
+/* Use this version, for an untested build whose checks 1 to 6 passed — RAVIS refuses any other
+   — after words saying what accepting does and doesn't do, before the button (design §4.3). */
+function codexAcceptPart(report,runtime,checks){
+ if(runtime.verdict!=='untested')return '<div class="trace-step"><b>accepted</b><span>You accepted this build. Its file rules are re-tested from the menu bar.</span></div>';
+ const failed=checks.filter(c=>c.name!=='strict_rules'&&c.ok!==true);
+ if(failed.length)return `<div class="trace-step"><b>can't be accepted</b><span>${escapeHtml(failed.map(c=>codexLookup(CODEX_CHECKS,c.name)||String(c.name)).join('; '))} — RAVIS accepts a build only once checks 1 to 6 pass.</span></div>`;
+ const key='accept:'+report.sha256;
+ const button=CODEX_CARD.busy===key?'<span class="mono dim">accepting…</span>'
+  :CODEX_CARD.armed===key?`<button class="btn primary" onclick="CODEX_CARD.accept()">Click again to accept Codex ${escapeHtml(report.version==null?'':report.version)}</button> <button class="btn" onclick="CODEX_CARD.disarm()">Not now</button>`
+  :'<button class="btn primary" onclick="CODEX_CARD.accept()">Use this version…</button>';
+ return `<small class="mono dim" style="display:block;margin:4px 0">Accepting says you trust this build. It proves nothing about how Codex's sandbox behaves, so new tasks stay paused until its file rules are re-tested. <b>Accepting doesn't start that re-test and spends none of your plan's allowance.</b> The re-test starts only from the menu bar (NERVIS → Codex → Re-test the file rules…) and uses one short Codex turn from the allowance.</small>
+  <div style="margin-top:6px">${button}</div>`;
+}
+
+/* A fresh Idempotency-Key for one task's Stop: 32 hex characters from the browser's random
+   source. Not a secret — it only has to be unique, so RAVIS can tell a retried click from a new
+   one. A browser without that source still gets one unique enough from Math.random. */
+function codexIdempotencyKey(){
+ const bytes=new Uint8Array(16);
+ const random=globalThis.crypto;
+ if(random&&typeof random.getRandomValues==='function')random.getRandomValues(bytes);
+ else bytes.forEach((_,at)=>{bytes[at]=Math.floor(Math.random()*256)});
+ return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+/* What a refused request of the card's means, in RAVIS's own words wherever it gave some. The
+   page adds only what RAVIS can't know: a reload after NERVIS restarted, the admin key, a NERVIS
+   too old for the route, and what to do when no answer came at all. */
+function codexCardRefusal(status,said,retry){
+ const error=said.error||{};
+ const words=error.message||said.message||'';
+ if(!status)return "NERVIS didn't answer, so nothing reached RAVIS. Check the stack is running, then try again.";
+ if(error.code==='CONTROL_TOKEN_REQUIRED')return 'NERVIS restarted since this page was opened, so the page can no longer act for you. Reload the page and try again.';
+ if(status===403)return `This needs RAVIS's admin key, and NERVIS's request didn't carry one RAVIS accepts. ${words}`.trim();
+ if((status===404||status===405)&&!error.code)return "This NERVIS doesn't offer that yet. Restart the stack on NERVIS 0.29.0 or later.";
+ if(status===502||status===504)return `RAVIS didn't answer, so it isn't known whether that happened. ${retry}`;
+ return words||`RAVIS refused, with HTTP ${status}.`;
+}
+
+function codexStopRefusal(status,said){
+ return codexLookup(CODEX_STOP_WORDS,(said.error||{}).code)
+  ||codexCardRefusal(status,said,'Click Stop again: RAVIS recognises the same click, so the task is never stopped twice.');
+}
+
+function codexSiteRefusal(status,said,host){
+ const error=said.error||{};
+ if(error.code==='SITE_NOT_REMOVED'&&(error.details||{}).reason==='default_site')return `${host} is one of RAVIS's default sites, so it stays allowed.`;
+ if(error.code==='SITE_NOT_REMOVED')return `${error.message||"Codex didn't take the change."} ${host} stays allowed; try again in a moment.`;
+ if(error.code==='SITES_REFUSED')return `RAVIS doesn't take ${host} as a site name, so nothing changed. ${error.message||''}`.trim();
+ return codexCardRefusal(status,said,'Look at the list again before removing it once more.');
+}
+
+function codexVersionRefusal(status,said){
+ return codexLookup(CODEX_VERSION_WORDS,(said.error||{}).code)||codexCardRefusal(status,said,'Try again.');
+}
+
+const CODEX_CARD={
+ armed:null,busy:null,note:'',keys:new Map(),stopping:new Map(),shown:[],codex:null,sites:null,
+ report:null,checking:false,scroll:false,
+
+ /* Each time RAVIS → Dashboard is drawn: forget the last screen's half-armed click and its note.
+    What outlives a redraw stays: the keys a retried Stop must reuse, and the tasks stopped here. */
+ arrive(codex,sites){
+  this.armed=null;this.note='';
+  this.hold(codex,sites);
+ },
+
+ /* The reading every button acts on: a click acts on what its row showed, never on a newer list.
+    A report about a build that is no longer the one installed is let go. */
+ hold(codex,sites){
+  this.codex=codex;this.sites=sites;
+  this.shown=codex.live&&Array.isArray(codex.runs)?codex.runs.filter(r=>r&&typeof r==='object'):[];
+  if(this.report&&this.report.sha256!==(codex.runtime||{}).installed_sha256)this.report=null;
+ },
+
+ /* Opened from the Overview's link: brought into view once the screen is drawn. */
+ land(){
+  if(!this.scroll)return;
+  this.scroll=false;
+  const card=document.getElementById('codex-card');
+  if(card)card.scrollIntoView({block:'start'});
+ },
+
+ /* True when this click is the second on `key`; otherwise arms it and says what the second does. */
+ confirmed(key,warning){
+  if(this.armed===key){this.armed=null;return true}
+  this.armed=key;this.note='';
+  notify(warning+' — click again to confirm');
+  this.repaint();
+  return false;
+ },
+
+ disarm(){this.armed=null;this.repaint()},
+
+ async stop(id){
+  const run=this.shown.find(r=>r.id===id);
+  if(!run||!codexCanStop(run)||this.busy||this.stopping.get(run.id)===run.turn_id)return;
+  const key=codexTaskKey(run);
+  if(!this.confirmed('stop:'+key,`Stopping ends Codex's current step in ${run.project}, and its commands`))return;
+  if(!this.keys.has(key))this.keys.set(key,codexIdempotencyKey());
+  this.busy='stop:'+key;this.repaint();
+  const r=await codexControl('POST',`/runs/${encodeURIComponent(run.id)}/stop`,
+   {project:run.project,turn_id:run.turn_id},{'Idempotency-Key':this.keys.get(key)});
+  this.busy=null;
+  if(r.ok)this.stopping.set(run.id,run.turn_id);
+  this.note=r.ok
+   ?`Stopping Codex's task in ${run.project}. RAVIS ends its commands and keeps its work in the project; open the project in an editor to review and save it.`
+   :codexStopRefusal(r.status,r.body);
+  await this.redraw();
+ },
+
+ async remove(host){
+  const name=String(host),sites=this.sites;
+  if(this.busy||!(sites&&sites.live&&sites.added.includes(name)))return;
+  if(!this.confirmed('site:'+name,`Removing ${name} stops Codex conversations that start from now on reaching it`))return;
+  this.busy='site:'+name;this.repaint();
+  const r=await codexControl('DELETE','/sites/'+encodeURIComponent(name));
+  this.busy=null;
+  const view=r.body||{};
+  this.note=r.ok?`${name} removed. Codex conversations that start or reopen from now on can't reach it.`
+   :codexSiteRefusal(r.status,r.body,name);
+  if(!(r.ok&&Array.isArray(view.defaults)&&Array.isArray(view.added)))return this.redraw();
+  this.sites={live:true,defaults:view.defaults,added:view.added};
+  this.repaint();
+ },
+
+ async check(){
+  if(this.checking)return;
+  this.checking=true;this.note='';this.repaint();
+  const r=await codexControl('GET','/version-check');
+  this.checking=false;
+  const report=r.ok?(r.body||{}).version_check:null;
+  if(report&&typeof report==='object')this.report=report;
+  else this.note=r.ok?'RAVIS answered without a version report.':codexVersionRefusal(r.status,r.body);
+  this.repaint();
+ },
+
+ async accept(){
+  const report=this.report,runtime=((this.codex||{}).runtime)||{};
+  if(!report||this.busy||runtime.verdict!=='untested')return;
+  const key='accept:'+report.sha256;
+  if(!this.confirmed(key,`Accepting Codex ${report.version} lets it take tasks once its file rules are re-tested`))return;
+  this.busy=key;this.repaint();
+  const r=await codexControl('POST','/accept-version',{sha256:report.sha256});
+  this.busy=null;
+  this.note=r.ok
+   ?`Codex ${report.version} accepted. New tasks stay paused until its file rules are re-tested from the menu bar (NERVIS → Codex → Re-test the file rules…), which uses one short Codex turn from your plan's allowance.`
+   :codexVersionRefusal(r.status,r.body);
+  if(!(r.ok&&r.body&&typeof r.body.state==='string'))return this.redraw();
+  this.hold({...r.body,live:true},this.sites);
+  this.repaint();
+ },
+
+ repaint(){
+  const slot=document.getElementById('codex-card-body');
+  if(slot&&codexCardShown()&&this.codex)slot.innerHTML=codexCardBody(this.codex,this.sites);
+ },
+
+ async redraw(){
+  const [codex,sites]=await Promise.all([API.ravis.codex(),API.ravis.codexSites()]);
+  this.hold(codex,sites);
+  this.repaint();
+ },
+};
+
+function liveRavisDashboard(decisions, usage, codex, sites){
  const share=usage.local_share;
+ CODEX_CARD.arrive(codex,sites);
  $('#content').innerHTML=kpis([
    ['Decisions',`${usage.routed} / ${usage.decisions_recorded}`,
      usage.no_route?`${usage.no_route} refused as no-route`:'none refused','ravis',true],
@@ -9670,23 +10134,25 @@ function liveRavisDashboard(decisions, usage, codex){
    ['Spend',spendFigure(usage),spendNote(usage),'ravis',true,
      `<button class="btn" style="margin-top:8px" onclick="resetSpend()" title="Count from now. Nothing is deleted, and the budget keeps its own window.">Reset to 0</button>`],
    codexTile(codex)])
+ +codexCard(codex)
  +(decisions.length
    ? decisionCard(decisions[0])+funnelCard(decisions[0])+attemptsCard(decisions[0])
      +recentDecisionsCard(decisions.slice(0,8))
    : `<div class="card full live"><h3>Nothing has routed yet</h3>${cell(`
    <div class="trace-step"><b>decisions recorded</b><span>0</span></div>
    <small class="mono dim">RAVIS records a decision per request and keeps them in memory — §17's storage model does not list them, and a breaker that survived a restart would be worse than one that did not. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`);
+ CODEX_CARD.land();
 }
 
 async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
  heading('Route intelligence','Hard constraints eliminate, then preferences rank. Every route explains itself.',control('Simulate request','reroute',' primary'));
  const since=await API.ravis.spendCountedSince();
- const [decisions,usage,codex]=await Promise.all([API.ravis.decisions(25),
-   API.ravis.usage(since),API.ravis.codex()]);
+ const [decisions,usage,codex,sites]=await Promise.all([API.ravis.decisions(25),
+   API.ravis.usage(since),API.ravis.codex(),API.ravis.codexSites()]);
  /* Live when RAVIS answers at all — the counts are real even before anything
     has routed, and "nothing has routed yet" is a better first screen than four
     invented figures. */
- if(usage.live)return liveRavisDashboard(decisions.items,usage,codex);
+ if(usage.live)return liveRavisDashboard(decisions.items,usage,codex,sites);
  $('#content').innerHTML=banner('RAVIS has recorded no route decision',
   'Nothing has been routed through RAVIS yet, or it is not answering. Send a request and '
   +'this screen explains exactly which model was chosen and why every other candidate was '
@@ -11144,10 +11610,11 @@ function codexCountdown(expires){
 }
 
 /* One call to NERVIS's Codex control routes. Never throws: a refusal comes back with
-   the sentence the card shows. */
-async function codexControl(method,sub,body){
+   the sentence the card shows. `headers` is only ever a task Stop's Idempotency-Key,
+   added beside the page's control header. */
+async function codexControl(method,sub,body,headers){
  try{
-  const r=await fetch(BASE.nervis+'/api/v1/ravis/codex'+sub,{method,headers:control_headers(),
+  const r=await fetch(BASE.nervis+'/api/v1/ravis/codex'+sub,{method,headers:{...control_headers(),...(headers||{})},
     cache:'no-store',body:body==null?null:JSON.stringify(body)});
   const said=(await r.json().catch(()=>null))||{};
   return{ok:r.ok,status:r.status,body:said,words:r.ok?'':codexRefusal(r.status,said)};

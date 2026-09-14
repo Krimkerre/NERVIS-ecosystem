@@ -278,6 +278,7 @@ def test_status_carries_codex_as_ravis_reports_it_trimmed_to_what_the_menu_draws
         "state": "signed_in",
         "reason": "Codex is signed in with a ChatGPT Plus plan.",
         "plan": "plus",
+        "signed_in": True,
         "usage_known": True,
         "stale": False,
         "windows": [
@@ -289,15 +290,21 @@ def test_status_carries_codex_as_ravis_reports_it_trimmed_to_what_the_menu_draws
         "runs": [
             {"id": SESSION, "turn_id": TURN, "project": "add-utc-demo", "state": "waiting_on_you",
              "since": "2026-09-13T01:12:00Z", "age_minutes": 42, "waiting_minutes": 12,
-             "attached_windows": 0},
+             "attached_windows": 0, "model": "gpt-6-astra", "effort": "medium", "reopening": None},
+            # Reconnecting: RAVIS is reopening its Codex conversation so a newly allowed site
+            # reaches it. The menu says only that, so the sites themselves aren't carried.
             {"id": "as_01J9ZK7W1X2Y3Z4A5B6C7D8E", "turn_id": "019a1c30-2e3f-7d4c-b5a6-7f8e9d0c1b23",
              "project": "weather-cli", "state": "running", "since": "2026-09-13T01:40:00Z",
-             "age_minutes": 14, "waiting_minutes": None, "attached_windows": 1},
+             "age_minutes": 14, "waiting_minutes": None, "attached_windows": 1,
+             "model": "gpt-6-astra", "effort": None,
+             "reopening": {"since": "2026-09-13T01:52:00Z"}},
             # A Clarvis-engine run holds a project but is no Codex task: there is nothing to stop.
             {"id": None, "turn_id": None, "project": "notes-app", "state": "clarvis_engine",
              "since": "2026-09-13T01:50:00Z", "age_minutes": 4, "waiting_minutes": None,
-             "attached_windows": 1},
+             "attached_windows": 1, "model": None, "effort": None, "reopening": None},
         ],
+        # The build RAVIS runs, for the menu's re-test item: no sha256, signature or schema.
+        "runtime": {"version": "0.154.0", "verdict": "tested", "strict_rules": "proven"},
         "sign_in_waiting": False,
         # The line opens the Codex card, which is on RAVIS's dashboard screen.
         "address": run.DASHBOARD + "#/ravis/Dashboard",
@@ -339,6 +346,60 @@ def test_an_allowance_ravis_does_not_know_is_never_drawn_as_a_figure(
     assert len(ravis.calls) == 2
 
 
+@pytest.mark.parametrize(("example", "signed_in"), [
+    ("signed in, three projects busy, read by a named caller", True),
+    ("signed out", False),
+])
+def test_signed_in_says_whether_an_account_is_signed_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, example: str, signed_in: bool,
+) -> None:
+    """The menu offers Sign in to Codex… only where RAVIS would start one, with nobody signed in.
+    Codex paused for re-testing can be either, so the state word alone can't tell the menu."""
+    state = _contract("codex-state.json")
+    ravis = FakeRavis({("GET", "/api/v1/codex"): [_answer(state["examples"], example)]})
+    run, _ = _launcher(monkeypatch, tmp_path, ravis)
+    _hold_keys(run)
+
+    codex = run._codex_reading()
+
+    assert codex is not None and codex["signed_in"] is signed_in
+
+
+def test_what_ravis_did_not_send_is_none_and_nothing_past_the_listed_fields_is_printed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A RAVIS before 0.25.1 sends no task model, effort or reopening, and one may send no runtime:
+    each is None, never a guess the menu would draw. And only the listed fields are printed — not
+    the sites a reopening is for, its group, the build's sha256 or its process — because the menu
+    logs what it reads, and what it isn't given it can't show by mistake.
+    """
+    state = _contract("codex-state.json")
+    status, reading = _answer(
+        state["examples"], "signed in, three projects busy, read by a named caller"
+    )
+    older = json.loads(json.dumps(reading))
+    for row in older["runs"]:
+        for field in ("model", "effort", "reopening"):
+            row.pop(field, None)
+    del older["runtime"]
+    ravis = FakeRavis({("GET", "/api/v1/codex"): [(status, older), (status, reading)]})
+    run, _ = _launcher(monkeypatch, tmp_path, ravis)
+    _hold_keys(run)
+
+    before = run._codex_reading()
+    assert before is not None and before["runtime"] is None
+    assert [(row["model"], row["effort"], row["reopening"]) for row in before["runs"]] == [
+        (None, None, None)
+    ] * 3
+
+    printed = json.dumps(run._codex_reading())
+    reopening = next(row["reopening"] for row in reading["runs"] if row["reopening"])
+    assert reopening["hosts"] and reopening["group_id"]
+    for kept_back in (*reopening["hosts"], reopening["group_id"],
+                      reading["runtime"]["installed_sha256"], "active_turns"):
+        assert kept_back not in printed
+
+
 @pytest.mark.parametrize(("answer", "said"), [
     ((0, None), "RAVIS is not answering"),
     ((500, {"error": {"code": "INTERNAL", "message": "boom"}}), "HTTP 500"),
@@ -363,8 +424,9 @@ def test_codex_is_not_known_when_ravis_cannot_say(
     assert codex is not None
     assert said in codex.pop("reason")
     assert codex == {
-        "state": "ravis_not_answering", "plan": None, "usage_known": False, "stale": None,
-        "windows": [], "runs": None, "sign_in_waiting": None, "address": run.CODEX_CARD,
+        "state": "ravis_not_answering", "plan": None, "signed_in": None, "usage_known": False,
+        "stale": None, "windows": [], "runs": None, "runtime": None, "sign_in_waiting": None,
+        "address": run.CODEX_CARD,
     }
 
 

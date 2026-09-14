@@ -150,6 +150,7 @@ async def configure(
     body: dict[str, Any] | None = None,
     *,
     timeout: float = 10.0,
+    headers: Mapping[str, str] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """One configuration write, on the operator's behalf (§16 item 4).
 
@@ -176,7 +177,22 @@ async def configure(
     ten seconds to start or cancel a sign-in and more to read an account, so a
     ten-second wait here would turn RAVIS's own answer — "Codex did not answer the
     sign-in request in time" — into NERVIS's vaguer "RAVIS did not answer".
+
+    `headers` is keyword-only too, and one route passes it: a Codex task's Stop, which
+    must hand RAVIS the page's own `Idempotency-Key`, so a click the browser retries
+    after a lost answer is replayed by RAVIS rather than carried out twice
+    (`design/codex-engine/design.md` §3.8, final check F-A2). They travel beside
+    NERVIS's own header. **None of them may be called `authorization`, in any
+    case**: that header carries NERVIS's admin credential, and a caller able to set
+    it could send a different one under NERVIS's name. Asking for it is a mistake in
+    NERVIS's own code, so it raises `ValueError` before anything is sent, rather than
+    being dropped quietly and leaving the mistake in place.
     """
+    if headers is not None and any(name.lower() == "authorization" for name in headers):
+        raise ValueError(
+            "configure() presents NERVIS's admin credential itself; its headers may not "
+            "carry authorization"
+        )
     if entry is None or not entry.declaration.base_url:
         return 503, {"message": "RAVIS is not registered"}
     if not credential:
@@ -189,7 +205,7 @@ async def configure(
         }
     return await _credential_call(
         client, method, f"{entry.declaration.base_url}{path}", credential, body,
-        timeout=timeout,
+        timeout=timeout, headers=headers,
     )
 
 
@@ -201,16 +217,20 @@ async def _credential_call(
     body: dict[str, Any] | None,
     *,
     timeout: float = 10.0,
+    headers: Mapping[str, str] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """One authorised call to RAVIS's credential surface.
 
     Shared by both operations because they fail the same three ways, and a
     second copy is how one of them ends up without the authorization header.
+
+    NERVIS's authorization header is written after anything in `headers`, so even a
+    caller that slipped past `configure`'s check could not stand in for it.
     """
     try:
         answered = await client.request(
             method, url,
-            headers={"authorization": f"Bearer {credential}"},
+            headers={**(headers or {}), "authorization": f"Bearer {credential}"},
             json=body,
             timeout=timeout,
         )

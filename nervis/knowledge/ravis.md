@@ -484,6 +484,56 @@ hasn't read the allowance yet — while Codex is idle it reads it every 15 minut
 never shown as 0%. **Stale** means the last reading is more than 30 minutes old, and the
 tooltip says how old. Signed out, the tile links to RAVIS → Credentials.
 
+### Codex's tasks, allowed sites and new versions: the Codex card
+
+Since 14 September 2026 (NERVIS 0.29.0) RAVIS → Dashboard has a **Codex** card under the headline
+tiles (`http://127.0.0.1:8790/#/ravis/Dashboard`); the Overview's Codex line counts the tasks and
+opens it.
+
+- **Tasks.** Each Codex task RAVIS is running or holding: its project folder (never a path); its
+  state — running, waiting for your answer, paused after waiting 30 minutes for an answer, paused
+  because Codex updated, finished and needing review, uncertain after being cut off mid-step, or
+  stopped with processes left over; how long it has waited or run; the model and effort it runs at;
+  how many editors have it open; and *reconnecting* while RAVIS reopens its Codex conversation so a
+  site the owner just allowed can be reached, which takes up to two minutes. A project Clarvis's own
+  engine is writing in is listed too, marked as not Codex.
+- **Stop… is the only thing the dashboard can do to a task.** It sits beside a running or waiting
+  task and takes two clicks: the first says what will happen, the second stops Codex's current step
+  and the commands it started. Codex's work so far stays in the project, to review and save in
+  Clarvis. The stop names the folder and turn the card showed: if the task moved on meanwhile, RAVIS
+  stops nothing and the card says the task changed and shows the fresh list. A click retried after a
+  lost answer is recognised by RAVIS and never stops anything twice. Answering, approving and steering
+  happen only in Clarvis.
+- **Allowed sites.** The websites Codex's commands may reach: RAVIS's defaults (package registries,
+  GitHub and the like), folded away and never removable, and the sites the owner allowed through
+  Clarvis, each with **Remove** (two clicks). A removed site stops reaching Codex conversations that
+  start or reopen afterwards; a task already running keeps reaching it until its conversation
+  reopens. While Codex isn't running the list can't be read, and the card says so.
+- **A new Codex version.** When Homebrew installs a Codex build RAVIS hasn't tested, new tasks pause.
+  **Check this version** shows RAVIS's seven checks on the build and what changed since the tested
+  one; **Use this version…** (two clicks) accepts it. Accepting doesn't start the file-rules re-test
+  and spends none of the plan's allowance; tasks stay paused until the re-test proves the rules, and
+  the re-test starts only from the menu bar (NERVIS → Codex → Re-test the file rules…), using one
+  short Codex turn.
+
+Behind the card NERVIS forwards four control routes to RAVIS with its RAVIS admin credential, each
+after checking the page's control token: a task's Stop, to RAVIS's owner Stop; removing a site;
+the version report; and accepting a version. A task id, the stop's key and a site's name are
+checked before anything reaches RAVIS.
+
+### Codex in the menu bar
+
+The menu bar app has a Codex line under the model runtimes, read from `tools/run.py status --json`:
+the task count or Codex's state, each task with how long it has waited, and the allowance per
+window. Clicking the line opens the Codex card. Each task's submenu shows the model and effort and
+has **Stop this task…**, which asks first, naming the folder, and runs `tools/run.py codex stop`
+with the owner's own command-line key. **Re-test the file rules…** appears for an accepted Codex
+version whose rules aren't proven yet, and asks first, saying it uses one short Codex turn of the
+plan's allowance; for a version nobody has accepted, the menu points to the Codex card instead.
+**Sign in to Codex…** appears while Codex is signed out, and **Cancel the Codex sign-in** while a
+sign-in waits. The line is never red. The copy of the app in /Applications shows it once it has been
+rebuilt from NERVIS 0.29.0.
+
 ## Trying a model on purpose, so it can be measured at all
 
 Two switches under **Model** in chat's settings, both off unless switched on.

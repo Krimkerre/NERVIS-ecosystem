@@ -6,6 +6,11 @@
 // when it quits. No Dock icon and no window: the menu bar icon is the whole of it,
 // which is what the owner asked for on 12 September 2026.
 //
+// **Codex** (N1b, 14 September 2026) has a line under the model runtimes: its state, the tasks
+// RAVIS runs for Clarvis with how long each has waited, and the ChatGPT plan's allowance. From
+// there the owner can stop a task, re-test Codex's file rules and sign Codex in, each behind
+// `tools/run.py codex …` — and nothing more: approving, answering and steering happen in Clarvis.
+//
 // **An app that holds no code.** The plan had a bundle per service — NERVIS M19,
 // SIRVIS M22, RAVIS M24 — and a bundle that carries the services has to be rebuilt
 // whenever one of them changes, which here is several times a day. This one carries a
@@ -64,10 +69,84 @@ struct StackReport: Decodable {
         let screen: String
     }
 
+    /// Codex, OpenAI's coding agent, as RAVIS runs it for Clarvis: the launcher's trimmed reading
+    /// of RAVIS's `GET /api/v1/codex` (`tools/run.py`, `_codex_block`). Every field but the state
+    /// is optional, because a field the launcher couldn't fill is left out, never guessed.
+    struct Codex: Decodable {
+        /// One allowance window of the ChatGPT plan: what is left of it, and when it resets.
+        struct Window: Decodable {
+            let label: String?
+            let remainingPercent: Double?
+            let resetsAt: String?
+        }
+
+        /// One task RAVIS lists. A Clarvis-engine run has no id or turn: there is no Codex task
+        /// to stop, only a project Clarvis's own engine is writing in.
+        struct Run: Decodable {
+            /// Set while RAVIS reopens the task's Codex conversation so a newly allowed site
+            /// reaches it; carried as when it began only.
+            struct Reopening: Decodable {
+                let since: String?
+            }
+
+            let id: String?
+            let turnId: String?
+            let project: String?
+            let state: String?
+            let since: String?
+            let ageMinutes: Double?
+            let waitingMinutes: Double?
+            let attachedWindows: Int?
+            let model: String?
+            let effort: String?
+            let reopening: Reopening?
+        }
+
+        /// The Codex build RAVIS runs, which decides whether the file-rules re-test is offered.
+        struct Runtime: Decodable {
+            let version: String?
+            let verdict: String?
+            let strictRules: String?
+        }
+
+        /// RAVIS's state word, or `ravis_not_answering` when RAVIS couldn't be asked.
+        let state: String
+        let reason: String?
+        let plan: String?
+        let signedIn: Bool?
+        let usageKnown: Bool?
+        let stale: Bool?
+        let windows: [Window]?
+        /// Nil when RAVIS couldn't be asked: that says nothing about tasks, where [] says none.
+        let runs: [Run]?
+        let runtime: Runtime?
+        let signInWaiting: Bool?
+        /// The Codex card on the dashboard, which the Codex line opens.
+        let address: String?
+    }
+
     let services: [Service]
     let dashboard: String
     let system: System?
     let notifications: Notifications?
+    /// Codex's entry: nil from a RAVIS that serves no Codex state, and nil when this build can't
+    /// read the entry the launcher printed.
+    let codex: Codex?
+
+    private enum CodingKeys: String, CodingKey {
+        case services, dashboard, system, notifications, codex
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        services = try container.decode([Service].self, forKey: .services)
+        dashboard = try container.decode(String.self, forKey: .dashboard)
+        system = try container.decodeIfPresent(System.self, forKey: .system)
+        notifications = try container.decodeIfPresent(Notifications.self, forKey: .notifications)
+        // A Codex entry this build can't read — from a launcher newer than the app, say — costs the
+        // Codex line only, never the whole menu: the stack's lines still draw.
+        codex = try? container.decodeIfPresent(Codex.self, forKey: .codex)
+    }
 
     var stack: [Service] { services.filter { $0.group == "stack" } }
     /// The menu's Stack section: the stack with CLARVIS, in the launcher's order.
@@ -442,6 +521,278 @@ enum Figures {
     private static func gb(_ bytes: Double) -> String { String(format: "%.1f", bytes / gibibyte) }
 }
 
+// MARK: - Codex's line
+
+/// What the menu says about Codex, worked out from the launcher's reading and nothing else
+/// (design §7.1): the row's words and its dot, the lines under it, and what each task offers.
+///
+/// **Never red.** Codex signed out, paused or used up is something for the owner to do, not a
+/// fault in the stack: orange where the owner is needed, blue while tasks work, green when Codex
+/// is ready and grey when nothing can be said. And **unknown is never a number**: an allowance
+/// RAVIS hasn't read is said to be unread, never "0% left".
+struct CodexLine {
+    enum Tone { case ready, working, needsYou, unknown }
+
+    /// What a task's submenu offers: Stop for that task's id, or why there is nothing to stop.
+    enum StopOffer: Equatable {
+        case offer(String)
+        case unavailable(String)
+    }
+
+    let title: String
+    let tone: Tone
+    let allowance: [String]
+
+    /// The task states RAVIS lists (`codex-state.json` → `run_states`), as the menu says them.
+    static let taskWords: [String: String] = [
+        "running": "running",
+        "waiting_on_you": "waiting for your answer",
+        "paused_unanswered": "paused — waited 30 min for an answer",
+        "paused_for_update": "paused — Codex updated",
+        "completed_needs_review": "finished — needs review",
+        "uncertain": "uncertain — cut off mid-step",
+        "leftover": "stopped, with processes left over",
+        "clarvis_engine": "Clarvis's own engine, not Codex",
+    ]
+    /// What a Stop can reach. RAVIS stops a task that is starting, running, waiting or already
+    /// stopping, and lists all of those as running or waiting; anything else has stopped.
+    static let stoppable: Set<String> = ["running", "waiting_on_you"]
+    /// Tasks held for the owner in Clarvis: a question that waited too long, a review, a restart.
+    static let needingYou: Set<String> = [
+        "paused_unanswered", "paused_for_update", "completed_needs_review", "uncertain", "leftover",
+    ]
+    /// Codex's own states, as the row says them when no task is listed.
+    static let stateWords: [String: String] = [
+        "checking": "checking…",
+        "not_installed": "not installed",
+        "not_available": "not available",
+        "untested_version": "paused — needs re-testing",
+        "runtime_down": "process restarting",
+        "signed_out": "signed out",
+        "sign_in_expired": "sign-in expired",
+        "account_changed": "different account — confirm it on the dashboard",
+        "quota_exhausted": "allowance used up",
+        "signed_in": "signed in",
+        "ravis_not_answering": "not known — RAVIS isn't answering",
+    ]
+    /// The states that need the owner, drawn orange; the others, with nothing running, are grey.
+    static let orange: Set<String> = [
+        "signed_out", "sign_in_expired", "account_changed", "untested_version", "quota_exhausted",
+    ]
+
+    init(_ codex: StackReport.Codex) {
+        let tasks = (codex.runs ?? []).filter { $0.state != "clarvis_engine" }
+        let waiting = tasks.filter { $0.state == "waiting_on_you" }.count
+        let needing = tasks.filter { CodexLine.needingYou.contains($0.state ?? "") }.count
+        let head = CodexLine.headline(codex, tasks: tasks.count, waiting: waiting, needing: needing)
+        title = head.0
+        tone = head.1
+        allowance = CodexLine.allowanceLines(codex)
+    }
+
+    /// The row: the tasks first, since they are what the owner can act on; then, with none, the
+    /// state and what is left of the tightest allowance window.
+    static func headline(
+        _ codex: StackReport.Codex, tasks: Int, waiting: Int, needing: Int
+    ) -> (String, Tone) {
+        let count = tasks == 1 ? "1 task" : "\(tasks) tasks"
+        if waiting > 0 { return ("Codex · \(count) · \(waiting) waiting for your answer", .needsYou) }
+        if needing > 0 { return ("Codex · \(count) · \(needing) \(needing == 1 ? "needs" : "need") you", .needsYou) }
+        if tasks > 0 { return ("Codex · \(count) running", .working) }
+        if codex.signInWaiting == true { return ("Codex · signing in — finish in the browser", .needsYou) }
+        let tight = tightest(codex)
+        switch codex.state {
+        case "signed_in":
+            guard let tight, let left = tight.remainingPercent else {
+                return ("Codex · signed in · allowance not read yet", .ready)
+            }
+            let old = codex.stale == true ? " · an old reading" : ""
+            return ("Codex · \(percent(left)) left · resets \(clock(tight.resetsAt))\(old)", .ready)
+        case "quota_exhausted":
+            return ("Codex · allowance used up" + (tight.map { " · resets \(clock($0.resetsAt))" } ?? ""), .needsYou)
+        default:
+            return ("Codex · \(stateWords[codex.state] ?? codex.state)", orange.contains(codex.state) ? .needsYou : .unknown)
+        }
+    }
+
+    /// One task under the row, as design §7.1 words it: "add-utc-demo — waiting for your answer ·
+    /// 12 min, no editor open".
+    static func taskLine(_ run: StackReport.Codex.Run, stopping: [String: String]) -> String {
+        let project = run.project ?? "a folder RAVIS didn't name"
+        let state = run.state ?? ""
+        if isStopping(run, stopping: stopping) { return "\(project) — stopping…" }
+        guard state != "clarvis_engine" else { return "\(project) — \(taskWords[state] ?? state)" }
+        let words = run.reopening != nil ? "reconnecting Codex (up to two minutes)" : taskWords[state] ?? state
+        var line = "\(project) — \(words)"
+        if let minutesShown = run.waitingMinutes ?? run.ageMinutes { line += " · \(minutes(minutesShown))" }
+        if run.attachedWindows == 0 { line += ", no editor open" }
+        return line
+    }
+
+    /// The quiet lines in a task's submenu: the model and effort it runs at, and a reconnect.
+    static func taskNotes(_ run: StackReport.Codex.Run) -> [String] {
+        var notes: [String] = []
+        if run.state != "clarvis_engine", run.model != nil || run.effort != nil {
+            let effort = run.effort.map { "\($0) effort" } ?? "its default effort"
+            notes.append("Runs \(run.model ?? "Codex's default model") at \(effort)")
+        }
+        if run.reopening != nil {
+            notes.append("Reconnecting Codex so a newly allowed site works — up to two minutes")
+        }
+        return notes
+    }
+
+    /// Stop this task…, only where RAVIS would stop something, with the id, folder and turn its
+    /// confirmation sends back; otherwise the reason there is nothing to stop.
+    static func stop(_ run: StackReport.Codex.Run, stopping: [String: String]) -> StopOffer {
+        if run.state == "clarvis_engine" { return .unavailable("Clarvis's own engine — stop it in the editor") }
+        guard stoppable.contains(run.state ?? "") else {
+            return .unavailable("Nothing to stop — open the project in Clarvis to review it")
+        }
+        guard let id = run.id, run.project != nil, run.turnId != nil else {
+            return .unavailable("Stop this task… once Codex begins its first step")
+        }
+        return isStopping(run, stopping: stopping) ? .unavailable("Stopping…") : .offer(id)
+    }
+
+    /// Whether this menu asked RAVIS to stop the task on the turn RAVIS still lists it working.
+    static func isStopping(_ run: StackReport.Codex.Run, stopping: [String: String]) -> Bool {
+        guard let id = run.id, let turn = run.turnId else { return false }
+        return stopping[id] == turn && stoppable.contains(run.state ?? "")
+    }
+
+    /// Sign in is offered where RAVIS would start one: nobody signed in, and Codex either signed
+    /// out or paused on a build RAVIS runs a process for. Any other state, RAVIS refuses it.
+    static func canSignIn(_ codex: StackReport.Codex) -> Bool {
+        guard codex.signedIn == false else { return false }
+        if codex.state == "signed_out" || codex.state == "sign_in_expired" { return true }
+        return codex.state == "untested_version" && codex.runtime?.verdict != "untested"
+    }
+
+    /// Each allowance window: "5-hour window · 62% left · resets 04:30". None drawn as a number
+    /// while RAVIS hasn't read them; signed in, the menu says it hasn't.
+    static func allowanceLines(_ codex: StackReport.Codex) -> [String] {
+        let windows = codex.usageKnown == true ? (codex.windows ?? []) : []
+        guard !windows.isEmpty else {
+            return codex.signedIn == true
+                ? ["Allowance not read yet: RAVIS reads it every 15 minutes while Codex is idle"] : []
+        }
+        let old = codex.stale == true ? " · an old reading" : ""
+        return windows.map { window in
+            let left = window.remainingPercent.map { "\(percent($0)) left" } ?? "not known"
+            return "\(window.label ?? "A window") · \(left) · resets \(clock(window.resetsAt))\(old)"
+        }
+    }
+
+    /// The window with the least left, among those RAVIS gave a figure for.
+    static func tightest(_ codex: StackReport.Codex) -> StackReport.Codex.Window? {
+        guard codex.usageKnown == true else { return nil }
+        return (codex.windows ?? []).filter { $0.remainingPercent != nil }
+            .min { ($0.remainingPercent ?? 0) < ($1.remainingPercent ?? 0) }
+    }
+
+    static func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }
+
+    static func minutes(_ value: Double) -> String {
+        let whole = Int(value.rounded())
+        return whole < 60 ? "\(whole) min" : "\(whole / 60) h \(whole % 60) min"
+    }
+
+    /// A time from RAVIS in local time, 24-hour: the clock alone today, the day and date otherwise.
+    static func clock(_ iso: String?) -> String {
+        guard let iso, let date = parsedDate(iso) else { return "at a time not given" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.dateFormat = Calendar.current.isDateInToday(date) ? "HH:mm" : "EEE d MMM HH:mm"
+        return formatter.string(from: date)
+    }
+
+    static func parsedDate(_ iso: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: iso) { return date }
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: iso)
+    }
+}
+
+extension CodexLine.Tone {
+    var colour: NSColor {
+        switch self {
+        case .ready: return .systemGreen
+        case .working: return .systemBlue
+        case .needsYou: return .systemOrange
+        case .unknown: return .tertiaryLabelColor
+        }
+    }
+}
+
+/// The menu's sentences for Codex's dialogs and for each exit code of `run.py codex …`, as the
+/// `launcher` sections of RAVIS's contract fixtures name them: `owner-stop.json` for Stop,
+/// `codex-admin.json` for the re-test, and the sign-in's from design §3.7. An exit the contract
+/// doesn't name is 1, and then the launcher's own sentence is shown.
+enum CodexWords {
+    static func stopQuestion(_ run: StackReport.Codex.Run) -> String {
+        let state = CodexLine.taskWords[run.state ?? ""] ?? "running"
+        let started = run.since.flatMap { CodexLine.parsedDate($0) == nil ? nil : CodexLine.clock($0) }
+        let opening = started.map { "It started at \($0) and is \(state)." } ?? "It is \(state)."
+        return opening + " Stopping ends its current step and the commands it started. Codex's work "
+            + "so far stays in the project; open the project in an editor to review and save it. "
+            + "Nothing is answered or approved."
+    }
+
+    static func stopExit(_ code: Int32, _ error: String?) -> String {
+        switch code {
+        case 6: return "RAVIS isn't answering, so the stop didn't reach it. The task may still be running; try again once RAVIS is back."
+        case 8: return "That task changed; the menu has been refreshed. Look at the task again, and stop it again if you still want to."
+        case 9: return "That task isn't running any more, so there was nothing to stop."
+        case 10: return "RAVIS refused to stop it. " + (error ?? "It gave no reason.")
+        case 2: return "The menu couldn't name the task to the launcher: its id, folder or turn was missing. The menu has been refreshed; try again."
+        default: return error.map { "The launcher couldn't stop it. \($0)" }
+            ?? "The launcher couldn't stop it and gave no reason; .run/menubar.log may say more."
+        }
+    }
+
+    static func retestQuestion(version: String?) -> (String, String) {
+        let build = version.map { "Codex \($0)" } ?? "Codex"
+        return ("Re-test \(build)'s file rules?",
+                "Codex is asked to run four fixed test commands in two throwaway folders with no network "
+                + "— reading a decoy key file, and writing outside its folder — and RAVIS approves exactly "
+                + "those, so only the file rules can stop them. It uses one short Codex turn from your "
+                + "plan's allowance, at low effort, and takes at most 5 minutes. No Codex task can run "
+                + "meanwhile, and none of your projects is touched.")
+    }
+
+    static func retestResult(_ code: Int32, _ error: String?) -> (String, String) {
+        switch code {
+        case 0: return ("The file rules held", "Every rule that keeps Codex away from your key files held on this build, so Codex can take tasks again.")
+        case 11: return ("A file rule didn't hold", "On this Codex build a rule that keeps Codex away from your key files didn't hold, so Codex stays paused for tasks, and what happens next is your decision. Nothing ran in your projects: the test used throwaway folders.")
+        case 12: return ("The re-test couldn't tell", "Codex didn't follow the four test commands, or the test hit its time or step limit. The file rules stay unproven and Codex stays paused; you can try again.")
+        case 7: return ("A Codex task is running", "The re-test runs only while no Codex task is live. Stop or finish the task, then try again.")
+        case 6: return ("RAVIS isn't answering", "The re-test didn't start. Try again once RAVIS is running.")
+        case 10: return ("RAVIS refused the re-test", error ?? "It gave no reason.")
+        default: return ("The re-test didn't finish", error ?? "The launcher gave no reason; .run/menubar.log may say more.")
+        }
+    }
+
+    static func signInExit(_ code: Int32, _ error: String?) -> String {
+        switch code {
+        case 3: return "Codex is already signed in."
+        case 4: return "Codex isn't installed, or it is a build RAVIS hasn't tested, so there is nothing to sign in to yet."
+        case 5: return "Another program is holding the sign-in ports 1455 and 1457 — usually the ChatGPT app's own Codex signing in. Finish or close that sign-in, then try again."
+        case 6: return "RAVIS isn't answering, so the sign-in didn't start."
+        case 7: return "Codex is working on a task; sign in after it pauses."
+        case 10: return "RAVIS refused. " + (error ?? "It gave no reason.")
+        default: return error ?? "The launcher gave no reason; .run/menubar.log may say more."
+        }
+    }
+
+    /// The `error` sentence of the launcher's one JSON line, when it printed one.
+    static func error(_ data: Data) -> String? {
+        let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return answer?["error"] as? String
+    }
+}
+
 // MARK: - The menu bar icon and its menu
 
 @MainActor
@@ -471,6 +822,13 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var menuStale = false
     private var ticks = 0
     private var renewTimer: Timer?
+    /// Codex tasks this menu asked RAVIS to stop, by id, with the turn the stop confirmed: drawn
+    /// as stopping until RAVIS no longer lists that task working on that turn.
+    private var codexStopping: [String: String] = [:]
+    /// True while the file-rules re-test runs, which takes up to six minutes.
+    private var codexRetesting = false
+    /// True while the launcher asks RAVIS to start or cancel a sign-in.
+    private var codexSigningIn = false
 
     init(launcher: Launcher) {
         self.launcher = launcher
@@ -577,7 +935,10 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.refreshing = false
-                if let report { self.report = report }
+                if let report {
+                    self.report = report
+                    self.forgetFinishedStops()
+                }
                 self.sampleMachine()
                 self.redraw()
             }
@@ -842,6 +1203,7 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
             addLines(for: report.stackSection)
             menu.addItem(NSMenuItem.sectionHeader(title: "Models"))
             addLines(for: report.runtimes)
+            addCodex(report.codex)
         }
         let figures = Figures.lines(cpu: cpuPercent, gpu: gpuPercent, system: report?.system)
         if !figures.isEmpty {
@@ -931,6 +1293,218 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item
+    }
+
+    // MARK: Codex
+
+    /// Codex's line under the model runtimes (design §7.1), which opens the Codex card on the
+    /// dashboard. Under it one line per task RAVIS lists — each opening a submenu with that
+    /// task's one control, **Stop this task…** — then the allowance, then **Re-test the file
+    /// rules…** or **Sign in to Codex…** where either applies. Nothing for a RAVIS that serves no
+    /// Codex state.
+    private func addCodex(_ codex: StackReport.Codex?) {
+        guard let codex else { return }
+        let line = CodexLine(codex)
+        menu.addItem(codexRow(line, address: codex.address))
+        for run in codex.runs ?? [] {
+            menu.addItem(codexTaskItem(run, address: codex.address))
+        }
+        for text in line.allowance {
+            menu.addItem(indented(reading(NSAttributedString(
+                string: text, attributes: [.font: NSFont.menuFont(ofSize: 0)]))))
+        }
+        [codexRetestItem(codex), codexSignInItem(codex)].compactMap { $0 }.forEach { menu.addItem($0) }
+    }
+
+    /// The row itself: a dot that is never red, the words, and the Codex card behind a click.
+    private func codexRow(_ line: CodexLine, address: String?) -> NSMenuItem {
+        let font = NSFont.menuFont(ofSize: 0)
+        let title = NSMutableAttributedString(
+            string: "●  ", attributes: [.foregroundColor: line.tone.colour, .font: font])
+        title.append(NSAttributedString(string: line.title, attributes: [.font: font]))
+        let item = NSMenuItem()
+        item.attributedTitle = title
+        item.isEnabled = true
+        if let address, let url = URL(string: address) {
+            item.representedObject = url
+            item.action = #selector(openAddress(_:))
+            item.target = self
+            item.toolTip = "Open the Codex card on the dashboard"
+        }
+        return item
+    }
+
+    private func codexTaskItem(_ run: StackReport.Codex.Run, address: String?) -> NSMenuItem {
+        let text = CodexLine.taskLine(run, stopping: codexStopping)
+        let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
+        item.attributedTitle = NSAttributedString(string: text, attributes: [.font: NSFont.menuFont(ofSize: 0)])
+        item.isEnabled = true
+        item.indentationLevel = 1
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        if let address, let url = URL(string: address) {
+            let open = NSMenuItem(title: "Open the Codex card", action: #selector(openAddress(_:)), keyEquivalent: "")
+            open.representedObject = url
+            open.target = self
+            submenu.addItem(open)
+        }
+        CodexLine.taskNotes(run).forEach { submenu.addItem(note($0)) }
+        submenu.addItem(.separator())
+        switch CodexLine.stop(run, stopping: codexStopping) {
+        case .offer(let id):
+            let stop = NSMenuItem(title: "Stop this task…", action: #selector(stopCodexTask(_:)), keyEquivalent: "")
+            stop.representedObject = id
+            stop.target = self
+            stop.toolTip = "Asks you to confirm first. Stopping answers and approves nothing."
+            submenu.addItem(stop)
+        case .unavailable(let why):
+            submenu.addItem(note(why))
+        }
+        item.submenu = submenu
+        return item
+    }
+
+    /// **Re-test the file rules…** while an accepted build's rules are unproven — the only build
+    /// RAVIS re-tests — and, for a build nobody has accepted yet, the way to the card that accepts it.
+    private func codexRetestItem(_ codex: StackReport.Codex) -> NSMenuItem? {
+        guard let runtime = codex.runtime, runtime.strictRules != "proven" else { return nil }
+        if codexRetesting { return indented(note("Re-testing the file rules… (up to 6 minutes)")) }
+        if runtime.verdict == "accepted" {
+            return codexCommand("Re-test the file rules…", #selector(retestFileRules),
+                                tip: "Uses one short Codex turn from your plan's allowance. Asks you first.")
+        }
+        guard runtime.verdict == "untested", let address = codex.address, let url = URL(string: address) else {
+            return nil
+        }
+        let accept = codexCommand("Accept Codex \(runtime.version ?? "") on the Codex card first…",
+                                  #selector(openAddress(_:)), tip: "RAVIS re-tests only a build you have accepted.")
+        accept.representedObject = url
+        return accept
+    }
+
+    private func codexSignInItem(_ codex: StackReport.Codex) -> NSMenuItem? {
+        if codexSigningIn { return indented(note("Asking RAVIS about the sign-in…")) }
+        if codex.signInWaiting == true {
+            return codexCommand("Cancel the Codex sign-in", #selector(cancelCodexSignIn), tip: "Ends the sign-in page RAVIS is waiting on.")
+        }
+        guard CodexLine.canSignIn(codex) else { return nil }
+        return codexCommand("Sign in to Codex…", #selector(signInToCodex), tip: "Opens OpenAI's sign-in page in your browser.")
+    }
+
+    private func codexCommand(_ title: String, _ action: Selector, tip: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.toolTip = tip
+        return indented(item)
+    }
+
+    private func indented(_ item: NSMenuItem) -> NSMenuItem {
+        item.indentationLevel = 1
+        return item
+    }
+
+    /// Lets go of a stop once RAVIS no longer lists that task working on the turn the stop named.
+    private func forgetFinishedStops() {
+        guard let runs = report?.codex?.runs else { return }
+        codexStopping = codexStopping.filter { id, turn in
+            runs.contains { $0.id == id && $0.turnId == turn && CodexLine.stoppable.contains($0.state ?? "") }
+        }
+    }
+
+    /// Stop this task…: an `NSAlert` naming the task's folder, then `run.py codex stop` with the id,
+    /// folder and turn this menu showed. **Taken before the dialog opens**, so a refresh while it is
+    /// open changes nothing the confirmation names; a task that moved on meanwhile is RAVIS's exit 8.
+    @objc private func stopCodexTask(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let run = report?.codex?.runs?.first(where: { $0.id == id }),
+              case .offer = CodexLine.stop(run, stopping: codexStopping),
+              let project = run.project, let turn = run.turnId,
+              confirmCodex("Stop Codex's task in \(project)?", CodexWords.stopQuestion(run), button: "Stop Task")
+        else { return }
+        codexStopping[id] = turn
+        redraw()
+        launcher.capture(["codex", "stop", id, "--project", project, "--turn", turn]) { [weak self] code, data in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if code != 0 { self.codexStopping[id] = nil }
+                self.refresh()
+                if code != 0 {
+                    self.tellCodex("Codex's task in \(project) wasn't stopped", CodexWords.stopExit(code, CodexWords.error(data)))
+                }
+            }
+        }
+    }
+
+    /// Re-test the file rules…: the one place the re-test starts (design §3.4). It spends a short
+    /// Codex turn of the plan's allowance, so it asks first, and runs in the background for up to
+    /// six minutes; the result is said when it ends.
+    @objc private func retestFileRules() {
+        let question = CodexWords.retestQuestion(version: report?.codex?.runtime?.version)
+        guard !codexRetesting, confirmCodex(question.0, question.1, button: "Re-test") else { return }
+        codexRetesting = true
+        redraw()
+        launcher.capture(["codex", "reprove"]) { [weak self] code, data in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.codexRetesting = false
+                self.refresh()
+                let result = CodexWords.retestResult(code, CodexWords.error(data))
+                self.tellCodex(result.0, result.1)
+            }
+        }
+    }
+
+    /// Sign in to Codex…: RAVIS starts the sign-in and the launcher opens OpenAI's page. Nothing
+    /// is said when it opens; a sign-in that didn't start says why.
+    @objc private func signInToCodex() {
+        guard !codexSigningIn else { return }
+        codexSigningIn = true
+        redraw()
+        launcher.capture(["codex", "sign-in"]) { [weak self] code, data in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.codexSigningIn = false
+                self.refresh()
+                if code != 0 {
+                    self.tellCodex("Codex's sign-in didn't start", CodexWords.signInExit(code, CodexWords.error(data)))
+                }
+            }
+        }
+    }
+
+    @objc private func cancelCodexSignIn() {
+        guard !codexSigningIn else { return }
+        codexSigningIn = true
+        redraw()
+        launcher.capture(["codex", "cancel-sign-in"]) { [weak self] code, data in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.codexSigningIn = false
+                self.refresh()
+                if code != 0 {
+                    self.tellCodex("The sign-in wasn't cancelled", CodexWords.signInExit(code, CodexWords.error(data)))
+                }
+            }
+        }
+    }
+
+    private func confirmCodex(_ title: String, _ text: String, button: String) -> Bool {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: button)
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func tellCodex(_ title: String, _ text: String) {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.runModal()
     }
 }
 

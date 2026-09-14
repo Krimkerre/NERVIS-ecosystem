@@ -437,7 +437,22 @@ Since this list was written, fourteen of them became automated:
   reading's age and that it isn't money; *unknown* draws no percentage; and the tile draws absent
   for a RAVIS that doesn't answer or predates Codex; and the Overview's line shows the
   tightest window and goes absent with RAVIS. And it fails when a stored key's ● is escaped
-  into text, which `check.py` also refuses page-wide. Listed in `tools/dashboard_gates.txt`.
+  into text, which `check.py` also refuses page-wide. Since 14 September 2026 (N2b) it also
+  renders the Codex card on RAVIS → Dashboard, reading RAVIS's contract fixtures for the state
+  words and the version report, and fails unless every task state RAVIS lists is said in words,
+  with the wait, model and effort, and *reconnecting* only while RAVIS reopens the task; Stop…
+  sits only beside a running or waiting task, takes two clicks and never `confirm()`, and sends
+  one POST to NERVIS's Stop route with the control header, the folder and turn its row showed and
+  a 16-to-128-character Idempotency-Key that a retried click reuses; no button reads Approve,
+  Allow, Answer, Steer, Re-test, Start, Continue or Settle, and no request reaches an
+  agent-session, project-lock, re-test or calibration route or allows a site; every refusal is
+  said in words and a refused Stop reads the tasks again; Remove sits only beside the sites the
+  owner added, with the defaults folded away, and never sends a site nobody added; a new build's
+  report comes from the control route, never the relay, and says before Use this version that
+  accepting neither starts the re-test nor spends allowance; nothing RAVIS sends injects markup
+  or breaks out of a quoted handler argument; and the Overview counts the tasks and opens the
+  card. The page escapes `'` as it writes, so its word checks read the text with entities
+  decoded, and its injection checks read the raw markup. Listed in `tools/dashboard_gates.txt`.
 - **`node tools/empty_world_check.js`** renders all 36 screens against services
   that are **up and hold nothing** — the fresh-install world, which is neither
   of the two the other checks cover. Six screens threw in it. **Runs in CI.**
@@ -521,7 +536,7 @@ node tools/picture_check.js                         # a drawn picture renders; n
 node tools/editor_check.js                          # no frame for an editor that is not there
 node tools/export_check.js                          # an export never writes half a conversation
 node tools/ravis_diagnostics_check.js               # a resting model gets a row, and Lift ends it
-node tools/codex_check.js                           # Codex signs in from Credentials, in every state
+node tools/codex_check.js                           # Codex's sign-in, allowance and card, in every state
 node tools/routing_check.js                         # every screen is addressable
 node tools/outcome_check.js                         # a refusal is not an outage
 node tools/stream_check.js                          # the stream resumes and refuses correctly
