@@ -2,6 +2,25 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## Owner decisions 14 Sep 2026 (during C2b+) — the bowtie fold-out, and Clarvis's differences from CLARVIS.md §5.5
+- **The bowtie becomes a fold-out menu** (the `#clarvis-models` button left of Clarvis's chat box). First item
+  **API config** (the owner renamed it from "Change API"): exactly what the bowtie did, the models menu through
+  the same `models` message. Under it a **Codex** section: the Codex models RAVIS lists, an effort control over
+  that model's efforts with its default marked, the note that a bigger model or higher effort uses the plan's
+  allowance faster, and **one allowance line** (the owner's addition): the tightest window's percentage left and
+  its reset in local time, the rest in a tooltip, "not known right now", a stale figure marked old, used up, and
+  RAVIS not answering each said plainly. The controls are disabled unless the coding model is
+  `ravis/clarvis-codex`; the allowance shows either way. Choices live in the owner's settings only
+  (`clarvis.codex.model`, `clarvis.codex.effort`, application scope). Built in clarvis `47dbc75`.
+- **Changing model or effort during a task:** the owner set that question aside, so a change applies to the next
+  task and the section says so while one runs. (Codex's `turn/start` does accept `model` and `effort` "for this
+  turn and subsequent turns", should the owner want it later.)
+- **Clarvis C2b differs from CLARVIS.md §5.5's wording, to write into CLARVIS.md at the end:**
+  - a site ask waits behind Codex's own requests, since only those hold Codex up;
+  - "Stop the run" performs the Stop button's stop (interrupt) rather than posting a `stop` decision;
+  - typed words that aren't an answer are steered to Codex, and the request stays on screen;
+  - undo copies also cover added files and rename targets.
+
 ## From R5 (ecosystem, RAVIS 0.25.0 and NERVIS 0.28.19, 14 September 2026) — sites before and during a task, and each task's effort
 Contract first (`3c63125`), then the code (`bc1a103`), the release pairing
 (`3376190`) and these notes.
