@@ -371,6 +371,19 @@ named like the Clarvis pools; it was `ravis/codex` until the owner renamed it on
   Clarvis's: after a stop, a completion, a pause or an uncertain end, one attached window claims the
   settle, reconciles git, commits on the task branch, saves the checkpoint and posts `settle`. RAVIS
   never runs git.
+- **A folder without git** (owner's decision, 14 September 2026; built in Clarvis 0.17.2). A task
+  branch needs a repository with a commit, so a folder that isn't one, or whose repository has no
+  commit, refuses the task. When git is installed and RAVIS would take the folder, Clarvis offers **Set
+  up git here** in the chat, even if Clarvis's own `git init` offer was declined earlier. It runs `git
+  init` and an empty first commit that takes nothing already staged, then carries the refused task on
+  without its being retyped. Typing "git init", "set it up" or "yes" answers it the same way and is
+  never sent to Codex. Before offering, Clarvis reads `GET /api/v1/agent-sessions?workspace_root=…`;
+  a `422 WORKSPACE_ROOT_NOT_ALLOWED` gives RAVIS's reason and nothing is offered. A failed setup
+  removes the `.git` it had just made and says why; git not installed gets install advice and no
+  button; Workspace Trust and every other refusal come first. The earlier decline is forgotten only
+  once git is really set up. Clarvis's own pre-run offer is asked for its own engine only. Task
+  folders NERVIS hands over start as repositories with the brief committed (NERVIS 0.29.3), so they
+  never meet this.
 - **The checkpoint** is `<git_dir>/clarvis-task-checkpoint.json` (0600, never committed;
   `<root>/.clarvis/task-checkpoint.json` without git), because `workspaceState` is per host and a task
   moves between hosts. It is written atomically, only while holding the project lock, at most 64 KB,

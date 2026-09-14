@@ -25,7 +25,24 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.1
+## Clarvis — 0.17.2
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Codex offers to set git up when a folder has none.** Codex saves its work as commits on a branch of
+  its own, so it can't start in a folder that isn't a git repository. On 14 September that became a loop:
+  the owner had once said no to Clarvis's own `git init` offer, so Codex refused, nothing offered a way
+  out, and typing "git init then" went to Codex as a new task and was refused again. Now the refusal
+  comes with **Set up git here**, even after that earlier no. It runs `git init` and makes an empty
+  first commit that takes none of your files, then the task you asked for carries on without being
+  retyped. Typing "git init", "set it up" or "yes" does the same and is never sent to Codex. RAVIS is
+  asked first whether it would take the folder at all, so a protected repository gets RAVIS's reason
+  and no offer. A failed setup removes the half-made `.git` and says why; a missing git name and email
+  comes with the two commands that fix it.
+- **Clarvis's own pre-run git question is only asked for Clarvis's own engine.** It says declining is
+  fine, which isn't true for Codex. **Ask About Git Setup Again** works as before.
+
+### 0.17.1
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
