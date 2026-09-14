@@ -14,6 +14,7 @@ and credentials for each kind of caller the contract names (`conventions.json`, 
 from __future__ import annotations
 
 import json
+import os
 import socket
 import time
 from collections.abc import Callable, Mapping
@@ -54,6 +55,7 @@ FAST = ServiceTimings(
     login_seconds=1.0,
     usage_after_turn_seconds=0.2,
     consumer_stall_seconds=5.0,
+    skills_seconds=2.0,
     sign_in_lifetime_seconds=600.0,
     supervisor=SupervisorTimings(
         initialize_seconds=3.0,
@@ -189,6 +191,7 @@ def codex_rig(
     codesign = FakeCodesign.install(tmp_path / "tools" / "codesign")
     entries = [*([pin_entry(fake, proven=proven)] if tested else []), *extra_entries]
     pin = write_pin(tmp_path / "pin.json", *entries, file_rules_profile=profile)
+    coding = Path(os.path.realpath(tmp_path)) / "coding"
     configured = Settings(
         database_path=":memory:",
         _env_file=None,  # type: ignore[call-arg]
@@ -196,6 +199,11 @@ def codex_rig(
             "codex_enabled": True,
             "codex_executable": str(fake.path),
             "codex_home": str(tmp_path / "codex-home"),
+            # A coding folder of the test's own, holding the NERVIS skills folder RAVIS makes when
+            # Codex starts, as the launcher names the owner's (`agent/skills.py`); a test names
+            # others to try what RAVIS does with them.
+            "agent_allowed_roots": [str(coding)],
+            "codex_skills_folder": str(coding / "NERVIS workspace" / "clarvis" / "skills"),
             **settings,
         },
     )

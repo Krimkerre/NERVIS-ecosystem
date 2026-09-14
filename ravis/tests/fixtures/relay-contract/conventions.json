@@ -146,7 +146,7 @@
     "CODEX_RUNTIME_UNAVAILABLE": {
       "status": [503],
       "retryable": true,
-      "where": "session create, transcript, a sign-in whose start timed out, and since R4 every agent-session and project-lock route while RAVIS is still reconciling after a restart; since R5 the sites routes while Codex isn't running with its file rules or doesn't say which sites it allows, and a session create naming a model or an effort before Codex has listed its models"
+      "where": "session create, transcript, a sign-in whose start timed out, and since R4 every agent-session and project-lock route while RAVIS is still reconciling after a restart; since R5 the sites routes while Codex isn't running with its file rules or doesn't say which sites it allows, and a session create naming a model or an effort before Codex has listed its models; since RAVIS 0.26.0 the skills routes while Codex doesn't list its skills"
     },
     "CODEX_RUN_IN_PROGRESS": {
       "status": [409],
@@ -325,6 +325,16 @@
       "retryable": false,
       "where": "DELETE /api/v1/codex/sites/{host} for one of RAVIS's default sites (reason default_site), or when Codex didn't take the write (overridden, not_written, codex_did_not_answer): details {host, reason}; the site stays allowed"
     },
+    "SKILL_NOT_CHANGED": {
+      "status": [409],
+      "retryable": false,
+      "where": "POST /api/v1/codex/skills when Codex didn't take the owner's switch (not_written, codex_did_not_answer, not_listed, still_different, folder_not_made) or the skills folder setting can't be used (folder_refused): details {skill, reason}; the previous choice is kept and applied again"
+    },
+    "SKILL_NOT_FOUND": {
+      "status": [404],
+      "retryable": false,
+      "where": "POST /api/v1/codex/skills naming a path that isn't a skill Codex lists just now, a project's own skill included; nothing is kept"
+    },
     "SIGN_IN_METHOD_NOT_SUPPORTED": {
       "status": [422],
       "retryable": false,
@@ -393,7 +403,8 @@
       "anything inside ~/.config, ~/.local/share, ~/.ssh, ~/.aws, ~/Library or ~/.codex",
       "any configured .run folder",
       "an agent_allowed_roots entry itself, such as ~/Documents/coding",
-      "a folder that is, contains or lies inside a protected repository, or contains a denied path, unless that exact folder is listed in agent_allowed_roots with allow_protected: true"
+      "a folder that is, contains or lies inside a protected repository, or contains a denied path, unless that exact folder is listed in agent_allowed_roots with allow_protected: true",
+      "since RAVIS 0.26.0, a folder that is, contains or lies inside the NERVIS skills folder (settings.codex_skills_folder), real paths compared on both sides and whether or not the folder exists yet: reason denied_path, with a message naming the folder"
     ],
     "status": 422,
     "code": "WORKSPACE_ROOT_NOT_ALLOWED",
@@ -401,7 +412,7 @@
       "protected_repository": "is, contains or lies inside NERVIS-ecosystem or clarvis",
       "allowed_roots_entry": "is an agent_allowed_roots entry itself"
     },
-    "details_reason_other": "RAVIS's relay increment (R3) adds: not_a_folder (missing or not a folder), home (the home folder itself), private_folder (inside ~/.config, ~/.local/share, ~/.ssh, ~/.aws, ~/Library or ~/.codex), outside_allowed_roots, denied_path (is, holds or lies inside a denied path such as .run), lock_file_unwritable (the checkout lock file couldn't be written)",
+    "details_reason_other": "RAVIS's relay increment (R3) adds: not_a_folder (missing or not a folder), home (the home folder itself), private_folder (inside ~/.config, ~/.local/share, ~/.ssh, ~/.aws, ~/Library or ~/.codex), outside_allowed_roots, denied_path (is, holds or lies inside a denied path such as .run, or since RAVIS 0.26.0 the NERVIS skills folder), lock_file_unwritable (the checkout lock file couldn't be written)",
     "protected_repositories_default": "RAVIS's own checkout and its sibling clarvis, even when RAVIS starts without the launcher",
     "owner_decision": "the ecosystem's own repositories stay refused; allowing one later needs an exact allow_protected listing and calibration K5c proving deny beats write inside a root",
     "binding": "a session stores the realpath, and no later call can change it"

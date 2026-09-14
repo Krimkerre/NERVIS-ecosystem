@@ -76,6 +76,11 @@ def _never_the_operators_own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     # with fake programs (`tests/codex_fakes.py`).
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("RAVIS_CODEX_ENABLED", "false")
+    # **The NERVIS skills folder is a throwaway too** (`agent/skills.py`). RAVIS makes the folder
+    # when Codex starts, and its default is the owner's real `NERVIS workspace`; a test that forgot
+    # to name its own must never create or read that one.
+    skills = tmp_path / "coding" / "NERVIS workspace" / "clarvis" / "skills"
+    monkeypatch.setenv("RAVIS_CODEX_SKILLS_FOLDER", str(skills))
 
 
 @pytest.fixture

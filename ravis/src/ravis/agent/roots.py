@@ -12,10 +12,13 @@ one of `agent_allowed_roots` (the coding folder, by default). Refused with 422
 | `allowed_roots_entry` | is an `agent_allowed_roots` entry itself, such as the coding folder |
 | `outside_allowed_roots` | is inside none of them |
 | `protected_repository` | is, holds or is inside a protected checkout: NERVIS-ecosystem, clarvis |
-| `denied_path` | is, contains or lies inside a denied path, such as the launcher's `.run` |
+| `denied_path` | is, contains or lies inside a denied path such as `.run`, or the skills folder |
 
 `allowed_roots_entry` and `protected_repository` are the contract's fixed words; the rest are
 this increment's, added to `conventions.json` → `workspace_root_rule`.
+
+**The NERVIS skills folder** (`codex_skills_folder`, owner decision of 14 September 2026) is refused
+with `denied_path` too, and a sentence naming it: a skill written there is on for every Codex task.
 
 **Owner decision (b): the ecosystem's own repositories stay refused.** The setting's documented
 way to allow one — an exact entry `{"path": …, "allow_protected": true}` — also needs calibration
@@ -32,6 +35,7 @@ takes no `git_dir`, and its lock file lives in `<root>/.clarvis/`. Anything else
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,7 +43,9 @@ from pathlib import Path
 from ravis.agent import refusals
 from ravis.codex.calibration.plan import protected_repositories
 from ravis.codex.lock_file import git_dir_for
-from ravis.config import Settings, codex_home
+from ravis.config import Settings, codex_home, codex_skills_folder
+
+logger = logging.getLogger("ravis")
 
 #: Folders under the home folder that hold configuration, keys or other programs' data.
 PRIVATE_FOLDERS = (".config", ".local/share", ".ssh", ".aws", "Library", ".codex")
@@ -96,9 +102,30 @@ def workspace_root(raw: object, settings: Settings) -> Path:
     _refuse_home_and_private(root)
     _refuse_outside_the_allowed_roots(root, settings)
     _refuse_protected(root, settings)
+    _refuse_the_skills_folder(root, settings)
     if any(related(root, denied) for denied in denied_paths(settings)):
         raise refusals.workspace_root_not_allowed("denied_path")
     return root
+
+
+def _refuse_the_skills_folder(root: Path, settings: Settings) -> None:
+    """A task never works in, or around, the NERVIS skills folder (owner decision, 14 Sep 2026).
+
+    A skill written there would be on for every later Codex task, and a task's root is writable to
+    its commands, so a root that is the folder, holds it or lies inside it is refused — real paths
+    compared on both sides, and whether or not the folder exists yet, since RAVIS makes it when
+    Codex starts. The reason word is `denied_path`, but the folder isn't one of `denied_paths`:
+    a command that reads a skill's SKILL.md keeps its output.
+    """
+    folder = codex_skills_folder(settings)
+    if related(root, folder):
+        logger.warning(
+            "agent: refused a Codex task in %s: it is, holds or lies inside the NERVIS skills "
+            "folder %s", root, folder,
+        )
+        raise refusals.workspace_root_not_allowed(
+            "denied_path", refusals.skills_folder_refused(folder)
+        )
 
 
 def _refuse_home_and_private(root: Path) -> None:

@@ -8,7 +8,7 @@
     "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
     "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
   },
-  "access": "every mutating route needs an admin credential, except POST /api/v1/codex/sites, which takes only Clarvis's client credential. The admin routes refuse anonymous callers and client credentials with 403 FORBIDDEN; POST /api/v1/codex/sites refuses anonymous callers, admin credentials and any other client credential with 403 AGENT_CLIENT_NOT_ALLOWED, as the agent-session relay does (conventions.json → identity_rule). This is UX and audit, not a boundary against local programs. reprove narrows it to admin.owner_cli and refuses every other caller with 403 REPROOF_NOT_ALLOWED.",
+  "access": "every mutating route needs an admin credential, except POST /api/v1/codex/sites, which takes only Clarvis's client credential. The admin routes refuse anonymous callers and client credentials with 403 FORBIDDEN; POST /api/v1/codex/sites refuses anonymous callers, admin credentials and any other client credential with 403 AGENT_CLIENT_NOT_ALLOWED, as the agent-session relay does (conventions.json → identity_rule). GET /api/v1/codex/skills takes NERVIS's client credential or an admin credential and refuses every other caller with 403 FORBIDDEN; POST /api/v1/codex/skills is an admin route like the rest. This is UX and audit, not a boundary against local programs. reprove narrows it to admin.owner_cli and refuses every other caller with 403 REPROOF_NOT_ALLOWED.",
   "routes": [
     {
       "method": "POST",
@@ -1283,6 +1283,228 @@
           }
         }
       ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/codex/skills",
+      "needs": "NERVIS's client credential (its GET relay) or an admin credential; never Clarvis",
+      "answer": "SkillsView {folder, problem, skills: [{path, name, description, source, enabled}]}",
+      "rules": [
+        "folder is the NERVIS skills folder as a real path (settings.codex_skills_folder; the launcher names <NERVIS workspace>/clarvis/skills); RAVIS makes it, with a README.md, each time Codex starts, and no Codex task may work in it or in a folder that holds it",
+        "skills lists every skill Codex's skills/list gives except a project's own (scope repo), each once, grouped nervis, personal, built_in, and by name within each. source is decided by real path, symlinks followed: a skill whose SKILL.md lies in the folder is nervis, scope system is built_in, and every other skill (user skills elsewhere, admin, or a scope RAVIS doesn't know) is personal",
+        "enabled is Codex's own answer, read on every call and never kept; description is Codex's short description where it has one, else the description, on one line and at most 300 characters",
+        "a skill the owner never switched is on when nervis or built_in and off when personal, a personal skill added later included; RAVIS applies the owner's choices each time Codex starts and whenever Codex sends skills/changed, and no task starts until Codex agrees",
+        "problem is null, or the sentence GET /api/v1/codex gives while the owner's choices can't be applied: the folder setting can't be used, or Codex didn't list or switch a skill",
+        "while Codex isn't running or doesn't list its skills the answer is 503 CODEX_RUNTIME_UNAVAILABLE, never an empty list",
+        "a change counts from a Codex task's next start or reopen; whether a thread already loaded sees it, and whether a skill switched off is left out of the model's instructions, are unmeasured"
+      ],
+      "examples": [
+        {
+          "name": "every skill but a project's own",
+          "request": {"caller": "client.nervis", "method": "GET", "path": "/api/v1/codex/skills"},
+          "response": {
+            "status": 200,
+            "body": {
+              "folder": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills",
+              "problem": null,
+              "skills": [
+                {"path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/nervis-notes/SKILL.md", "name": "nervis-notes", "description": "How NERVIS tasks keep their notes.", "source": "nervis", "enabled": true},
+                {"path": "/Users/owner/.agents/skills/graphify/SKILL.md", "name": "graphify", "description": "Turn any input into a knowledge graph.", "source": "personal", "enabled": false},
+                {"path": "/Users/owner/.local/share/ravis-codex/skills/.system/imagegen/SKILL.md", "name": "imagegen", "description": "Generate or edit images.", "source": "built_in", "enabled": true},
+                {"path": "/Users/owner/.local/share/ravis-codex/skills/.system/openai-docs/SKILL.md", "name": "openai-docs", "description": "Answer questions from OpenAI's documentation.", "source": "built_in", "enabled": true}
+              ]
+            }
+          }
+        },
+        {
+          "name": "a Clarvis credential",
+          "request": {"caller": "client.clarvis", "method": "GET", "path": "/api/v1/codex/skills"},
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "A NERVIS or admin credential is required to read Codex's skills.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Codex isn't running",
+          "request": {"caller": "client.nervis", "method": "GET", "path": "/api/v1/codex/skills"},
+          "response": {
+            "status": 503,
+            "body": {
+              "error": {
+                "code": "CODEX_RUNTIME_UNAVAILABLE",
+                "message": "Codex isn't running, so its skills can't be read; try again in a moment.",
+                "retryable": true,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/codex/skills",
+      "needs": "an admin credential: NERVIS's Codex card, through its control route",
+      "body": "{path, enabled}: a skill's path exactly as GET listed it, and true or false",
+      "answer": "SkillsView, as Codex holds it after the change",
+      "rules": [
+        "a body without a path of 1 to 4096 characters and a boolean enabled is 422 INVALID_REQUEST_BODY",
+        "RAVIS lists Codex's skills again and takes only a path exactly as listed; any other path, a project's own skill's included, is 404 SKILL_NOT_FOUND and nothing is kept (503 CODEX_RUNTIME_UNAVAILABLE when Codex doesn't list them)",
+        "otherwise RAVIS keeps the owner's choice and applies every choice again (skills/config/write by path, until skills/list agrees); switching a skill to what it already is changes nothing, so a retry is safe and no Idempotency-Key is needed",
+        "a change Codex doesn't take is 409 SKILL_NOT_CHANGED {skill, reason}: the previous choice is put back and applied again, and while that fails too no task starts; reason is not_written, codex_did_not_answer, not_listed, still_different, folder_not_made or folder_refused",
+        "audited as ravis.codex.skill_switched {name, source, enabled} once Codex took it"
+      ],
+      "examples": [
+        {
+          "name": "a personal skill switched on",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/skills",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"path": "/Users/owner/.agents/skills/graphify/SKILL.md", "enabled": true}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "folder": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills",
+              "problem": null,
+              "skills": [
+                {"path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/nervis-notes/SKILL.md", "name": "nervis-notes", "description": "How NERVIS tasks keep their notes.", "source": "nervis", "enabled": true},
+                {"path": "/Users/owner/.agents/skills/graphify/SKILL.md", "name": "graphify", "description": "Turn any input into a knowledge graph.", "source": "personal", "enabled": true},
+                {"path": "/Users/owner/.local/share/ravis-codex/skills/.system/imagegen/SKILL.md", "name": "imagegen", "description": "Generate or edit images.", "source": "built_in", "enabled": true},
+                {"path": "/Users/owner/.local/share/ravis-codex/skills/.system/openai-docs/SKILL.md", "name": "openai-docs", "description": "Answer questions from OpenAI's documentation.", "source": "built_in", "enabled": true}
+              ]
+            }
+          }
+        },
+        {
+          "name": "a path Codex doesn't list",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/skills",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"path": "/Users/owner/Documents/coding/add-utc-demo/.agents/skills/helper/SKILL.md", "enabled": true}
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "SKILL_NOT_FOUND",
+                "message": "Codex doesn't list a skill at that path, so nothing was changed.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Codex didn't take it",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/skills",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"path": "/Users/owner/.local/share/ravis-codex/skills/.system/imagegen/SKILL.md", "enabled": false}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SKILL_NOT_CHANGED",
+                "message": "Codex didn't take that change, so the skill stays as it was.",
+                "retryable": false,
+                "details": {"skill": "imagegen", "reason": "not_written"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "not a switch",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/skills",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"path": "/Users/owner/.agents/skills/graphify/SKILL.md"}
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "INVALID_REQUEST_BODY",
+                "message": "The body must carry path, the path of a skill as RAVIS listed it, and enabled, true or false.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a client credential",
+          "request": {
+            "caller": "client.nervis",
+            "method": "POST",
+            "path": "/api/v1/codex/skills",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"path": "/Users/owner/.agents/skills/graphify/SKILL.md", "enabled": true}
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "An admin credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Codex isn't running",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/codex/skills",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"path": "/Users/owner/.agents/skills/graphify/SKILL.md", "enabled": true}
+          },
+          "response": {
+            "status": 503,
+            "body": {
+              "error": {
+                "code": "CODEX_RUNTIME_UNAVAILABLE",
+                "message": "Codex isn't running, so its skills can't be read; try again in a moment.",
+                "retryable": true,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
     }
   ],
   "account_fingerprint": [
@@ -1325,7 +1547,7 @@
       },
       {"nervis": "DELETE /api/v1/ravis/codex/sites/{host}", "ravis": "DELETE /api/v1/codex/sites/{host} (NERVIS builds it in N2b)"}
     ],
-    "never": "no NERVIS route reaches /api/v1/codex/reprove, the calibration route, POST /api/v1/codex/sites, or any other agent-session or project-lock route; reads of /api/v1/codex and /api/v1/codex/sites use the existing GET relay"
+    "never": "no NERVIS route reaches /api/v1/codex/reprove, the calibration route, POST /api/v1/codex/sites, or any other agent-session or project-lock route; reads of /api/v1/codex, /api/v1/codex/sites and /api/v1/codex/skills use the existing GET relay"
   },
   "launcher": {
     "codex sign-in": {
@@ -1362,6 +1584,7 @@
     "ravis.codex.version_accepted",
     "ravis.codex.version_acceptance_revoked",
     "ravis.codex.sites_allowed {hosts}",
-    "ravis.codex.site_removed {host}"
+    "ravis.codex.site_removed {host}",
+    "ravis.codex.skill_switched {name, source, enabled}"
   ]
 }

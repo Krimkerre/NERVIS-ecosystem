@@ -355,6 +355,21 @@ reopens it once Codex has let go (about a minute), so the owner's "carry on" rea
 site; if Codex hasn't let go within two minutes, RAVIS carries on and warns that the site may still be
 blocked. Each task can also run at a chosen effort, from the levels Codex offers its model.
 
+**It keeps Codex to the skills the owner chose** (RAVIS 0.26.0, 14 September 2026). A skill is a set
+of instructions Codex can decide to follow. In the first live test Codex found one of the owner's own
+skills on this Mac, "graphify", and ran it unasked: it made a folder in the project and used some of
+the plan's allowance. Now NERVIS has a skills folder of its own, `clarvis/skills` in the NERVIS
+workspace, which RAVIS makes (with a short README) whenever Codex starts. Skills in that folder are on,
+and so are the ones built into Codex; the owner's personal skills (`~/.agents/skills`) are off, a new
+one included, until the owner switches one on. RAVIS remembers each switch and puts Codex back to it at
+every start and whenever a skill file changes; if it can't, no Codex task starts and the dashboard
+says why. A change counts from a task's next start or reopen. So that no task can write a skill into
+that folder, **Codex can no longer be started on "NERVIS workspace" or on its "clarvis" folder as a
+whole**; the task folders under `nervis-tasks` and every other project are unaffected. Clarvis's own
+engine can still write there when the owner has the workspace open, and a skill it writes is on for
+Codex. Not yet checked with a real Codex task: that a switched-off skill is really left out of what
+Codex reads.
+
 **It keeps one writer per project for both engines, and cleans up after Codex** (RAVIS 0.24.0).
 Clarvis's own coding runs take the project lock through `/api/v1/project-locks`. A window can take a
 project over from another window that is gone, unresponsive or waiting — never from a Codex task,

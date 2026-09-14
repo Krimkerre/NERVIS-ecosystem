@@ -43,6 +43,28 @@ def sites_reader_required() -> CodexRefusalError:
     )
 
 
+def skills_reader_required() -> CodexRefusalError:
+    """Codex's skills are for NERVIS's Codex card and the owner to read, never Clarvis's."""
+    return CodexRefusalError(
+        "FORBIDDEN", 403, "A NERVIS or admin credential is required to read Codex's skills.",
+    )
+
+
+def skill_not_found() -> CodexRefusalError:
+    """A path that isn't a skill Codex lists just now: RAVIS switches nothing else."""
+    return CodexRefusalError(
+        "SKILL_NOT_FOUND", 404, "Codex doesn't list a skill at that path, so nothing was changed.",
+    )
+
+
+def skill_not_changed(name: str, reason: str) -> CodexRefusalError:
+    """The owner's switch, not taken by Codex: the previous choice is kept and applied again."""
+    return CodexRefusalError(
+        "SKILL_NOT_CHANGED", 409, "Codex didn't take that change, so the skill stays as it was.",
+        skill=name, reason=reason,
+    )
+
+
 def reproof_not_allowed() -> CodexRefusalError:
     return CodexRefusalError(
         "REPROOF_NOT_ALLOWED",

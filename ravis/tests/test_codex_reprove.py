@@ -152,13 +152,30 @@ def test_the_re_test_is_the_one_codex_route_that_needs_the_owners_credential() -
         ("/api/v1/codex/accept-version/{sha256}", "DELETE"),
         # R5: removing an added site is NERVIS's Codex card's, through its control route.
         ("/api/v1/codex/sites/{host}", "DELETE"),
+        # 0.26.0: switching a skill is NERVIS's Codex card's too, through its control route.
+        ("/api/v1/codex/skills", "POST"),
     }
     # R5: Clarvis, NERVIS or an admin reads the sites; only Clarvis's client credential adds.
     assert guarded[("/api/v1/codex/sites", "GET")] == {codex_routes.require_sites_reader}
     assert guarded[("/api/v1/codex/sites", "POST")] == {require_agent_client}
+    # 0.26.0: NERVIS's GET relay or an admin reads the skills; never Clarvis.
+    assert guarded[("/api/v1/codex/skills", "GET")] == {codex_routes.require_skills_reader}
 
 
 # ── When it may run ─────────────────────────────────────────────────────────
+
+
+def test_the_re_test_waits_for_codexs_skills_to_be_the_owners(tmp_path: Path) -> None:
+    """Its one turn runs in RAVIS's Codex like any task's, so a personal skill must not be on for
+    it either: while RAVIS can't put Codex's skills to the owner's choices, it doesn't start."""
+    with accepted_build(tmp_path, refused_methods=["skills/list"]) as (rig, client):
+        answer = start(client, rig)
+
+    assert answer.status_code == 409, answer.text
+    error = answer.json()["error"]
+    assert error["code"] == "CODEX_NOT_READY"
+    assert "Codex's skills aren't your choices yet, so its turn can't run." in error["message"]
+    assert not rig.published("ravis.codex.reproof_started")
 
 
 def test_the_re_test_waits_for_a_running_turn(tmp_path: Path) -> None:

@@ -35,6 +35,7 @@ from ravis.agent.requests import PathContext, payload_and_decisions
 from ravis.agent.roots import related
 from ravis.agent.sites import DECISIONS as SITE_DECISIONS
 from ravis.agent.sites import blocked_hosts, plain_site, protocol_for, site_payload
+from ravis.agent.skills import SkillChoices
 from ravis.agent.store import AgentStore
 from ravis.agent.translate import turn_error
 from ravis.codex.lock_file import iso
@@ -107,6 +108,32 @@ def test_migration_10_is_backed_up_first_and_adds_each_tasks_effort(
     assert restore_backup(path, 9) == 9
     columns = {row[1] for row in sqlite3.connect(path).execute("PRAGMA table_info(agent_session)")}
     assert "effort" not in columns and "model" in columns
+
+
+def test_migration_11_is_backed_up_first_and_keeps_the_owners_skill_switches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The owner's skill switches live in RAVIS's database and outlive RAVIS itself: opened again,
+    the database still holds them; rolled back to 10, the table is gone."""
+    path = tmp_path / "ravis.db"
+    with monkeypatch.context() as patched:
+        patched.setattr(storage, "MIGRATIONS", storage.MIGRATIONS[:10])
+        assert prepare_database(str(path)).schema_version == 10
+    choices = SkillChoices(prepare_database(str(path)))
+    assert (tmp_path / "ravis.db.v10.bak").exists()
+    graphify = "/Users/owner/.agents/skills/graphify/SKILL.md"
+    assert choices.get(graphify) is None
+    choices.choose(graphify, True)
+    choices.choose("/Users/owner/.codex/skills/.system/imagegen/SKILL.md", False)
+    choices.choose(graphify, False)
+    reopened = SkillChoices(prepare_database(str(path)))
+    assert reopened.get(graphify) is False
+    assert reopened.get("/Users/owner/.codex/skills/.system/imagegen/SKILL.md") is False
+    reopened.forget(graphify)
+    assert SkillChoices(prepare_database(str(path))).get(graphify) is None
+    assert restore_backup(path, 10) == 10
+    assert "codex_skill_choice" not in {row[0] for row in sqlite3.connect(path).execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
 def test_codex_is_told_to_stop_at_a_blocked_site_and_say_which_it_needs() -> None:

@@ -36,7 +36,7 @@
     },
     {
       "state": "runtime_down",
-      "when": "The app-server is restarting or failed to start",
+      "when": "The app-server is restarting or failed to start; or it runs, but without RAVIS's default sites or, since RAVIS 0.26.0, with the owner's skill choices not yet applied: the reason says which",
       "shown_as": "Codex process restarting"
     },
     {

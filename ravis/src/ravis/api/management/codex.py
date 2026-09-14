@@ -15,6 +15,8 @@ The shapes, codes and messages are the contract fixtures `codex-state.json` and 
 | `GET /sites` | Clarvis's client credential, NERVIS's (its GET relay) or an admin credential |
 | `POST /sites` | Clarvis's client credential only (`require_agent_client`) |
 | `DELETE /sites/{host}` | admin: NERVIS's Codex card, through its control route |
+| `GET /skills` | NERVIS's client credential (its GET relay) or an admin credential; never Clarvis |
+| `POST /skills` | admin: NERVIS's Codex card, through its control route |
 
 **Admin here is UX and audit, not a boundary** against a program running as the owner (design §2.2
 fact 14): the credentials are 0600 files and NERVIS's control token is served in its page. What the
@@ -36,6 +38,12 @@ and result are audited by the service as they happen.
 **The allowed sites** (R5, `codex-admin.json`): the owner allows the sites a task will likely need
 from Clarvis before it starts, and removes an added one from NERVIS's Codex card. The list itself is
 Codex's own configuration, read and written by `agent/sites.py`'s `SiteAllowlist`.
+
+**Codex's skills** (owner decision, 14 September 2026; `codex-admin.json`): NERVIS's Codex card
+lists every skill Codex has but a project's own, where it comes from, and a switch for each. RAVIS
+keeps the owner's choices and applies them (`agent/skills.py`); a switch names a skill by the path
+Codex listed it at, and RAVIS takes no other path. Audited as `ravis.codex.skill_switched {name,
+source, enabled}`.
 """
 
 from __future__ import annotations
@@ -86,6 +94,15 @@ def require_sites_reader(request: Request) -> None:
     readers = {"nervis", *_service(request).settings.agent_client_applications}
     if identity.application_id not in readers:
         raise refusals.sites_reader_required()
+
+
+def require_skills_reader(request: Request) -> None:
+    """Who may read Codex's skills: NERVIS's GET relay, or an admin credential. Never Clarvis."""
+    identity = request.state.identity
+    if identity.may_write_configuration:
+        return
+    if identity.is_anonymous or identity.application_id != "nervis":
+        raise refusals.skills_reader_required()
 
 
 def require_owner_cli(request: Request) -> None:
@@ -256,4 +273,39 @@ async def remove_site(host: str, request: Request) -> dict[str, Any]:
     removed, view = await _sites(request).remove(host)
     if removed is not None:
         audit.record(request, "ravis.codex.site_removed", host=removed)
+    return view
+
+
+# ── The skills Codex may use (owner decision, 14 September 2026) ─────────────
+
+
+#: The longest path a switch may name; Codex's own paths are far shorter.
+MOST_PATH_CHARACTERS = 4096
+SKILL_BODY = (
+    "The body must carry path, the path of a skill as RAVIS listed it, and enabled, true or false."
+)
+
+
+def _skill_switch(body: dict[str, Any]) -> tuple[str, bool]:
+    """The body's `path` and `enabled`, or 422; the path is checked against Codex's list after."""
+    path, enabled = body.get("path"), body.get("enabled")
+    if (not isinstance(path, str) or not 0 < len(path) <= MOST_PATH_CHARACTERS
+            or not isinstance(enabled, bool)):
+        raise refusals.invalid_body(SKILL_BODY)
+    return path, enabled
+
+
+@router.get("/skills", dependencies=[Depends(require_skills_reader)])
+async def read_skills(request: Request) -> dict[str, Any]:
+    """Every skill Codex has but a project's own, where it comes from, and whether it is on."""
+    return await _service(request).skills_listed()
+
+
+@router.post("/skills", dependencies=[Depends(require_admin)])
+async def switch_skill(request: Request) -> dict[str, Any]:
+    """NERVIS's Codex card switching one skill on or off; the list as Codex holds it afterwards."""
+    path, enabled = _skill_switch(await _json_object(request))
+    skill, view = await _service(request).switch_skill(path, enabled)
+    audit.record(request, "ravis.codex.skill_switched", name=skill.name, source=skill.source,
+                 enabled=enabled)
     return view

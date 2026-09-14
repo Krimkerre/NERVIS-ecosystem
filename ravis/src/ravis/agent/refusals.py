@@ -11,6 +11,7 @@ so only a 429 or 503 here says "try again".
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ravis.codex.refusals import CodexRefusalError
@@ -61,6 +62,15 @@ def stop_rate_limited() -> CodexRefusalError:
 
 def workspace_root_not_allowed(reason: str, message: str = FOLDER_REFUSED) -> CodexRefusalError:
     return CodexRefusalError("WORKSPACE_ROOT_NOT_ALLOWED", 422, message, reason=reason)
+
+
+def skills_folder_refused(folder: Path) -> str:
+    """The sentence a task root at the NERVIS skills folder gets, with `denied_path` (owner
+    decision, 14 September 2026): it names the folder, so the owner sees why."""
+    return (
+        f"Codex can't work in NERVIS's skills folder, {folder}, or in a folder that holds it: a "
+        "skill written there would be on for every Codex task."
+    )
 
 
 def git_dir_not_allowed() -> CodexRefusalError:

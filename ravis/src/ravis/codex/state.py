@@ -48,6 +48,18 @@ MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", 
 SITES_PENDING = "pending"
 SITES_WRITTEN = "written"
 SITES_NOT_NEEDED = "not_needed"
+#: Where the owner's skill choices stand for the running process (`agent/skills.py`): not yet
+#: applied since Codex became ready; being applied again after Codex said its skills changed;
+#: applied — or why not.
+SKILLS_PENDING = "pending"
+SKILLS_CHECKING = "checking"
+SKILLS_APPLIED = "applied"
+SKILLS_FOLDER_REFUSED = "folder_refused"
+SKILLS_FOLDER_NOT_MADE = "folder_not_made"
+SKILLS_CODEX_DID_NOT_ANSWER = "codex_did_not_answer"
+SKILLS_NOT_LISTED = "not_listed"
+SKILLS_NOT_WRITTEN = "not_written"
+SKILLS_STILL_DIFFERENT = "still_different"
 
 
 @dataclass(frozen=True)
@@ -94,6 +106,10 @@ class Reading:
     now: datetime
     #: `SITES_PENDING`, `SITES_WRITTEN`, `SITES_NOT_NEEDED`, or why Codex didn't take the sites.
     default_sites: str
+    #: `SKILLS_PENDING`, `SKILLS_CHECKING`, `SKILLS_APPLIED`, or why the owner's skill choices
+    #: aren't Codex's — with a clause saying more, where there is one.
+    skills: str = SKILLS_APPLIED
+    skills_detail: str | None = None
 
 
 def decide(reading: Reading) -> tuple[str, str]:
@@ -124,7 +140,8 @@ def _runtime_row(reading: Reading) -> tuple[str, str] | None:
 def _process_row(reading: Reading) -> tuple[str, str] | None:
     process = reading.process
     if process.state == "running" and reading.account_read:
-        return _sites_row(reading.default_sites)
+        return _sites_row(reading.default_sites) or _skills_row(reading.skills,
+                                                                reading.skills_detail)
     if process.state == "failed":
         return "runtime_down", (
             "Codex's process failed five times in 30 minutes, so RAVIS has stopped restarting it "
@@ -144,6 +161,38 @@ def _sites_row(sites: str) -> tuple[str, str] | None:
     return "runtime_down", (
         f"Codex's process is running, but it didn't take RAVIS's default sites ({sites}), so no "
         "task can start. RAVIS writes them again the next time Codex starts."
+    )
+
+
+def _skills_row(skills: str, detail: str | None) -> tuple[str, str] | None:
+    """A running Codex takes no task until its skills are the owner's (`agent/skills.py`)."""
+    if skills == SKILLS_APPLIED:
+        return None
+    if skills == SKILLS_PENDING:
+        return "runtime_down", "Codex's process is starting."
+    if skills == SKILLS_CHECKING:
+        return "runtime_down", (
+            "Codex found a change in its skills, and RAVIS is switching them to your choices; a "
+            "task can start in a moment."
+        )
+    return "runtime_down", skills_problem(skills, detail) or ""
+
+
+def skills_problem(skills: str, detail: str | None) -> str | None:
+    """Why no task can start for the owner's skill choices, in words; None when nothing is wrong
+    or RAVIS is still applying them."""
+    if skills in (SKILLS_APPLIED, SKILLS_PENDING, SKILLS_CHECKING):
+        return None
+    if skills == SKILLS_FOLDER_REFUSED:
+        return (
+            f"RAVIS's skills folder setting can't be used: {detail}. No Codex task can start "
+            "until the setting is fixed and RAVIS restarts."
+        )
+    more = f": {detail}" if detail else ""
+    return (
+        f"Codex's process is running, but RAVIS couldn't switch Codex's skills to your choices "
+        f"({skills}{more}), so no task can start. RAVIS tries again when Codex next starts, when "
+        "its skills change, or when you switch one."
     )
 
 

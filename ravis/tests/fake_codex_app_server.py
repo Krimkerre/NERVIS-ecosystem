@@ -41,6 +41,7 @@ from typing import Any
 # Run as a program, so its own folder is on sys.path: calibration's half lives beside it.
 import fake_codex_calibration as calibration
 import fake_codex_relay as relay
+import fake_codex_skills as skills
 
 SCENARIO = json.loads(Path(os.environ["FAKE_CODEX_SCENARIO"]).read_text())
 CONTROL = Path(os.environ["FAKE_CODEX_CONTROL"])
@@ -393,6 +394,8 @@ API = types.SimpleNamespace(
     answered=answered, server_ids=server_ids,
 )
 HANDLERS.update(calibration.handlers(API))
+# Codex's skills (`fake_codex_skills.py`): listed, extra roots, switched.
+HANDLERS.update(skills.handlers(API))
 # The pretend proxy the relay half's `fetch` goes through, kept by the calibration half.
 API.site_allowed = functools.partial(calibration.site_allowed, API)
 API.user_sites = functools.partial(calibration.user_sites, API)
@@ -485,6 +488,8 @@ def interrupt_turns(_command: dict[str, Any]) -> None:
 SIMPLE_COMMANDS: dict[str, Callable[[dict[str, Any]], None]] = {
     "set_rate_limits": lambda command: state.update(rate_limits=command["rate_limits"]),
     "interrupt_turns": interrupt_turns,
+    # Stop answering one method from now on, as a Codex stuck on it would; everything else answers.
+    "silence": lambda command: state["silent"].add(command["method"]),
 }
 
 

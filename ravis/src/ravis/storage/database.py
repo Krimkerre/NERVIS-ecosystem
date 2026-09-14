@@ -298,6 +298,21 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE agent_session ADD COLUMN effort TEXT;
         """,
     ),
+    (
+        11,
+        "The owner's choice of which Codex skills are on, per RAVIS.md §15.1.2 (M29, skills)",
+        """
+        -- A Codex skill the owner switched on or off on NERVIS's Codex card, by the path of its
+        -- SKILL.md as Codex lists it. A skill with no row follows where it comes from: the NERVIS
+        -- skills folder's and Codex's built-in skills on, the owner's personal skills off. Codex's
+        -- own config.toml is only where RAVIS applies these, each time Codex starts.
+        CREATE TABLE IF NOT EXISTS codex_skill_choice (
+            path       TEXT PRIMARY KEY,
+            enabled    INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+            changed_at TEXT NOT NULL
+        );
+        """,
+    ),
 ]
 
 

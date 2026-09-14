@@ -2,6 +2,56 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From skills, RAVIS's part (ecosystem, RAVIS 0.26.0, 14 September 2026) — NERVIS's skills folder on, personal skills off
+Why: the first live Codex test's first command ran the owner's personal "graphify" skill (`~/.agents/skills`), because
+RAVIS starts Codex with the real `HOME`. The owner's four decisions are in `ravis/src/ravis/agent/skills.py`'s docstring.
+- **Built:** the `codex_skills_folder` setting (default `~/Documents/coding/NERVIS workspace/clarvis/skills`), checked by
+  `skills.folder_refusal`; `SkillChoices` over migration 11 (`codex_skill_choice`); `CodexSkills.apply` at every process
+  ready and on `skills/changed`, which `routing.PROCESS_NOTIFICATIONS` sends to the service's account queue; the words
+  `state.SKILLS_*` behind `GET /api/v1/codex` (`runtime_down` with the reason); `GET` and `POST /api/v1/codex/skills`;
+  `roots._refuse_the_skills_folder`. The pin lists `skills/list`, `skills/extraRoots/set`, `skills/config/write` and
+  `skills/changed`, and the definition hashes were rebuilt as R6 describes: HEAD's pin reproduced the committed file
+  byte for byte first, and the new record adds 14 `v2/Skill*` definitions with no existing hash changed.
+- **Decided here:**
+  - Source by real path, symlinks followed, so a personal skill linked into the NERVIS folder stays personal (off).
+    `admin` and unknown scopes count as personal (off); `repo` skills are skipped entirely.
+  - A list holding any non-`repo` skill RAVIS can't read counts as unread (`not_listed`): a skill RAVIS can't read is one
+    it can't switch off.
+  - Apply: the folder and a README (never written over an existing file or through a dangling link), then
+    `extraRoots/set`, then up to three rounds of `skills/list {cwds: [folder], forceReload: true}` and
+    `skills/config/write {path, enabled}` for each skill that differs; `effectiveEnabled` must equal the choice.
+  - On `skills/changed` the state is `checking`, so new tasks and turns wait, with their own sentence, while RAVIS applies
+    again; a change during an apply applies once more after it. The moment before Codex's own watcher sees a new file
+    can't be closed from RAVIS.
+  - The re-test's and calibration's turns are refused too while the skills aren't applied.
+  - A switch keeps the choice and applies everything. When Codex doesn't take it, the previous choice is put back and
+    applied again (409 `SKILL_NOT_CHANGED {skill, reason}`), and the state is whatever that second apply gave.
+  - `GET` is for `client.nervis` (the GET relay) and admin credentials, never Clarvis; `POST` is admin only. No
+    Idempotency-Key: setting a skill to a state repeats safely, as adding a site does.
+  - Task roots (approved by the lead, 14 September): the folder, a folder holding it or one inside it is refused with
+    `denied_path` and a message naming the folder, real paths on both sides, whether or not it exists yet. It isn't
+    added to `agent_denied_paths`, so a command reading a SKILL.md keeps its output.
+  - Compatibility: RAVIS 0.26.0 is outside NERVIS's 0.25.999 window and `check_compatibility.py` gates this commit, so
+    NERVIS's RAVIS window is widened to 0.26.999 here; NERVIS 0.30.0's notes record it.
+  - `codex-admin.json` → `nervis_control_routes` gains the skills route in NERVIS's commit, not this one:
+    `test_nervis_serves_exactly_the_codex_control_routes_ravis_lists` fails until NERVIS serves it.
+- **Unmeasured:** whether extra roots survive a Codex restart (set at every start anyway); that a switched-off skill is
+  left out of the model's instructions in a turn; whether a change reaches a thread already loaded.
+- **Tests and guard proof:** `tests/test_codex_skills.py` (22 tests, against `fake_codex_skills.py`), migration 11 in
+  `test_agent_store.py`, the re-test's wait in `test_codex_reprove.py`; full RAVIS suite 1653 passed in a snapshot.
+  `scratchpad/skills_guard_proof.py` broke 23 guards, each in its own clean snapshot, after all 17 named tests passed
+  unbroken: 23 of 23 caught (defaults, path-not-scope, extra root, re-apply on `skills/changed` and its routing, tasks
+  waiting while re-applying, the owner's choice applied, failures refusing tasks, the folder setting's checks, both
+  routes' callers, only a listed path, `repo` skills hidden, put-back, unreadable list, README, the root refusal and its
+  real paths, the re-test's wait, and both pin entries).
+- **Known limitation (the lead's condition 4):** Clarvis's own engine, with the NERVIS workspace open, can write into
+  `clarvis/skills`, and a skill written there is on for Codex by default. Owner-driven, so written down, not built around.
+- **For NERVIS:** forward `POST /api/v1/codex/skills` with the admin credential and read `GET` through the relay; show
+  `problem` when it isn't null, group by `source`, name a switch by the `path` listed, and use `folder` for the top line.
+  The launcher sets `RAVIS_CODEX_SKILLS_FOLDER` from its workspace path.
+- **For Clarvis:** re-sync `codex-admin.json`, `conventions.json`, `codex-state.json` and `codex-contract.sha256`;
+  nothing to build.
+
 ## From R6 (ecosystem, RAVIS 0.25.2, 14 September 2026) — the pin lists every Codex request RAVIS sends
 RAVIS sent `config/read` and `config/batchWrite` (the sites, R5) and `permissionProfile/list`
 (acceptance check 7b) without `tested_runtimes.json` → `used_methods.client_requests` listing them,

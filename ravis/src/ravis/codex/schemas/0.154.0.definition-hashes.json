@@ -1045,6 +1045,20 @@
   "v2/ServerRequestResolvedNotification",
   "v2/SessionSource",
   "v2/Settings",
+  "v2/SkillDependencies",
+  "v2/SkillErrorInfo",
+  "v2/SkillInterface",
+  "v2/SkillMetadata",
+  "v2/SkillScope",
+  "v2/SkillToolDependency",
+  "v2/SkillsChangedNotification",
+  "v2/SkillsConfigWriteParams",
+  "v2/SkillsConfigWriteResponse",
+  "v2/SkillsExtraRootsSetParams",
+  "v2/SkillsExtraRootsSetResponse",
+  "v2/SkillsListEntry",
+  "v2/SkillsListParams",
+  "v2/SkillsListResponse",
   "v2/SortDirection",
   "v2/SpendControlLimitSnapshot",
   "v2/SubAgentActivityKind",
@@ -1160,6 +1174,18 @@
     "params": "v2/PermissionProfileListParams",
     "response": "v2/PermissionProfileListResponse"
    },
+   "skills/config/write": {
+    "params": "v2/SkillsConfigWriteParams",
+    "response": "v2/SkillsConfigWriteResponse"
+   },
+   "skills/extraRoots/set": {
+    "params": "v2/SkillsExtraRootsSetParams",
+    "response": "v2/SkillsExtraRootsSetResponse"
+   },
+   "skills/list": {
+    "params": "v2/SkillsListParams",
+    "response": "v2/SkillsListResponse"
+   },
    "thread/archive": {
     "params": "v2/ThreadArchiveParams",
     "response": "v2/ThreadArchiveResponse"
@@ -1256,6 +1282,10 @@
    },
    "serverRequest/resolved": {
     "params": "v2/ServerRequestResolvedNotification",
+    "response": null
+   },
+   "skills/changed": {
+    "params": "v2/SkillsChangedNotification",
     "response": null
    },
    "thread/status/changed": {

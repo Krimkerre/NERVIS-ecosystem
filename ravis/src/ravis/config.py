@@ -351,6 +351,15 @@ class Settings(BaseSettings):
     # Never the ChatGPT app's `~/.codex`, and never inside RAVIS's configuration
     # folder, which holds RAVIS's credentials: either leaves Codex not available.
     codex_home: str = ""
+    # **The NERVIS skills folder** (owner decision, 14 September 2026): the Codex skills meant
+    # for the ecosystem's tasks, `<NERVIS workspace>/clarvis/skills`, beside
+    # `clarvis/nervis-tasks/`. RAVIS makes it when Codex starts and keeps its skills on unless the
+    # owner switches one off; the owner's personal skills (`~/.agents/skills`) start off
+    # (`agent/skills.py`). The launcher names it from NERVIS's workspace path. A value that isn't
+    # absolute, isn't strictly inside `agent_allowed_roots`, or is or holds `~/.codex`, RAVIS's
+    # Codex home or a protected repository refuses every task, and `GET /api/v1/codex` says why.
+    # No Codex task may work in it or in a folder that holds it (`agent/roots.py`).
+    codex_skills_folder: str = "~/Documents/coding/NERVIS workspace/clarvis/skills"
     # The Apple team that must have signed the executable: OpenAI's.
     codex_expected_team_id: str = "2DC432GLL2"
     # How often RAVIS reads the ChatGPT plan's remaining allowance while no Codex turn is
@@ -618,6 +627,15 @@ def codex_home(settings: Settings) -> pathlib.Path:
     if settings.codex_home:
         return pathlib.Path(os.path.abspath(os.path.expanduser(settings.codex_home)))
     return data_directory() / "ravis-codex"
+
+
+def codex_skills_folder(settings: Settings) -> pathlib.Path:
+    """The NERVIS skills folder as a real path: `~` expanded and symlinks followed where they exist.
+
+    Resolved whether or not the folder exists yet, since RAVIS makes it once Codex starts. A
+    relative value resolves against RAVIS's working folder here, and `agent/skills.py` refuses it.
+    """
+    return pathlib.Path(os.path.realpath(os.path.expanduser(settings.codex_skills_folder)))
 
 
 def codex_home_refusal(settings: Settings) -> str | None:

@@ -24,7 +24,10 @@
       "command/exec",
       "turn/start",
       "turn/steer",
-      "turn/interrupt"
+      "turn/interrupt",
+      "skills/list",
+      "skills/extraRoots/set",
+      "skills/config/write"
     ],
     "server_notifications": [
       "account/login/completed",
@@ -46,7 +49,8 @@
       "model/rerouted",
       "warning",
       "modelProvider/authRecoveryStarted",
-      "modelProvider/authRecoveryCompleted"
+      "modelProvider/authRecoveryCompleted",
+      "skills/changed"
     ],
     "server_requests": [
       "item/commandExecution/requestApproval",

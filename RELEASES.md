@@ -1207,7 +1207,43 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.25.2
+## RAVIS — 0.26.0
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Codex only uses the skills you chose.** In the first live Codex test, Codex ran one of your own
+  skills, "graphify", that nobody asked for: it made a folder in the project and used some of the
+  plan's allowance. Codex found it because RAVIS starts Codex with your real home folder, which npm,
+  pip and git need. Now RAVIS decides which skills Codex may use, each time Codex starts:
+  - skills in NERVIS's own skills folder, `clarvis/skills` in the NERVIS workspace, are **on** (RAVIS
+    makes the folder, with a short README, if it isn't there);
+  - Codex's built-in skills are **on**;
+  - your personal skills (`~/.agents/skills`) are **off**, and so is any you add later.
+
+  Any of them can be switched on or off; NERVIS's Codex card gets the switches in NERVIS 0.30.0.
+- **Your switches are kept by RAVIS**, in its database (migration 11), and put back into Codex at
+  every start and whenever Codex says a skill file changed. If Codex won't take them, no Codex task
+  starts and `GET /api/v1/codex` says why, so a skill you switched off is never quietly on.
+- **New routes:** `GET /api/v1/codex/skills` (NERVIS's reads, or an admin credential) lists every
+  skill with where it comes from and whether it is on; `POST /api/v1/codex/skills` (an admin
+  credential) switches one, named by the path RAVIS listed.
+- **What this changes for you: Codex can no longer be started on "NERVIS workspace" or on its
+  "clarvis" folder as a whole**, so no Codex task can write a skill into that folder. Task folders
+  under `nervis-tasks` and every other project work as before.
+- **A new setting**, `RAVIS_CODEX_SKILLS_FOLDER`, names the folder. The launcher sets it from the
+  NERVIS workspace from NERVIS 0.30.0; RAVIS's own default is
+  `~/Documents/coding/NERVIS workspace/clarvis/skills`. A value outside the coding folder, the coding
+  folder itself, or one inside `~/.codex`, RAVIS's Codex home or the ecosystem's own repositories
+  stops Codex tasks, and the reason is shown.
+- **Known limits.** A change counts from a Codex task's next start or reopen. Not yet checked with a
+  real Codex task: that a switched-off skill is really left out of what Codex reads. Clarvis's own
+  engine (not Codex), with the NERVIS workspace open, can still write a skill into the folder, and
+  Codex would then have it on.
+- The record of Codex 0.154.0 now lists the three skills requests and the skills-changed notification;
+  rebuilt from the real binary, it gained only their definitions, and 0.154.0 still passes. Clarvis's
+  copy of the contract needs re-syncing.
+
+### 0.25.2
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

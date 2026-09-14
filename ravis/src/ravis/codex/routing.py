@@ -9,6 +9,8 @@ thread's inbox, or straight back to Codex as a fixed answer — and returns. Not
 **Routing rules** (design §4.4):
 - `account/*` and `modelProvider/authRecovery*` notifications go to the Codex service's account
   queue (`service.py`), which reads the account, the allowance and the models from them.
+- `skills/changed`, which is about the whole process rather than any thread, goes to that queue
+  too: the service puts Codex's skills back to the owner's choices (`agent/skills.py`).
 - A thread's notifications and requests go to that thread's inbox, if RAVIS opened one for it. In
   this increment the only thread-holder is the file-rules re-test (`reprove.py`); the agent
   sessions of M29's third increment register their threads the same way.
@@ -36,6 +38,8 @@ from ravis.codex.rpc import METHOD_NOT_FOUND, Connection, RequestId
 
 #: The notification prefixes that belong to the account rather than to any thread.
 ACCOUNT_NOTIFICATIONS = ("account/", "modelProvider/authRecovery")
+#: Notifications about the whole Codex process, delivered to the service with the account's.
+PROCESS_NOTIFICATIONS = frozenset({"skills/changed"})
 #: Codex's requests RAVIS refuses wherever they come from (design §4.4).
 REFUSED_REQUESTS = frozenset({
     "item/tool/call",
@@ -161,7 +165,7 @@ class MessageRouter:
 
     def notification(self, method: str, params: dict[str, Any]) -> None:
         self._turns.observe(method, params)
-        if method.startswith(ACCOUNT_NOTIFICATIONS):
+        if method.startswith(ACCOUNT_NOTIFICATIONS) or method in PROCESS_NOTIFICATIONS:
             self._on_account(method, params)
             return
         inbox = self._inbox_for(params)

@@ -28,6 +28,10 @@ run the runtime check, and start the background tasks:
   consumer is restarted without touching the process; and once a minute the executable is looked
   at again, and the whole check re-run only if it changed (design §4.1).
 
+**Each time the process becomes ready** RAVIS writes the default sites (`agent/sites.py`) and puts
+Codex's skills to the owner's choices (`agent/skills.py`), and again whenever Codex says its skills
+changed; until both are done no task starts, and `GET /api/v1/codex` says why.
+
 **State changes are published** as `ravis.codex.state_changed {from, to, reason_code}` (design
 §3.9) whenever the one state word moves, whatever moved it.
 """
@@ -50,6 +54,7 @@ from typing import Any
 
 from ravis.agent.calibration_dependent import network_profile_flags
 from ravis.agent.sessions import AgentSessions, AgentTimings
+from ravis.agent.skills import CodexSkills, Skill, SkillChoices, SkillsOutcome
 from ravis.codex import refusals
 from ravis.codex.acceptance import HandshakeTimings, VersionCheck, check_version
 from ravis.codex.account import Account, account_from_read, needs_account_id
@@ -102,12 +107,16 @@ from ravis.codex.state import (
     SITES_NOT_NEEDED,
     SITES_PENDING,
     SITES_WRITTEN,
+    SKILLS_APPLIED,
+    SKILLS_CHECKING,
+    SKILLS_PENDING,
     ModelFacts,
     ProcessFacts,
     Reading,
     codex_body,
     decide,
     models_from_list,
+    skills_problem,
     used_up_reason,
 )
 from ravis.codex.store import (
@@ -142,6 +151,7 @@ MESSAGE_REASONS = {
     "account/updated": "account_updated",
     "account/rateLimits/updated": "usage",
     "turn/completed": "turn_completed",
+    "skills/changed": "skills_changed",
 }
 
 
@@ -157,6 +167,8 @@ class ServiceTimings:
     login_seconds: float = 10.0
     usage_after_turn_seconds: float = 30.0
     consumer_stall_seconds: float = 30.0
+    #: How long one skills request may take before RAVIS says Codex didn't answer (`skills.py`).
+    skills_seconds: float = 10.0
     #: Codex abandons a sign-in after ten minutes, and RAVIS ends its own record of it then too.
     sign_in_lifetime_seconds: float = SIGN_IN_LIFETIME.total_seconds()
     supervisor: SupervisorTimings = SupervisorTimings()
@@ -244,6 +256,12 @@ class CodexService:
         #: process that is: a write answered after its process ended is ignored.
         self._default_sites = SITES_PENDING
         self._process_generation = 0
+        #: Where the owner's skill choices stand for the running process (`state.SKILLS_*`), with a
+        #: clause saying more; the one apply running, and whether Codex's skills changed during it.
+        self._skills: str = SKILLS_PENDING
+        self._skills_detail: str | None = None
+        self._skills_task: asyncio.Task[Any] | None = None
+        self._skills_again = False
         self._account: Account | None = None
         self._account_read = False
         self._usage: Usage = UNKNOWN
@@ -271,9 +289,13 @@ class CodexService:
         self._accepted_logged: str | None = None
         # Clarvis's Codex tasks (M29's third increment, `agent/`). They run in this service's one
         # process, so the service is their Codex host; their records live in RAVIS's database.
+        database = database if database is not None else prepare_database(":memory:")
+        #: Codex's skills and the owner's choice for each, kept in the same database.
+        self.skills = CodexSkills(self.request, SkillChoices(database), settings,
+                                  seconds=timings.skills_seconds)
         self.agents = AgentSessions(
             self,
-            database if database is not None else prepare_database(":memory:"),
+            database,
             settings,
             emit=emit,
             timings=timings.agents,
@@ -420,7 +442,9 @@ class CodexService:
         self._refresh_wanted.set()
         self._process_generation += 1
         self._default_sites = SITES_PENDING
+        self._skills, self._skills_detail = SKILLS_PENDING, None
         self._background(self._write_default_sites(self._process_generation))
+        self._apply_skills_soon()
         self._state_moved("process_ready")
 
     async def _write_default_sites(self, generation: int) -> None:
@@ -447,12 +471,64 @@ class CodexService:
             )
         self._state_moved("default_sites")
 
+    def _apply_skills_soon(self) -> None:
+        """Start putting Codex's skills to the owner's choices, or again after the apply running."""
+        if self._skills_task is not None and not self._skills_task.done():
+            self._skills_again = True
+            return
+        self._skills_again = False
+        self._skills_task = self._background(self._apply_skills())
+
+    async def _apply_skills(self) -> None:
+        """Put Codex's skills to the owner's choices (`agent/skills.py`); no task starts until then.
+
+        Run when the process becomes ready and whenever Codex says its skills changed. A change
+        arriving while an apply runs applies once more afterwards; an answer from a process that has
+        ended since is ignored, since the next ready process applies them itself.
+        """
+        again = True
+        while again:
+            self._skills_again = False
+            generation = self._process_generation
+            outcome = await self.skills.apply()
+            if generation == self._process_generation:
+                self._set_skills(outcome)
+            again = self._skills_again
+
+    def _skills_changed(self) -> None:
+        """`skills/changed`: a skill file changed, so a new one may be on; applied again at once.
+
+        Tasks wait meanwhile (`SKILLS_CHECKING`), so none starts with a skill the owner never chose.
+        """
+        if self._supervisor.state != "running":
+            return
+        if self._skills == SKILLS_APPLIED:
+            self._skills, self._skills_detail = SKILLS_CHECKING, None
+        self._apply_skills_soon()
+
+    def _set_skills(self, outcome: SkillsOutcome) -> None:
+        self._skills, self._skills_detail = outcome
+        if outcome[0] != SKILLS_APPLIED:
+            logger.error(
+                "codex: RAVIS couldn't put Codex's skills to the owner's choices (%s%s); no task "
+                "can start until it can", outcome[0], f": {outcome[1]}" if outcome[1] else "",
+            )
+        self._state_moved("skills")
+
+    def _skills_not_applied(self) -> str | None:
+        """Why a turn of RAVIS's own (the re-test's, calibration's) can't run for the skills yet."""
+        if self._skills == SKILLS_APPLIED:
+            return None
+        why = skills_problem(self._skills, self._skills_detail) or "RAVIS is still applying them."
+        return f"Codex's skills aren't your choices yet, so its turn can't run. {why}"
+
     def _process_ended(self, reason: str) -> None:
         # Every running task's turn died with the process (design §4.4): uncertain, cleaned up.
         self.agents.codex_process_ended()
         self._account_read = False
         self._process_generation += 1
         self._default_sites = SITES_PENDING
+        self._skills, self._skills_detail = SKILLS_PENDING, None
         if self._sign_in.waiting and not self._stopping:
             # Lost while RAVIS runs on: say so now, and no restart needs to report it later.
             self._sign_in.fail(f"Codex's process stopped during sign-in ({reason}); start again.")
@@ -490,6 +566,8 @@ class CodexService:
             self._refresh_wanted.set()
         elif method == "turn/completed":
             self._turn_completed(params)
+        elif method == "skills/changed":
+            self._skills_changed()
         self._state_moved(MESSAGE_REASONS.get(method, "codex_message"))
 
     def _login_completed(self, params: dict[str, Any]) -> None:
@@ -778,6 +856,34 @@ class CodexService:
         running, installed = self._supervisor.running_sha256, self.runtime.report.installed_sha256
         return running is not None and installed is not None and installed != running
 
+    # ── Codex's skills, on NERVIS's Codex card (`agent/skills.py`) ───────────
+
+    async def skills_listed(self) -> dict[str, Any]:
+        """`GET /api/v1/codex/skills`: every skill as Codex holds it now; 503 while it can't say."""
+        return self._skills_view(await self.skills.listed())
+
+    async def switch_skill(self, path: str, enabled: bool) -> tuple[Skill, dict[str, Any]]:
+        """`POST /api/v1/codex/skills`: the owner's switch, applied with every other choice.
+
+        Where the choices stand afterwards is the state `GET /api/v1/codex` reads, taken or not;
+        a switch Codex didn't take is 409 `SKILL_NOT_CHANGED`.
+        """
+        generation = self._process_generation
+        switched = await self.skills.switch(path, enabled)
+        if generation == self._process_generation:
+            self._set_skills(switched.outcome)
+        if switched.refused is not None:
+            raise refusals.skill_not_changed(switched.skill.name, switched.refused)
+        return switched.skill, self._skills_view(switched.skills)
+
+    def _skills_view(self, skills: list[Skill]) -> dict[str, Any]:
+        """`SkillsView` (`codex-admin.json`): the folder, what stops tasks for them, each skill."""
+        return {
+            "folder": str(self.skills.folder()),
+            "problem": skills_problem(self._skills, self._skills_detail),
+            "skills": [skill.view() for skill in skills],
+        }
+
     # ── The state ────────────────────────────────────────────────────────────
 
     def _reading(self) -> Reading:
@@ -805,6 +911,8 @@ class CodexService:
             home_fingerprint=self._home_fingerprint,
             now=_now(),
             default_sites=self._default_sites,
+            skills=self._skills,
+            skills_detail=self._skills_detail,
         )
 
     def snapshot(self, *, named: bool = True) -> dict[str, Any]:
@@ -1106,7 +1214,8 @@ class CodexService:
             # The allowance's own sentence, not the state's: an unproven build's pause outranks
             # "used up" in the state table, but it isn't why the re-test can't run.
             return refusals.not_ready(used_up_reason(self._usage, _now()))
-        return None
+        skills = self._skills_not_applied()
+        return None if skills is None else refusals.not_ready(skills)
 
     async def _run_reproof(self, application_id: str) -> None:
         trace = uuid.uuid4().hex
@@ -1218,7 +1327,8 @@ class CodexService:
             return refusals.not_ready("Codex must be signed in: calibration's turns use the plan.")
         if is_exhausted(self._usage, _now()):
             return refusals.not_ready(used_up_reason(self._usage, _now()))
-        return None
+        skills = self._skills_not_applied()
+        return None if skills is None else refusals.not_ready(skills)
 
     def _new_calibration_run(self, projects: Any, selected: tuple[str, ...]) -> CalibrationRun:
         run_id = new_run_id()
@@ -1303,11 +1413,12 @@ class CodexService:
         except OSError as failure:
             logger.error("codex: %s can't be written: %s", FILE_NAME, failure)
 
-    def _background(self, work: Any) -> None:
+    def _background(self, work: Any) -> asyncio.Task[Any]:
         """Run `work` beside the service, kept so it isn't collected mid-way."""
         task = asyncio.create_task(work)
         self._tasks[f"background-{id(task)}"] = task
         task.add_done_callback(lambda done: self._tasks.pop(f"background-{id(done)}", None))
+        return task
 
 
 def _accepted(check: VersionCheck, sha256: str, accepted_by: str) -> AcceptedBuild:
