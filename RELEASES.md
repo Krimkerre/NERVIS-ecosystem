@@ -416,7 +416,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.16
+## NERVIS — 0.28.17
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The download link in chat works again.** After a save, an export or an annotated copy, the
+  bubble's "download" link answered 404: it asked for `chat.pdf` while the file sat at
+  `export/chat.pdf`. The file itself was always written to the right place. It broke when the
+  workspace got its four rooms (9 September), not when the workspace moved. The command's answer
+  now carries `file.download`, the address the documents route really finds the file at, and the
+  link uses it. When there is no such address (a file type the route doesn't serve, or an export
+  room outside the workspace), the bubble shows no link instead of a dead one. Links in bubbles
+  already on screen before the update are still wrong; export again to get a working one.
+
+### 0.28.16
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

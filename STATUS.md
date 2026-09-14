@@ -16411,6 +16411,17 @@ room for a file somebody keeps: no conversation, no fortnight sweep, searched
 by name — and the root is not searched at all. Search order is attachments,
 library, import, export.
 
+**Fixed 14 September 2026 (NERVIS 0.28.17): the chat bubble's download link.**
+The picture links carried the room; the save/export command's answer did not.
+Its `file.name` is counted from the export room (`chat.pdf`), the documents route
+counts from the workspace top (`export/chat.pdf`), and the bubble linked the name
+— so every download link after a save, export or annotated copy answered 404 from
+this change until the owner reported it on 14 September (the NERVIS log shows the
+bare-name 404s). The answer now carries `file.download`, worked out from where the
+file really is and `null` when the route can't serve it, and the bubble links
+that or nothing. `test_the_export_writes_every_turn_not_just_the_last_reply`
+fetches the returned address and compares the bytes.
+
 The nine loose files already in the workspace moved to `export` (every one is a
 save or an annotate output) and the existing `.attachments` tree moved under
 `import`, so nothing that was reachable stopped being reachable.

@@ -43,6 +43,11 @@ Four rooms, and which one a file is in says how it got there.
   when the point is to have it around.
 - **`export/`** — what NERVIS produced. A reply saved as a document, a
   conversation exported to PDF, an annotated copy, a picture a model drew.
+  The "download" link in the chat bubble after a save or export fetches the
+  file from here. From 9 to 14 September 2026 that link answered "not found"
+  because it left out the `export/` part; fixed in NERVIS 0.28.17. An old
+  bubble from that stretch still has the broken link — exporting again gives
+  a working one.
 - **`clarvis/`** — what the editor opens. A coding task handed to Clarvis is
   written here, into a new folder of its own under `nervis-tasks/` — one per
   task, named for it (`pomodoro-timer`, or whatever you called it when NERVIS

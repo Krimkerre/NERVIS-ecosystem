@@ -12832,10 +12832,15 @@ function switchOffer(index,operation,action){
    The name is the only thing sent, and the endpoint resolves it inside the
    workspace before comparing — so what is linked here cannot name a file
    outside it however this markup is assembled. */
+/* **`file.download`, not `file.name`.** The name is counted from the export room
+   and the endpoint counts from the top of the workspace, so linking the name
+   answered 404 for every file since the four rooms landed. No address means the
+   endpoint can't hand this file back, and then there is no link at all rather
+   than a dead one. */
 function downloadLink(file){
- if(!file||!file.name)return '';
- const href=`${BASE.nervis}/api/v1/documents/${encodeURIComponent(file.name)}`;
- return ` · <a href="${escapeHtml(href)}" download="${escapeHtml(file.name)}"
+ if(!file||!file.download||!file.name)return '';
+ const href=`${BASE.nervis}/api/v1/documents/${file.download.split('/').map(encodeURIComponent).join('/')}`;
+ return ` · <a href="${escapeHtml(href)}" download="${escapeHtml(file.name.split('/').pop())}"
    style="color:var(--cyan)">download</a>`;
 }
 

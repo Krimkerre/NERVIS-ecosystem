@@ -48,6 +48,7 @@ from nervis import (
 )
 from nervis.api.chat_calls import _forwarded
 from nervis.api.chat_titles import _title_from
+from nervis.api.documents import SERVED
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -842,7 +843,31 @@ async def _write_into_workspace(
     resolved.path.parent.mkdir(parents=True, exist_ok=True)
     resolved.path.write_bytes(payload)
     _audit(request, resolved.shown, "written", detail)
-    return {"file": {"name": resolved.shown, "bytes": len(payload), "detail": detail}}
+    return {"file": {
+        "name": resolved.shown, "bytes": len(payload), "detail": detail,
+        "download": _download_address(request, resolved.path),
+    }}
+
+
+def _download_address(request: Request, written: Path) -> str | None:
+    """Where `/api/v1/documents/` finds this file, or None when it can't serve it.
+
+    **`name` is not that address.** `name` is counted from the export room, which is
+    where the file was written, and the documents route counts from the top of the
+    workspace. Since the four rooms landed (9 September 2026) every download link in
+    a chat bubble asked for `chat.pdf` while the file sat at `export/chat.pdf`, and
+    every one answered 404. So the address is worked out here from where the file
+    really is, and is None rather than a dead link when the route can't hand it
+    back: a suffix it doesn't serve, or an export room configured outside the
+    workspace.
+    """
+    top = str(getattr(request.app.state.settings, "workspace_path", "") or "").strip()
+    if not top or written.suffix.lower() not in SERVED:
+        return None
+    try:
+        return written.resolve().relative_to(Path(top).expanduser().resolve()).as_posix()
+    except ValueError:
+        return None
 
 
 async def _visual_defect(request: Request, pdf_bytes: bytes) -> str | None:

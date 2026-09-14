@@ -4013,6 +4013,13 @@ def test_the_export_writes_every_turn_not_just_the_last_reply(tmp_path: Path) ->
     # Both questions are in it, which is the difference from saving one reply.
     assert b"(why is ravis slow)" in written
     assert b"(and what fixed it)" in written
+    # The bubble's download link is built from `download`, and it must fetch this
+    # very file. It used `name` ("chat.pdf", counted from the export room) and
+    # answered 404 for every export from 9 to 14 September 2026.
+    assert ran.json()["file"]["download"] == "export/chat.pdf"
+    fetched = client.get(f"/api/v1/documents/{ran.json()['file']['download']}")
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.content == written
 
 
 def test_exporting_a_conversation_that_does_not_exist_says_so(tmp_path: Path) -> None:
