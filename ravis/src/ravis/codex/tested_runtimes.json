@@ -80,7 +80,13 @@
     ]
   },
   "_file_rules_profile_about": "The clarvis_run permission profile's -c flags (design §4.9), written at calibration once Codex's own validation errors fix their TOML syntax: {\"name\": \"clarvis_run\", \"flags\": [\"-c\", \"…\"]}, where a flag may name {user_home}, {ravis_config}, {codex_home} and {reproof_decoys}. null until then: the Codex process starts without it, and the file-rules re-test refuses to start.",
-  "file_rules_profile": null,
+  "file_rules_profile": {
+    "name": "clarvis_run",
+    "flags": [
+      "-c",
+      "permissions.clarvis_run={extends=\":workspace\", network={enabled=true, mode=\"limited\"}, filesystem={\":project_roots\"={\".\"=\"write\", \".run\"=\"deny\", \"**/.run\"=\"deny\"}, \":tmpdir\"=\"read\", \":slash_tmp\"=\"read\", \"{ravis_config}\"=\"deny\", \"{user_home}/.config/code-server\"=\"deny\", \"{user_home}/.local/share/clarvis\"=\"deny\", \"{codex_home}/auth.json\"=\"deny\", \"{codex_home}/sessions\"=\"deny\", \"{codex_home}/archived_sessions\"=\"deny\", \"{user_home}/.codex\"=\"deny\", \"{user_home}/.ssh\"=\"deny\", \"{user_home}/.aws\"=\"deny\", \"{user_home}/.config/gh\"=\"deny\", \"{user_home}/.netrc\"=\"deny\", \"{reproof_decoys}\"=\"deny\"}}"
+    ]
+  },
   "tested": [
     {
       "codex_version": "0.154.0",
@@ -89,9 +95,11 @@
       "stable_tree": "b32fa164e4bedf854688c5e2dcee10b3da22c0306dd7eda148ee9eeed00dfe93",
       "experimental_tree": "d811e26c9f5b69cfb77cc7a6001a982394863b11f7a380ed243a0a77f1798172",
       "definitions": "schemas/0.154.0.definition-hashes.json",
-      "strict_rules_proven": false,
+      "strict_rules_proven": true,
       "recorded_on": "2026-09-13",
-      "evidence": "Measured for RAVIS R1 from /opt/homebrew/Caskroom/codex/0.154.0/bin/codex, reached through the Homebrew link /opt/homebrew/bin/codex: signed by Apple team 2DC432GLL2, prints codex-cli 0.154.0, and both schema trees were generated in a throwaway Codex home under a sandbox denying network access and every write outside that home. The stable tree equals the reference recorded for ChatGPT.app's 0.154.0-alpha.6.2. Calibration proves the file rules (STATUS.md, Codex engine build plan). The definition hashes (R2) were built from the protocol brief's generated experimental tree, whose tree hash equals this entry's experimental_tree."
+      "evidence": "Measured for RAVIS R1 from /opt/homebrew/Caskroom/codex/0.154.0/bin/codex, reached through the Homebrew link /opt/homebrew/bin/codex: signed by Apple team 2DC432GLL2, prints codex-cli 0.154.0, and both schema trees were generated in a throwaway Codex home under a sandbox denying network access and every write outside that home. The stable tree equals the reference recorded for ChatGPT.app's 0.154.0-alpha.6.2. Calibration proves the file rules (STATUS.md, Codex engine build plan). The definition hashes (R2) were built from the protocol brief's generated experimental tree, whose tree hash equals this entry's experimental_tree.",
+      "calibrated_on": "2026-09-14",
+      "calibration": "0.154.0-cal_5a1d6ecc33b4/summary.json"
     }
   ]
 }

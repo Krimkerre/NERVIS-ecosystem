@@ -102,8 +102,8 @@ DEFAULT_ALLOWED_SITES: tuple[str, ...] = (
 #: no `domains` at launch the same upsert answers `ok`, the site answers at once, and a host never
 #: written stays blocked. So the launch flags carry the proxy only, and the sites are written after.
 #: **A loaded thread doesn't see it** (runs `cal_ed672bf12c6f` and `cal_85aa0ece0f52`): the add
-#: answers `ok`, and both the running turn and the thread's next turn stay blocked. K3 tries the
-#: thread reopened from disk and a copy of it (Cal-5).
+#: answers `ok`, and both the running turn and the thread's next turn stay blocked. The thread
+#: reopened from disk reaches it (run `cal_5a1d6ecc33b4`), so that is how a task carries on.
 
 #: A profile's site table inside a TOML inline table: its values are `"host"="allow"`, never braces.
 _DOMAINS = r"\bdomains\s*=\s*\{[^{}]*\}"

@@ -335,7 +335,10 @@ the long-running commands it started, and the seventh run passed it. The network
 failed: Codex takes the allowed site, but a Codex conversation that is already open keeps the site
 list it started with, in its next step too. RAVIS 0.24.4 makes calibration try two more ways to carry
 a task on without losing its progress — reopening the conversation from disk, or copying it with its
-history — and the owner approved a run to find out which one works.
+history — and the owner approved a run to find out which one works. The eighth run found it:
+reopening the conversation once Codex had let go of it (about a minute) reached the site. The full
+run that followed passed every must-pass question, so the file rules are proven for Codex 0.154.0
+and Codex is no longer paused (RAVIS 0.24.5).
 
 **It keeps one writer per project for both engines, and cleans up after Codex** (RAVIS 0.24.0).
 Clarvis's own coding runs take the project lock through `/api/v1/project-locks`. A window can take a

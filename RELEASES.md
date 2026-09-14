@@ -1075,7 +1075,24 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.24.4
+## RAVIS — 0.24.5
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Codex's file rules are proven, so Codex is no longer paused.** On 14 September 2026 the eighth
+  calibration run (`cal_faf8dcc6b0f1`, the network and stop questions) passed: the allowed site
+  reached the task once the Codex conversation was reopened from disk, after Codex had let go of it
+  (about a minute). The full run that followed (`cal_5a1d6ecc33b4`) passed all ten must-pass
+  questions and recorded the other six. RAVIS now ships the proven profile in `tested_runtimes.json`,
+  so Codex 0.154.0 starts with the strict file rules. The run's transcripts are kept in
+  `ravis/tests/fixtures/codex/calibration/0.154.0-cal_5a1d6ecc33b4`, checked to hold no home folder,
+  email address or token.
+- **After the owner allows a site, a task carries on by reopening its Codex conversation**: the step
+  that was running, and the next step in the same open conversation, can't reach the new site. This
+  is what Clarvis's site ask (C2b) must do.
+- Nothing else changed.
+
+### 0.24.4
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

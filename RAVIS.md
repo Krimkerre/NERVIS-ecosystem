@@ -1578,6 +1578,13 @@ and a copy (`thread/fork` with the profile and roots), which fails K3 if it runs
 profile. `reached_in` names the way, and that is the way a task must carry on after an allow. K3's
 thread is kept on disk so it can be reopened or copied, and archived afterwards.
 
+**Proven on 14 September 2026 (0.24.5).** Run 8 (`cal_faf8dcc6b0f1`) passed K3 by reopening the
+thread (unloaded after about 60 s) and K6; the full run `cal_5a1d6ecc33b4` passed all ten must-pass
+questions and recorded six. `tested_runtimes.json` now carries the `clarvis_run` profile and marks
+Codex 0.154.0 `strict_rules_proven`, with the run's summary committed under
+`tests/fixtures/codex/calibration/`. So Codex starts with the strict file rules and is no longer
+paused, and a task carries on after an allowed site by reopening its thread.
+
 **The project lock, for both engines.**
 
 | Route | Who | What |

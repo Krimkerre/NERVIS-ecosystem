@@ -2,6 +2,24 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From calibration runs 8 and 9 (ecosystem, RAVIS 0.24.5, 14 Sep 2026) — the file rules are proven
+- Run 8 (`cal_faf8dcc6b0f1`, 0.24.4, K3+K6): both passed. K3 `reached_in: reopened`: the next step (no
+  `sandboxPolicy`) was blocked; unsubscribe, unloaded after about 60 s, `thread/resume` with the profile,
+  reached. The copy wasn't needed, so `thread/fork` stays unproven on real Codex.
+- Run 9, the full run (`cal_5a1d6ecc33b4`): K10, K5a, K5, K5c, K1, K2, K3 (reopened, 60 s), K7, K6, K13
+  passed; K2b, K4, K8, K9, K11, K12 recorded. `strict_rules_proven: true`; `tested_runtimes.json` carries
+  `file_rules_profile` (the candidate profile, placeholders intact) and the entry's `calibrated_on` and
+  `calibration`. Transcripts committed under `ravis/tests/fixtures/codex/calibration/0.154.0-cal_5a1d6ecc33b4`
+  (checked: no home paths, emails or tokens; the one `@` is a diff hunk). `test_codex_runtime.py`'s
+  committed-pin test expects the proven entry and reads that summary. Allowance: 25% of the weekly window
+  left afterwards (32% before run 6).
+- The summary's protected-repositories line says they "may be allowed later, by an exact listing: deny beat
+  write inside a project". The owner's default stands: the ecosystem's own repositories stay refused.
+- **For C2b (overrides Cal-4's and Cal-5's notes):** after the owner allows a site, carry the task on by
+  reopening its thread: let the turn end, `thread/unsubscribe`, wait until `thread/loaded/list` drops it
+  (about 60 s; show the owner that it's reconnecting), `thread/resume` with the profile and roots, then the
+  next turn. A new turn in the still-loaded thread doesn't see the site.
+
 ## From Cal-5 (ecosystem, RAVIS 0.24.4, 14 Sep 2026) — K3 tries reopening and copying the task
 Run 7 (`cal_85aa0ece0f52`, RAVIS 0.24.3, `--only K3,K6`): **K6 passed.** K3 failed: add `ok`, the running
 turn blocked, and the next turn in the same thread blocked too, with the fixed line. So **Cal-4's note for
@@ -415,6 +433,19 @@ For R3:
 - `startBuild` clears `planningIO` before the run, so a Stop during a build never reaches planning.
 - Only pure halves are tested (`stopDecision.test.ts`, `PlanningChatIO.test.ts`); any change to `stop()`/`stopFromChat()`
   must prove planning still pauses on a typed stop.
+
+## Owner requirement added 14 Sep 2026 (during calibration) — choose Codex's model and effort per task
+- Clarvis's Codex picker lets the owner choose, for each task, **which Codex model** and **how hard it thinks**
+  (effort: the levels `model/list` gives that model, e.g. `low` / `medium` / `high`). Default: the plan's
+  default model at its `default_effort`. The picker says a bigger model or higher effort uses the plan's
+  allowance faster.
+- RAVIS today: `CreateSession.model` is optional and passed to `thread/start` (`thread_start_params`); an
+  unknown model is refused by the `model/list` pre-flight. **Effort isn't designed yet.** To add: an optional
+  `CreateSession.effort`, checked against that model's `efforts` in `model/list` (refused with a plain
+  sentence otherwise), stored on the `agent_session` row, sent as `effort` on every `turn/start` of the task,
+  and shown in `SessionView` beside `model`. Both are fixed for the task's life (a new task to change them).
+- Ships with the Clarvis Codex picker increment, after calibration unpauses Codex; NERVIS's Codex task card
+  shows the model and effort a task runs with.
 
 ## Owner requirement added 13 Sep 2026 (during the build) — sign-in button on RAVIS's credentials screen
 - The NERVIS dashboard's RAVIS credentials screen (where provider API keys are saved) gets a button to sign in to

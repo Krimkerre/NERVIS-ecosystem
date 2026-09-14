@@ -369,11 +369,13 @@ def test_codex_switched_off_is_not_available_and_nothing_is_run(
     assert copy.runs() == []
 
 
-def test_the_committed_pin_holds_homebrew_codex_0_154_0_with_its_file_rules_unproven() -> None:
+def test_the_committed_pin_holds_homebrew_codex_0_154_0_with_its_file_rules_proven() -> None:
     """The values measured for R1 on 13 September 2026 (the entry's `evidence` says how).
 
     The stable tree is also the reference the design record carries (§4.3) for the ChatGPT app's
     0.154.0-alpha.6.2, whose stable schema is byte-identical: a second source for that value.
+    **Proven on 14 September 2026** by the full calibration run `cal_5a1d6ecc33b4`, whose summary is
+    committed beside the other calibration fixtures and says every must-pass question passed.
     """
     document = json.loads(TESTED_RUNTIMES.read_text(encoding="utf-8"))
 
@@ -387,7 +389,12 @@ def test_the_committed_pin_holds_homebrew_codex_0_154_0_with_its_file_rules_unpr
     assert entry["experimental_tree"] == (
         "d811e26c9f5b69cfb77cc7a6001a982394863b11f7a380ed243a0a77f1798172"
     )
-    assert entry["strict_rules_proven"] is False
+    assert entry["strict_rules_proven"] is True
+    assert (entry["calibrated_on"], document["file_rules_profile"]["name"]) == (
+        "2026-09-14", "clarvis_run")
+    summary = json.loads((Path(__file__).parent / "fixtures" / "codex" / "calibration"
+                          / entry["calibration"]).read_text(encoding="utf-8"))
+    assert (summary["full_run"], summary["decision"]["strict_rules_proven"]) == (True, True)
 
 
 def _eventually(condition: Callable[[], bool], seconds: float = 10.0) -> None:

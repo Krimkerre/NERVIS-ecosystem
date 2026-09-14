@@ -22,12 +22,12 @@ profile's `network.domains` with `reloadUserConfig: true`. Codex writes it to RA
 home's `config.toml` (never `~/.codex`), with no restart. **A loaded thread doesn't see it**: the
 turn already running stayed blocked (run `cal_ed672bf12c6f`, Codex 0.154.0), and so did that
 thread's next turn (`cal_85aa0ece0f52`). The owner decided (14 September 2026) that a task may carry
-on another way as long as its progress is kept; calibration's K3 finds which — the thread reopened
-from disk once Codex has unloaded it, or a copy with its history (Cal-5) — and whatever carries a
-task on after an allow (C2b) must use that way. Anything but `status: "ok"` — `okOverridden`
-included, or an error — is 409 `SITE_NOT_ADDED`, and the site stays blocked. A site is added
-once however often it's allowed, and only an exact plain host name: never a wildcard, an IP
-address, `localhost` or a local name.
+on another way as long as its progress is kept. Calibration found how (run `cal_5a1d6ecc33b4`):
+the thread reopened — unsubscribed until Codex unloads it (about 60 s), then `thread/resume` —
+reaches the site. Whatever carries a task on after an allow (C2b) must reopen it that way.
+Anything but `status: "ok"` — `okOverridden` included, or an error — is 409 `SITE_NOT_ADDED`, and
+the site stays blocked. A site is added once however often it's allowed, and only an exact plain
+host name: never a wildcard, an IP address, `localhost` or a local name.
 
 **The default sites are written the same way** (Cal-3): each time Codex's process becomes ready,
 the Codex service calls `allow_defaults`, one upsert of every `DEFAULT_ALLOWED_SITES` entry. An
