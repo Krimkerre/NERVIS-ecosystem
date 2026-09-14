@@ -465,6 +465,11 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # program, and this table is also built for every `status --json` the menu bar reads.
             # It is added only as RAVIS is launched (`_launch`).
             env.update(_agent_environment(env))
+            # **The Codex skills folder** (RAVIS 0.26.0): `clarvis/skills` in NERVIS's own workspace,
+            # whose skills RAVIS keeps on for Codex while the owner's personal ones start off. RAVIS
+            # makes the folder itself when Codex starts, so it is only named here. A default, like the
+            # rest of this table: an operator's own value wins.
+            env.setdefault("RAVIS_CODEX_SKILLS_FOLDER", str(nervis_workspace() / "clarvis" / "skills"))
         if package == "sirvis":
             # The same wiring for the second producer. A benchmark mints its own
             # trace, so SIRVIS's own runs form a trace containing only SIRVIS;
@@ -495,7 +500,7 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # every real task would have been refused. So it is `NERVIS workspace`
             # next to the repositories, in the folder that already holds them.
             # Anyone who wants it elsewhere sets NERVIS_WORKSPACE_PATH.
-            workspace = ROOT.parent / "NERVIS workspace"
+            workspace = nervis_workspace()
             workspace.mkdir(exist_ok=True)
             # **Three rooms, made here so they exist before anything looks.**
             # What somebody handed NERVIS, what NERVIS produced, and the folder
@@ -866,6 +871,16 @@ def _with_results(env: dict[str, str]) -> dict[str, str]:
     """
     env["SIRVIS_RESULTS_PATH"] = str(ROOT / "sirvis" / "results")
     return env
+
+
+def nervis_workspace() -> Path:
+    """NERVIS's workspace: `NERVIS workspace` beside the repositories (owner decision, 13 Sep 2026).
+
+    In one place because two services must agree on it: NERVIS is given it as its workspace, and
+    RAVIS the Codex skills folder inside it (`clarvis/skills`, RAVIS 0.26.0). The launcher gives
+    NERVIS this path whatever the environment says, so RAVIS's folder follows this path too.
+    """
+    return ROOT.parent / "NERVIS workspace"
 
 
 def _agent_environment(env: Mapping[str, str]) -> dict[str, str]:

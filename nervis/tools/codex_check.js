@@ -43,6 +43,15 @@
  *      before Use this version that accepting neither starts the re-test nor spends allowance.
  *  12. **Nothing RAVIS sends can inject markup** into the card, nor break out of a quoted
  *      handler argument; and the Overview's line counts the tasks and opens the card.
+ *
+ * And the card's Skills (NERVIS 0.30.0, RAVIS 0.26.0):
+ *
+ *  13. **Every skill Codex can use is listed under where it comes from** — NERVIS's folder, your
+ *      personal skills, built into Codex — with its description, whether it is on, and one line
+ *      saying where the folder is and that a change counts from a task's next start or reopen.
+ *      A switch takes one click and never `confirm()`, says it is working until RAVIS answers,
+ *      sends only the path and on or off, redraws from RAVIS's answer, and sends nothing for a
+ *      skill RAVIS didn't list; every refusal and every unread list is said plainly.
  */
 
 const { loadPage } = require("./page_context.js");
@@ -90,8 +99,8 @@ function answer(status, body) {
    Codex control call is logged in `sent`, with how many tabs were open when it was sent,
    and every request of any kind in `requests`, so a request the card must never make is
    seen wherever it was aimed. */
-function world({ state, codexStatus = 200, control = {}, reads = {}, sites = null }) {
-  const ravis = { state, codexStatus, control, sites, codexReads: 0 };
+function world({ state, codexStatus = 200, control = {}, reads = {}, sites = null, skills = null }) {
+  const ravis = { state, codexStatus, control, sites, skills, codexReads: 0, skillsReads: 0 };
   const sent = [];
   const requests = [];
   const tabs = [];
@@ -104,6 +113,10 @@ function world({ state, codexStatus = 200, control = {}, reads = {}, sites = nul
     }
     const read = Object.keys(reads).find((path) => address.includes(path));
     if (read) return answer(200, reads[read]);
+    if (address.endsWith("/api/v1/relay/ravis/api/v1/codex/skills")) {
+      ravis.skillsReads += 1;
+      return ravis.skills ? ravis.skills() : answer(200, SKILLS_VIEW);
+    }
     if (address.endsWith("/api/v1/relay/ravis/api/v1/codex/sites")) {
       return ravis.sites ? ravis.sites() : answer(200, { defaults: DEFAULT_SITES, added: [] });
     }
@@ -647,6 +660,11 @@ const TURN_B = "019a1c30-2e3f-7d4c-b5a6-7f8e9d0c1b23";
 const KEY_SHAPE = /^[A-Za-z0-9_-]{16,128}$/;
 const DEFAULT_SITES = ["registry.npmjs.org", "pypi.org", "*.crates.io", "github.com"];
 const SHA_NEW = VERSION_REPORT.version_check.sha256;
+/* RAVIS's own example of the skills list (RAVIS 0.26.0), read rather than copied. */
+const SKILLS_VIEW = ADMIN_CONTRACT.routes
+  .find((route) => route.method === "GET" && route.path === "/api/v1/codex/skills")
+  .examples[0].response.body;
+const pathOf = (view, name) => view.skills.find((skill) => skill.name === name).path;
 /* Each task state RAVIS lists, with the words the card must say for it: written out, and held
    against RAVIS's own list, so a state RAVIS adds fails here until the card words it. */
 const RUN_WORDS = {
@@ -682,9 +700,12 @@ const buttons = (html) =>
 const calls = (page, route) => page.sent.filter((call) => call.route === route);
 const stopOf = (id) => `CODEX_CARD.stop(${JSON.stringify(id)})`;
 const removeOf = (host) => `CODEX_CARD.remove(${JSON.stringify(host)})`;
+const switchOf = (path) => `CODEX_CARD.switchSkill(${JSON.stringify(path)})`;
+/* A switch as the card writes it into its markup: the path in single quotes, inside the handler. */
+const switchMarkup = (path, label) => `CODEX_CARD.switchSkill('${path}')">${label}</button>`;
 
-async function drawCard(state, { control = {}, sites = null, codexStatus = 200, random = true } = {}) {
-  const page = world({ state, codexStatus, control, sites,
+async function drawCard(state, { control = {}, sites = null, skills = null, codexStatus = 200, random = true } = {}) {
+  const page = world({ state, codexStatus, control, sites, skills,
                        reads: { "/api/v1/relay/ravis/api/v1/usage": USAGE_READ } });
   // The browser's random source, which the harness doesn't carry; left out, the page's fallback runs.
   if (random) page.context.crypto = require("node:crypto").webcrypto;
@@ -776,7 +797,9 @@ async function stopIsTheOnlyTaskControl() {
   const first = runs[0].id;
   const page = await drawCard(untested({}, { runs }), {
     sites: () => answer(200, view),
+    skills: () => answer(200, SKILLS_VIEW),
     control: {
+      "POST /skills": () => answer(200, SKILLS_VIEW),
       [`POST /runs/${first}/stop`]: () => answer(202, { state: "stopping" }),
       "DELETE /sites/download.pytorch.org": () => answer(200, { ...view, added: [] }),
       "GET /version-check": () => answer(200, VERSION_REPORT),
@@ -795,7 +818,8 @@ async function stopIsTheOnlyTaskControl() {
   look();
   await run(page, "CODEX_CARD.check()");
   look();
-  const clicks = [stopOf(first), removeOf("download.pytorch.org"), "CODEX_CARD.accept()"];
+  const clicks = [stopOf(first), removeOf("download.pytorch.org"), "CODEX_CARD.accept()",
+                  switchOf(pathOf(SKILLS_VIEW, "graphify"))];
   for (const click of clicks) {
     await run(page, click); // the first click arms, and says what the second would do
     look();
@@ -807,17 +831,18 @@ async function stopIsTheOnlyTaskControl() {
     look();
   }
 
-  const allowed = /^(Stop…|Remove|Check this version|Use this version…|Keep it running|Keep it|Not now|Click again to (stop the task in|remove|accept Codex) .+)$/;
+  const allowed = /^(Stop…|Remove|Check this version|Use this version…|Keep it running|Keep it|Not now|Switch on|Switch off|Click again to (stop the task in|remove|accept Codex) .+)$/;
   for (const label of labels) {
     if (!allowed.test(label)) failures.push(`the Codex card draws a button it has no business drawing: ${JSON.stringify(label)}.`);
     if (/\b(approve|allow|answer|steer|re-?test|start|continue|carry on|settle|run)\b/i.test(label)) {
       failures.push(`the Codex card offers a task control beside Stop: ${JSON.stringify(label)}.`);
     }
   }
-  for (const needed of ["Stop…", "Remove", "Check this version", "Use this version…"]) {
+  for (const needed of ["Stop…", "Remove", "Check this version", "Use this version…", "Switch on", "Switch off"]) {
     if (!labels.has(needed)) failures.push(`the task-control check never saw ${needed}, so it proved nothing about it.`);
   }
-  const own = ["CODEX_CARD.stop", "CODEX_CARD.remove", "CODEX_CARD.disarm", "CODEX_CARD.check", "CODEX_CARD.accept"];
+  const own = ["CODEX_CARD.stop", "CODEX_CARD.remove", "CODEX_CARD.disarm", "CODEX_CARD.check", "CODEX_CARD.accept",
+               "CODEX_CARD.switchSkill"];
   for (const name of called) {
     if (!own.includes(name)) failures.push(`a control on the Codex card calls ${name}, which isn't one of the card's own.`);
   }
@@ -1011,6 +1036,105 @@ async function theAllowedSitesOfferRemoveOnlyForTheOwners() {
   }
 }
 
+async function theSkillsSwitchInOneClickAndSayWhatCodexDid() {
+  let view = JSON.parse(JSON.stringify(SKILLS_VIEW));
+  const graphify = pathOf(view, "graphify");
+  let release = null;
+  const page = await drawCard(busy([task()]), { skills: () => answer(200, view), control: {
+    "POST /skills": () => new Promise((done) => {
+      release = () => {
+        view = { ...view, skills: view.skills.map((s) => (s.path === graphify ? { ...s, enabled: true } : s)) };
+        done(answer(200, view));
+      };
+      // Answered by itself if the case never releases it: a promise nothing resolves would let node
+      // exit 0 with the failures unprinted, which is how a switch sent for an unlisted skill once passed.
+      setTimeout(() => release(), 1500);
+    }),
+  } });
+  const html = cardOf(page);
+  words("the skills", html, [
+    "4 skills Codex can use, 3 on", SKILLS_VIEW.folder, "counts from a Codex task's next start or reopen",
+    "In NERVIS's skills folder", "Your personal skills", "Built into Codex",
+    "nervis-notes", "How NERVIS tasks keep their notes.", "graphify", "Turn any input into a knowledge graph.",
+    "imagegen", "openai-docs"]);
+  // Each heading, then its skill, searched for after the one before: the line on top also says
+  // "Your personal skills start off", which is not the group's heading.
+  const text = readable(html);
+  const order = ["In NERVIS's skills folder", "nervis-notes", "Your personal skills</b>", "graphify", "Built into Codex", "imagegen"];
+  let from = text.indexOf("</small>");
+  for (const part of order) {
+    const at = text.indexOf(part, from);
+    if (at < 0) {
+      failures.push(`the skills aren't grouped under where they come from, in the card's order (lost at ${JSON.stringify(part)}).`);
+      break;
+    }
+    from = at + part.length;
+  }
+  if (!html.includes(switchMarkup(graphify, "Switch on"))) failures.push("a personal skill that is off has no Switch on.");
+  for (const name of ["nervis-notes", "imagegen", "openai-docs"]) {
+    if (!html.includes(switchMarkup(pathOf(view, name), "Switch off"))) failures.push(`${name}, which is on, has no Switch off.`);
+  }
+
+  await run(page, switchOf("/Users/owner/.agents/skills/not-listed/SKILL.md"));
+  if (calls(page, "POST /skills").length) failures.push("a switch was sent for a skill RAVIS didn't list.");
+
+  const clicked = run(page, switchOf(graphify));
+  await settle();
+  const [sent] = calls(page, "POST /skills");
+  if (!sent || !("x-nervis-control" in sent.headers)
+      || JSON.stringify(sent.body) !== JSON.stringify({ path: graphify, enabled: true })) {
+    failures.push("one click on Switch on didn't send POST /skills with the control header, and only the path and enabled: true.");
+  }
+  words("a switch, waiting", cardOf(page), ["switching on…"], [switchMarkup(graphify, "Switch on")]);
+  if (release) release();
+  await clicked;
+  await settle();
+  words("after the switch", cardOf(page), ["graphify switched on", "4 skills Codex can use, 4 on"], ["switching on…"]);
+  if (!cardOf(page).includes(switchMarkup(graphify, "Switch off"))) failures.push("after switching graphify on, its row doesn't offer Switch off.");
+  if (calls(page, "POST /skills").length !== 1) failures.push("one click sent the switch more than once.");
+
+  const problem = "Codex's process is running, but RAVIS couldn't switch Codex's skills to your choices (not_written: Codex didn't switch graphify off), so no task can start.";
+  words("a problem RAVIS names", cardOf(await drawCard(busy([]), { skills: () => answer(200, { ...SKILLS_VIEW, problem }) })),
+    ["no task can start", "Codex didn't switch graphify off"]);
+
+  const refusals = [
+    ["Codex not taking it", 409, refusal("SKILL_NOT_CHANGED", "Codex didn't take that change, so the skill stays as it was.",
+      { skill: "graphify", reason: "not_written" }), ["Codex didn't take that change, so graphify stays off", "Codex didn't switch it"]],
+    ["a skill Codex no longer lists", 404, refusal("SKILL_NOT_FOUND", "Codex doesn't list a skill at that path, so nothing was changed."),
+      ["Codex no longer lists graphify, so nothing changed"]],
+    ["Codex not running", 503, refusal("CODEX_RUNTIME_UNAVAILABLE", "Codex isn't running, so its skills can't be read; try again in a moment."),
+      ["Codex isn't running"]],
+    ["RAVIS refusing NERVIS's key", 403, refusal("FORBIDDEN", "An admin credential is required."), ["admin key"]],
+    ["a NERVIS from before the switches", 404, { detail: "Not Found" }, ["NERVIS 0.30.0 and RAVIS 0.26.0"]],
+    ["NERVIS not answering", 0, null, ["NERVIS didn't answer"]],
+  ];
+  for (const [label, status, body, expected] of refusals) {
+    const refused = await drawCard(busy([]), { skills: () => answer(200, SKILLS_VIEW),
+      control: { "POST /skills": () => answering(status, body) } });
+    const reads = refused.ravis.skillsReads;
+    await run(refused, switchOf(graphify));
+    await settle();
+    words(`a switch refused: ${label}`, cardOf(refused), expected, ["graphify switched on", "switching on…"]);
+    if (refused.ravis.skillsReads === reads) failures.push(`a switch refused (${label}) didn't read the skills again.`);
+  }
+
+  const unread = [
+    ["Codex not running", () => answer(503, refusal("CODEX_RUNTIME_UNAVAILABLE", "Codex isn't running, so its skills can't be read; try again in a moment.")),
+     ["Codex isn't running, so its skills can't be read"]],
+    ["a RAVIS from before the skills", () => answer(404, { detail: "Not Found" }), ["RAVIS 0.26.0 does"]],
+    ["RAVIS refusing the read", () => answer(403, refusal("FORBIDDEN", "A NERVIS or admin credential is required to read Codex's skills.")),
+     ["refused NERVIS's read of Codex's skills"]],
+    ["RAVIS not answering", failing, ["didn't answer the read of Codex's skills"]],
+  ];
+  for (const [label, skills, expected] of unread) {
+    const unreadPage = await drawCard(busy([task()]), { skills });
+    words(`the skills, ${label}`, cardOf(unreadPage), expected, ["Switch on", "Switch off"]);
+    if (!cardOf(unreadPage).includes("add-utc-demo") || !readable(cardOf(unreadPage)).includes("RAVIS's 4 default sites")) {
+      failures.push(`the skills, ${label}: a failed read of the skills took the rest of the Codex card down with it.`);
+    }
+  }
+}
+
 async function aNewBuildIsReportedAndAcceptedInTwoClicks() {
   const page = await drawCard(untested(), { control: {
     "GET /version-check": () => answer(200, VERSION_REPORT),
@@ -1096,6 +1220,10 @@ async function nothingRavisSendsInjectsIntoTheCard() {
     task({ id: quote, project: "quoted" }),
   ];
   const view = { defaults: ["pypi.org" + tag], added: ["huggingface.co" + tag, quote] };
+  const skills = { folder: "/folder" + tag, problem: "problem" + tag, skills: [
+    { path: "/a/" + quote + "/SKILL.md", name: "name" + tag, description: "said" + tag, source: "personal", enabled: false },
+    { path: "/b/SKILL.md" + tag, name: quote, description: quote, source: "nervis", enabled: true },
+  ] };
   const report = JSON.parse(JSON.stringify(VERSION_REPORT));
   const check = report.version_check;
   check.version = "0.155.0" + tag;
@@ -1105,7 +1233,9 @@ async function nothingRavisSendsInjectsIntoTheCard() {
   check.protocol.used_methods_missing = ["turn/start" + tag];
   const page = await drawCard(untested({ version: "0.155.0" + tag, source: "brew" + tag }, { runs }), {
     sites: () => answer(200, view),
+    skills: () => answer(200, skills),
     control: {
+      "POST /skills": () => answer(409, refusal("SKILL_NOT_CHANGED", "kept" + tag, { skill: "name" + tag, reason: "why" + tag })),
       "GET /version-check": () => answer(200, report),
       [`POST /runs/${SID_A}/stop`]: () => answer(409, refusal("CONFIRMATION_MISMATCH" + tag, "changed" + tag)),
       [`DELETE /sites/${encodeURIComponent(view.added[0])}`]: () => answer(409, refusal("SITE_NOT_REMOVED", "kept" + tag)),
@@ -1121,6 +1251,8 @@ async function nothingRavisSendsInjectsIntoTheCard() {
   await run(page, removeOf(view.added[0]));
   drawn.push(cardOf(page));
   await run(page, removeOf(view.added[0]));
+  drawn.push(cardOf(page));
+  await run(page, switchOf(skills.skills[0].path));
   drawn.push(cardOf(page));
   if (!drawn.join("").includes("vxs")) failures.push("the injection probe never reached the Codex card, so it proved nothing.");
   for (const html of drawn) {
@@ -1181,6 +1313,7 @@ async function main() {
   await stopSendsTheConfirmationAndThePagesOwnKey();
   await everyStopRefusalIsSaid();
   await theAllowedSitesOfferRemoveOnlyForTheOwners();
+  await theSkillsSwitchInOneClickAndSayWhatCodexDid();
   await aNewBuildIsReportedAndAcceptedInTwoClicks();
   await nothingRavisSendsInjectsIntoTheCard();
   await theOverviewCountsCodexsTasks();
@@ -1205,8 +1338,9 @@ async function main() {
     "offers Stop as its only task control, in two clicks, sending the folder, the turn and the " +
     "page's own Idempotency-Key (the same one on a retry), words every refusal, offers Remove " +
     "beside added sites only with the defaults folded, reports a new build and accepts it in two " +
-    "clicks saying it neither starts the re-test nor spends allowance, injects nothing, and the " +
-    "Overview counts the tasks and opens the card"
+    "clicks saying it neither starts the re-test nor spends allowance, lists Codex's skills by where " +
+    "each comes from with a one-click switch that says it is working, sends only the path and the " +
+    "switch and words every refusal, injects nothing, and the Overview counts the tasks and opens the card"
   );
 }
 

@@ -11,7 +11,9 @@ and each can go wrong quietly at this hop:
 - **removing a site the owner allowed** (`DELETE /api/v1/ravis/codex/sites/{host}`): a name that
   could change RAVIS's address, forwarded with the admin credential attached;
 - **a new Codex build's report and its acceptance**: NERVIS giving up before RAVIS's checks answer;
-- **all four**: RAVIS's refusal flattened, the answer cached or carrying the credential, and
+- **switching one of Codex's skills** (`POST /api/v1/ravis/codex/skills`, NERVIS 0.30.0): anything
+  but the skill's path and the switch reaching RAVIS;
+- **all five**: RAVIS's refusal flattened, the answer cached or carrying the credential, and
   `configure`'s new `headers` argument able to replace the credential.
 
 And the rule the card rests on, held from the route table and from NERVIS's source: no NERVIS route
@@ -148,6 +150,8 @@ def nervis_path_for(method: str, ravis_path: str) -> str | None:
     """The card's NERVIS route for an admin call RAVIS's contract shows, or None for the others."""
     if method == "DELETE" and ravis_path.startswith("/api/v1/codex/sites/"):
         return "/api/v1/ravis/codex/sites/" + ravis_path.rsplit("/", 1)[1]
+    if (method, ravis_path) == ("POST", "/api/v1/codex/skills"):
+        return "/api/v1/ravis/codex/skills"
     if (method, ravis_path) in (
         ("GET", "/api/v1/codex/version-check"), ("POST", "/api/v1/codex/accept-version"),
     ):
@@ -186,7 +190,7 @@ def test_the_contract_still_has_what_this_file_replays() -> None:
             "RATE_LIMITED", "OWNER_STOP_NOT_ALLOWED"} <= stop_codes
     card_codes = {body["error"]["code"] for *_, body in card_refusals()}
     assert {"SITE_NOT_REMOVED", "FORBIDDEN", "CODEX_HASH_MISMATCH",
-            "CODEX_VERSION_CHECK_FAILED"} <= card_codes
+            "CODEX_VERSION_CHECK_FAILED", "SKILL_NOT_CHANGED", "SKILL_NOT_FOUND"} <= card_codes
 
 
 @pytest.mark.parametrize(
@@ -454,6 +458,43 @@ def test_a_slash_in_a_site_name_reaches_no_route(nervis: TestClient) -> None:
     assert ravis.seen == []
 
 
+# ── Switching one of Codex's skills (NERVIS 0.30.0) ──────────────────────────
+
+GRAPHIFY = "/Users/owner/.agents/skills/graphify/SKILL.md"
+
+
+def test_switching_a_skill_forwards_only_its_path_and_the_switch(nervis: TestClient) -> None:
+    status, view = answer_of(
+        ravis_route("POST", "/api/v1/codex/skills"), "a personal skill switched on"
+    )
+    ravis = behind(nervis, FakeRavis(status, view))
+
+    page = {"path": GRAPHIFY, "enabled": True, "source": "built_in", "folder": "/elsewhere"}
+    answered = call(nervis, "POST", "/api/v1/ravis/codex/skills", page)
+
+    assert (answered.status_code, answered.json()) == (status, view)
+    [sent] = ravis.seen
+    assert (sent.method, sent.url.path) == ("POST", "/api/v1/codex/skills")
+    assert json.loads(sent.content) == {"path": GRAPHIFY, "enabled": True}
+    assert sent.headers["authorization"] == f"Bearer {ADMIN}"
+
+
+def test_a_body_that_isnt_a_switch_is_ravis_s_to_word(nervis: TestClient) -> None:
+    status, refusal = answer_of(ravis_route("POST", "/api/v1/codex/skills"), "not a switch")
+    ravis = behind(nervis, FakeRavis(status, refusal))
+
+    answered = call(nervis, "POST", "/api/v1/ravis/codex/skills", {"path": GRAPHIFY})
+
+    assert (answered.status_code, answered.json()) == (status, refusal)
+    [sent] = ravis.seen
+    assert json.loads(sent.content) == {"path": GRAPHIFY, "enabled": None}
+
+
+def test_the_skills_are_read_through_the_relay_and_no_control_route(nervis: TestClient) -> None:
+    assert ravis_peer.relayable("api/v1/codex/skills")
+    assert ("GET", "/api/v1/ravis/codex/skills") not in served_routes(nervis)
+
+
 # ── A new Codex build: the report, and accepting it ──────────────────────────
 
 
@@ -497,7 +538,7 @@ def test_accepting_sends_the_reported_sha256_and_hands_back_codex_s_state(
     assert sent.extensions["timeout"]["read"] == CODEX_VERSION_TIMEOUT_SECONDS
 
 
-# ── All four ─────────────────────────────────────────────────────────────────
+# ── All five ─────────────────────────────────────────────────────────────────
 
 #: (method, NERVIS path, page body, Idempotency-Key) for a request each route forwards.
 FORWARDED = (
@@ -505,6 +546,7 @@ FORWARDED = (
     ("DELETE", "/api/v1/ravis/codex/sites/huggingface.co", None, None),
     ("GET", "/api/v1/ravis/codex/version-check", None, None),
     ("POST", "/api/v1/ravis/codex/accept-version", {"sha256": SHA256}, None),
+    ("POST", "/api/v1/ravis/codex/skills", {"path": GRAPHIFY, "enabled": True}, None),
 )
 
 

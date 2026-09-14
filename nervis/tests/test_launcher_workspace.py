@@ -69,3 +69,33 @@ def test_its_rooms_exist_before_anything_looks(
     assert sorted(p.name for p in workspace.iterdir()) == ROOMS
     # And nothing is left where the workspace used to be.
     assert not (root / "workspace").exists()
+
+
+def test_ravis_is_told_the_codex_skills_folder_inside_the_same_workspace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RAVIS 0.26.0 keeps the skills in the workspace's `clarvis/skills` on for Codex. It must be
+    NERVIS's own workspace's folder, the launcher never makes it (RAVIS does, when Codex starts),
+    and an operator's own value wins, like every other default here."""
+    monkeypatch.delenv("RAVIS_CODEX_SKILLS_FOLDER", raising=False)
+    _, nervis = _nervis_environment(monkeypatch, tmp_path)
+    run = _load()
+    monkeypatch.setattr(run, "ROOT", tmp_path / "NERVIS-ecosystem")
+    for minted in (
+        "nervis_ravis_credential", "benchmark_token", "admin_token", "ravis_admin_credential"
+    ):
+        monkeypatch.setattr(run, minted, lambda: "(not a credential)")
+    monkeypatch.setattr(run, "_stored_credential_names", set)
+    monkeypatch.setattr(run, "_ollama", list)
+    monkeypatch.setattr(run, "_code_server", list)
+    services = {name: env for name, _, _, env, _ in run._services()}
+
+    workspace = Path(nervis["NERVIS_WORKSPACE_PATH"])
+    assert Path(services["RAVIS"]["RAVIS_CODEX_SKILLS_FOLDER"]) == workspace / "clarvis" / "skills"
+    assert not (workspace / "clarvis" / "skills").exists()
+    for other in ("NERVIS", "SIRVIS"):
+        assert "RAVIS_CODEX_SKILLS_FOLDER" not in services[other], other
+
+    monkeypatch.setenv("RAVIS_CODEX_SKILLS_FOLDER", "/Users/owner/elsewhere/skills")
+    again = {name: env for name, _, _, env, _ in run._services()}
+    assert again["RAVIS"]["RAVIS_CODEX_SKILLS_FOLDER"] == "/Users/owner/elsewhere/skills"

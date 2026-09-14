@@ -1698,10 +1698,11 @@ inside the launcher's six seconds. While a new Codex build waits to run, new tas
 `GET /api/v1/codex` gives named callers `account.fingerprint_sha256`.
 
 **NERVIS reaches none of these** except `GET /api/v1/codex`, `GET /api/v1/codex/sites` and
-`GET /api/v1/codex/skills` through its GET relay, and eight control routes: the sign-in, sign-out, account and version routes above, a
-task's Stop, which forwards to `owner-stop`, and removing an added site through
+`GET /api/v1/codex/skills` through its GET relay, and nine control routes: the sign-in, sign-out, account and version routes above, a
+task's Stop, which forwards to `owner-stop`, removing an added site through
 `DELETE /api/v1/codex/sites/{host}` (`NERVIS.md` §8; the version routes, the Stop and the removal
-since NERVIS 0.29.0).
+since NERVIS 0.29.0), and switching a skill through `POST /api/v1/codex/skills` (since NERVIS
+0.30.0), forwarding only the skill's path and `enabled`.
 
 ## 15.2 Events and traces
 

@@ -2,6 +2,39 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From skills, NERVIS's part (ecosystem, NERVIS 0.30.0, 14 September 2026) — the Codex card's Skills
+Built against RAVIS 0.26.0 (`214addc`), whose `SkillsView` and `POST /api/v1/codex/skills` it reads and forwards.
+- **Built — the route** (`nervis/src/nervis/api/routes.py`, `switch_codex_skill`): `POST /api/v1/ravis/codex/skills`
+  behind `require_control`, through `_codex_control` with NERVIS's RAVIS admin credential and `no-store`. RAVIS's body is
+  built from the page's `path` and `enabled` only. No NERVIS-side shape rule: the path travels in the body, never the
+  address, and RAVIS words a bad body (422) and an unlisted path (404), so the two can't disagree.
+- **Built — the card** (`nervis/index.html`): `API.ravis.codexSkills()`, a relay read outside `live()` like the sites,
+  kept only as a `SkillsView` (`codexSkillsView`); `codexSkillsPart` between the allowed sites and the version, with a
+  line naming the folder and saying a change counts from a task's next start or reopen, RAVIS's `problem` as "no task can
+  start", groups `nervis` → `personal` → `built_in`, and each skill's name, description, on/off chip and **Switch on** /
+  **Switch off** (`role="switch"`); `CODEX_CARD.switchSkill` shows "switching on…"/"switching off…", sends
+  `{path, enabled}`, redraws from RAVIS's view, or words the refusal (`codexSkillRefusal`) and reads everything again.
+- **Built — the launcher** (`tools/run.py`): `nervis_workspace()`, shared by NERVIS's workspace and RAVIS's
+  `RAVIS_CODEX_SKILLS_FOLDER` default (`setdefault`, so an operator's value wins).
+- **Decided here:**
+  - One click per switch, the card's one exception to its two-click rule: clicking again switches it back, nothing is
+    lost, and the brief ruled out `confirm()`. The pending state stands in for the second click's warning.
+  - The skills folder follows the launcher's own workspace path, not `NERVIS_WORKSPACE_PATH` from the environment: the
+    launcher overwrites that variable for NERVIS, so reading it would let the two services disagree.
+  - `codex-admin.json` → `nervis_control_routes` gains the skills route in this commit (NERVIS's route test holds served
+    and listed equal); the contract hash is regenerated again. The RAVIS window's widening to 0.26.999 landed with RAVIS's
+    commit, because the compatibility gate needed it there, and is released here.
+- **Gates:** NERVIS's `check.py`; all 27 dashboard node gates under the macOS no-network sandbox, `sandbox_check.js` and
+  `knowledge_check.py`; the NERVIS snapshot suite (ruff, mypy, 1464 passed); RAVIS's contract-fixture, skills and sites
+  tests on the edited fixture; the six repository gates.
+- **Guard proof** (`scratchpad/skills_nervis_guard_proof.py`, each break in its own clean snapshot, after the four named
+  checks passed unbroken): 9 of 9 caught — the route forwarding only `path` and `enabled`, its control-token gate, nothing
+  sent for a skill RAVIS didn't list, the pending state, RAVIS's problem shown, the list read again after a refusal, the
+  groups' order, a description escaped, and an operator's own skills folder winning. The first run caught 8: the
+  unlisted-skill break made `codex_check.js` await a fake answer nothing resolved, and node exited 0 with its failures
+  unprinted. The fake answer now resolves itself after 1.5 s, and the re-run caught all 9.
+- **For Clarvis:** re-sync `codex-admin.json` and `codex-contract.sha256` once more (the NERVIS control route entry).
+
 ## From skills, RAVIS's part (ecosystem, RAVIS 0.26.0, 14 September 2026) — NERVIS's skills folder on, personal skills off
 Why: the first live Codex test's first command ran the owner's personal "graphify" skill (`~/.agents/skills`), because
 RAVIS starts Codex with the real `HOME`. The owner's four decisions are in `ravis/src/ravis/agent/skills.py`'s docstring.

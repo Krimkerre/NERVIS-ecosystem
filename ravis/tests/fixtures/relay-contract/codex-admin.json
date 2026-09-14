@@ -1545,7 +1545,8 @@
         "nervis": "POST /api/v1/ravis/codex/runs/{sid}/stop",
         "ravis": "POST /api/v1/agent-sessions/{sid}/owner-stop (owner-stop.json)"
       },
-      {"nervis": "DELETE /api/v1/ravis/codex/sites/{host}", "ravis": "DELETE /api/v1/codex/sites/{host} (NERVIS builds it in N2b)"}
+      {"nervis": "DELETE /api/v1/ravis/codex/sites/{host}", "ravis": "DELETE /api/v1/codex/sites/{host} (NERVIS builds it in N2b)"},
+      {"nervis": "POST /api/v1/ravis/codex/skills", "ravis": "POST /api/v1/codex/skills (NERVIS 0.30.0; forwards only path and enabled)"}
     ],
     "never": "no NERVIS route reaches /api/v1/codex/reprove, the calibration route, POST /api/v1/codex/sites, or any other agent-session or project-lock route; reads of /api/v1/codex, /api/v1/codex/sites and /api/v1/codex/skills use the existing GET relay"
   },

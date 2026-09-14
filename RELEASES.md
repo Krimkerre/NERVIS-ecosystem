@@ -473,7 +473,34 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.29.3
+## NERVIS — 0.30.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Choose which skills Codex may use, on RAVIS → Dashboard's Codex card.** A new **Skills** list
+  sits between the allowed sites and the version. It shows every skill Codex can use, grouped by
+  where it comes from — NERVIS's own skills folder, your personal skills, or built into Codex — with
+  its short description, whether it is on, and **Switch on** or **Switch off**. One line on top says
+  where NERVIS's skills folder is and that a change counts from a Codex task's next start or reopen.
+  This follows the first live Codex test, where Codex ran one of your own skills that nobody asked for.
+- **What starts on and off is RAVIS's** (RAVIS 0.26.0): skills in NERVIS's folder and Codex's
+  built-in skills start on; your personal skills start off, and so does any you add later.
+- **A switch shows that it is working** ("switching off…") until RAVIS answers, then the list as Codex
+  holds it. If Codex doesn't take the change, the card says so in plain words and the skill stays as
+  it was; if RAVIS can't apply your choices at all, the card shows why no Codex task can start.
+- **One click, no pop-up.** A switch doesn't ask for a second click, because clicking again switches
+  it back; every other change on the card still takes two.
+- **NERVIS forwards a switch to RAVIS** with its RAVIS admin credential after checking the page's
+  control token, and sends only the skill's path and on or off. The list is read through the existing
+  relay.
+- **The launcher tells RAVIS where NERVIS's skills folder is**: `clarvis/skills` in the NERVIS
+  workspace, the same workspace it gives NERVIS. An operator's own `RAVIS_CODEX_SKILLS_FOLDER` wins.
+- **NERVIS accepts RAVIS 0.26.** Its supported RAVIS window now runs from 0.22.0 to 0.26.999.
+- **What this changes for you:** Codex can no longer be started on "NERVIS workspace" or on its
+  "clarvis" folder as a whole (RAVIS 0.26.0); task folders under `nervis-tasks` and every other
+  project work as before.
+
+### 0.29.3
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

@@ -3141,6 +3141,20 @@ const API={
    }catch(e){return{live:false,status:0,relayed:null,error:null}}
   },
 
+  /* GET /api/v1/codex/skills — the skills Codex may use (RAVIS 0.26.0 on): each with where it comes
+     from (NERVIS's skills folder, the owner's personal skills, built into Codex), a short description
+     and whether it is on; NERVIS's skills folder; and RAVIS's `problem` while the owner's choices
+     can't be applied. Read through the relay with NERVIS's credential, and outside `live()` for the
+     reason `codexSites()` is: RAVIS answers 503 while Codex isn't running. Never a mock. */
+  async codexSkills(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/codex/skills',readDeadline());
+    const body=await r.json().catch(()=>null);
+    if(r.ok&&codexSkillsView(body))return codexSkillsView(body);
+    return{live:false,status:r.status,relayed:r.headers.get('x-nervis-relay'),error:(body&&body.error)||null};
+   }catch(e){return{live:false,status:0,relayed:null,error:null}}
+  },
+
   /* GET /api/v1/models — RAVIS's own view of the candidates, capability-evidenced
      per RAVIS.md §15.1. This is not a copy of SIRVIS's model list: it carries what
      RAVIS needs to decide eligibility, and for tools that means three fields
@@ -9704,7 +9718,9 @@ function codexOpenCard(){CODEX_CARD.scroll=true;go('ravis','Dashboard')}
 
    **Every change takes two clicks**, the page's rule (`armed`, above): the first says what
    will happen, the second does it, because a `confirm()` the browser has muted returns
-   false for good and the button would silently do nothing. A Stop's request carries the
+   false for good and the button would silently do nothing. **A skill's switch is the one
+   exception** (NERVIS 0.30.0): one click, since one more switches it back, and it says it is
+   working until RAVIS answers. A Stop's request carries the
    folder and turn its row showed, which RAVIS checks against the task, and the page's own
    Idempotency-Key, kept per task and turn, so a click retried after a lost answer is
    replayed by RAVIS rather than carried out twice.
@@ -9761,12 +9777,12 @@ function codexLookup(table,word){return typeof word==='string'&&Object.hasOwn(ta
 function codexCardShown(){return state.app==='ravis'&&state.view==='Dashboard'}
 
 function codexCard(codex){
- return `<div class="card full${liveClass(codex.live)}" id="codex-card"><h3>Codex tasks, allowed sites and version</h3>${cell(`<div id="codex-card-body">${codexCardBody(codex,CODEX_CARD.sites)}</div>`,'ravis')}</div>`;
+ return `<div class="card full${liveClass(codex.live)}" id="codex-card"><h3>Codex tasks, allowed sites, skills and version</h3>${cell(`<div id="codex-card-body">${codexCardBody(codex,CODEX_CARD.sites,CODEX_CARD.skills)}</div>`,'ravis')}</div>`;
 }
 
-function codexCardBody(codex,sites){
+function codexCardBody(codex,sites,skills){
  if(!codex.live)return `<div class="trace-step"><b>status</b><span>${escapeHtml(codexUnreadWords())}</span></div>`;
- return codexCardNote(CODEX_CARD.note)+codexTasksPart(codex.runs)+codexSitesPart(sites)+codexVersionPart(codex);
+ return codexCardNote(CODEX_CARD.note)+codexTasksPart(codex.runs)+codexSitesPart(sites)+codexSkillsPart(skills)+codexVersionPart(codex);
 }
 
 function codexCardNote(note){
@@ -9886,6 +9902,70 @@ function codexSiteRow(host){
  return `<div class="table-row codex-site" style="grid-template-columns:1fr auto;align-items:center"><span class="mono">${escapeHtml(name)}</span><span>${action}</span></div>`;
 }
 
+/* The skills Codex may use (RAVIS 0.26.0, NERVIS 0.30.0), grouped by where each comes from, in
+   the card's order and words (`SkillsView` → `source`). Skills in NERVIS's folder and Codex's own
+   start on, the owner's personal skills off; RAVIS keeps each switch and applies it at every Codex
+   start, and a change counts from a Codex task's next start or reopen. */
+const CODEX_SKILL_SOURCES=[
+ ['nervis',"In NERVIS's skills folder"],
+ ['personal','Your personal skills'],
+ ['built_in','Built into Codex'],
+];
+/* Why Codex didn't take a switch (`SKILL_NOT_CHANGED` → `details.reason`), in plain words. */
+const CODEX_SKILL_REASONS={
+ not_written:"Codex didn't switch it",
+ codex_did_not_answer:"Codex didn't answer",
+ not_listed:"Codex didn't list its skills",
+ still_different:'Codex kept it as it was',
+ folder_not_made:"RAVIS couldn't make NERVIS's skills folder",
+ folder_refused:"RAVIS's skills folder setting can't be used",
+};
+
+/* RAVIS's `SkillsView`, kept only when it is one: the folder, the problem, and each skill with a path. */
+function codexSkillsView(body){
+ if(!body||typeof body.folder!=='string'||!Array.isArray(body.skills))return null;
+ return{live:true,folder:body.folder,problem:typeof body.problem==='string'?body.problem:null,
+  skills:body.skills.filter(s=>s&&typeof s==='object'&&typeof s.path==='string')};
+}
+
+function codexSkillsPart(skills){
+ const live=Boolean(skills&&skills.live);
+ return `<div class="trace-step" style="margin-top:12px"><b>skills</b><span>${escapeHtml(live?codexSkillsCount(skills):codexSkillsUnread(skills||{}))}</span></div>${live?codexSkillsList(skills):''}`;
+}
+
+function codexSkillsCount(skills){
+ const all=skills.skills.length,on=skills.skills.filter(s=>s.enabled===true).length;
+ return `${all===1?'1 skill':`${all} skills`} Codex can use, ${on} on`;
+}
+
+function codexSkillsUnread(skills){
+ if(skills.relayed||!skills.status)return "RAVIS didn't answer the read of Codex's skills.";
+ if(skills.status===404||skills.status===405)return "This RAVIS doesn't list Codex's skills; RAVIS 0.26.0 does.";
+ if(skills.status===401||skills.status===403)return `RAVIS refused NERVIS's read of Codex's skills (HTTP ${skills.status}).`;
+ return (skills.error||{}).message||`RAVIS answered HTTP ${skills.status} to the read of Codex's skills.`;
+}
+
+function codexSkillsList(skills){
+ const intro=`<small class="mono dim" style="display:block;margin:4px 0">Skills in NERVIS's folder, <b>${escapeHtml(skills.folder)}</b>, are on unless you switch one off. Your personal skills start off, and Codex's built-in ones on. A change counts from a Codex task's next start or reopen.</small>`;
+ const problem=skills.problem?`<div class="trace-step"><b><span class="chip warn">no task can start</span></b><span>${escapeHtml(skills.problem)}</span></div>`:'';
+ const groups=CODEX_SKILL_SOURCES.map(([source,title])=>{
+  const rows=skills.skills.filter(s=>s.source===source);
+  return `<div class="trace-step"><b>${escapeHtml(title)}</b><span>${rows.length?'':'none'}</span></div>${rows.map(codexSkillRow).join('')}`;
+ }).join('');
+ return intro+problem+groups;
+}
+
+function codexSkillRow(skill){
+ const path=String(skill.path),key='skill:'+path,on=skill.enabled===true;
+ const state=`<span class="chip${on?'':' dim'}">${on?'on':'off'}</span>`;
+ const control=CODEX_CARD.busy===key?`<span class="mono dim">${on?'switching off…':'switching on…'}</span>`
+  :typeof skill.enabled!=='boolean'?''
+  :`<button class="btn" role="switch" aria-checked="${on}" onclick="CODEX_CARD.switchSkill('${jsAttr(path)}')">${on?'Switch off':'Switch on'}</button>`;
+ const description=skill.description?`<small class="dim" style="display:block">${escapeHtml(skill.description)}</small>`:'';
+ const name=skill.name==null?'a skill RAVIS did not name':skill.name;
+ return `<div class="table-row codex-skill" style="grid-template-columns:1fr auto auto;align-items:center"><span><span class="mono"><b>${escapeHtml(name)}</b></span>${description}</span><span>${state}</span><span>${control}</span></div>`;
+}
+
 /* The build RAVIS runs, and — when it is one RAVIS hasn't tested — its report and Use this
    version. The re-test that proves its file rules is not here: it starts only from the menu bar,
    because it spends a Codex turn of the plan's allowance and NERVIS never starts Codex work. */
@@ -10002,25 +10082,36 @@ function codexSiteRefusal(status,said,host){
  return codexCardRefusal(status,said,'Look at the list again before removing it once more.');
 }
 
+function codexSkillRefusal(status,said,name,enabled){
+ const error=said.error||{},details=error.details||{};
+ if(error.code==='SKILL_NOT_CHANGED'){
+  const why=codexLookup(CODEX_SKILL_REASONS,details.reason);
+  return `Codex didn't take that change, so ${name} stays ${enabled?'off':'on'}${why?` (${why})`:''}. The list below is as Codex holds it now.`;
+ }
+ if(error.code==='SKILL_NOT_FOUND')return `Codex no longer lists ${name}, so nothing changed. The list below is fresh.`;
+ if((status===404||status===405)&&!error.code)return "This NERVIS or RAVIS doesn't offer skill switches yet: NERVIS 0.30.0 and RAVIS 0.26.0 do. Restart the stack on them.";
+ return codexCardRefusal(status,said,'Look at the list again before switching it once more.');
+}
+
 function codexVersionRefusal(status,said){
  return codexLookup(CODEX_VERSION_WORDS,(said.error||{}).code)||codexCardRefusal(status,said,'Try again.');
 }
 
 const CODEX_CARD={
  armed:null,busy:null,note:'',keys:new Map(),stopping:new Map(),shown:[],codex:null,sites:null,
- report:null,checking:false,scroll:false,
+ skills:null,report:null,checking:false,scroll:false,
 
  /* Each time RAVIS → Dashboard is drawn: forget the last screen's half-armed click and its note.
     What outlives a redraw stays: the keys a retried Stop must reuse, and the tasks stopped here. */
- arrive(codex,sites){
+ arrive(codex,sites,skills){
   this.armed=null;this.note='';
-  this.hold(codex,sites);
+  this.hold(codex,sites,skills);
  },
 
  /* The reading every button acts on: a click acts on what its row showed, never on a newer list.
     A report about a build that is no longer the one installed is let go. */
- hold(codex,sites){
-  this.codex=codex;this.sites=sites;
+ hold(codex,sites,skills){
+  this.codex=codex;this.sites=sites;this.skills=skills;
   this.shown=codex.live&&Array.isArray(codex.runs)?codex.runs.filter(r=>r&&typeof r==='object'):[];
   if(this.report&&this.report.sha256!==(codex.runtime||{}).installed_sha256)this.report=null;
  },
@@ -10076,6 +10167,25 @@ const CODEX_CARD={
   this.repaint();
  },
 
+ /* One click switches a skill Codex listed on or off. The row says it's working until RAVIS answers,
+    then the card redraws from the list as Codex holds it; a refusal is said in words and the list
+    read again, so the switch always shows what Codex has. No confirm(), no second click. */
+ async switchSkill(path){
+  const name=String(path),skills=this.skills;
+  const skill=skills&&skills.live?skills.skills.find(s=>s.path===name):null;
+  if(this.busy||!skill||typeof skill.enabled!=='boolean')return;
+  const enabled=!skill.enabled,label=String(skill.name);
+  this.busy='skill:'+name;this.armed=null;this.note='';this.repaint();
+  const r=await codexControl('POST','/skills',{path:name,enabled});
+  this.busy=null;
+  this.note=r.ok?`${label} switched ${enabled?'on':'off'}. It counts from a Codex task's next start or reopen.`
+   :codexSkillRefusal(r.status,r.body,label,enabled);
+  const view=r.ok?codexSkillsView(r.body):null;
+  if(!view)return this.redraw();
+  this.skills=view;
+  this.repaint();
+ },
+
  async check(){
   if(this.checking)return;
   this.checking=true;this.note='';this.repaint();
@@ -10099,25 +10209,25 @@ const CODEX_CARD={
    ?`Codex ${report.version} accepted. New tasks stay paused until its file rules are re-tested from the menu bar (NERVIS → Codex → Re-test the file rules…), which uses one short Codex turn from your plan's allowance.`
    :codexVersionRefusal(r.status,r.body);
   if(!(r.ok&&r.body&&typeof r.body.state==='string'))return this.redraw();
-  this.hold({...r.body,live:true},this.sites);
+  this.hold({...r.body,live:true},this.sites,this.skills);
   this.repaint();
  },
 
  repaint(){
   const slot=document.getElementById('codex-card-body');
-  if(slot&&codexCardShown()&&this.codex)slot.innerHTML=codexCardBody(this.codex,this.sites);
+  if(slot&&codexCardShown()&&this.codex)slot.innerHTML=codexCardBody(this.codex,this.sites,this.skills);
  },
 
  async redraw(){
-  const [codex,sites]=await Promise.all([API.ravis.codex(),API.ravis.codexSites()]);
-  this.hold(codex,sites);
+  const [codex,sites,skills]=await Promise.all([API.ravis.codex(),API.ravis.codexSites(),API.ravis.codexSkills()]);
+  this.hold(codex,sites,skills);
   this.repaint();
  },
 };
 
-function liveRavisDashboard(decisions, usage, codex, sites){
+function liveRavisDashboard(decisions, usage, codex, sites, skills){
  const share=usage.local_share;
- CODEX_CARD.arrive(codex,sites);
+ CODEX_CARD.arrive(codex,sites,skills);
  $('#content').innerHTML=kpis([
    ['Decisions',`${usage.routed} / ${usage.decisions_recorded}`,
      usage.no_route?`${usage.no_route} refused as no-route`:'none refused','ravis',true],
@@ -10147,12 +10257,12 @@ function liveRavisDashboard(decisions, usage, codex, sites){
 async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
  heading('Route intelligence','Hard constraints eliminate, then preferences rank. Every route explains itself.',control('Simulate request','reroute',' primary'));
  const since=await API.ravis.spendCountedSince();
- const [decisions,usage,codex,sites]=await Promise.all([API.ravis.decisions(25),
-   API.ravis.usage(since),API.ravis.codex(),API.ravis.codexSites()]);
+ const [decisions,usage,codex,sites,skills]=await Promise.all([API.ravis.decisions(25),
+   API.ravis.usage(since),API.ravis.codex(),API.ravis.codexSites(),API.ravis.codexSkills()]);
  /* Live when RAVIS answers at all — the counts are real even before anything
     has routed, and "nothing has routed yet" is a better first screen than four
     invented figures. */
- if(usage.live)return liveRavisDashboard(decisions.items,usage,codex,sites);
+ if(usage.live)return liveRavisDashboard(decisions.items,usage,codex,sites,skills);
  $('#content').innerHTML=banner('RAVIS has recorded no route decision',
   'Nothing has been routed through RAVIS yet, or it is not answering. Send a request and '
   +'this screen explains exactly which model was chosen and why every other candidate was '

@@ -293,6 +293,17 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
+As of 14 September 2026 (NERVIS 0.30.0): the Codex card also has a **Skills** list. A skill is a set
+of instructions Codex can decide to follow, and in the first live test Codex ran one of the owner's
+own skills that nobody asked for. The list shows every skill Codex can use, grouped by where it
+comes from — NERVIS's own skills folder (`clarvis/skills` in the NERVIS workspace), the owner's
+personal skills, or built into Codex — with a short description, whether it is on, and a **Switch
+on** / **Switch off** button. NERVIS's folder and Codex's built-in skills start on; personal skills
+start off, including any added later. A switch takes one click (clicking again switches it back),
+says "switching on…" while RAVIS applies it, and says plainly when Codex didn't take it. A change
+counts from a Codex task's next start or reopen. If RAVIS can't apply the owner's choices, the list
+says so, and no Codex task starts until it can.
+
 As of 14 September 2026 (NERVIS 0.29.0): RAVIS → Dashboard has a **Codex card** under the
 headline tiles. It lists each Codex task RAVIS is running or holding — the project folder, its
 state, how long it has waited, the model and effort it runs at, and "reconnecting" while RAVIS

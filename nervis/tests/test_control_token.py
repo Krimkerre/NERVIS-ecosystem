@@ -68,6 +68,8 @@ MUTATIONS = (
     ("DELETE", "/api/v1/ravis/codex/sites/example.invalid", None),
     ("GET", "/api/v1/ravis/codex/version-check", None),
     ("POST", "/api/v1/ravis/codex/accept-version", {"sha256": "0" * 64}),
+    # A skill's switch on the Codex card (NERVIS 0.30.0), forwarded with the admin credential.
+    ("POST", "/api/v1/ravis/codex/skills", {"path": "/x/SKILL.md", "enabled": True}),
 )
 
 
