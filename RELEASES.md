@@ -25,7 +25,21 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.0
+## Clarvis — 0.17.1
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Project ideas after "I don't know" work again.** In plan mode, answering "I don't know" to what
+  you want to build asks the model for four ideas. That request had the same six-second deadline as a
+  short question, and on 14 September it came back with no complete idea twice; the interview then
+  ended without a word, so the next "I don't know" went to ordinary chat. The idea list now gets 20
+  seconds, and if ideas still can't be had, Clarvis says so and asks what you're building instead of
+  stopping. The log now says whether the request ran out of time or answered in the wrong shape.
+- **Inline code in the chat shows as code again.** Text between backticks in a chat message had stayed
+  plain since the chat script became its own file, because it looked for the characters `\u0060`
+  instead of a backtick. Markup a model sends still stays plain text.
+
+### 0.17.0
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
