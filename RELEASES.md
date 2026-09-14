@@ -416,7 +416,14 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.18
+## NERVIS — 0.28.19
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **NERVIS accepts RAVIS 0.25.** Its supported window for RAVIS now runs to 0.25.999, so a RAVIS on
+  0.25.0 isn't shown as an incompatible peer. Nothing else changed.
+
+### 0.28.18
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -1075,7 +1082,32 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.24.5
+## RAVIS — 0.25.0
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Sites can be allowed before a Codex task starts.** Clarvis can ask the owner about the sites a task
+  will probably need — a package registry, a model download — and add them before Codex begins, so the
+  task doesn't stop halfway to ask. RAVIS checks every name first and adds nothing if one isn't a plain
+  public website name (no wildcards, IP addresses or local names). The sites Codex may reach can be
+  listed, NERVIS's Codex card will be able to remove one the owner added, and RAVIS's own default
+  sites can't be removed. (`GET`, `POST` and `DELETE /api/v1/codex/sites`.)
+- **A task reaches a site allowed while it runs, without losing its progress.** An open Codex
+  conversation never sees a site allowed later, so when a step ends on a blocked site RAVIS now lets go
+  of the conversation at once and reopens it as soon as Codex has let go of it (about a minute), while
+  the owner decides. A "carry on" sent meanwhile waits for that and then starts. If Codex still holds
+  the conversation after two minutes, RAVIS carries on anyway and says the site may still be blocked.
+  Stopping, switching engines and saving the work all still work meanwhile. Codex is also told to stop
+  and say which site it needs, instead of looking for a way around the block.
+- **Blocked sites are asked about together.** Every site one step was blocked from comes in one group,
+  so Clarvis can show them on one card with "Allow all".
+- **Each task can run at a chosen effort.** A task can name how hard Codex thinks, from the levels
+  Codex offers that model. An effort or a model Codex doesn't offer is refused before anything starts;
+  the effort is sent with every step and shown with the task.
+- **The database moves to version 10** (each task's effort). RAVIS backs it up first
+  (`ravis.db.v9.bak`); going back to RAVIS 0.24 means restoring that backup.
+
+### 0.24.5
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
