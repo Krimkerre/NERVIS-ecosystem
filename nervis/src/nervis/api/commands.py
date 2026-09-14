@@ -24,6 +24,7 @@ free-form path §12 exists to prevent, dressed as a parameter.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from nervis import (
     commands,
     documents,
     handoff,
+    handoff_git,
     learned,
     pdf,
     style,
@@ -228,8 +230,19 @@ async def _hand_over(
     if not chosen:
         return {"needs_name": NAME_QUESTION}
     written = handoff.write(place, task, name=chosen, conversation=conversation_id)
-    _audit(request, task, "written", f"handed to Clarvis in {written.folder}/",
+    # **The new folder starts as a git repository** (0.29.3), because Codex saves
+    # its work as commits and refuses a folder that is not one. Never a reason
+    # for the hand-over to fail: when git cannot do it, the folder and brief are
+    # already written and the answer says it is not a repository yet. Off the
+    # event loop, since a stuck git may take its whole timeout.
+    started = await asyncio.to_thread(handoff_git.start, place, written.folder)
+    _audit(request, task, "written", f"handed to Clarvis in {written.folder}/"
+           + ("" if started.repository else ", not a git repository yet"),
            verb="hand over")
+    detail = (f"waiting in {written.folder}/ — open that folder in Clarvis "
+              "to read and approve it")
+    if not started.repository:
+        detail += f"; {started.detail}"
     return {
         "handoff": written.as_dict(),
         "file": {
@@ -241,10 +254,9 @@ async def _hand_over(
             # containment check, so the editor session's root check compares
             # like with like.
             "workspace": str((place / written.folder).expanduser().resolve(strict=False)),
-            "detail": (
-                f"waiting in {written.folder}/ — open that folder in Clarvis "
-                "to read and approve it"
-            ),
+            "detail": detail,
+            # Whether the folder is a git repository, and the sentence saying so.
+            "repository": started.as_dict(),
         },
     }
 

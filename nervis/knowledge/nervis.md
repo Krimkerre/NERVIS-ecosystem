@@ -55,6 +55,15 @@ Four rooms, and which one a file is in says how it got there.
   task's own workspace, so one task's plan and notes never mix with another's.
   That holds with NERVIS's editor proxy switched on as well (since 12 September
   2026; before, the proxied tab stayed on its configured folder).
+  Since NERVIS 0.29.3 (14 September 2026) each new task folder also starts as a
+  git repository: the task file is its first commit, on the branch `main`,
+  because Codex saves its work as commits and won't work in a folder that isn't
+  a repository. That commit is signed with your own git name and email when git
+  has them, and as `NERVIS <nervis@localhost>` when it doesn't — no git settings
+  are changed either way. If git isn't installed or fails, the task is still
+  handed over, and the answer says the folder isn't a git repository yet;
+  Clarvis offers to set one up. Task folders made before 0.29.3 are left as
+  they are.
 
 Each can be pointed somewhere else on its own
 (`NERVIS_WORKSPACE_IMPORT_PATH`, `NERVIS_WORKSPACE_LIBRARY_PATH`,

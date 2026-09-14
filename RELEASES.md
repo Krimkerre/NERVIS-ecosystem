@@ -456,7 +456,23 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.29.2
+## NERVIS — 0.29.3
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **A task handed to Clarvis starts in a git repository.** The new folder under `nervis-tasks/` is
+  set up as a git repository on the branch `main`, with the task file `clarvis-task.md` as its first
+  commit, so a Codex task started there never stops at "Codex needs this folder to be a git
+  repository". The owner decided this on 14 September 2026.
+- **Your own git name and email sign that first commit** when git has them. When it has none, the
+  commit is signed `NERVIS <nervis@localhost>` for that one commit, and no git settings change.
+- **Git can't stop a hand-over.** If git isn't installed or fails, the folder and task file are
+  written exactly as before, the problem is logged, and the hand-over's answer says the folder isn't
+  a git repository yet (Clarvis offers to set one up). The chat card itself still reads as before.
+- **Only the new folder is touched.** Git runs in the folder NERVIS has just made and nowhere else:
+  not in a task folder from an earlier version, and not in a repository the workspace sits inside.
+
+### 0.29.2
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
