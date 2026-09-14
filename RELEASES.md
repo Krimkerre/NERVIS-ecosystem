@@ -416,7 +416,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.28.17
+## NERVIS — 0.28.18
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **NERVIS accepts the Clarvis and SIRVIS you actually run.** Its supported windows were last set
+  for Clarvis 0.11–0.12 and SIRVIS 0.15–0.16, while this Mac runs Clarvis 0.16.2 and SIRVIS 0.19.3
+  every day, so `tools/check_compatibility.py` had failed for weeks. The windows are now Clarvis
+  0.15.0 … 0.16.999 and SIRVIS 0.18.0 … 0.19.999: the shipped minor plus the one below, the same rule
+  the RAVIS window follows. Set at the owner's word on 14 September 2026. Nothing else changed.
+
+### 0.28.17
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
