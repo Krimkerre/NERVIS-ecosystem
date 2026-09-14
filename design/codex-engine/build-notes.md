@@ -434,6 +434,68 @@ For R3:
 - Only pure halves are tested (`stopDecision.test.ts`, `PlanningChatIO.test.ts`); any change to `stop()`/`stopFromChat()`
   must prove planning still pauses on a typed stop.
 
+## Owner decisions 14 Sep 2026 (after calibration) — allowing sites before and during a task, and the finish plan
+The owner chose two of four proposals for making "allow a site" smoother (the other two, a thread copy and
+waiting for a Codex release that applies sites live, stay open). Calibration fixed the facts: a thread reads
+the site list when it loads; a running thread never sees a later add; a reopened thread does (about 60 s for
+Codex to unload it after `thread/unsubscribe`).
+
+**Option 1 — sites allowed before a task starts need no pause.**
+- **RAVIS:** `GET /api/v1/codex/sites` (Clarvis and NERVIS callers) → `{defaults: [...DEFAULT_ALLOWED_SITES],
+  added: [host, ...]}`, `added` being the profile's user-configuration sites minus the defaults (`config/read`
+  layers, as K3 reads them). `POST /api/v1/codex/sites {hosts: [...]}` (Clarvis callers; the owner's click in
+  Clarvis): every host checked with `plain_site` first (a refused host is named with why, and nothing is
+  written), then one `SiteAllowlist` upsert, audited `ravis.codex.sites_allowed {hosts}`; 409 `SITE_NOT_ADDED`
+  unless Codex answers `ok`. `DELETE /api/v1/codex/sites/{host}` (admin: NERVIS's Codex card) removes an added
+  site, never a default, with one `replace` write of the rest; it reaches new and reopened threads only.
+- **Clarvis, before `CreateSession`:** looks for the hosts the task will likely need — registry settings in
+  `.npmrc`, `pip.conf`, `pyproject.toml` and `requirements*.txt` (`--index-url`, `--extra-index-url`),
+  `Cargo.toml` and `.cargo/config.toml` registries, `Gemfile` `source`, `.gitmodules` URLs, and URLs in the
+  brief — drops the ones already on RAVIS's list, and if any remain asks once: "This task may need a.com and
+  b.org. Allow them before Codex starts?" with **Allow and start**, **Start without them** and **Cancel**. Exact
+  hosts only, the same rules RAVIS applies.
+
+**Option 2 — a site blocked mid-task: the reopen starts while the owner decides, and asks come grouped.**
+- **Codex is told to stop:** `DEVELOPER_INSTRUCTIONS` gains a line — when a command is refused with the
+  "Network access to … was blocked" line, don't look for another source or a workaround; end the turn saying
+  which site is needed and why.
+- **RAVIS:** when a turn ends with site asks open from it, RAVIS at once sends `thread/unsubscribe`, marks the
+  session reopening and emits `site.reopening {hosts}`, polling `thread/loaded/list` every 2 s. The site asks
+  opened in that turn form one group (`group_id` on each site request). A `turns` call accepted while reopening
+  answers 202 and starts once Codex has unloaded the thread and RAVIS has resumed it (`thread/resume` with the
+  profile and roots, as after a restart). If Codex hasn't unloaded it after 120 s, RAVIS resumes anyway and
+  emits `site.reopen_incomplete`, so Clarvis can say a newly allowed site may still be blocked. Stop, switch
+  and settle work as ever while reopening (the resume is skipped). Restart reconciliation resumes a reopening
+  session like any other.
+- **Clarvis:** shows a group as one card — each host with **Allow** or **Keep blocked**, plus **Allow all** —
+  and, while RAVIS reopens, the chat line "Reconnecting Codex so newly allowed sites work (up to a minute)…".
+  Once every ask in the group is decided it sends `carry_on` with "The owner allowed X; Y stays blocked. Carry
+  on where you stopped."
+
+**Model and effort** (the requirement below): `CreateSession.effort` beside the existing `model`, checked
+against that model's `efforts` in `model/list`; `agent_session.effort` (migration 10); `effort` on every
+`turn/start`; `SessionView.effort`. Clarvis's Codex model and effort picker sits beside the engine choice and
+is fixed while a task runs; NERVIS's task card shows both.
+
+**Contract loose end:** the account fingerprint. RAVIS serves bare sha256 hex; the fixtures' `sha256:…`
+examples change to bare hex (the R3 and R4 notes), and Clarvis's copy is synced.
+
+**The finish plan, in order** — one agent per repository at a time:
+1. **R5 (RAVIS):** the contract first (fixtures and their hash, `RAVIS.md` §15.1.2, committed before code),
+   then option 1's routes, option 2's reopening, effort, and the fingerprint fixtures; RAVIS 0.25.0, with
+   NERVIS's RAVIS window to 0.25.999 in the same pairing.
+2. **C2b+ (Clarvis), from R5's contract commit:** approvals (design §10.5 C2b: FIFO, re-evaluation before
+   POST, rendering from `allowed_decisions`, the narrow Unattended auto-answer), the pre-task site ask, grouped
+   mid-task site asks with the reconnecting line and `carry_on`, and the Codex model and effort picker;
+   fixtures synced byte-identical.
+3. **N2b and N1b (NERVIS, after R5):** the Codex card's task list with **Stop** (owner-stop through a NERVIS
+   control route forwarding `Idempotency-Key`), the Overview line, the allowed-sites list with **Remove**,
+   each task's model and effort, `codex_check.js`; the menu bar's Codex line with **Stop this task…** and
+   **Re-test the file rules…**, each behind a confirmation; NERVIS 0.29.0.
+4. **P (packaging):** restart the stack, rebuild and swap the menu app, package Clarvis 0.17.0, install it in
+   both hosts and byte-compare `dist/extension.js`.
+5. **L (live test)** with the owner.
+
 ## Owner requirement added 14 Sep 2026 (during calibration) — choose Codex's model and effort per task
 - Clarvis's Codex picker lets the owner choose, for each task, **which Codex model** and **how hard it thinks**
   (effort: the levels `model/list` gives that model, e.g. `low` / `medium` / `high`). Default: the plan's
