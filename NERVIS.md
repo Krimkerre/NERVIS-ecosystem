@@ -585,7 +585,7 @@ seven checks and what changed, through `GET /api/v1/ravis/codex/version-check`, 
 `POST /api/v1/ravis/codex/accept-version`, after words saying that accepting neither starts the
 file-rules re-test nor spends allowance. Every refusal is said in words. The same release gave the
 menu bar app its Codex line (N1b), which opens the card: the state or the task count, each task with
-its wait, the allowance per window, **Stop this task…** in each task's submenu behind an `NSAlert`
+its wait, **Stop this task…** in each task's submenu behind an `NSAlert`
 naming the folder, **Re-test the file rules…** for an accepted build whose rules are unproven — the
 one place the re-test starts — and **Sign in to Codex…** while signed out, each through
 `tools/run.py codex …`, whose `status --json` now carries each task's model, effort and reconnecting,

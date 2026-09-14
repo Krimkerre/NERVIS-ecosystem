@@ -32,7 +32,8 @@ asked for them: every agent-session read refuses NERVIS.
   `try?` so an entry the app can't read costs the Codex line only; `CodexLine` (words, tone, offers) and
   `CodexWords` (dialogs and exit codes). The row opens `address` and is never red; a line per task
   holds that task's submenu (Open the Codex card, model and effort, reconnecting, then **Stop this
-  task…** or why there is nothing to stop); the allowance per window; **Re-test the file rules…** for
+  task…** or why there is nothing to stop); the allowance per window (removed at the owner's request in NERVIS 0.29.1: with one weekly window it
+  repeated the row word for word, so the row's tightest window is all the menu shows); **Re-test the file rules…** for
   `verdict: accepted` with unproven rules, and otherwise, for `untested`, **Accept Codex … on the Codex
   card first…**; **Sign in to Codex…** / **Cancel the Codex sign-in**. Every completion goes through
   `launcher.capture`, which hands back on the run loop, never `DispatchQueue.main`.

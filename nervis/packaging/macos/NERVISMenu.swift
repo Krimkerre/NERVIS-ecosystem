@@ -541,7 +541,6 @@ struct CodexLine {
 
     let title: String
     let tone: Tone
-    let allowance: [String]
 
     /// The task states RAVIS lists (`codex-state.json` → `run_states`), as the menu says them.
     static let taskWords: [String: String] = [
@@ -587,7 +586,6 @@ struct CodexLine {
         let head = CodexLine.headline(codex, tasks: tasks.count, waiting: waiting, needing: needing)
         title = head.0
         tone = head.1
-        allowance = CodexLine.allowanceLines(codex)
     }
 
     /// The row: the tasks first, since they are what the owner can act on; then, with none, the
@@ -669,22 +667,10 @@ struct CodexLine {
         return codex.state == "untested_version" && codex.runtime?.verdict != "untested"
     }
 
-    /// Each allowance window: "5-hour window · 62% left · resets 04:30". None drawn as a number
-    /// while RAVIS hasn't read them; signed in, the menu says it hasn't.
-    static func allowanceLines(_ codex: StackReport.Codex) -> [String] {
-        let windows = codex.usageKnown == true ? (codex.windows ?? []) : []
-        guard !windows.isEmpty else {
-            return codex.signedIn == true
-                ? ["Allowance not read yet: RAVIS reads it every 15 minutes while Codex is idle"] : []
-        }
-        let old = codex.stale == true ? " · an old reading" : ""
-        return windows.map { window in
-            let left = window.remainingPercent.map { "\(percent($0)) left" } ?? "not known"
-            return "\(window.label ?? "A window") · \(left) · resets \(clock(window.resetsAt))\(old)"
-        }
-    }
-
-    /// The window with the least left, among those RAVIS gave a figure for.
+    /// The window with the least left, among those RAVIS gave a figure for. The Codex row shows only
+    /// this one: a line per allowance window under the row repeated it word for word with the one
+    /// weekly window a Plus plan has, so the owner had them removed (NERVIS 0.29.1). Every window
+    /// is on the dashboard's Codex card.
     static func tightest(_ codex: StackReport.Codex) -> StackReport.Codex.Window? {
         guard codex.usageKnown == true else { return nil }
         return (codex.windows ?? []).filter { $0.remainingPercent != nil }
@@ -1299,19 +1285,16 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Codex's line under the model runtimes (design §7.1), which opens the Codex card on the
     /// dashboard. Under it one line per task RAVIS lists — each opening a submenu with that
-    /// task's one control, **Stop this task…** — then the allowance, then **Re-test the file
-    /// rules…** or **Sign in to Codex…** where either applies. Nothing for a RAVIS that serves no
-    /// Codex state.
+    /// task's one control, **Stop this task…** — then **Re-test the file rules…** or **Sign in to
+    /// Codex…** where either applies. The allowance is the row's own words (the tightest window);
+    /// the owner had the per-window lines under it removed, since they repeated the row (NERVIS
+    /// 0.29.1). Nothing for a RAVIS that serves no Codex state.
     private func addCodex(_ codex: StackReport.Codex?) {
         guard let codex else { return }
         let line = CodexLine(codex)
         menu.addItem(codexRow(line, address: codex.address))
         for run in codex.runs ?? [] {
             menu.addItem(codexTaskItem(run, address: codex.address))
-        }
-        for text in line.allowance {
-            menu.addItem(indented(reading(NSAttributedString(
-                string: text, attributes: [.font: NSFont.menuFont(ofSize: 0)]))))
         }
         [codexRetestItem(codex), codexSignInItem(codex)].compactMap { $0 }.forEach { menu.addItem($0) }
     }

@@ -416,7 +416,18 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.29.0
+## NERVIS — 0.29.1
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The menu bar's Codex allowance is said once.** The Codex line already reads, for example, "Codex ·
+  25% left · resets Sun 20 Sep 00:43", and the line under it repeated the same words for the plan's
+  weekly window. The owner asked for the second line to go, so the menu now shows only the Codex line.
+  It always names the limit with the least left. The dashboard's Codex card still lists every limit.
+  The "allowance not read yet" line went too, since the Codex line already says that. Nothing else
+  changed.
+
+### 0.29.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
