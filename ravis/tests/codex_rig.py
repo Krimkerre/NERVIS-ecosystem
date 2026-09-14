@@ -76,7 +76,7 @@ FAST = ServiceTimings(
     calibration=CalibrationTimings(
         request_seconds=3.0, turn_cap_seconds=8.0, interrupt_seconds=1.0, settle_seconds=1.5,
         stop_cap_seconds=2.0, processes_start_seconds=8.0, term_wait_seconds=0.2,
-        confirm_seconds=2.0, heartbeat_seconds=0.2,
+        confirm_seconds=2.0, heartbeat_seconds=0.2, unload_seconds=1.0,
     ),
     agents=AgentTimings(
         tick_seconds=0.05, heartbeat_seconds=0.2, stream_heartbeat_seconds=0.3,

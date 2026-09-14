@@ -20,10 +20,12 @@ module. It acts out what calibration asks of a real Codex, closely enough that e
   `*.` wildcards included) or one written into the user configuration since — never contacting it —
   while any other host gets Codex's fixed "not on the allowlist" line, and a local address its
   "local/private network addresses" line. `config/batchWrite` is answered by the relay half; each
-  write it logs (`config_written`) is applied here when its status is `ok`, and reaches a thread's
-  **next** turn: a running turn keeps the sites it started with, as Codex 0.154.0's did in run
-  `cal_ed672bf12c6f` (Cal-4). `config/read` with `includeLayers` shows the written sites in a user
-  layer.
+  write it logs (`config_written`) is applied here when its status is `ok`, and reaches a thread
+  loaded after it: a loaded thread keeps the sites it was loaded with, in its next turn too, as
+  Codex 0.154.0's did in runs `cal_ed672bf12c6f` and `cal_85aa0ece0f52` (Cal-5).
+  `thread/unsubscribe` unloads a thread that has had a calibration turn, `thread/resume` then
+  loads it afresh, and `thread/fork` copies one into a new thread. `config/read` with
+  `includeLayers` shows the written sites in a user layer.
 - **Real long-running processes for K6**, shaped like Codex 0.154.0's (K6's transcripts,
   `cal_d2185ed08f50` and `cal_330b7525d115`): K6's one command per project (Cal-3) is one command
   root — a `/bin/sh` that waits — started in the thread's folder, in a session of its own, with no
@@ -36,8 +38,9 @@ module. It acts out what calibration asks of a real Codex, closely enough that e
 `plugins_on`, `exec_leaks`, `decoy_readable_escalated`, `roots_from_cwd`, `deny_loses_to_write`,
 `untrusted_skips_file_approval`, `never_asks_file_approval`, `approved_escapes_box`,
 `thread_tmpdir_ignored`, `network_open`, `loopback_open`, `listed_site_blocked`,
-`site_block_line_changed`, `site_add_not_live` (a thread keeps its first turn's sites for good),
-`site_add_reaches_running_turn`, `add_opens_every_site`, `retry_runs_unasked`,
+`site_block_line_changed`, `site_add_not_live` (a thread, and any copy of it, keeps its first turn's
+sites for good), `site_add_reaches_running_turn`, `site_add_reaches_next_turn`,
+`thread_never_unloads`, `fork_drops_profile`, `add_opens_every_site`, `retry_runs_unasked`,
 `site_left_from_an_earlier_run`, `empty_grant_grants`, `never_asks_permissions`, `git_blocked`,
 `interrupt_ignored`, `stop_kills_other_project`, `resume_forgets`, `profile_rejected`. The relay
 half's `site_add_status` makes Codex report adding one site overridden, and it reports every site
@@ -254,16 +257,21 @@ def _site_allowed(api: Any, thread: dict[str, Any], host: str) -> bool:
 def _sites_seen(api: Any, thread: dict[str, Any], found: set[str]) -> dict[str, str]:
     """The written sites a command in this thread sees.
 
-    As Codex 0.154.0 (run `cal_ed672bf12c6f`): the sites as they were when the thread's turn began,
-    so a site written meanwhile reaches the next turn. `site_add_not_live` keeps the thread to its
-    first turn's sites for good; `site_add_reaches_running_turn` lets a write reach the running
-    turn. A command outside any turn (`command/exec`) sees every site written so far.
+    As Codex 0.154.0 (runs `cal_ed672bf12c6f`, `cal_85aa0ece0f52`): the sites as they were when
+    the thread was loaded — its first turn here, or the first after `thread/resume` loads it again —
+    so a site written meanwhile reaches only a thread loaded later, or a copy. `site_add_not_live`
+    keeps a thread and its copies to its first turn's sites for good; `site_add_reaches_next_turn`
+    reads them at each turn; `site_add_reaches_running_turn` lets a write reach the running turn. A
+    command
+    outside any turn (`command/exec`) sees every site written so far.
     """
     if "site_add_not_live" in found:
         return dict(thread.get("sites_at_start", {}))
     if "site_add_reaches_running_turn" in found:
         return user_sites(api)
-    return dict(thread.get("sites_at_turn_start", user_sites(api)))
+    if "site_add_reaches_next_turn" in found:
+        return dict(thread.get("sites_at_turn_start", user_sites(api)))
+    return dict(thread.get("sites_at_load", user_sites(api)))
 
 
 def _apply_config_writes(api: Any) -> None:
@@ -342,6 +350,9 @@ def turn(api: Any, thread_id: str, turn_id: str, prompt: str, params: dict[str, 
     thread = api.state["threads"][thread_id]
     thread.setdefault("sites_at_start", dict(user_sites(api)))
     thread["sites_at_turn_start"] = dict(user_sites(api))
+    thread.setdefault("sites_at_load", dict(user_sites(api)))
+    # Whether RAVIS sent a per-turn sandbox policy: K3's next step sends none (Cal-5).
+    api.log("calibration_turn", thread_id=thread_id, sandbox_policy="sandboxPolicy" in params)
     lines = prompt.splitlines()
     escalated = {int(n) for line in lines if (m := ESCALATE.match(line))
                  for n in re.findall(r"\d+", m.group(1))}
@@ -536,6 +547,8 @@ def _resume(api: Any, params: dict[str, Any]) -> dict[str, Any] | str:
         return "thread not found or archived"
     if "resume_forgets" in faults(api):
         thread.pop("remembered", None)
+    if thread.pop("unloaded", False):
+        thread.pop("sites_at_load", None)  # loaded again from disk: the sites as they are now
     thread["roots"] = params.get("runtimeWorkspaceRoots") or thread.get("roots")
     return {"thread": {"id": params["threadId"], "cwd": thread["cwd"]}, "cwd": thread["cwd"],
             "model": "gpt-6-astra", "modelProvider": "openai", "approvalPolicy": "untrusted",
@@ -567,10 +580,49 @@ def _steer(_api: Any, params: dict[str, Any]) -> dict[str, Any]:
     return {"turnId": params.get("expectedTurnId")}
 
 
+def _unsubscribe(api: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Unload a thread that has had a calibration turn at once (Codex takes about 50 s)."""
+    thread = api.state["threads"].get(params.get("threadId"))
+    never = "thread_never_unloads" in faults(api)
+    if thread is not None and "sites_at_load" in thread and not never:
+        thread["unloaded"] = True
+    return {"status": "unsubscribed"}
+
+
+def _loaded_list(api: Any, _params: dict[str, Any]) -> dict[str, Any]:
+    loaded = [key for key, thread in api.state["threads"].items() if not thread.get("unloaded")]
+    return {"data": loaded, "nextCursor": None}
+
+
+def _fork(api: Any, params: dict[str, Any]) -> dict[str, Any] | str:
+    """`thread/fork`: a new thread with the parent's folder and memory, its sites read afresh."""
+    parent = api.state["threads"].get(params.get("threadId"))
+    if parent is None:
+        return "no rollout found for thread id"
+    thread_id = str(uuid.uuid4())
+    copy = {"cwd": params.get("cwd") or parent["cwd"],
+            "roots": params.get("runtimeWorkspaceRoots") or parent.get("roots"),
+            "policy": params.get("approvalPolicy") or parent.get("policy"),
+            "ephemeral": params.get("ephemeral"), "config": parent.get("config") or {}}
+    kept = ("remembered", "sites_at_start", "sites_at_load")
+    if "site_add_not_live" not in faults(api):
+        kept = ("remembered",)
+    copy.update({key: parent[key] for key in kept if key in parent})
+    api.state["threads"][thread_id] = copy
+    profile = "workspace" if "fork_drops_profile" in faults(api) else params.get("permissions")
+    return {"thread": {"id": thread_id, "cwd": copy["cwd"], "status": {"type": "idle"},
+                       "turns": []},
+            "cwd": copy["cwd"], "model": "gpt-6-astra", "modelProvider": "openai",
+            "approvalPolicy": copy["policy"], "approvalsReviewer": "user",
+            "sandbox": {"type": "workspaceWrite"},
+            "activePermissionProfile": {"id": profile, "extends": ":workspace"}}
+
+
 METHODS = {
     "config/read": _config_read, "thread/archive": _archive, "thread/unarchive": _unarchive,
     "thread/resume": _resume, "thread/backgroundTerminals/list": _terminals,
     "thread/backgroundTerminals/terminate": _terminate, "turn/steer": _steer,
+    "thread/unsubscribe": _unsubscribe, "thread/loaded/list": _loaded_list, "thread/fork": _fork,
 }
 
 

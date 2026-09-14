@@ -94,6 +94,9 @@ class CalibrationTimings:
     term_wait_seconds: float = 2.0
     confirm_seconds: float = 3.0
     heartbeat_seconds: float = 15.0
+    #: K3: how long to wait for Codex to unload an unsubscribed thread before resuming it (Cal-5;
+    #: about 50 s on Codex 0.154.0, measured without a model).
+    unload_seconds: float = 75.0
 
 
 @dataclass(frozen=True)
@@ -280,19 +283,23 @@ class Session:
         key: str,
         prompt: str,
         *,
-        box: str = WORKSPACE_BOX,
+        box: str | None = WORKSPACE_BOX,
         explicit_roots: bool = True,
         approval_policy: Any = None,
     ) -> str:
-        """`turn/start` in one thread; the design's box unless the scenario names another."""
+        """`turn/start` in one thread; the design's box unless the scenario names another.
+
+        `box=None` sends no per-turn sandbox policy: the thread's own profile governs (K3, Cal-5).
+        """
         log = self.threads[key]
         root = str(log.project.root)
         params: dict[str, Any] = {
             "threadId": log.thread_id,
             "input": [{"type": "text", "text": prompt}],
             "effort": "low",
-            "sandboxPolicy": _box(box, root),
         }
+        if box is not None:
+            params["sandboxPolicy"] = _box(box, root)
         if explicit_roots:
             params["runtimeWorkspaceRoots"] = [root]
         if approval_policy is not None:

@@ -1568,6 +1568,16 @@ resumes a task after the owner allows a site must therefore start a new turn in 
 three `(bash)` helpers caught while B was still starting. K6 now waits for and judges only its
 long-runners (`OUR_COMMANDS`); A's Stop still signals every process attributed to A.
 
+**And again in Cal-5 (0.24.4, 14 September 2026).** The seventh run (`cal_85aa0ece0f52`) passed K6
+and failed K3: the site stayed blocked in the thread's next turn too, so the "next step" rule above
+isn't enough — a loaded Codex thread keeps the site list it was loaded with. With the owner's
+go-ahead, K3 now tries three ways to carry the task on, in order, stopping at the first that reaches
+the site: the next turn with no per-turn sandbox policy; the same thread reopened (`thread/unsubscribe`,
+wait until `thread/loaded/list` no longer lists it — about 50 s on 0.154.0 — then `thread/resume`);
+and a copy (`thread/fork` with the profile and roots), which fails K3 if it runs under any other
+profile. `reached_in` names the way, and that is the way a task must carry on after an allow. K3's
+thread is kept on disk so it can be reopened or copied, and archived afterwards.
+
 **The project lock, for both engines.**
 
 | Route | Who | What |

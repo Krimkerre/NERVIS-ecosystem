@@ -16,13 +16,18 @@ flags carry no sites, and RAVIS writes `DEFAULT_ALLOWED_SITES` through `SiteAllo
 process becomes ready (`service.py`). K3 first waits for that start-up write's answer and fails,
 naming Codex's word — `overridden` among them — if Codex didn't take it.
 
-**An added site counts from the task's next step** (Cal-4). Run `cal_ed672bf12c6f` found the add
-taken — `ok`, not overridden — and `example.com` still refused to the turn that was running: Codex
-0.154.0's proxy keeps the site list a turn started with. The owner decided (14 September 2026) that
-an allowed site working from the task's next step is enough, because the thread and its progress
-carry on. So when the retry in the running turn is still refused, K3 starts one more turn in the
-same thread with one command for the site. That turn costs a little allowance, and runs only when
-needed.
+**A loaded thread keeps its site list** (Cal-4, Cal-5). Run `cal_ed672bf12c6f` found the add taken
+— `ok`, not overridden — and `example.com` still refused to the turn that was running; run
+`cal_85aa0ece0f52` found it refused in that thread's next turn too. The owner decided (14 September
+2026) that a task may carry on another way as long as its progress is kept, and approved trying
+three in one run. So when the retry in the running turn is refused, K3 tries them in order and stops
+at the first that reaches the site (`WAYS`): the thread's next turn with no per-turn sandbox policy;
+the same thread reopened — unsubscribed until Codex unloads it (about 50 s on 0.154.0, measured
+without a model), then `thread/resume` from disk; and a copy, `thread/fork` with the profile and
+roots. A copy
+that reaches the site under any other profile fails K3. K3's thread is kept on disk (not ephemeral)
+so it can be reopened or copied, and archived afterwards. Each way costs a turn, and runs only when
+the one before it didn't get through.
 
 **What K3 checks**, in one thread of project A and one turn of five fixed commands, each approved as
 the list says:
@@ -31,9 +36,9 @@ the list says:
   (`sites.blocked_hosts`) names that host;
 - (c) calibration then adds `example.com` exactly as the owner's "allow" does (`SiteAllowlist.add`:
   `config/batchWrite`, upsert, `reloadUserConfig`) while the turn is still running, and the **same
-  thread** asks for it again and gets through — in that turn, or else in the thread's next turn
-  (Cal-4); `reached_in` says which. So an added site reaches a loaded thread with no restart, and no
-  task loses its progress;
+  thread** asks for it again and gets through — in that turn, or else by one of `WAYS` (Cal-5);
+  `reached_in` says which. So an added site reaches the task with no restart, and no task loses its
+  progress;
 - (d) a loopback address stays refused: RAVIS's own listener on 127.0.0.1 is never reached;
 - (e) `example.org`, never added, stays refused with the fixed line: the add was one host, no more.
 
@@ -80,6 +85,17 @@ ADDED_SITE = "example.com"
 NEVER_ADDED = "example.org"
 LOOPBACK_PATH = "/k3-loopback"
 CARRY_ON = "Some of these commands are expected to fail; carry on with the next one."
+#: The ways a task can carry on after a site is allowed, tried in this order until one reaches it
+#: (Cal-5): the thread's next turn with no per-turn sandbox policy, the thread reopened from disk,
+#: and a copy of the thread with its history. Each names its command in `K3Commands`.
+WAYS = ("next_step", "reopened", "forked")
+#: The copy's key in the session.
+FORK_KEY = "A-copy"
+#: How often K3 asks whether Codex has unloaded the thread it is waiting to reopen.
+UNLOAD_POLL_SECONDS = 2.0
+#: How the passing sentence names where the added site answered.
+WHERE = {"same step": "that same step", "next step": "the task's next step",
+         "reopened": "the same task reopened", "copy": "a copy of the task"}
 PUT_BACK_QUESTION = (
     f"Calibration's K3 added {ADDED_SITE} to the Codex sites in RAVIS's Codex folder and couldn't "
     f"take it off again. Remove the {ADDED_SITE} line from config.toml in "
@@ -132,9 +148,11 @@ class K3Commands:
     after: Listed
     loopback: Listed
     never_added: Listed
-    #: The added site once more, in the thread's next turn, when the running turn's retry was
-    #: refused (Cal-4). Not one of the first turn's commands.
+    #: The added site once more, one command per way of carrying the task on (`WAYS`), each asked
+    #: only when the ways before it didn't reach the site. None is one of the first turn's commands.
     next_step: Listed
+    reopened: Listed
+    forked: Listed
 
     @property
     def in_order(self) -> list[Listed]:
@@ -150,6 +168,8 @@ def k3_commands(port: int) -> K3Commands:
         loopback=Listed(f"curl -sS -m 5 http://127.0.0.1:{port}{LOOPBACK_PATH}"),
         never_added=Listed(f"curl -sS -m 8 -o /dev/null https://{NEVER_ADDED}/"),
         next_step=Listed(f"curl -sS -m 8 -o /dev/null https://{ADDED_SITE}/next-step"),
+        reopened=Listed(f"curl -sS -m 8 -o /dev/null https://{ADDED_SITE}/reopened"),
+        forked=Listed(f"curl -sS -m 8 -o /dev/null https://{ADDED_SITE}/copy"),
     )
 
 
@@ -172,6 +192,10 @@ class K3Run:
     #: Whether the site list was written back; None when nothing was added to put back.
     put_back: bool | None = None
     loopback_paths: list[str] = field(default_factory=list)
+    #: What happened on each way tried besides its command: a refusal, how long unloading took.
+    notes: dict[str, str] = field(default_factory=dict)
+    #: The profile Codex says the copy runs under; None when there was no copy.
+    fork_profile: str | None = None
 
 
 # ── The scenario ─────────────────────────────────────────────────────────────
@@ -188,6 +212,7 @@ async def k3(ctx: ScenarioContext) -> ScenarioResult:
             run.stopped = f"Codex refused a request: {refusal.message}"
         finally:
             await _put_sites_back(ctx, session, run)
+            await _archive_threads(session)
             await session.close()
         run.loopback_paths = list(listener.paths)
     return k3_verdict(session, run)
@@ -197,7 +222,8 @@ async def _k3_turn(ctx: ScenarioContext, session: Session, run: K3Run) -> None:
     listed = run.commands.in_order
     run.default_sites = await _default_sites_at_start(ctx)
     run.sites_before = await _user_sites(ctx, session)
-    log = await session.start_thread("A", ctx.plan.project_a)
+    # Kept on disk, so it can be reopened or copied (Cal-5).
+    log = await session.start_thread("A", ctx.plan.project_a, ephemeral=False)
     session.expect("A", listed)
     await session.start_turn("A", command_prompt("K3", listed, (CARRY_ON,)))
     before = run.commands.before.text
@@ -209,18 +235,99 @@ async def _k3_turn(ctx: ScenarioContext, session: Session, run: K3Run) -> None:
     # Only a host RAVIS's own detection found is added, as the owner's site ask would.
     if ADDED_SITE in blocked_hosts(log.commands.get(before, {}).get("output")):
         await _add(ctx, session, run)
-    if not await _turn_ended(session, run):
+    if not await _turn_ended(session, run, "A"):
         return
-    # Cal-4: Codex 0.154.0 keeps a running turn's site list, so the next turn asks once more.
     if run.added_at is not None and outcome(log, run.commands.after, ADDED_SITE) != "reached":
-        session.expect("A", [run.commands.next_step])
-        await session.start_turn("A", command_prompt("K3", [run.commands.next_step]))
-        await _turn_ended(session, run)
+        await _carry_on_until_reached(ctx, session, run)
 
 
-async def _turn_ended(session: Session, run: K3Run) -> bool:
-    """Drive thread A's turn to its end; False, with the reason noted, if it didn't run as asked."""
-    capped = await session.run_turns(["A"])
+async def _carry_on_until_reached(ctx: ScenarioContext, session: Session, run: K3Run) -> None:
+    """Cal-5: a loaded thread keeps its site list, so try each way of carrying the task on."""
+    for way in WAYS:
+        key = await _carry_on(ctx, session, run, way)
+        if key is None:
+            continue
+        if not await _turn_ended(session, run, key):
+            return
+        if outcome(session.threads[key], getattr(run.commands, way), ADDED_SITE) == "reached":
+            return
+
+
+async def _carry_on(ctx: ScenarioContext, session: Session, run: K3Run, way: str) -> str | None:
+    """Start the turn that asks for the added site again, one way; its thread's key, or None."""
+    command: Listed = getattr(run.commands, way)
+    key = FORK_KEY if way == "forked" else "A"
+    prompt = command_prompt("K3", [command])
+    try:
+        if way == "reopened":
+            await _reopen(ctx, session, run)
+        elif way == "forked":
+            await _fork(ctx, session, run)
+        session.expect(key, [command])
+        if way == "next_step":
+            await session.start_turn(key, prompt, box=None)
+        else:
+            await session.start_turn(key, prompt)
+    except CodexRpcError as refusal:
+        run.notes[way] = f"Codex refused: {refusal.message}"
+        return None
+    return key
+
+
+async def _reopen(ctx: ScenarioContext, session: Session, run: K3Run) -> None:
+    """Let Codex unload thread A, then resume it from disk, as a task comes back after a switch."""
+    log = session.threads["A"]
+    await session.request("thread/unsubscribe", {"threadId": log.thread_id})
+    loop = asyncio.get_running_loop()
+    began = loop.time()
+    deadline = began + ctx.timings.unload_seconds
+    while await _loaded(session, log.thread_id) and loop.time() < deadline:
+        await session.drive(lambda: False, min(UNLOAD_POLL_SECONDS, deadline - loop.time()))
+    if await _loaded(session, log.thread_id):
+        run.notes["reopened"] = f"still loaded after {ctx.timings.unload_seconds:g} s"
+    else:
+        run.notes["reopened"] = f"unloaded after {loop.time() - began:.0f} s"
+    root = str(log.project.root)
+    await session.request("thread/resume", {
+        "threadId": log.thread_id, "cwd": root, "approvalPolicy": "untrusted",
+        "approvalsReviewer": "user", "permissions": ctx.profile_name,
+        "runtimeWorkspaceRoots": [root],
+    })
+
+
+async def _loaded(session: Session, thread_id: str) -> bool:
+    listed = await session.request("thread/loaded/list", {})
+    data = listed.get("data") if isinstance(listed, dict) else None
+    return isinstance(data, list) and thread_id in data
+
+
+async def _fork(ctx: ScenarioContext, session: Session, run: K3Run) -> None:
+    """Copy thread A, history and all, into a new thread held under `FORK_KEY`."""
+    log = session.threads["A"]
+    root = str(log.project.root)
+    forked = await session.request("thread/fork", {
+        "threadId": log.thread_id, "cwd": root, "approvalPolicy": "untrusted",
+        "approvalsReviewer": "user", "permissions": ctx.profile_name,
+        "runtimeWorkspaceRoots": [root], "ephemeral": False,
+    })
+    thread = forked.get("thread") if isinstance(forked, dict) else None
+    if not isinstance(thread, dict) or not isinstance(thread.get("id"), str):
+        raise CodexRpcError("thread/fork", -32603, "Codex copied a thread without an id")
+    profile = forked.get("activePermissionProfile")
+    run.fork_profile = str(profile.get("id")) if isinstance(profile, dict) else None
+    session.hold(FORK_KEY, str(thread["id"]), log.project)
+
+
+async def _archive_threads(session: Session) -> None:
+    """Leave K3's threads archived, out of the way of live tasks."""
+    for log in session.threads.values():
+        with contextlib.suppress(CodexRpcError, CodexUnavailableError):
+            await session.codex.request("thread/archive", {"threadId": log.thread_id}, timeout=5.0)
+
+
+async def _turn_ended(session: Session, run: K3Run, key: str) -> bool:
+    """Drive one thread's turn to its end; False, with the reason noted, if it went off script."""
+    capped = await session.run_turns([key])
     if capped or session.off_list:
         run.stopped = capped or f"Codex didn't keep to the list: {session.off_list[0]}"
         return False
@@ -305,12 +412,23 @@ class K3Facts:
     before: Outcome
     after: Outcome
     next_step: Outcome
+    reopened: Outcome
+    forked: Outcome
     loopback: Outcome
     never_added: Outcome
     default_sites: str
     stopped: str | None
     add_refused: str | None
     asked_again_after_adding: bool
+    fork_profile: str | None
+    profile: str
+    #: `K3Run.notes`, as one line for a verdict's sentence.
+    notes: str
+
+    @property
+    def carried_on(self) -> tuple[Outcome, ...]:
+        """The added site's outcome on each way of carrying the task on, in `WAYS` order."""
+        return tuple(getattr(self, way) for way in WAYS)
 
 
 #: K3's judgement: the first check that holds gives the verdict, `{name}` filled from the facts.
@@ -335,10 +453,16 @@ K3_CHECKS: tuple[tuple[Callable[[K3Facts], bool], Verdict, str], ...] = (
     (lambda f: not f.asked_again_after_adding, "inconclusive",
      f"Codex asked for {ADDED_SITE} again without waiting for approval, so calibration can't say "
      "the site was added first."),
-    (lambda f: f.after != "reached" and f.next_step == "not_run", "inconclusive",
-     f"Codex didn't run the command for {ADDED_SITE} in the task's next step."),
-    (lambda f: f.after != "reached" and f.next_step != "reached", "failed",
-     f"{ADDED_SITE}, added while the task ran, wasn't reachable in that task's next step either."),
+    (lambda f: f.after != "reached" and f.carried_on == ("blocked", "blocked", "reached")
+     and f.fork_profile != f.profile, "failed",
+     f"The copy of the task that reached {ADDED_SITE} ran under {{fork_profile}}, "
+     "not {profile}."),
+    (lambda f: f.after != "reached" and "reached" not in f.carried_on
+     and "not_run" in f.carried_on, "inconclusive",
+     f"{ADDED_SITE} wasn't reached, and not every way of carrying the task on ran ({{notes}})."),
+    (lambda f: f.after != "reached" and "reached" not in f.carried_on, "failed",
+     f"{ADDED_SITE}, added while the task ran, wasn't reachable in its next step, after reopening "
+     "it, or in a copy of it."),
     (lambda f: f.never_added != "blocked", "inconclusive",
      f"{NEVER_ADDED} failed without the proxy's fixed line."),
 )
@@ -351,26 +475,29 @@ def k3_verdict(session: Session, run: K3Run) -> ScenarioResult:
         before=outcome(log, commands.before, ADDED_SITE),
         after=outcome(log, commands.after, ADDED_SITE),
         next_step=outcome(log, commands.next_step, ADDED_SITE),
+        reopened=outcome(log, commands.reopened, ADDED_SITE),
+        forked=outcome(session.threads.get(FORK_KEY), commands.forked, ADDED_SITE),
         loopback=loopback_outcome(log, commands.loopback, run.loopback_paths),
         never_added=outcome(log, commands.never_added, NEVER_ADDED),
         default_sites=run.default_sites,
         stopped=run.stopped,
         add_refused=run.add_refused,
         asked_again_after_adding=_asked_after(session, commands.after.text, run.added_at),
+        fork_profile=run.fork_profile,
+        profile=session.profile_name,
+        notes="; ".join(f"{way}: {note}" for way, note in run.notes.items()) or "no notes",
     )
     findings: dict[str, Any] = {
         **vars(facts), "added_live": run.add_tried and run.add_refused is None,
         "loopback_paths_reached": run.loopback_paths, "site_list_put_back": run.put_back,
-        # Where the added site first answered (Cal-4): the running step, the next one, or neither.
-        "reached_in": "same step" if facts.after == "reached"
-        else "next step" if facts.next_step == "reached" else None,
+        "reached_in": reached_in(facts),
     }
     if run.put_back is False:
         findings["owner_question"] = PUT_BACK_QUESTION
     for holds, verdict, detail in K3_CHECKS:
         if holds(facts):
             return session.result(verdict, detail.format(**vars(facts)), **findings)
-    where = "that same step" if facts.after == "reached" else "the task's next step"
+    where = WHERE[reached_in(facts) or "same step"]
     return session.result(
         "passed",
         f"Codex took RAVIS's default sites at its start and {LISTED_SITE} answered; "
@@ -379,6 +506,14 @@ def k3_verdict(session: Session, run: K3Run) -> ScenarioResult:
         f"{NEVER_ADDED} stayed refused.",
         **findings,
     )
+
+
+def reached_in(facts: K3Facts) -> str | None:
+    """Where the added site first answered: the running step, a way of carrying on, or nowhere."""
+    if facts.after == "reached":
+        return "same step"
+    names = {"next_step": "next step", "reopened": "reopened", "forked": "copy"}
+    return next((names[way] for way in WAYS if getattr(facts, way) == "reached"), None)
 
 
 def outcome(log: ThreadLog | None, command: Listed, host: str) -> Outcome:

@@ -320,7 +320,7 @@ must-pass question passes marks the file rules proven; a failure of the decoy-fi
 them unproven and sends the decision back to the owner. The first real run (13 September) passed
 the file-rule questions but failed the network and stop questions, against rules the owner has
 since replaced. Since RAVIS 0.23.16 those questions check what was decided — commands reach only
-approved sites, a site allowed while a task runs reaches that task from its next step with no restart, a stopped turn
+approved sites, a site allowed while a task runs reaches that task with no restart and nothing lost, a stopped turn
 leaves nothing unanswered, and a Codex that never asks for permissions is recorded rather than held
 against the run — so the next full run can prove the rules, with no override profile. The fifth run
 still failed two questions, and RAVIS 0.24.2 fixed both. Allowed sites were being ignored: RAVIS
@@ -329,11 +329,13 @@ site added later. Now RAVIS writes the default sites into Codex's own settings e
 starts, and no task starts until Codex has taken them; if it doesn't, Codex's state says why and
 RAVIS tries again at the next start. The stop question could never see all its commands, so each
 project now runs one command that keeps its long-running processes alive together.
-The sixth run (14 September, those two questions only) failed both again, and RAVIS 0.24.3 changed
-what they check. Codex took the allowed site, but a step already running keeps the site list it
-started with, so the site works from the task's next step; the owner decided that's enough, because
-the task carries on in the same Codex conversation. The stop question had counted three short-lived
-start-up shells as project B's commands; it now judges only the long-running commands it started.
+The sixth run (14 September, those two questions only) failed both again. The stop question had
+counted three short-lived start-up shells as project B's commands; RAVIS 0.24.3 made it judge only
+the long-running commands it started, and the seventh run passed it. The network question still
+failed: Codex takes the allowed site, but a Codex conversation that is already open keeps the site
+list it started with, in its next step too. RAVIS 0.24.4 makes calibration try two more ways to carry
+a task on without losing its progress — reopening the conversation from disk, or copying it with its
+history — and the owner approved a run to find out which one works.
 
 **It keeps one writer per project for both engines, and cleans up after Codex** (RAVIS 0.24.0).
 Clarvis's own coding runs take the project lock through `/api/v1/project-locks`. A window can take a

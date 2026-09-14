@@ -2,6 +2,32 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From Cal-5 (ecosystem, RAVIS 0.24.4, 14 Sep 2026) — K3 tries reopening and copying the task
+Run 7 (`cal_85aa0ece0f52`, RAVIS 0.24.3, `--only K3,K6`): **K6 passed.** K3 failed: add `ok`, the running
+turn blocked, and the next turn in the same thread blocked too, with the fixed line. So **Cal-4's note for
+C2b below is wrong**: a new turn in the same loaded thread doesn't see the site. The next-turn `turn/start`
+still carried RAVIS's per-turn `sandboxPolicy` (production's `calibration_dependent` sends one too).
+- **Model-free facts (throwaway `CODEX_HOME`, Codex 0.154.0):** `thread/shellCommand` exists but runs
+  unsandboxed, so it can't test the proxy. `thread/unsubscribe` answers `unsubscribed`, the thread stays in
+  `thread/loaded/list`, and `thread/closed` arrives after about 50 s. `thread/resume` and `thread/fork` need
+  a rollout ("no rollout found" before a thread's first turn). The experimental schema lets `thread/fork`
+  and `thread/resume` take `permissions` and `runtimeWorkspaceRoots`, and fork answers
+  `activePermissionProfile`.
+- **Built (owner go-ahead for one run trying three ways, then the full run):** K3's thread is non-ephemeral;
+  after the running turn's retry is refused, `WAYS` in order, stopping at the first that reaches example.com:
+  `next_step` (`turn/start` with `box=None`, no `sandboxPolicy`), `reopened` (unsubscribe, poll
+  `thread/loaded/list` up to `CalibrationTimings.unload_seconds` = 75, `thread/resume` with the profile),
+  `forked` (`thread/fork` with the profile and roots, held as `A-copy`). Each has its own command
+  (`/next-step`, `/reopened`, `/copy`); a refused way is noted and skipped. Facts: `reopened`, `forked`,
+  `fork_profile`, `notes`; a copy that reached it under another profile fails; none reached with a way not
+  run is inconclusive; all three blocked fails. `reached_in`: `same step` / `next step` / `reopened` /
+  `copy`. K3's threads are archived afterwards.
+- **Fakes:** a thread's sites are read at its first turn after loading (`sites_at_load`); calibration
+  overrides `thread/unsubscribe` (unloads a thread that has had a calibration turn), `thread/loaded/list`
+  and adds `thread/fork`; `_resume` reloads an unloaded thread's sites. Faults `site_add_reaches_next_turn`,
+  `thread_never_unloads`, `fork_drops_profile`; `site_add_not_live` now also holds for copies.
+- **For C2b:** use whichever way run 8's `reached_in` names. Unverified until then.
+
 ## From Cal-4 (ecosystem, RAVIS 0.24.3, 14 Sep 2026) — an added site counts from the next step; K6 judges long-runners
 Run 6 (`cal_ed672bf12c6f`, RAVIS 0.24.2, `--only K3,K6`) failed both. (The first attempt that day was
 refused before starting: RAVIS had been restarted at 13:46 without `RAVIS_CODEX_CALIBRATION=1`.)

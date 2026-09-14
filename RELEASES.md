@@ -1075,7 +1075,21 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.24.3
+## RAVIS — 0.24.4
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Calibration tries two more ways to carry a task on after a site is allowed** (Cal-5). The seventh
+  run (`cal_85aa0ece0f52`) passed the stop question, but the allowed site stayed blocked in the task's
+  next step too: a Codex conversation that is already open keeps the list of sites it started with.
+  With the owner's go-ahead, the network question now tries, in order: the next step without RAVIS's
+  per-step sandbox setting; the same conversation reopened from disk once Codex has let go of it
+  (about 50 seconds); and a copy of the conversation with its history. It stops at the first that
+  works and says which. A copy that runs without the file rules fails the question. Checked by
+  `ravis/tests/test_codex_calibration_findings.py`.
+- Nothing outside calibration changed.
+
+### 0.24.3
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
