@@ -9,12 +9,17 @@ The contract is `codex-admin.json` (`version-check`, `accept-version`); the rule
   pinned build's committed definition hashes;
 - **acceptance is not a test**: an accepted build is recorded with unproven file rules, stays
   paused, and gets a Codex process (for sign-in, the allowance and the re-test) but no task;
-- **revoking** pauses it again and stops its process.
+- **revoking** pauses it again and stops its process;
+- **the pin lists what RAVIS sends** (R6): every call production code makes with a Codex method
+  names one the pin lists, and each table of messages RAVIS reads holds only listed ones.
 """
 
 from __future__ import annotations
 
+import ast
 import json
+import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -40,10 +45,15 @@ from tests.codex_rig import (
     state_of,
 )
 
+import ravis
+from ravis.agent.requests import KINDS
+from ravis.agent.session import AgentSession
 from ravis.codex.acceptance import CHECK_NAMES, check_version
 from ravis.codex.pin import TESTED_RUNTIMES, definitions_file, read_pin, used_surface
+from ravis.codex.routing import ELICITATION_DECLINED
 from ravis.codex.runtime import file_sha256
 from ravis.codex.schema_report import COMBINED_BUNDLE, DefinitionRecord
+from ravis.codex.service import MESSAGE_REASONS
 from ravis.config import Settings
 
 ACCEPT = "/api/v1/codex/accept-version"
@@ -112,6 +122,106 @@ def test_every_used_method_resolves_in_the_pinned_builds_combined_bundle() -> No
     assert resolution["client_requests"]["account/rateLimits/read"] == {
         "params": "v2/GetAccountRateLimitsParams", "response": "v2/GetAccountRateLimitsResponse",
     }
+    # R6: there is no `ConfigBatchWriteResponse`; the answer is the one `config/value/write` shares.
+    assert resolution["client_requests"]["config/batchWrite"] == {
+        "params": "v2/ConfigBatchWriteParams", "response": "v2/ConfigWriteResponse",
+    }
+
+
+#: A Codex method as the protocol names one: `thread/start`, `account/rateLimits/read`.
+CODEX_METHOD = re.compile(r"^[a-z][A-Za-z]*(?:/[a-z][A-Za-z]*)+$")
+#: What RAVIS sends Codex a request through; the first argument is the method even when it has no
+#: slash (`initialize`).
+SENDERS = frozenset({"request", "_request"})
+#: Requests RAVIS sends that Codex 0.154.0's stable bundle lacks. Check 5 looks for a used method
+#: in both bundles, so these can't be listed there: the strict-rules surface holds them, and
+#: check 7a names one a new build dropped.
+EXPERIMENTAL_ONLY_REQUESTS = frozenset(
+    {"thread/backgroundTerminals/list", "thread/backgroundTerminals/terminate"}
+)
+
+
+def _callee(call: ast.Call) -> str | None:
+    """`request` for `codex.request(…)` and for `request(…)`; None for anything else called."""
+    function = call.func
+    if isinstance(function, ast.Attribute):
+        return function.attr
+    return function.id if isinstance(function, ast.Name) else None
+
+
+def _sends(module: ast.Module) -> Iterator[tuple[str, int]]:
+    """(method, line) for each call in a module that sends Codex a request.
+
+    A send is a call whose first argument is a method written out, whatever the call is named, so
+    a new wrapper is found too; or a call through `SENDERS` with any string first.
+    """
+    for node in ast.walk(module):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        first = node.args[0]
+        if not isinstance(first, ast.Constant) or not isinstance(first.value, str):
+            continue
+        if CODEX_METHOD.match(first.value) or _callee(node) in SENDERS:
+            yield first.value, node.lineno
+
+
+def sent_codex_methods() -> dict[str, list[str]]:
+    """Each Codex method RAVIS's own code sends, with every place it is sent from.
+
+    Calibration is left out: it runs only on the owner's command, never in RAVIS's service, and
+    asks Codex things no task does (`thread/fork`).
+    """
+    package = Path(ravis.__file__).parent
+    sent: dict[str, list[str]] = {}
+    for path in sorted(package.rglob("*.py")):
+        relative = path.relative_to(package)
+        if relative.parts[:2] == ("codex", "calibration"):
+            continue
+        for method, line in _sends(ast.parse(path.read_text(encoding="utf-8"))):
+            sent.setdefault(method, []).append(f"{relative}:{line}")
+    return sent
+
+
+def test_every_codex_request_ravis_sends_is_one_the_pin_lists() -> None:
+    """R6: a request the pin doesn't list isn't in check 5, so a Codex build without it would be
+    accepted and then break whatever sends it. `config/read` and `config/batchWrite` (the sites)
+    and `permissionProfile/list` (check 7b) were sent unlisted until R6."""
+    used = used_surface(read_pin())
+    listed = set(used.methods["client_requests"])
+    surface_only = EXPERIMENTAL_ONLY_REQUESTS & set(used.surface_methods)
+
+    unlisted = [
+        f"{method} at {', '.join(places)}"
+        for method, places in sorted(sent_codex_methods().items())
+        if method not in listed | surface_only
+    ]
+
+    assert unlisted == [], (
+        "RAVIS sends Codex requests the pin doesn't list: add each to tested_runtimes.json → "
+        "used_methods.client_requests and regenerate the definition hashes (build notes, From R6)"
+    )
+
+
+def test_the_scan_finds_every_request_the_pin_lists() -> None:
+    """The scan above can't pass by finding nothing: each listed request is found where it is sent.
+    One no code sends any more should leave the pin, or the scan learn how it is sent now."""
+    used = used_surface(read_pin())
+    sent = sent_codex_methods()
+
+    assert sorted(set(used.methods["client_requests"]) - sent.keys()) == []
+    assert EXPERIMENTAL_ONLY_REQUESTS - sent.keys() == set()
+    assert EXPERIMENTAL_ONLY_REQUESTS - set(used.surface_methods) == set()
+
+
+def test_the_messages_ravis_reads_from_codex_are_ones_the_pin_lists() -> None:
+    """The tables RAVIS dispatches Codex's messages from hold only listed methods, so check 5 covers
+    what they read too. `ELICITATION_DECLINED` is RAVIS's own message, never Codex's."""
+    methods = used_surface(read_pin()).methods
+
+    assert set(KINDS) - set(methods["server_requests"]) == set()
+    assert set(MESSAGE_REASONS) - set(methods["server_notifications"]) == set()
+    notifications = set(AgentSession._NOTIFICATIONS) - {ELICITATION_DECLINED}
+    assert notifications - set(methods["server_notifications"]) == set()
 
 
 def test_a_version_check_reports_all_seven_checks_and_what_changed(tmp_path: Path) -> None:

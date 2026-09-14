@@ -88,7 +88,8 @@ def fake_bundle(
     for kind, union in UNIONS.items():
         methods = [method for method in used.methods[kind] if method not in missing]
         if experimental and kind == "client_requests":
-            methods.extend(used.surface_methods)
+            # One variant for a method both lists hold, as Codex's own bundle has.
+            methods.extend([method for method in used.surface_methods if method not in methods])
         unions[union] = {"oneOf": [_variant(method) for method in methods]}
     return json.dumps({"test_double": True, "definitions": {**unions, "v2": v2}}, sort_keys=True)
 

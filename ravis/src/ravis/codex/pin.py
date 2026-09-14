@@ -5,10 +5,17 @@ The pin is committed beside this module and shipped inside the package (design �
 design's format 3 names, and one seam it needs:
 
 - **`used_methods`**: every request RAVIS sends, and every notification and request it reads. A new
-  build missing one of them fails acceptance check 5.
+  build missing one of them fails acceptance check 5. **A test holds the requests to the code**
+  (R6, `test_codex_acceptance.py`): every call in RAVIS's service that names a Codex method must
+  name one listed here, because an unlisted one goes unchecked — `config/read`,
+  `config/batchWrite` and `permissionProfile/list` were sent unlisted until R6. A request the
+  pinned build's stable bundle lacks can't be listed, since check 5 looks in both bundles; the
+  surface below holds those (`thread/backgroundTerminals/*`).
 - **`strict_rules_surface`**: the experimental definitions and methods the file rules depend on.
   If any of them changed in a new build, check 7a says so — which matters because owner decision
-  D2 makes those rules the gate for every task.
+  D2 makes those rules the gate for every task. **A method can be in both lists:**
+  `permissionProfile/list` is sent (check 7b asks it whether the `clarvis_run` profile loaded), so
+  check 5 needs it, and proving the file rules depends on it, so 7a watches it too.
 - **`definitions`** on a tested entry: the file of per-definition hashes of that build's
   experimental schema (`schema_report.py`), which a new build's report is compared against.
 - **`file_rules_profile`**: the `clarvis_run` permission profile's `-c` flags, **written at

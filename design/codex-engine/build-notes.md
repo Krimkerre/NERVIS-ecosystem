@@ -2,6 +2,46 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From R6 (ecosystem, RAVIS 0.25.2, 14 September 2026) — the pin lists every Codex request RAVIS sends
+RAVIS sent `config/read` and `config/batchWrite` (the sites, R5) and `permissionProfile/list`
+(acceptance check 7b) without `tested_runtimes.json` → `used_methods.client_requests` listing them,
+so a Codex build without one would have passed check 5 and then broken the sites or check 7b.
+- **Built:** the three listed. Codex 0.154.0 has all three in both schema bundles, so check 5 still
+  passes on it. `schema_report.RESPONSES_NOT_NAMED_BY_PARAMS` (was `RESPONSES_WITHOUT_PARAMS`) adds
+  `config/batchWrite` → `ConfigWriteResponse`, the answer it shares with `config/value/write` (there
+  is no `ConfigBatchWriteResponse`). `schemas/0.154.0.definition-hashes.json` regenerated: three
+  resolutions and 36 used definitions added; all 838 hashes and the header unchanged.
+- **How the hashes were made (repeat it for the next build):** both trees generated model-free from
+  `/opt/homebrew/Caskroom/codex/0.154.0/bin/codex` with `runtime.throwaway_environment` (`HOME`,
+  `CODEX_HOME` and `TMPDIR` in a scratch folder) and `runtime.generate_schema_tree`; the binary's
+  sha256 and both `runtime.tree_sha256` values equal the pin entry's. Then
+  `definition_record(read_bundle(<experimental tree>), used_surface(read_pin()), codex_version="0.154.0",
+  experimental_tree=<its tree_sha256>)`, written as `json.dumps(record, indent=1, sort_keys=True,
+  ensure_ascii=False) + "\n"`. The same call on HEAD's pin first reproduced the committed file byte
+  for byte.
+- **Decided:** `permissionProfile/list` is in both lists: check 7b sends it, so check 5 needs it,
+  and proving the file rules depends on it, so 7a keeps watching it. `thread/backgroundTerminals/list`
+  and `/terminate` stay surface-only, because the stable bundle lacks them and check 5 looks in both.
+  Check 7 still never refuses acceptance, so a build that dropped one of those would be accepted with
+  the surface flagged, and per-task clean-up would fall back to the OS kills.
+- **Guard (`test_codex_acceptance.py`, three tests):** a scan of `src/ravis` outside
+  `codex/calibration/` finds every call whose first argument is a Codex method written out, whatever
+  the call is named, or any string sent through `request`/`_request` (`initialize`), and fails naming
+  each request the pin doesn't list and where it is sent; a second fails when a listed request is no
+  longer found, so the scan can't pass on nothing; a third holds the read tables
+  (`agent/requests.KINDS`, `AgentSession._NOTIFICATIONS`, `service.MESSAGE_REASONS`) to the pin.
+  Guard proof in snapshot copies: taking `config/batchWrite`, `config/read` or
+  `permissionProfile/list` out of the pin failed the first, naming `agent/sites.py:351`, `:331` and
+  `codex/acceptance.py:353`; listing a request nothing sends failed the second; taking
+  `item/tool/requestUserInput` out of `server_requests` failed the third; the unchanged copy passed.
+- **Contract text (reported by Clarvis):** `codex-admin.json` → `access` now says POST
+  `/api/v1/codex/sites` refuses with 403 `AGENT_CLIENT_NOT_ALLOWED` (DELETE stays `FORBIDDEN`, reprove
+  `REPROOF_NOT_ALLOWED`), and POST gains the 503 `CODEX_RUNTIME_UNAVAILABLE` example "Codex isn't
+  running", which `test_codex_sites.py` now checks; `codex-contract.sha256` regenerated.
+- **For Clarvis:** re-sync `codex-admin.json` and `codex-contract.sha256`; nothing to build.
+- **For whoever adds a Codex call:** list the request in the pin in the same change and regenerate
+  the hashes as above; otherwise the guard names the call.
+
 ## From N2b and N1b (ecosystem, NERVIS 0.29.0, 14 September 2026) — the Codex card, the version routes and the menu bar's Codex line
 Built against RAVIS 0.25.1 (R5b), whose `runs[]` carry `model`, `effort` and `reopening` because NERVIS
 asked for them: every agent-session read refuses NERVIS.

@@ -907,11 +907,19 @@
   "v2/AgentMessageDeltaNotification",
   "v2/AgentMessageInputContent",
   "v2/AgentPath",
+  "v2/AllowDenyRequirement",
+  "v2/AnalyticsConfig",
+  "v2/AppToolApproval",
   "v2/ApprovalsReviewer",
+  "v2/AppsConfig",
+  "v2/AppsDefaultConfig",
   "v2/AskForApproval",
   "v2/AsyncUserInputQuestion",
   "v2/AuthMode",
   "v2/AuthRecoveryNotification",
+  "v2/AutoCompactTokenLimitScope",
+  "v2/BrowserUseConfig",
+  "v2/BrowserUseOriginPolicyConfig",
   "v2/ByteRange",
   "v2/CancelLoginAccountParams",
   "v2/CancelLoginAccountResponse",
@@ -930,6 +938,19 @@
   "v2/CommandExecutionOutputDeltaNotification",
   "v2/CommandExecutionSource",
   "v2/CommandExecutionStatus",
+  "v2/ComputerUseConfig",
+  "v2/ComputerUseMacosConfig",
+  "v2/ComputerUseWindowsConfig",
+  "v2/ComputerUseWindowsExeConfig",
+  "v2/Config",
+  "v2/ConfigBatchWriteParams",
+  "v2/ConfigEdit",
+  "v2/ConfigLayer",
+  "v2/ConfigLayerMetadata",
+  "v2/ConfigLayerSource",
+  "v2/ConfigReadParams",
+  "v2/ConfigReadResponse",
+  "v2/ConfigWriteResponse",
   "v2/ConfigurationReasoning",
   "v2/ContentItem",
   "v2/CreditsSnapshot",
@@ -946,6 +967,8 @@
   "v2/FileSystemSandboxEntry",
   "v2/FileSystemSpecialPath",
   "v2/FileUpdateChange",
+  "v2/ForcedChatgptWorkspaceIds",
+  "v2/ForcedLoginMethod",
   "v2/FunctionCallOutputBody",
   "v2/FunctionCallOutputContentItem",
   "v2/GetAccountParams",
@@ -973,6 +996,7 @@
   "v2/McpToolCallStatus",
   "v2/MemoryCitation",
   "v2/MemoryCitationEntry",
+  "v2/MergeStrategy",
   "v2/MessagePhase",
   "v2/MisalignmentErrorDetails",
   "v2/MisalignmentSteer",
@@ -990,8 +1014,12 @@
   "v2/NetworkAccess",
   "v2/NetworkApprovalProtocol",
   "v2/NonSteerableTurnKind",
+  "v2/OverriddenMetadata",
   "v2/PatchApplyStatus",
   "v2/PatchChangeKind",
+  "v2/PermissionProfileListParams",
+  "v2/PermissionProfileListResponse",
+  "v2/PermissionProfileSummary",
   "v2/Personality",
   "v2/PlanType",
   "v2/RateLimitReachedType",
@@ -1012,6 +1040,7 @@
   "v2/ResponsesApiWebSearchAction",
   "v2/SandboxMode",
   "v2/SandboxPolicy",
+  "v2/SandboxWorkspaceWrite",
   "v2/SelectedCapabilityRoot",
   "v2/ServerRequestResolvedNotification",
   "v2/SessionSource",
@@ -1055,6 +1084,7 @@
   "v2/ThreadUnsubscribeResponse",
   "v2/ThreadUnsubscribeStatus",
   "v2/TokenUsageBreakdown",
+  "v2/ToolsV2",
   "v2/Turn",
   "v2/TurnCompletedNotification",
   "v2/TurnDiffUpdatedNotification",
@@ -1075,8 +1105,14 @@
   "v2/TurnToolOutput",
   "v2/TurnsPage",
   "v2/UserInput",
+  "v2/Verbosity",
   "v2/WarningNotification",
-  "v2/WebSearchAction"
+  "v2/WebSearchAction",
+  "v2/WebSearchContextSize",
+  "v2/WebSearchLocation",
+  "v2/WebSearchMode",
+  "v2/WebSearchToolConfig",
+  "v2/WriteStatus"
  ],
  "used_methods": {
   "client_requests": {
@@ -1104,6 +1140,14 @@
     "params": "v2/CommandExecParams",
     "response": "v2/CommandExecResponse"
    },
+   "config/batchWrite": {
+    "params": "v2/ConfigBatchWriteParams",
+    "response": "v2/ConfigWriteResponse"
+   },
+   "config/read": {
+    "params": "v2/ConfigReadParams",
+    "response": "v2/ConfigReadResponse"
+   },
    "initialize": {
     "params": "InitializeParams",
     "response": "InitializeResponse"
@@ -1111,6 +1155,10 @@
    "model/list": {
     "params": "v2/ModelListParams",
     "response": "v2/ModelListResponse"
+   },
+   "permissionProfile/list": {
+    "params": "v2/PermissionProfileListParams",
+    "response": "v2/PermissionProfileListResponse"
    },
    "thread/archive": {
     "params": "v2/ThreadArchiveParams",

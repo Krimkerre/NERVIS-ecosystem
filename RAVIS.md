@@ -1890,7 +1890,13 @@ decides (`calibration_dependent.py`), the project lock (`locks.py`) and per-task
 (`cleanup.py`). **Since R4 (0.24.0):** the project-lock routes (`lock_routes.py`, `lock_api.py`),
 the takeover's group kill (`group_kill.py`), process attribution and recording (`attribution.py`,
 on `codex/process_table.py`) and restart reconciliation (`reconcile.py`). The contract fixtures are in
-`tests/fixtures/relay-contract/` and `tests/fixtures/lock-rule-cases.json`.
+`tests/fixtures/relay-contract/` and `tests/fixtures/lock-rule-cases.json`. **Since R6 (0.25.2):** the
+pin's `used_methods.client_requests` names every Codex request RAVIS's service sends —
+`config/read`, `config/batchWrite` and `permissionProfile/list` were added then, having been sent
+unlisted — and `tests/test_codex_acceptance.py` fails when code sends a request the pin doesn't
+list, so acceptance check 5 can't pass a Codex build that dropped one RAVIS depends on. The two
+experimental-only requests, `thread/backgroundTerminals/list` and `/terminate`, stay in the
+strict-rules surface instead, because check 5 looks in both schema bundles.
 
 ---
 

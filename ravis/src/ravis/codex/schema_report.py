@@ -21,8 +21,8 @@ the changes into three piles:
 the stable tree is still compared by its whole-tree hash.
 
 A response has no link to its method in the bundle, so it is found by the schema's own naming:
-`GetAccountParams` answers with `GetAccountResponse`. All nineteen used requests follow it in
-0.154.0.
+`GetAccountParams` answers with `GetAccountResponse`. Every used request follows it in 0.154.0
+except the ones `RESPONSES_NOT_NAMED_BY_PARAMS` names.
 """
 
 from __future__ import annotations
@@ -47,9 +47,14 @@ UNIONS = {
 NAMESPACES = ("v2",)
 REF_PREFIX = "#/definitions/"
 RECORD_FORMAT = 1
-#: Used requests whose params schema is null, so their response can't be found by name: checked on
-#: Codex 0.154.0, where `account/logout` is the only one.
-RESPONSES_WITHOUT_PARAMS = {"account/logout": "LogoutAccountResponse"}
+#: Used requests whose response can't be found by name, with the one each answers with, checked on
+#: Codex 0.154.0: `account/logout`'s params schema is null, so it names nothing to go by, and
+#: `config/batchWrite` answers with the `ConfigWriteResponse` it shares with `config/value/write`
+#: (there is no `ConfigBatchWriteResponse`; R6).
+RESPONSES_NOT_NAMED_BY_PARAMS = {
+    "account/logout": "LogoutAccountResponse",
+    "config/batchWrite": "ConfigWriteResponse",
+}
 
 
 @dataclass(frozen=True)
@@ -87,14 +92,14 @@ class BundleFacts:
     def response_of(self, method: str, params: str | None) -> str | None:
         """The definition a request answers with: `GetAccountParams` → `GetAccountResponse`.
 
-        A request whose params schema is null names nothing to go by; the ones RAVIS uses are in
-        `RESPONSES_WITHOUT_PARAMS`.
+        A request whose params schema is null names nothing to go by, and a few answer with a
+        response named otherwise; the ones RAVIS uses are in `RESPONSES_NOT_NAMED_BY_PARAMS`.
         """
         if params is not None and params.endswith("Params"):
             response = params.removesuffix("Params") + "Response"
             if response in self.definitions:
                 return response
-        bare = RESPONSES_WITHOUT_PARAMS.get(method)
+        bare = RESPONSES_NOT_NAMED_BY_PARAMS.get(method)
         return self.resolve(bare) if bare is not None else None
 
     def resolved(self, used: UsedSurface) -> dict[str, dict[str, dict[str, str | None]]]:

@@ -784,7 +784,8 @@ These are unchanged in kind. Each checks the control token, then calls `ravis_pe
 ```json
 {"format": 3,
  "used_methods": {"client_requests": ["initialize", "account/read", "account/login/start", "account/login/cancel",
-                   "account/logout", "account/rateLimits/read", "model/list", "thread/start", "thread/resume",
+                   "account/logout", "account/rateLimits/read", "model/list", "config/read", "config/batchWrite",
+                   "permissionProfile/list", "thread/start", "thread/resume",
                    "thread/turns/list", "thread/loaded/list", "thread/unsubscribe", "thread/archive", "thread/unarchive", "thread/delete", "command/exec",
                    "turn/start", "turn/steer", "turn/interrupt"],
                   "server_notifications": ["account/login/completed", "account/updated", "account/rateLimits/updated",

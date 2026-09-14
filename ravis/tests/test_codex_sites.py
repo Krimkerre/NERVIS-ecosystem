@@ -197,8 +197,11 @@ def test_the_sites_arent_read_or_changed_while_codex_doesnt_say_which_it_allows(
                        "CODEX_RUNTIME_UNAVAILABLE")
         assert read["retryable"] is True
         assert read["message"] == message("GET", SITES, "Codex isn't running")
-        refused(relay.call("POST", SITES, caller="client.clarvis",
-                           body={"hosts": ["huggingface.co"]}), 503, "CODEX_RUNTIME_UNAVAILABLE")
+        added = refused(relay.call("POST", SITES, caller="client.clarvis",
+                                   body={"hosts": ["huggingface.co"]}), 503,
+                        "CODEX_RUNTIME_UNAVAILABLE")
+        assert added["retryable"] is True
+        assert added["message"] == message("POST", SITES, "Codex isn't running")
         refused(relay.call("DELETE", f"{SITES}/huggingface.co", caller="admin.launcher"), 503,
                 "CODEX_RUNTIME_UNAVAILABLE")
         assert writes(rig) == []

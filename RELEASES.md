@@ -1127,7 +1127,25 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.25.1
+## RAVIS — 0.25.2
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **A new Codex build that drops a request RAVIS depends on can no longer be accepted.** Before a
+  new Codex version is used, RAVIS checks that it still has every request RAVIS sends. Three were
+  missing from that list — reading and writing Codex's settings (the allowed sites) and listing its
+  permission profiles (the file-rules check) — so a build without one would have passed, then broken
+  the sites or the file-rules check with nothing saying why. They are listed now; the record of Codex
+  0.154.0 was rebuilt from the real binary, gaining only those three, and 0.154.0 still passes. A
+  test now fails whenever RAVIS's code sends Codex a request the list doesn't hold.
+- **The Codex contract says what adding sites refuses with.** `POST /api/v1/codex/sites` refuses
+  every caller but Clarvis with `AGENT_CLIENT_NOT_ALLOWED`, as the code always did; the contract's
+  summary said `FORBIDDEN`, which only removing a site uses. Adding sites while Codex isn't running
+  now has its own example, the 503 `CODEX_RUNTIME_UNAVAILABLE` RAVIS sends. Clarvis's copy of the
+  contract needs re-syncing.
+- Nothing else changed.
+
+### 0.25.1
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

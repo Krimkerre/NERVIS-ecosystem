@@ -8,7 +8,7 @@
     "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
     "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
   },
-  "access": "every mutating route needs an admin credential, except POST /api/v1/codex/sites, which takes Clarvis's client credential; anonymous and other client credentials get 403 FORBIDDEN. This is UX and audit, not a boundary against local programs. reprove narrows it to admin.owner_cli.",
+  "access": "every mutating route needs an admin credential, except POST /api/v1/codex/sites, which takes only Clarvis's client credential. The admin routes refuse anonymous callers and client credentials with 403 FORBIDDEN; POST /api/v1/codex/sites refuses anonymous callers, admin credentials and any other client credential with 403 AGENT_CLIENT_NOT_ALLOWED, as the agent-session relay does (conventions.json → identity_rule). This is UX and audit, not a boundary against local programs. reprove narrows it to admin.owner_cli and refuses every other caller with 403 REPROOF_NOT_ALLOWED.",
   "routes": [
     {
       "method": "POST",
@@ -1129,6 +1129,29 @@
                 "message": "Codex didn't add those sites, so they stay blocked.",
                 "retryable": false,
                 "details": {"hosts": ["huggingface.co"], "reason": "overridden"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Codex isn't running",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/codex/sites",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"hosts": ["huggingface.co"]}
+          },
+          "response": {
+            "status": 503,
+            "body": {
+              "error": {
+                "code": "CODEX_RUNTIME_UNAVAILABLE",
+                "message": "Codex isn't running, so the sites it allows can't be read; try again in a moment.",
+                "retryable": true,
+                "details": {},
                 "request_id": "fixture-request-id",
                 "trace_id": "fixture-trace-id"
               }
