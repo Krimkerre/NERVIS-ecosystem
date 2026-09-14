@@ -340,6 +340,16 @@ reopening the conversation once Codex had let go of it (about a minute) reached 
 run that followed passed every must-pass question, so the file rules are proven for Codex 0.154.0
 and Codex is no longer paused (RAVIS 0.24.5).
 
+**It lets the owner allow sites before a task, and carries a task on after one is allowed** (RAVIS
+0.25.0). Clarvis can add the sites a task will likely need before Codex starts, through
+`/api/v1/codex/sites`; RAVIS adds only exact public website names, and nothing at all if one is
+refused, and its own default sites can't be removed. When a step is blocked from a site anyway, every
+site that step was blocked from is asked about together, on one card. Because an open Codex
+conversation never sees a site allowed later, RAVIS lets go of the conversation straight away and
+reopens it once Codex has let go (about a minute), so the owner's "carry on" reaches the newly allowed
+site; if Codex hasn't let go within two minutes, RAVIS carries on and warns that the site may still be
+blocked. Each task can also run at a chosen effort, from the levels Codex offers its model.
+
 **It keeps one writer per project for both engines, and cleans up after Codex** (RAVIS 0.24.0).
 Clarvis's own coding runs take the project lock through `/api/v1/project-locks`. A window can take a
 project over from another window that is gone, unresponsive or waiting — never from a Codex task,

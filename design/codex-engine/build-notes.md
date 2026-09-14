@@ -2,6 +2,104 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From R5 (ecosystem, RAVIS 0.25.0 and NERVIS 0.28.19, 14 September 2026) — sites before and during a task, and each task's effort
+Contract first (`3c63125`), then the code (`bc1a103`), the release pairing
+(`3376190`) and these notes.
+- **Built — option 1:** `GET`, `POST` and `DELETE /api/v1/codex/sites` (`api/management/codex.py`)
+  over `SiteAllowlist.listed`, `allow` and `remove` (`agent/sites.py`). `added` is the user layer of
+  `config/read {includeLayers: true}` (`user_sites`, moved here from calibration's
+  `scenarios_network.py`, which imports it) without the defaults, sorted. `POST` checks every host with
+  `site_refusal` (`not_a_host_name`, `wildcard`, `ip_address`, `local_name`) before anything, reads the
+  list (503 when it can't), then writes one upsert; `DELETE` refuses a default before reading
+  (`default_site`, the wildcard defaults included), writes nothing for a host that isn't added, else one
+  `replace` of the rest. Audited `ravis.codex.sites_allowed {hosts}` and `ravis.codex.site_removed
+  {host}`. Every site write — these, a site ask's and the defaults' — holds one lock (per event loop),
+  so a removal's read-then-replace can't drop a site allowed meanwhile, and a removed host leaves
+  `add`'s cache.
+- **Built — option 2:** the `DEVELOPER_INSTRUCTIONS` line; `SiteAsks` (a group per turn, `sg_…`, a
+  group's asks open together, one group open at a time); `agent/reopen.py` (`Reopening`, `let_go`,
+  `unloaded`, `still_loaded`) and the session's reopen. A turn that ends with asks of its group still
+  open, or with a site allowed since the thread loaded, sends `thread/unsubscribe` at once, emits
+  `site.reopening {group_id, hosts}`, shows `codex.reopening {group_id, hosts, since}`, asks
+  `thread/loaded/list` every 2 s for up to 120 s (`SessionTimings.unload_poll_seconds`,
+  `unload_cap_seconds`, `unsubscribe_seconds`, `loaded_list_seconds`), then emits `site.reopened` or
+  `site.reopen_incomplete` and resumes with `thread_resume_params` unless skipped. A `turns` call
+  meanwhile is 202 and waits in `starting` (a failed resume fails that turn); a Stop, `cancel`, an
+  `interrupt` of any reason and every settle skip the resume; a Stop also drops the waiting turn;
+  ending the task, or Codex's process ending (which emits `site.reopened`: every thread went with it),
+  stops the wait.
+- **Built — effort:** migration 10 (`agent_session.effort`, backed up as `ravis.db.v9.bak` by the
+  migration runner); `CreateSession.effort` (text or null; empty is none) and a named model checked
+  against `CodexService.models()` at create, after readiness and under the create lock; `effort` on
+  every `turn/start`, absent when the task has none; `SessionView` → `codex.effort`.
+- **Decided here** (the contract's `open_points` too):
+  - A settle skips the resume, as the owner's notes say, but never the wait, and the next turn resumes
+    the thread on demand. Clarvis settles every turn, so the eager resume mostly runs for a task nobody
+    settles. `site.reopened` therefore marks Codex letting go — the moment a new load sees the sites —
+    not the resume. It is a third event beside the two the notes name, so Clarvis knows when to drop
+    "Reconnecting Codex…".
+  - **A site allowed after the thread was resumed reopens it again** (at once when no turn runs, else
+    when the turn ends), and `start_turn` never starts a turn in a thread loaded before the task's last
+    allowed site. Without it, an owner deciding after the minute would carry on in a stale thread.
+  - Asks open a group at a time: the old one-at-a-time rule, per group.
+  - A named model is refused when `model/list` doesn't offer it (422 `MODEL_NOT_OFFERED`): an effort can
+    only be checked against a listed model, and the owner-requirement note's "an unknown model is refused
+    by the `model/list` pre-flight" wasn't so in code. With no model named, the effort is checked against
+    the default model (else the first listed); before `model/list` has answered, 503.
+  - Callers: `GET` Clarvis's and NERVIS's clients and any admin (403 `FORBIDDEN` otherwise); `POST`
+    `require_agent_client` (403 `AGENT_CLIENT_NOT_ALLOWED`); `DELETE` admin (403 `FORBIDDEN`). New codes
+    `SITES_REFUSED` (422), `SITE_NOT_REMOVED` (409), `EFFORT_NOT_OFFERED` and `MODEL_NOT_OFFERED` (422);
+    `POST`'s `SITE_NOT_ADDED` details are `{hosts, reason}`. At most 20 hosts a `POST`.
+  - Nothing of a reopen is stored: a restart restarts Codex, so the next turn resumes the thread, and a
+    turn waiting for the reopen becomes `uncertain`, like any turn a restart cut off.
+  - `_hold_thread` no longer cancels a consumer that is busy with a message; it finishes it and stops.
+    A reopen's resume can land while the turn's end is still running in that consumer.
+- **Fakes:** the relay half's `fetch <host>` goes through the calibration half's proxy
+  (`site_allowed`), and relay threads record `sites_at_load` at their first turn; `thread/unsubscribe`
+  unloads any thread that has had a turn (`had_turn`, set at `turn/start`), at once or after
+  `unload_after_seconds`, and a resume cancels a pending unload; `turn/start` refuses an unloaded thread;
+  `site_add_status` covers every upsert without a wildcard and `site_replace_status` a `replace`; a
+  scenario's `refused_methods` are refused at once.
+- **Tests:** `test_codex_sites.py`, `test_agent_sessions_reopen.py`, the effort tests in
+  `test_agent_sessions_create.py`, migration 10 and the instruction line in `test_agent_store.py`, the
+  restart case in `test_agent_reconcile.py`, the grouped site test in `test_agent_sessions_turns.py`, and
+  the route tables in `test_codex_reprove.py` and `test_management_api.py`. RAVIS has 1624
+  tests, the repository 3558.
+- **Guard proof:** each new guard broken on its own in a snapshot copy, and its test failed every
+  time — 28 of 28: POST checks every host before it writes; DELETE never removes a default; POST
+  refuses a write Codex didn't take (SITE_NOT_ADDED); DELETE refuses a write Codex didn't take
+  (SITE_NOT_REMOVED); GET sites: Clarvis, NERVIS or admin only; POST sites: Clarvis's client
+  credential only; DELETE sites: admin only; site writes wait for one another; a removed site is
+  forgotten, so allowing it again writes it; an unreadable list is 503, never empty; a turn ending
+  with site asks open starts the reopen; the resume waits until Codex unloaded the thread; the cap
+  says site.reopen_incomplete; a turn asked for while reopening waits for the resume; a Stop, a
+  switch or a settle skip the resume; a settle skips the resume; a Stop drops the turn waiting for
+  the reopen; one turn's asks open together, not one at a time; every site one command was blocked
+  from is asked; one group is open at a time; site requests carry group_id; no turn in a thread
+  loaded before the last allowed site; a model and an effort are checked at create; effort is sent
+  on every turn/start; SessionView shows the effort; Codex is told to stop at a blocked site;
+  migration 10 adds each task's effort; after a restart the next turn resumes the thread. The first
+  try at "one turn's asks open together" broke something that couldn't change the result (asks block
+  one command at a time, so trimming each opening to one ask still opened them all); with the
+  one-at-a-time rule put back instead it was caught, and the first break became a new test and guard
+  for one command blocked from several sites.
+- **Unverified (no real Codex ran):** the reopen through the relay on real Codex (calibration measured
+  about 60 s in its own harness); `effort` changing what Codex does; `config/read`'s layers read by
+  production code (calibration read them the same way); `thread/loaded/list` paging (a `cursor` parameter
+  is assumed; real Codex answered in one page); `config/read` and `config/batchWrite` still aren't in
+  the pin's used methods. The consumer hand-off has no deterministic test. The live database moves to
+  version 10 at the next restart.
+- **For C2b+ (Clarvis):** sync the fixtures byte-identical from `3c63125` (manifest
+  regenerated) and build against `agent-sessions.json` → `reopening`, the site ask's `group_id`,
+  `site.reopening`, `site.reopened` and `site.reopen_incomplete`, `codex.reopening` and `codex.effort`,
+  `CreateSession.effort`, the sites routes in `codex-admin.json` and the new codes. Send `carry_on` once
+  the group is decided, whenever that is: RAVIS holds the turn until the thread is resumed.
+  Fingerprints are bare hex.
+- **For N2b (NERVIS):** read `GET /api/v1/codex/sites` through the GET relay; remove with
+  `DELETE /api/v1/codex/sites/{host}` through a control route carrying the admin credential
+  (`codex-admin.json` → `nervis_control_routes`); a default answers 409 `SITE_NOT_REMOVED`
+  `{reason: default_site}`.
+
 ## From calibration runs 8 and 9 (ecosystem, RAVIS 0.24.5, 14 Sep 2026) — the file rules are proven
 - Run 8 (`cal_faf8dcc6b0f1`, 0.24.4, K3+K6): both passed. K3 `reached_in: reopened`: the next step (no
   `sandboxPolicy`) was blocked; unsubscribe, unloaded after about 60 s, `thread/resume` with the profile,
