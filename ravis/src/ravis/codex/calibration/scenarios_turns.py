@@ -17,6 +17,14 @@ because the sandbox forbids listening on a socket (a sandbox rule, not a defect)
 and `sleep 600 &` ended at once, leaving its `sleep` reparented away from Codex. So each project
 runs one listed command that starts three long-runners in the background and waits for them.
 
+**Only K6's own long-runners are counted, and B's are what Stop must spare** (Cal-4). Run
+`cal_ed672bf12c6f` failed K6 as "stopping A also stopped B's", yet all five of B's long-runners were
+alive afterwards. What had gone were three `(bash)` rows under B — `ps`'s form for a process whose
+arguments it couldn't read — caught while B was still starting (A's `python3` already showed as
+`Python`, B's still as `python3`). A helper that ends on its own isn't a command Stop ended. So K6
+waits for five long-runners per project and judges B on those; A's Stop still signals every process
+attributed to A.
+
 **K7 is judged on RAVIS's side** (Cal-2). Codex 0.154.0 ends an interrupted turn within moments but
 never resolves the request it had open (`cal_d2185ed08f50`), so K7 passes when the turn ends
 `interrupted` within the cap and nothing is left open: RAVIS answered the request itself — the
@@ -319,11 +327,16 @@ async def _wait_for_processes(
     while True:
         await session.drive(lambda: False, 0.2)
         found = await _attributed(ctx, session, began)
-        owners = [entry.owner for entry in found[0].values()]
-        if all(owners.count(key) >= expected for key in ("A", "B")):
+        if all(len(long_runners(found[0], key)) >= expected for key in ("A", "B")):
             return found, True
         if loop.time() >= deadline:
             return found, False
+
+
+def long_runners(attributed: dict[int, Attributed], owner: str) -> list[ProcessRow]:
+    """One project's K6 long-runners; a start-up helper that ends on its own isn't one (Cal-4)."""
+    return [entry.row for entry in attributed.values()
+            if entry.owner == owner and OUR_COMMANDS.search(entry.row.args)]
 
 
 async def _attributed(
@@ -365,12 +378,13 @@ async def _stop_a(
     started: bool,
 ) -> ScenarioResult:
     attributed, unattributed = found
+    # Every process attributed to A is signalled; B is judged on its long-runners alone (Cal-4).
     a_rows = [entry.row for entry in attributed.values() if entry.owner == "A"]
-    b_rows = [entry.row for entry in attributed.values() if entry.owner == "B"]
+    b_rows = long_runners(attributed, "B")
     strays = [row for row in unattributed if OUR_COMMANDS.search(row.args)]
     findings: dict[str, Any] = {
         "expected_per_project": K6_PROCESSES_PER_PROJECT,
-        "found_per_project": {"A": len(a_rows), "B": len(b_rows)},
+        "found_per_project": {"A": len(long_runners(attributed, "A")), "B": len(b_rows)},
         "attribution": [
             {"project": entry.owner, "rule": entry.rule, "comm": entry.row.comm}
             for entry in attributed.values()

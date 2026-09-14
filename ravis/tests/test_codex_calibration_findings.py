@@ -5,13 +5,15 @@ outside host. The rules held:
 
 - **K3 proves the approved-sites allowlist**: a listed site answers; an unlisted one is refused with
   the proxy's fixed line, which RAVIS's detection names; adding it the way the owner's "allow" does,
-  while the turn runs, reaches that same thread; loopback and a never-added site stay refused; and
+  while the turn runs, reaches that same thread — from its next turn, as Codex 0.154.0 does, or in
+  the running one (Cal-4); loopback and a never-added site stay refused; and
   the site list is written back afterwards. Codex reporting the add overridden fails K3, and so does
   a launch that carries a site list again (Cal-3): the fake then overrides every site write, as
   Codex did in run `cal_330b7525d115`. (Each of (a)–(e) broken alone is in
   `test_codex_calibration.py`'s fault table.)
 - **K6 runs one command per project** whose long-runners all exist at once (Cal-3), waits for the
-  processes that command starts, and never for more.
+  processes that command starts, and never for more; a start-up helper that isn't one of its
+  long-runners is neither counted nor judged (Cal-4).
 - **K7 passes only when nothing is left open**: Codex doesn't resolve an interrupted turn's request,
   so RAVIS answers it with cancel when the turn ends; left unanswered, K7 fails.
 - **K8 records a Codex that never asks for permissions**, and that doesn't keep a full run from
@@ -35,7 +37,12 @@ from ravis.codex.calibration.harness import ScenarioResult, Session
 from ravis.codex.calibration.outputs import decide
 from ravis.codex.calibration.plan import CANDIDATE_PROFILE, SCENARIOS, checked_profile
 from ravis.codex.calibration.scenarios_network import LISTED_SITE
-from ravis.codex.calibration.scenarios_turns import K6_COMMANDS, K6_PROCESSES_PER_PROJECT
+from ravis.codex.calibration.scenarios_turns import (
+    K6_COMMANDS,
+    K6_PROCESSES_PER_PROJECT,
+    long_runners,
+)
+from ravis.codex.process_table import Attributed, ProcessRow
 from ravis.codex.service import CodexService
 
 SITES_KEY = "permissions.clarvis_run.network.domains"
@@ -55,16 +62,20 @@ def only(view: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def test_k3_proves_the_allowlist_and_a_site_added_while_the_task_runs(tmp_path: Path) -> None:
+    # The fake keeps a running turn's sites, as Codex 0.154.0 did in `cal_ed672bf12c6f`: the site
+    # answers from the task's next step, which the owner accepted on 14 September 2026 (Cal-4).
     with calibrating(tmp_path) as (rig, client, a, b):
         start(client, rig, a, b, ["K3"])
         view = finished(client, rig)
 
     scenario, findings = only(view)
     assert scenario["verdict"] == "passed", scenario
-    outcomes = {key: findings[key] for key in ("listed", "before", "after", "loopback",
-                                               "never_added")}
-    assert outcomes == {"listed": "reached", "before": "blocked", "after": "reached",
-                        "loopback": "blocked", "never_added": "blocked"}
+    assert "reached in the task's next step" in scenario["detail"]
+    outcomes = {key: findings[key] for key in ("listed", "before", "after", "next_step",
+                                               "loopback", "never_added")}
+    assert outcomes == {"listed": "reached", "before": "blocked", "after": "blocked",
+                        "next_step": "reached", "loopback": "blocked", "never_added": "blocked"}
+    assert findings["reached_in"] == "next step"
     assert (findings["added_live"], findings["asked_again_after_adding"]) == (True, True)
     assert (findings["site_list_put_back"], findings["loopback_paths_reached"]) == (True, [])
     assert findings["default_sites"] == "written"
@@ -80,6 +91,20 @@ def test_k3_proves_the_allowlist_and_a_site_added_while_the_task_runs(tmp_path: 
         ({"edits": [{"keyPath": SITES_KEY, "mergeStrategy": "replace", "value": DEFAULTS}],
           "reloadUserConfig": True}, "ok"),
     ]
+
+
+def test_k3_asks_no_next_step_when_the_running_turn_already_reaches_the_site(
+    tmp_path: Path,
+) -> None:
+    with calibrating(tmp_path, "site_add_reaches_running_turn") as (rig, client, a, b):
+        start(client, rig, a, b, ["K3"])
+        view = finished(client, rig)
+
+    scenario, findings = only(view)
+    assert (scenario["verdict"], "reached in that same step" in scenario["detail"]) == (
+        "passed", True), scenario
+    assert (findings["after"], findings["next_step"], findings["reached_in"]) == (
+        "reached", "not_run", "same step")
 
 
 def test_k3_adds_only_a_site_ravis_detection_named(tmp_path: Path) -> None:
@@ -177,6 +202,24 @@ def test_k6_fails_when_stopping_a_also_stops_bs_processes(tmp_path: Path) -> Non
     assert findings["found_per_project"] == {"A": K6_PROCESSES_PER_PROJECT,
                                              "B": K6_PROCESSES_PER_PROJECT}
     assert findings["b_stopped_with_a"]
+
+
+def test_k6_counts_and_judges_only_its_own_long_runners() -> None:
+    """Run `cal_ed672bf12c6f`: three `(bash)` rows under B, caught while B was still starting, were
+    gone after A's Stop while all five of B's long-runners ran on. That isn't B stopped with A."""
+
+    def row(pid: int, args: str) -> ProcessRow:
+        return ProcessRow(pid=pid, ppid=1, start="Mon Sep 14 14:14:43 2026", args=args)
+
+    b = [row(10, f"/bin/zsh -lc {K6_COMMANDS[0]}"), row(11, "sleep 600"),
+         row(12, "script -q /dev/null sleep 600"), row(13, "sleep 600"),
+         row(14, "python3 -c import time; time.sleep(600)"),
+         row(15, "(bash)"), row(16, "(bash)"), row(17, "(bash)")]
+    attributed = {entry.pid: Attributed(row=entry, owner="B", rule="parent") for entry in b}
+
+    assert [entry.pid for entry in long_runners(attributed, "B")] == [10, 11, 12, 13, 14]
+    assert len(long_runners(attributed, "B")) == K6_PROCESSES_PER_PROJECT
+    assert long_runners(attributed, "A") == []
 
 
 # ── K7: what an interrupted turn leaves open ────────────────────────────────

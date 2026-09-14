@@ -2,6 +2,32 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From Cal-4 (ecosystem, RAVIS 0.24.3, 14 Sep 2026) — an added site counts from the next step; K6 judges long-runners
+Run 6 (`cal_ed672bf12c6f`, RAVIS 0.24.2, `--only K3,K6`) failed both. (The first attempt that day was
+refused before starting: RAVIS had been restarted at 13:46 without `RAVIS_CODEX_CALIBRATION=1`.)
+- **K3:** default sites written, the add of example.com answered `ok` (not overridden), and the retry in
+  the running turn was still blocked with the fixed line: Codex 0.154.0's proxy keeps the site list a turn
+  started with. **Owner decision (14 Sep 2026): an allowed site working from the task's next step is
+  enough.** Built: `K3Commands.next_step` (`curl … https://example.com/next-step`); when the add went
+  through and `after` isn't reached, K3 starts one more turn in thread A with that one command;
+  `K3Facts.next_step`; inconclusive if that turn didn't run it, failed if it is refused too; findings add
+  `reached_in` (`same step` / `next step` / null). **For C2b and whatever resumes a task after an allow:**
+  the site only counts in a new turn of the same thread, so an allow must lead to a follow-up turn (the
+  owner's "keep progress in Codex"), never a retry inside the running one.
+- **K6:** all five of B's long-runners survived A's Stop; what was gone were three `(bash)` rows attributed
+  to B by parent, caught while B was still starting (A's `python3` already showed as `Python`, B's still
+  as `python3`). `ps` prints `(name)` for a process whose arguments it couldn't read; an exited, unreaped
+  child shows `<defunct>` instead (checked on this Mac). Built: `scenarios_turns.long_runners(attributed,
+  owner)`, the rows matching `OUR_COMMANDS`; the wait and `found_per_project` count those, and B is judged
+  on those. A's Stop still signals every A-attributed row; R4's production attribution is unchanged.
+- **Fakes:** a thread's commands see the sites as of its turn's start (`sites_at_turn_start`), so the default
+  fake behaves like 0.154.0; `site_add_reaches_running_turn` gives the old live behaviour and
+  `site_add_not_live` keeps a thread to its first turn's sites. Tests: K3 by the next step, K3 in the same
+  step (no second turn), K6's long-runner count; the fault table's `site_add_not_live` now fails "next step
+  either".
+- Run 6's transcripts are in the session scratchpad, not the repo. Unverified until the next real run: the
+  next-step turn on real Codex, and K6's long-runner count on real Codex.
+
 ## From Cal-3 (ecosystem, RAVIS 0.24.2, 13 Sep 2026) — sites written at ready, K6 one command
 Run 5 (`cal_330b7525d115`, RAVIS 0.24.1) passed every file-rule check, K7 and K13; two failed, each with a
 confirmed cause.

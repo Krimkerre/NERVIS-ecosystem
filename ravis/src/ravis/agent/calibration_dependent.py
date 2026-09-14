@@ -101,8 +101,9 @@ DEFAULT_ALLOWED_SITES: tuple[str, ...] = (
 #: `okOverridden` and the added site stayed blocked. Verified without a model on Codex 0.154.0: with
 #: no `domains` at launch the same upsert answers `ok`, the site answers at once, and a host never
 #: written stays blocked. So the launch flags carry the proxy only, and the sites are written after.
-#: **Unverified:** that a site added while Codex runs reaches a thread in the middle of a turn —
-#: verified for the next `command/exec` only; calibration's K3 checks it.
+#: **A running turn doesn't see it** (run `cal_ed672bf12c6f`): the add answers `ok`, and the turn
+#: already running stays blocked. The owner accepted a site counting from the thread's next turn
+#: (14 September 2026), and K3 checks that it does (Cal-4).
 
 #: A profile's site table inside a TOML inline table: its values are `"host"="allow"`, never braces.
 _DOMAINS = r"\bdomains\s*=\s*\{[^{}]*\}"

@@ -313,7 +313,7 @@ def _left_nothing_behind(tmp_path: Path, rig: CodexRig, a: Path, b: Path, out: P
         ("listed_site_blocked", "K3", "failed", "on the approved list"),
         ("site_block_line_changed", "K3", "failed", "fixed line"),
         ("site_left_from_an_earlier_run", "K3", "failed", "before it was added"),
-        ("site_add_not_live", "K3", "failed", "that same task"),
+        ("site_add_not_live", "K3", "failed", "next step either"),
         ("add_opens_every_site", "K3", "failed", "never added"),
         ("retry_runs_unasked", "K3", "inconclusive", "without waiting for approval"),
         ("empty_grant_grants", "K8", "failed", "empty permission grant"),

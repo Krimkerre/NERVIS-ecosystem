@@ -1557,6 +1557,17 @@ if it wasn't taken. **K6 could never see all its commands**: the sandbox forbids
 sleep 600 & python3 -c 'import time; time.sleep(600)' & wait`, and K6 waits for the five processes it
 makes: the waiting shell, `sleep`, `script` and its child, and `python3`.
 
+**Calibration fixed again in Cal-4 (0.24.3, 14 September 2026).** The sixth real run
+(`cal_ed672bf12c6f`, K3 and K6 only) failed both. **K3's add was taken** — `ok`, not overridden —
+but the turn already running stayed blocked: Codex 0.154.0's proxy keeps the site list a turn started
+with. The owner decided that a site counting from the task's next step is enough, since the thread
+and its progress carry on. So when the retry in the running turn is refused, K3 asks for the site
+once more in the thread's next turn, passes if it answers there, and records `reached_in`. Whatever
+resumes a task after the owner allows a site must therefore start a new turn in the same thread.
+**K6's failure was a miscount**: all five of B's long-runners survived A's Stop; what was gone were
+three `(bash)` helpers caught while B was still starting. K6 now waits for and judges only its
+long-runners (`OUR_COMMANDS`); A's Stop still signals every process attributed to A.
+
 **The project lock, for both engines.**
 
 | Route | Who | What |

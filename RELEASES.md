@@ -1075,7 +1075,25 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.24.2
+## RAVIS — 0.24.3
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Calibration accepts a site that works from the task's next step** (Cal-4). The sixth calibration
+  run (`cal_ed672bf12c6f`) found that Codex takes a site the owner allows (it answers "ok"), but a
+  step already running keeps the list of sites it started with, so the site works only from the next
+  step. The owner decided on 14 September 2026 that this is enough, because the task carries on in
+  the same Codex conversation and nothing is lost. The network question now tries the site again in
+  the running step and, if it's still blocked there, once more in the task's next step, and says
+  which one it worked in. Checked by `ravis/tests/test_codex_calibration_findings.py`.
+- **Calibration's stop question no longer counts helpers that end on their own.** The same run
+  failed it as "stopping project A also stopped project B's", yet all of B's long-running commands
+  were still running; what had gone were three short-lived shells caught while B was still starting.
+  The question now waits for, and judges, only the long-running commands it started. Stop itself is
+  unchanged.
+- Nothing outside calibration changed.
+
+### 0.24.2
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

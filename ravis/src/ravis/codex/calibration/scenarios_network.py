@@ -16,6 +16,14 @@ flags carry no sites, and RAVIS writes `DEFAULT_ALLOWED_SITES` through `SiteAllo
 process becomes ready (`service.py`). K3 first waits for that start-up write's answer and fails,
 naming Codex's word — `overridden` among them — if Codex didn't take it.
 
+**An added site counts from the task's next step** (Cal-4). Run `cal_ed672bf12c6f` found the add
+taken — `ok`, not overridden — and `example.com` still refused to the turn that was running: Codex
+0.154.0's proxy keeps the site list a turn started with. The owner decided (14 September 2026) that
+an allowed site working from the task's next step is enough, because the thread and its progress
+carry on. So when the retry in the running turn is still refused, K3 starts one more turn in the
+same thread with one command for the site. That turn costs a little allowance, and runs only when
+needed.
+
 **What K3 checks**, in one thread of project A and one turn of five fixed commands, each approved as
 the list says:
 - (a) `registry.npmjs.org`, one of the default sites written at the start, answers;
@@ -23,8 +31,9 @@ the list says:
   (`sites.blocked_hosts`) names that host;
 - (c) calibration then adds `example.com` exactly as the owner's "allow" does (`SiteAllowlist.add`:
   `config/batchWrite`, upsert, `reloadUserConfig`) while the turn is still running, and the **same
-  thread** asks for it again and gets through — so an added site reaches a loaded thread with no
-  restart, and no task loses its progress;
+  thread** asks for it again and gets through — in that turn, or else in the thread's next turn
+  (Cal-4); `reached_in` says which. So an added site reaches a loaded thread with no restart, and no
+  task loses its progress;
 - (d) a loopback address stays refused: RAVIS's own listener on 127.0.0.1 is never reached;
 - (e) `example.org`, never added, stays refused with the fixed line: the add was one host, no more.
 
@@ -123,6 +132,9 @@ class K3Commands:
     after: Listed
     loopback: Listed
     never_added: Listed
+    #: The added site once more, in the thread's next turn, when the running turn's retry was
+    #: refused (Cal-4). Not one of the first turn's commands.
+    next_step: Listed
 
     @property
     def in_order(self) -> list[Listed]:
@@ -137,6 +149,7 @@ def k3_commands(port: int) -> K3Commands:
         after=Listed(f"curl -sS -m 8 -o /dev/null https://{ADDED_SITE}/index.html"),
         loopback=Listed(f"curl -sS -m 5 http://127.0.0.1:{port}{LOOPBACK_PATH}"),
         never_added=Listed(f"curl -sS -m 8 -o /dev/null https://{NEVER_ADDED}/"),
+        next_step=Listed(f"curl -sS -m 8 -o /dev/null https://{ADDED_SITE}/next-step"),
     )
 
 
@@ -196,9 +209,22 @@ async def _k3_turn(ctx: ScenarioContext, session: Session, run: K3Run) -> None:
     # Only a host RAVIS's own detection found is added, as the owner's site ask would.
     if ADDED_SITE in blocked_hosts(log.commands.get(before, {}).get("output")):
         await _add(ctx, session, run)
+    if not await _turn_ended(session, run):
+        return
+    # Cal-4: Codex 0.154.0 keeps a running turn's site list, so the next turn asks once more.
+    if run.added_at is not None and outcome(log, run.commands.after, ADDED_SITE) != "reached":
+        session.expect("A", [run.commands.next_step])
+        await session.start_turn("A", command_prompt("K3", [run.commands.next_step]))
+        await _turn_ended(session, run)
+
+
+async def _turn_ended(session: Session, run: K3Run) -> bool:
+    """Drive thread A's turn to its end; False, with the reason noted, if it didn't run as asked."""
     capped = await session.run_turns(["A"])
     if capped or session.off_list:
         run.stopped = capped or f"Codex didn't keep to the list: {session.off_list[0]}"
+        return False
+    return True
 
 
 async def _add(ctx: ScenarioContext, session: Session, run: K3Run) -> None:
@@ -278,6 +304,7 @@ class K3Facts:
     listed: Outcome
     before: Outcome
     after: Outcome
+    next_step: Outcome
     loopback: Outcome
     never_added: Outcome
     default_sites: str
@@ -308,8 +335,10 @@ K3_CHECKS: tuple[tuple[Callable[[K3Facts], bool], Verdict, str], ...] = (
     (lambda f: not f.asked_again_after_adding, "inconclusive",
      f"Codex asked for {ADDED_SITE} again without waiting for approval, so calibration can't say "
      "the site was added first."),
-    (lambda f: f.after != "reached", "failed",
-     f"{ADDED_SITE}, added while the task ran, still wasn't reachable in that same task."),
+    (lambda f: f.after != "reached" and f.next_step == "not_run", "inconclusive",
+     f"Codex didn't run the command for {ADDED_SITE} in the task's next step."),
+    (lambda f: f.after != "reached" and f.next_step != "reached", "failed",
+     f"{ADDED_SITE}, added while the task ran, wasn't reachable in that task's next step either."),
     (lambda f: f.never_added != "blocked", "inconclusive",
      f"{NEVER_ADDED} failed without the proxy's fixed line."),
 )
@@ -321,6 +350,7 @@ def k3_verdict(session: Session, run: K3Run) -> ScenarioResult:
         listed=outcome(log, commands.listed, LISTED_SITE),
         before=outcome(log, commands.before, ADDED_SITE),
         after=outcome(log, commands.after, ADDED_SITE),
+        next_step=outcome(log, commands.next_step, ADDED_SITE),
         loopback=loopback_outcome(log, commands.loopback, run.loopback_paths),
         never_added=outcome(log, commands.never_added, NEVER_ADDED),
         default_sites=run.default_sites,
@@ -331,17 +361,21 @@ def k3_verdict(session: Session, run: K3Run) -> ScenarioResult:
     findings: dict[str, Any] = {
         **vars(facts), "added_live": run.add_tried and run.add_refused is None,
         "loopback_paths_reached": run.loopback_paths, "site_list_put_back": run.put_back,
+        # Where the added site first answered (Cal-4): the running step, the next one, or neither.
+        "reached_in": "same step" if facts.after == "reached"
+        else "next step" if facts.next_step == "reached" else None,
     }
     if run.put_back is False:
         findings["owner_question"] = PUT_BACK_QUESTION
     for holds, verdict, detail in K3_CHECKS:
         if holds(facts):
             return session.result(verdict, detail.format(**vars(facts)), **findings)
+    where = "that same step" if facts.after == "reached" else "the task's next step"
     return session.result(
         "passed",
         f"Codex took RAVIS's default sites at its start and {LISTED_SITE} answered; "
         f"{ADDED_SITE} was refused with the proxy's fixed line, added "
-        f"while the task ran and then reached in that same task; a local address and "
+        f"while the task ran and then reached in {where}; a local address and "
         f"{NEVER_ADDED} stayed refused.",
         **findings,
     )

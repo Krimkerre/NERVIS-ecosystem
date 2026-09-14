@@ -20,8 +20,10 @@ module. It acts out what calibration asks of a real Codex, closely enough that e
   `*.` wildcards included) or one written into the user configuration since — never contacting it —
   while any other host gets Codex's fixed "not on the allowlist" line, and a local address its
   "local/private network addresses" line. `config/batchWrite` is answered by the relay half; each
-  write it logs (`config_written`) is applied here when its status is `ok`, reaching threads already
-  running, and `config/read` with `includeLayers` shows the written sites in a user layer.
+  write it logs (`config_written`) is applied here when its status is `ok`, and reaches a thread's
+  **next** turn: a running turn keeps the sites it started with, as Codex 0.154.0's did in run
+  `cal_ed672bf12c6f` (Cal-4). `config/read` with `includeLayers` shows the written sites in a user
+  layer.
 - **Real long-running processes for K6**, shaped like Codex 0.154.0's (K6's transcripts,
   `cal_d2185ed08f50` and `cal_330b7525d115`): K6's one command per project (Cal-3) is one command
   root — a `/bin/sh` that waits — started in the thread's folder, in a session of its own, with no
@@ -34,7 +36,8 @@ module. It acts out what calibration asks of a real Codex, closely enough that e
 `plugins_on`, `exec_leaks`, `decoy_readable_escalated`, `roots_from_cwd`, `deny_loses_to_write`,
 `untrusted_skips_file_approval`, `never_asks_file_approval`, `approved_escapes_box`,
 `thread_tmpdir_ignored`, `network_open`, `loopback_open`, `listed_site_blocked`,
-`site_block_line_changed`, `site_add_not_live`, `add_opens_every_site`, `retry_runs_unasked`,
+`site_block_line_changed`, `site_add_not_live` (a thread keeps its first turn's sites for good),
+`site_add_reaches_running_turn`, `add_opens_every_site`, `retry_runs_unasked`,
 `site_left_from_an_earlier_run`, `empty_grant_grants`, `never_asks_permissions`, `git_blocked`,
 `interrupt_ignored`, `stop_kills_other_project`, `resume_forgets`, `profile_rejected`. The relay
 half's `site_add_status` makes Codex report adding one site overridden, and it reports every site
@@ -239,14 +242,28 @@ def _site_allowed(api: Any, thread: dict[str, Any], host: str) -> bool:
     if "add_opens_every_site" in found and api.state.get("sites_written"):
         return True
     listed = set() if "listed_site_blocked" in found else profile_sites()
-    # A thread sees sites written while it runs, unless the fault keeps it to those it started with.
-    added = thread.get("sites_at_start", {}) if "site_add_not_live" in found else user_sites(api)
+    added = _sites_seen(api, thread, found)
     sites = listed | {site for site, word in added.items() if word == "allow"}
     if "listed_site_blocked" in found:
         # The default sites RAVIS wrote at the start (Cal-3) are refused too; a one-site add isn't.
         sites -= api.state.get("default_sites", set())
     return any(host == site or (site.startswith("*.") and host.endswith(site[1:]))
                for site in sites)
+
+
+def _sites_seen(api: Any, thread: dict[str, Any], found: set[str]) -> dict[str, str]:
+    """The written sites a command in this thread sees.
+
+    As Codex 0.154.0 (run `cal_ed672bf12c6f`): the sites as they were when the thread's turn began,
+    so a site written meanwhile reaches the next turn. `site_add_not_live` keeps the thread to its
+    first turn's sites for good; `site_add_reaches_running_turn` lets a write reach the running
+    turn. A command outside any turn (`command/exec`) sees every site written so far.
+    """
+    if "site_add_not_live" in found:
+        return dict(thread.get("sites_at_start", {}))
+    if "site_add_reaches_running_turn" in found:
+        return user_sites(api)
+    return dict(thread.get("sites_at_turn_start", user_sites(api)))
 
 
 def _apply_config_writes(api: Any) -> None:
@@ -324,6 +341,7 @@ def turn(api: Any, thread_id: str, turn_id: str, prompt: str, params: dict[str, 
          stop: threading.Event) -> None:
     thread = api.state["threads"][thread_id]
     thread.setdefault("sites_at_start", dict(user_sites(api)))
+    thread["sites_at_turn_start"] = dict(user_sites(api))
     lines = prompt.splitlines()
     escalated = {int(n) for line in lines if (m := ESCALATE.match(line))
                  for n in re.findall(r"\d+", m.group(1))}
