@@ -67,8 +67,8 @@ Clarvis.
 
 **13 September 2026 — Codex tasks.** Clarvis recognises `ravis/clarvis-codex` (confirmed by RAVIS's
 `/api/v1/codex`) and runs it through RAVIS's agent-session relay, not through chat completions. No
-`ProviderId` is added. Runbook §2.2 records the decision. **Decided, not built:** it lands as E-C9
-(§5.5, §8), and until then Clarvis contains no Codex code.
+`ProviderId` is added. Runbook §2.2 records the decision. **Built in Clarvis 0.17.0:** it landed as E-C9
+(§5.5, §8).
 
 ---
 
@@ -79,11 +79,11 @@ regression requirement, not an ecosystem proposal.
 
 | Invariant | Evidence |
 |---|---|
-| One VS Code-family extension, bound to one editor window and workspace. Activates with its extension host and dies with it. **Not a system-wide daemon.** **Exception, decided 13 September 2026 and not built (E-C9; runbook §2.2):** a Codex task runs in RAVIS and can outlive the window; Clarvis's own engine still lives and dies with its extension host. | `plan.md` §7; `docs/CURRENT_STATE.md` |
+| One VS Code-family extension, bound to one editor window and workspace. Activates with its extension host and dies with it. **Not a system-wide daemon.** **Exception, decided 13 September 2026 and built in 0.17.0 (E-C9; runbook §2.2):** a Codex task runs in RAVIS and can outlive the window; Clarvis's own engine still lives and dies with its extension host. | `plan.md` §7; `docs/CURRENT_STATE.md` |
 | Privileged behaviour lives in the extension host. The webview is presentation and message input — **not an authority boundary** — talking to the host over a narrow `postMessage` bridge. | `src/panels/`, `src/extension.ts` |
 | Clarvis's own file, read, search and edit tools stay inside the opened workspace, resolving and checking paths including escape and symlink cases. `isInside()` probes the real filesystem for case sensitivity rather than inferring it from `process.platform` — a fix for a real macOS containment escape on case-sensitive APFS. | `src/agent/`, `docs/build-log.md` |
-| Commands are separately approval-gated and OS-sandboxed. Network is denied by default and opened only for gate categories that cannot work without it. **The command boundary is more nuanced than tool containment and must keep being stated honestly.** **Planned with E-C9, not built:** these are the boundaries of Clarvis's own agent loop. A Codex task's commands and edits are Codex's own. They run inside Codex's safety box: writes only in the project and its task temp folder, internet only for a command the owner approves, and reads refused for the named key and password files by a permission profile — **not yet proven: calibration K5 must prove it before any Codex task may start.** Clarvis sees what Codex asks, not what it runs without asking. | `src/agent/tools/sandbox*.ts`, `src/agent/Gate.ts` |
-| Risky, destructive and outward-facing operations stop at approval gates, and so does changing this computer's languages and tools. Anything outside the workspace is **refused**, not made approvable. A sensitive-file read gate (`.env`, credentials, private keys) fires in every mode, and so does the question a command's missing dependency raises. **Planned with E-C9, not built:** for Codex tasks the deny-list adds warnings to relayed command approvals. Writes outside the workspace can only be declined (RAVIS enforces it). The sensitive-file gate's equivalent is the permission profile. | `src/agent/Gate.ts`, `src/agent/sensitivePath.ts`, `src/agent/missingDependency.ts` |
+| Commands are separately approval-gated and OS-sandboxed. Network is denied by default and opened only for gate categories that cannot work without it. **The command boundary is more nuanced than tool containment and must keep being stated honestly.** **Since 0.17.0 (E-C9):** these are the boundaries of Clarvis's own agent loop. A Codex task's commands and edits are Codex's own. They run inside Codex's safety box: writes only in the project and its task temp folder, internet only for the sites the owner allowed, and reads refused for the named key and password files by a permission profile — **proven for Codex 0.154.0 by calibration (K5), and re-tested after every Codex update before a task may start.** Clarvis sees what Codex asks, not what it runs without asking. | `src/agent/tools/sandbox*.ts`, `src/agent/Gate.ts` |
+| Risky, destructive and outward-facing operations stop at approval gates, and so does changing this computer's languages and tools. Anything outside the workspace is **refused**, not made approvable. A sensitive-file read gate (`.env`, credentials, private keys) fires in every mode, and so does the question a command's missing dependency raises. **Since 0.17.0 (E-C9):** for Codex tasks the deny-list adds warnings to relayed command approvals. Writes outside the workspace can only be declined (RAVIS enforces it). The sensitive-file gate's equivalent is the permission profile. | `src/agent/Gate.ts`, `src/agent/sensitivePath.ts`, `src/agent/missingDependency.ts` |
 | Clarvis acts only when asked. Unsolicited observation never becomes a code change. | `plan.md` §4 |
 | `ModelProvider` abstracts completion, streaming, tool support and model listing. Providers include direct cloud, local hosts, and arbitrary OpenAI-compatible endpoints. | `src/model/ModelProvider.ts`, `src/model/OpenAiCompatibleProvider.ts` |
 | **Chat and coding/agent roles use independently configured providers and models.** | settings `clarvis.chat.provider` / `clarvis.chat.model` and `clarvis.agent.provider` / `clarvis.agent.model` |
@@ -93,13 +93,13 @@ regression requirement, not an ecosystem proposal.
 | Clarvis builds the API path itself: `${baseUrl}/v1/models`, `${baseUrl}/v1/chat/completions`. A configured base URL must **not** end in `/v1`. | `src/model/OpenAiCompatibleProvider.ts:117`, `:164` |
 | The `custom` provider declares `needsKey: false` and `needsUrl: true`, and its default model is the placeholder `local-model` — which it will send before a model is chosen. | `src/model/providers.ts:102-110` |
 | A custom OpenAI-compatible base URL is a first-class configuration, asked for rather than guessed. | setting `clarvis.chat.baseUrl.custom`; `needsUrl` in `src/model/providers.ts` |
-| **Tool support is probed, not asserted from model-family heuristics.** `supportsTools()` sends a real one-tool, one-token request — "the only honest test". Model-family recognition exists for *defaults only* (`plan.md` M8j). **Planned with E-C9, not built:** `ravis/clarvis-codex` is not probed; RAVIS's `/api/v1/codex` is its probe. | `src/model/OpenAiCompatibleProvider.ts:162` |
+| **Tool support is probed, not asserted from model-family heuristics.** `supportsTools()` sends a real one-tool, one-token request — "the only honest test". Model-family recognition exists for *defaults only* (`plan.md` M8j). **Since 0.17.0 (E-C9):** `ravis/clarvis-codex` is not probed; RAVIS's `/api/v1/codex` is its probe. | `src/model/OpenAiCompatibleProvider.ts:162` |
 | `[DONE]` and `reasoning_content` are already handled at the provider layer. Reasoning leaking into visible or spoken output is treated as a **defect**. | `src/model/OpenAiCompatibleProvider.ts`, `src/model/reasoning.ts` |
 | Provider credentials use VS Code `SecretStorage` / `context.secrets` — never settings, workspace state, logs, NERVIS or telemetry. BYO-key; no Clarvis account. | `src/extension.ts`, `src/model/ModelService.ts` |
 | Capabilities are probed and features degrade when unavailable. | `src/model/` |
 | Multiple VS Code windows are separate Clarvis lifetimes and workspace states. | `plan.md` §7 |
 | A durable run ledger records what the agent did, and "why did you do that" is answered from it. | `src/agent/runLedger.ts` |
-| **Planned with E-C9, not built: writing runs in one checkout become exclusive across windows and hosts**, whichever engine, through RAVIS's project lock with a lock file in the checkout as the floor. Read-only answers are not locked. Nothing in the source takes such a lock today. | §5.5; planned for `src/engine/lock/`, which does not exist yet |
+| **Since 0.17.0 (E-C9): writing runs in one checkout are exclusive across windows and hosts**, whichever engine, through RAVIS's project lock with a lock file in the checkout as the floor. Read-only answers are not locked. | §5.5; planned for `src/engine/lock/`, which does not exist yet |
 
 ## 3.1 What the first live integration established
 
@@ -309,7 +309,7 @@ observation, workspace memory, direct-provider settings or safe teardown.
 ## 5.5 Codex tasks
 
 **Decided by the owner on 13 September 2026 (runbook §2.2); specified here, in `clarvis/plan.md`
-M15 and in RAVIS's contract fixtures; not built (E-C9).** Clarvis gains a second coding engine,
+M15 and in RAVIS's contract fixtures; built in Clarvis 0.17.0 (E-C9), not yet walked live.** Clarvis gains a second coding engine,
 OpenAI's Codex, which RAVIS runs. This is what Clarvis owes that arrangement. RAVIS's side is
 `RAVIS.md` §15.1.2, and the shapes are the fixtures in `ravis/tests/fixtures/relay-contract/`, of
 which Clarvis keeps a hash-checked copy in `src/test/fixtures/`. The engine's id is `ravis/clarvis-codex`,
@@ -350,7 +350,11 @@ named like the Clarvis pools; it was `ravis/codex` until the owner renamed it on
   only while a window is attached; RAVIS approves nothing while none is. An unanswered question waits
   2 hours with a window attached or 30 minutes without one; then RAVIS answers it with its stop
   response, pauses the task and keeps the thread. The mapping from Clarvis's modes to Codex's
-  approval settings lives in RAVIS and is provisional until calibration.
+  approval settings lives in RAVIS, measured by calibration. **As built in 0.17.0:** a site ask waits
+  behind Codex's own requests, since only those hold Codex up; typed words that aren't an answer are
+  steered to Codex and the question stays on screen; "Stop the run" does the Stop button's stop (an
+  interrupt) rather than posting a `stop` decision; and files are copied for undo before an approved
+  change, added files and rename targets included.
 - **Stop.** Stop clears the showing question and the queue locally at once, before any network
   call, then posts `interrupt`, retrying while RAVIS is unreachable and saying so. RAVIS answers every
   open request with its stop response before interrupting, refuses later answers with `409
@@ -389,15 +393,31 @@ named like the Clarvis pools; it was `ravis/codex` until the owner renamed it on
   lost the lock — `409 LEASE_REVOKED`, or a lock file no longer naming its window, never RAVIS merely
   being unreachable — never commits, writes the checkpoint or releases.
 - **The safety box.** Codex's commands run in Codex's sandbox, not Clarvis's: writes only in the
-  project and the task's temp folder, internet only for a command the owner approves, and the key and
+  project and the task's temp folder, internet only for the sites the owner allowed, and the key and
   password files — RAVIS's credentials, the launcher's `.run` folder, Clarvis's session tokens,
-  Codex's own sign-in, `~/.ssh`, `~/.aws`, `~/.config/gh` — denied by a permission profile. **That
-  profile is not proven:** until calibration proves it, and again after every Codex update, RAVIS
-  refuses to start a Codex task. Clarvis sees what Codex asks, not what it runs without asking; the
+  Codex's own sign-in, `~/.ssh`, `~/.aws`, `~/.config/gh` — denied by a permission profile. **The
+  profile is proven for Codex 0.154.0** (calibration, 14 September 2026); after every Codex update
+  RAVIS refuses to start a Codex task until the new version is accepted and re-tested. Clarvis sees what Codex asks, not what it runs without asking; the
   deny-list only adds warnings to relayed approvals, and writes outside the workspace can only be
   declined. Workspace Trust still refuses untrusted folders, and RAVIS refuses folders outside its
   allowed roots — including, by the owner's decision, NERVIS-ecosystem, Clarvis's own repository and
   the coding folder itself.
+- **Websites** (the owner's decisions, 14 September 2026). Before a task starts, Clarvis scans the
+  project — registry settings in `.npmrc`, `pip.conf`, `pyproject.toml` and `requirements*.txt`, Cargo's
+  registries, `Gemfile` sources, `.gitmodules` and URLs in the brief — for hosts Codex doesn't allow yet,
+  and asks once, at most 20, with **Allow and start**, **Start without them** and **Cancel**, through
+  `POST /api/v1/codex/sites`. Mid-task, the sites one turn was blocked from come as one card
+  (`group_id`): **Allow** or **Keep blocked** per host, plus **Allow all**. RAVIS reopens the task's
+  thread so a newly allowed site works; meanwhile a status line above the prompt says "Reconnecting
+  Codex…", cleared on `site.reopened`, and `site.reopen_incomplete` says an allowed site may still be
+  blocked. Once every host is decided, only the window that decided the last one sends `carry_on`,
+  after the work is saved.
+- **Model, effort and allowance.** The bowtie beside the chat box opens a menu: **API config** (the
+  models menu it used to open) and a Codex section with Codex's model, its effort and one allowance
+  line (the tightest window; the rest in a tooltip). The pick is kept in `clarvis.codex.model` and
+  `clarvis.codex.effort` (application scope, read from user settings only), checked against what Codex
+  lists, and applies to the next task. The chat says which model and effort a task runs with, and
+  falls back to the default when a pick is no longer listed.
 - **Out of scope.** Switching engines automatically when the allowance runs out; Codex for chat,
   planning or the interview; remote hosts; any NERVIS control of a task other than Stop; Codex on the
   ecosystem's own repositories.
@@ -1165,11 +1185,15 @@ project lock. (The id was `ravis/codex` until Clarvis 0.16.1; renamed by the own
 - **Refusals:** an untested version, unproven file rules, a changed account or an exhausted
   allowance refuses to start, with the reason, and never moves to a paid engine.
 
-**Where it stands, 13 September 2026 — not started, so it carries no §14.8 state.** Decided by the
-owner and signed off as `plan.md` M15 that day, with §5.5 as its contract. The only part in Clarvis's
-repository is the copy of RAVIS's contract fixtures in `src/test/fixtures/`, held to their manifest by
-`src/test/codexContractFixtures.test.ts`. The build steps — C1, C2a, C2b after calibration, C3, and
-packaging as 0.17.0 — are in `plan.md` M15, and their place in the whole build is in `STATUS.md`.
+**Where it stands, 14 September 2026 — AUTOMATED VERIFIED, not LIVE VERIFIED.** Decided by the owner
+and signed off as `plan.md` M15 on 13 September, with §5.5 as its contract. C1, C2a, C3 and C2b+ —
+approvals, sites asked before and during a task, and the bowtie menu's Codex model, effort and
+allowance — ship in Clarvis 0.17.0, installed in desktop VS Code and code-server. Every exit item
+above is exercised by Clarvis's own suite against `FakeRavisRelay`, built from the shared fixtures
+whose copy `src/test/codexContractFixtures.test.ts` holds to their manifest (1,917 tests and 24 host
+specs pass, run locally; the clean-clone gate has not been run for it). RAVIS 0.25 serves the
+contract and calibration proved Codex 0.154.0's file rules, but no real task has run yet: the live
+walk with the owner is next. The steps are in `plan.md` M15, and their place in the build in `STATUS.md`.
 
 ---
 
@@ -1190,7 +1214,7 @@ order.
 | Stage 9 — code-server compatibility and the Code tab | E-C6 |
 | Stage 10 — whole-ecosystem hardening | E-C7 |
 | **Unscheduled — after NERVIS Stage 11** | E-C8, paired with NERVIS M27. Blocked on nothing technical; it is deliberately after the milestones that decide how NERVIS proposes anything at all, because a handoff is a proposal and should inherit whatever those settle |
-| **Unscheduled — Codex tasks through RAVIS (runbook §2.2)** | E-C9, paired with RAVIS M29 and NERVIS M28. Depended on by nothing. It was to land once `plan.md` was signed off and the §2.2 amendments were in, and both happened on 13 September 2026; its approvals now wait for RAVIS's calibration step, and its end-to-end runs for RAVIS's relay and lock. The order is in `STATUS.md` |
+| **Unscheduled — Codex tasks through RAVIS (runbook §2.2)** | E-C9, paired with RAVIS M29 and NERVIS M28. Depended on by nothing. It was to land once `plan.md` was signed off and the §2.2 amendments were in, and both happened on 13 September 2026. Shipped in Clarvis 0.17.0 on 14 September 2026, after calibration proved Codex 0.154.0's file rules: **AUTOMATED VERIFIED** against `FakeRavisRelay` in Clarvis's own suite, run locally (the clean-clone gate not yet run for it); **not LIVE VERIFIED** until the live walk with the owner. The order is in `STATUS.md` |
 
 E-C2 is deliberately split: its fixtures are a Stage 2 dependency of another product, while its
 role-profile and fallback behaviour is Stage 3.

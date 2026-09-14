@@ -66,7 +66,7 @@ SUPPORTED_PEERS: dict[str, Window] = {
         note="read for evidence and benchmark jobs; its absence degrades rather than stops",
     ),
     "clarvis": Window(
-        minimum="0.15.0", maximum="0.16.999",
+        minimum="0.16.0", maximum="0.17.999",
         note="the Bridge NERVIS reads status and configuration summaries from; it claims "
              "its version at registration rather than serving an identity surface",
     ),

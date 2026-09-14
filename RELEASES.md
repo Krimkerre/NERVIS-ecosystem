@@ -25,7 +25,33 @@ every entry.
 
 ---
 
-## Clarvis — 0.16.2
+## Clarvis — 0.17.0
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Codex, OpenAI's coding agent, can build your projects** (E-C9, `plan.md` M15). Choose
+  `ravis/clarvis-codex` as the coding model and a build runs as a Codex task in RAVIS, on your
+  ChatGPT plan rather than an API key. The task keeps going if the window closes, and code-server or
+  desktop VS Code picks it up again. Progress, Codex's questions, steering and Stop all happen in the
+  chat, as with Clarvis's own engine, and **Clarvis: Switch coding engine** moves a task between
+  Codex and Clarvis's own engine on the same branch. It needs RAVIS 0.25 and NERVIS 0.29; desktop VS
+  Code also needs `clarvis.ravis.credentialFile` set once.
+- **Codex's questions come one at a time**, with only the answers RAVIS allows, and never a "don't
+  ask again". Unattended mode answers on its own only a harmless command or a change inside the
+  project, and only while the Clarvis panel is open.
+- **Websites:** before a Codex task starts, Clarvis looks for the sites the project will need and asks
+  once to allow them. Sites Codex is blocked from mid-task come as one card with **Allow**, **Keep
+  blocked** and **Allow all**. While RAVIS reopens the task so a newly allowed site works, the chat
+  shows "Reconnecting Codex…".
+- **The bowtie beside the chat box is now a menu.** **API config** does what the bowtie did. Below
+  it, a Codex section picks Codex's model and effort, and shows how much of the plan's allowance is
+  left. A pick applies to the next task.
+- **After a run on a temp branch, Clarvis asks once where the work goes:** the "N files changed, on a
+  temp branch — Keep it" toast no longer follows the merge / show / leave question, so answering
+  "Leave it there" is no longer followed by an offer to merge the same work, including after a run
+  that stopped at its step limit.
+
+### 0.16.2
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -416,7 +442,14 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.29.1
+## NERVIS — 0.29.2
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **NERVIS accepts Clarvis 0.17.** Its supported Clarvis window now runs from 0.16.0 to 0.17.999, so
+  the Clarvis that brings Codex tasks isn't shown as an incompatible peer. Nothing else changed.
+
+### 0.29.1
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
