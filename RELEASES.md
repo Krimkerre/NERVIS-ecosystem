@@ -1082,7 +1082,18 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.25.0
+## RAVIS — 0.25.1
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **The Codex task list says which model and effort each task runs with, and whether it is
+  reconnecting.** `GET /api/v1/codex` → `runs` now carries each task's `model`, `effort` and
+  `reopening` (the sites it is reconnecting for, and since when), so NERVIS's Codex card can show
+  them without reading the task itself, which NERVIS may not do. Clarvis's own runs show none of the
+  three. Only model names and website names are added: still no folder path, request text or command.
+- Nothing else changed.
+
+### 0.25.0
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

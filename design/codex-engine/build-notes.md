@@ -2,6 +2,26 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From R5b (ecosystem, RAVIS 0.25.1, 14 September 2026) — a task's model, effort and reconnecting in `runs`
+NERVIS's task card couldn't show a Codex task's model, effort or reconnecting state: every
+agent-session read refuses NERVIS, and `nervis_control_routes.never` rules out new routes for it.
+- **Built:** each `GET /api/v1/codex` → `runs[]` entry gains `model`, `effort` and `reopening` — the
+  same values as `SessionView` → `codex.model`, `codex.effort` and `codex.reopening`
+  (`{group_id, hosts, since}` or null) — in `AgentSession.run_entry`; a Clarvis-engine entry carries
+  three nulls (`AgentSessions.runs`). `codex-state.json` → `runs_rules` and both `runs` examples
+  (named and anonymous) say so; `codex-contract.sha256` regenerated. RAVIS 0.25.1.
+- **Decided:** every caller gets the three fields, anonymous readers included, like `project` and
+  `state` (the coordinator asked for them on each entry): model ids and site names, never a path,
+  request text or command. `revision` moves when a reopen starts or ends, since the body changes.
+- **Tests:** a Codex run shows its model and effort and a null `reopening`, and a Clarvis-engine run
+  three nulls, for NERVIS's credential and an anonymous reader (`test_agent_sessions_create.py`);
+  `reopening` equals the task's own view while its thread reopens and is null once the reopen ended
+  (`test_agent_sessions_reopen.py`). Guard proof: each field broken on its own in a snapshot, and its
+  test failed.
+- **For Clarvis:** sync `codex-state.json` and the manifest; Clarvis reads nothing new from `runs`.
+- **For N2b:** show `runs[].model`, `runs[].effort` (null: the model's default) and, while
+  `runs[].reopening` isn't null, that the task is reconnecting for `reopening.hosts`.
+
 ## Owner decisions 14 Sep 2026 (during C2b+) — the bowtie fold-out, and Clarvis's differences from CLARVIS.md §5.5
 - **The bowtie becomes a fold-out menu** (the `#clarvis-models` button left of Clarvis's chat box). First item
   **API config** (the owner renamed it from "Change API"): exactly what the bowtie did, the models menu through

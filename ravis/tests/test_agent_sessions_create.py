@@ -310,3 +310,27 @@ def test_the_list_and_runs_show_each_caller_what_it_may_see(tmp_path: Path) -> N
         anonymous = relay.call("GET", "/api/v1/codex", caller="anonymous").json()["runs"]
         assert keys(anonymous[0]) == keys(
             states["the same moment, read anonymously: no run ids or turn ids"])
+
+
+def test_runs_show_each_codex_tasks_model_effort_and_reopening_and_nulls_for_clarvis_own_runs(
+    tmp_path: Path,
+) -> None:
+    """R5b: NERVIS's task card reads these from `GET /api/v1/codex`, never from a task."""
+    rig = ready_rig(tmp_path)
+    root, git_dir = project(rig)
+    engine_root, _ = project(rig, "notes-app")
+    with serving(rig) as relay:
+        relay.ready()
+        task = relay.started(root, git_dir, text="RELAY\nwait", model="gpt-6-astra",
+                             effort="medium")
+        task.reaches("running")
+        clarvis_lock(rig, engine_root)
+        for caller in ("client.nervis", "anonymous"):
+            runs = relay.call("GET", "/api/v1/codex", caller=caller).json()["runs"]
+            codex = next(run for run in runs if run["state"] == "running")
+            engine = next(run for run in runs if run["state"] == "clarvis_engine")
+            assert (codex["model"], codex["effort"], codex["reopening"]) == (
+                "gpt-6-astra", "medium", None), caller
+            assert (engine["model"], engine["effort"], engine["reopening"]) == (
+                None, None, None), caller
+            assert codex["project"] == "add-utc-demo" and str(root) not in str(runs)

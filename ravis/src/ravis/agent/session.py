@@ -358,7 +358,7 @@ class AgentSession:
                 "model": self.model, "effort": self.effort,
                 "runtime_sha256": self.runtime_sha256,
                 "account_fingerprint": self.account_fingerprint,
-                "reopening": self._reopening.view() if self._reopening is not None else None,
+                "reopening": self._reopening_view(),
             },
             "branch": {"name": self.branch_name, "head_commit_at_start": self.head_commit},
             "pending_requests": [request.view for request in self._open.values()],
@@ -387,7 +387,11 @@ class AgentSession:
         }
 
     def run_entry(self, *, named: bool, now: datetime) -> dict[str, Any] | None:
-        """This task in `GET /api/v1/codex` → `runs`: ids and the turn only for named callers."""
+        """This task in `GET /api/v1/codex` → `runs`: ids and the turn only for named callers.
+
+        Its model, effort and reopening go to every caller (R5b), as `view` shows them, so NERVIS's
+        task card needs no agent-session read, which NERVIS may never make.
+        """
         if self.state not in RUN_STATES:
             return None
         created = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
@@ -406,8 +410,15 @@ class AgentSession:
             attached_windows=len(self.attached_windows()),
             paused_reason=self.state if self.state in SETTLE_STATES or self.state == "leftover"
             else None,
+            model=self.model,
+            effort=self.effort,
+            reopening=self._reopening_view(),
         )
         return entry
+
+    def _reopening_view(self) -> dict[str, Any] | None:
+        """`codex.reopening` in `view`, and `reopening` in `run_entry`: model ids and site names."""
+        return self._reopening.view() if self._reopening is not None else None
 
     # ── Presence (not serialised: design §3.5.3) ─────────────────────────────
 

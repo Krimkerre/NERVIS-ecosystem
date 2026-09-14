@@ -453,9 +453,11 @@ class AgentSessions:
         runs = [entry for entry in entries if entry is not None]
         for row in self.locks.clarvis_runs():
             entry: dict[str, Any] = {"id": None, "turn_id": None} if named else {}
+            # Clarvis's own engine runs no Codex thread: no model, effort or reopen (R5b).
             entry.update(project=Path(row["workspace_root"]).name, state="clarvis_engine",
                          since=row["acquired_at"], age_minutes=None, waiting_minutes=None,
-                         attached_windows=1, paused_reason=None)
+                         attached_windows=1, paused_reason=None, model=None, effort=None,
+                         reopening=None)
             runs.append(entry)
         return runs
 

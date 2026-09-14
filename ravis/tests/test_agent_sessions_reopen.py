@@ -360,3 +360,24 @@ def test_every_site_one_command_was_blocked_from_is_asked_in_the_same_group(
             "download.pytorch.org", "huggingface.co"]
         assert named(frames, "site.reopening")[0]["hosts"] == [
             "download.pytorch.org", "huggingface.co"]
+
+
+def test_runs_say_a_task_is_reconnecting_while_its_thread_reopens(tmp_path: Path) -> None:
+    """R5b: `GET /api/v1/codex` → `runs` carries the same `reopening` a window's view shows."""
+    rig = ready_rig(tmp_path, scenario={"unload_after_seconds": 2.0})
+    root, git_dir = project(rig)
+    with serving(rig) as relay:
+        relay.ready()
+
+        def run() -> dict[str, Any]:
+            [only] = relay.call("GET", "/api/v1/codex", caller="client.nervis").json()["runs"]
+            return only  # type: ignore[no-any-return]
+
+        task = relay.started(root, git_dir, text=ONE_SITE)
+        task.frames(after=0, until=has("site.reopening"))
+        reopening = run()["reopening"]
+        assert reopening == task.view()["codex"]["reopening"]
+        assert reopening["hosts"] == ["download.pytorch.org"]
+        assert reopening["group_id"].startswith("sg_") and reopening["since"]
+        task.frames(after=0, until=has("site.reopened"), seconds=15)
+        eventually(lambda: run()["reopening"] is None, what="the run no longer reconnecting")

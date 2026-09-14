@@ -21,7 +21,9 @@ well under the 1.5 s the launcher and NERVIS allow it, and never waits for the C
 **`runs`** lists live agent sessions and Clarvis-engine project locks (design §3.3), from
 `agent/sessions.py`: each task's folder name, state and times for everyone, and its `id` and
 current or last `turn_id` only for a named caller — the pair the owner Stop's confirmation sends
-back. Clarvis-engine locks arrive with M29's fourth increment's routes.
+back. Clarvis-engine locks arrive with M29's fourth increment's routes. Since R5b (0.25.1)
+every entry also carries the task's `model`, `effort` and `reopening`, as its `SessionView` →
+`codex` shows them (nulls for Clarvis's own engine), so NERVIS's task card can show them.
 """
 
 from __future__ import annotations

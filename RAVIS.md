@@ -1475,7 +1475,7 @@ commands, file contents or diffs, except the relay stream and snapshot a session
 
 | Route | Who | What |
 |---|---|---|
-| `GET /api/v1/codex` | any caller | Always 200, from an in-memory snapshot: one state (`checking`, `not_installed`, `not_available`, `untested_version`, `runtime_down`, `signed_out`, `sign_in_expired`, `account_changed`, `quota_exhausted`, `signed_in`), the runtime pin, the account, the plan's allowance per window (never money; unknown is never zero), models, and running tasks by folder name — each task's id and turn only for named callers |
+| `GET /api/v1/codex` | any caller | Always 200, from an in-memory snapshot: one state (`checking`, `not_installed`, `not_available`, `untested_version`, `runtime_down`, `signed_out`, `sign_in_expired`, `account_changed`, `quota_exhausted`, `signed_in`), the runtime pin, the account, the plan's allowance per window (never money; unknown is never zero), models, and running tasks by folder name, each with its model, effort and whether its thread is being reopened (since 0.25.1) — each task's id and turn only for named callers |
 | `POST`, `GET` and `DELETE /api/v1/codex/sign-in`; `POST /api/v1/codex/sign-out`; `POST /api/v1/codex/account/confirm` | admin | A browser sign-in inside RAVIS's one Codex process, its cancellation, sign-out, and confirming the account after its fingerprint changed |
 | `GET /api/v1/codex/version-check`; `POST /api/v1/codex/accept-version`; `DELETE /api/v1/codex/accept-version/{sha256}` | admin | The report on an untested binary, and accepting or revoking it; an accepted version stays paused until the file-rules re-test proves it |
 | `POST` and `GET /api/v1/codex/reprove` | `admin.owner_cli` to start; any named caller to read | The file-rules re-test, started from the menu bar; 403 `REPROOF_NOT_ALLOWED` for every other credential, NERVIS's included |
@@ -1621,7 +1621,10 @@ before the task's last allowed site. `CreateSession.effort`, and a named model, 
 there, as calibration's transcripts show). Codex's developer instructions tell it to end the turn at a
 blocked site, saying which site it needs. All of it runs against the fake app-server, whose threads now
 read the site list when they load and unload when unsubscribed; no real Codex ran for R5, so the
-reopen's timing through the relay and the effort's effect on Codex are unverified live.
+reopen's timing through the relay and the effort's effect on Codex are unverified live. **R5b
+(0.25.1)** adds each task's `model`, `effort` and `reopening` to `GET /api/v1/codex` → `runs`, for
+every caller, so NERVIS's task card can show them without an agent-session read; Clarvis's own runs
+carry nulls.
 
 **The project lock, for both engines.**
 

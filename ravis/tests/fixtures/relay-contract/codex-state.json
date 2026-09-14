@@ -76,7 +76,8 @@
     "every caller gets since, the start time",
     "only named callers — any client or admin credential, including NERVIS's relay and the launcher — also get each Codex run's id and current or last turn_id; the owner Stop confirmation sends back id, project and turn_id",
     "project is the basename of the workspace root: no path, request text or command",
-    "a Clarvis-engine lock has no Codex session, so its id and turn_id are null for named callers (derived)"
+    "a Clarvis-engine lock has no Codex session, so its id and turn_id are null for named callers (derived), and its model, effort and reopening are null for every caller",
+    "since RAVIS 0.25.1 every caller also gets each run's model and effort, as SessionView → codex.model and codex.effort show them (effort null for the model's own default), and reopening, as SessionView → codex.reopening: {group_id, hosts, since} while RAVIS reopens the task's thread after blocked sites (agent-sessions.json → reopening), else null; model ids and site names only, for NERVIS's task card"
   ],
   "usage_rules": [
     "while any turn is active, account/rateLimits/updated notifications are merged sparsely (source: notification) and polling pauses",
@@ -194,7 +195,10 @@
               "age_minutes": 42,
               "waiting_minutes": 12,
               "attached_windows": 0,
-              "paused_reason": null
+              "paused_reason": null,
+              "model": "gpt-6-astra",
+              "effort": "medium",
+              "reopening": null
             },
             {
               "id": "as_01J9ZK7W1X2Y3Z4A5B6C7D8E",
@@ -205,7 +209,14 @@
               "age_minutes": 14,
               "waiting_minutes": null,
               "attached_windows": 1,
-              "paused_reason": null
+              "paused_reason": null,
+              "model": "gpt-6-astra",
+              "effort": null,
+              "reopening": {
+                "group_id": "sg_01J9ZKE8F9G0H1J2K3L4M5N6P7",
+                "hosts": ["download.pytorch.org"],
+                "since": "2026-09-13T01:52:00Z"
+              }
             },
             {
               "id": null,
@@ -216,7 +227,10 @@
               "age_minutes": 4,
               "waiting_minutes": null,
               "attached_windows": 1,
-              "paused_reason": null
+              "paused_reason": null,
+              "model": null,
+              "effort": null,
+              "reopening": null
             }
           ],
           "models": [
@@ -312,7 +326,10 @@
               "age_minutes": 42,
               "waiting_minutes": 12,
               "attached_windows": 0,
-              "paused_reason": null
+              "paused_reason": null,
+              "model": "gpt-6-astra",
+              "effort": "medium",
+              "reopening": null
             },
             {
               "project": "weather-cli",
@@ -321,7 +338,14 @@
               "age_minutes": 14,
               "waiting_minutes": null,
               "attached_windows": 1,
-              "paused_reason": null
+              "paused_reason": null,
+              "model": "gpt-6-astra",
+              "effort": null,
+              "reopening": {
+                "group_id": "sg_01J9ZKE8F9G0H1J2K3L4M5N6P7",
+                "hosts": ["download.pytorch.org"],
+                "since": "2026-09-13T01:52:00Z"
+              }
             },
             {
               "project": "notes-app",
@@ -330,7 +354,10 @@
               "age_minutes": 4,
               "waiting_minutes": null,
               "attached_windows": 1,
-              "paused_reason": null
+              "paused_reason": null,
+              "model": null,
+              "effort": null,
+              "reopening": null
             }
           ],
           "models": [
