@@ -8,7 +8,7 @@
     "consumers": ["Clarvis (E-C9)", "NERVIS (M28)", "tools/run.py, the launcher"],
     "canonical_text": ["ECOSYSTEM_RUNBOOK.md §2.2", "RAVIS.md §15.1.2", "CLARVIS.md §5.5", "NERVIS.md §8"]
   },
-  "access": "every mutating route needs an admin credential; anonymous and client credentials get 403 FORBIDDEN. This is UX and audit, not a boundary against local programs. reprove narrows it to admin.owner_cli.",
+  "access": "every mutating route needs an admin credential, except POST /api/v1/codex/sites, which takes Clarvis's client credential; anonymous and other client credentials get 403 FORBIDDEN. This is UX and audit, not a boundary against local programs. reprove narrows it to admin.owner_cli.",
   "routes": [
     {
       "method": "POST",
@@ -992,12 +992,281 @@
           "response": {"status": 200, "body": {"reproof": {"state": "finished", "result": "proven"}}}
         }
       ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/codex/sites",
+      "needs": "Clarvis's client credential, NERVIS's (its GET relay) or an admin credential",
+      "answer": "SitesView {defaults, added}",
+      "rules": [
+        "defaults is RAVIS's own list, DEFAULT_ALLOWED_SITES, in its order; its two wildcard entries are the owner's, and no site ask or POST ever adds a wildcard",
+        "added is every site allowed in Codex's user configuration for the file-rules profile (config/read with includeLayers: the user layer's permissions.<profile>.network.domains) that isn't a default, sorted",
+        "read from Codex on every call and never kept; while Codex isn't running with its file rules, or doesn't say which sites it allows, the answer is 503 CODEX_RUNTIME_UNAVAILABLE, never an empty list"
+      ],
+      "examples": [
+        {
+          "name": "the defaults and the sites the owner added",
+          "request": {"caller": "client.clarvis", "method": "GET", "path": "/api/v1/codex/sites"},
+          "response": {
+            "status": 200,
+            "body": {
+              "defaults": ["registry.npmjs.org", "registry.yarnpkg.com", "repo.yarnpkg.com", "pypi.org", "files.pythonhosted.org", "crates.io", "*.crates.io", "static.rust-lang.org", "proxy.golang.org", "sum.golang.org", "rubygems.org", "index.rubygems.org", "repo.maven.apache.org", "repo1.maven.org", "plugins.gradle.org", "services.gradle.org", "downloads.gradle.org", "github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com", "nodejs.org", "deno.land", "jsr.io"],
+              "added": ["download.pytorch.org", "huggingface.co"]
+            }
+          }
+        },
+        {
+          "name": "anonymous",
+          "request": {"caller": "anonymous", "method": "GET", "path": "/api/v1/codex/sites"},
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "A Clarvis, NERVIS or admin credential is required to read the allowed sites.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Codex isn't running",
+          "request": {"caller": "client.nervis", "method": "GET", "path": "/api/v1/codex/sites"},
+          "response": {
+            "status": 503,
+            "body": {
+              "error": {
+                "code": "CODEX_RUNTIME_UNAVAILABLE",
+                "message": "Codex isn't running, so the sites it allows can't be read; try again in a moment.",
+                "retryable": true,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/codex/sites",
+      "needs": "Clarvis's client credential: the owner's click in Clarvis before a task starts",
+      "body": "{hosts: [host, ...]}: 1 to 20 host names",
+      "answer": "SitesView {defaults, added}, as Codex holds it after the write",
+      "rules": [
+        "every host is checked first by the rule a site ask follows: an exact public host name, lower-cased with a trailing dot dropped, and never a wildcard, an IP address, localhost or a local name, a scheme, a port or a path",
+        "any host refused: 422 SITES_REFUSED names each refused host with why, in the body's order, and nothing is written",
+        "otherwise RAVIS reads Codex's list (503 CODEX_RUNTIME_UNAVAILABLE when it can't) and writes every host in one config/batchWrite upsert with reloadUserConfig: true; anything but status ok (okOverridden included, or no answer) is 409 SITE_NOT_ADDED {hosts, reason}, and nothing is audited",
+        "writing a host already allowed, or a default, changes nothing, so a retry is safe and no Idempotency-Key is needed",
+        "audited as ravis.codex.sites_allowed {hosts} once Codex took them",
+        "an added site reaches Codex threads started or reopened afterwards; a thread already loaded keeps the list it loaded with"
+      ],
+      "examples": [
+        {
+          "name": "allowed before a task starts",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/codex/sites",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"hosts": ["download.pytorch.org", "HuggingFace.co"]}
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "defaults": ["registry.npmjs.org", "registry.yarnpkg.com", "repo.yarnpkg.com", "pypi.org", "files.pythonhosted.org", "crates.io", "*.crates.io", "static.rust-lang.org", "proxy.golang.org", "sum.golang.org", "rubygems.org", "index.rubygems.org", "repo.maven.apache.org", "repo1.maven.org", "plugins.gradle.org", "services.gradle.org", "downloads.gradle.org", "github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com", "nodejs.org", "deno.land", "jsr.io"],
+              "added": ["download.pytorch.org", "huggingface.co"]
+            }
+          }
+        },
+        {
+          "name": "a host RAVIS never allows: nothing is written",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/codex/sites",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"hosts": ["huggingface.co", "*.hf.co", "192.168.1.20", "https://example.com/data"]}
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "SITES_REFUSED",
+                "message": "RAVIS allows only exact public host names, so nothing was added.",
+                "retryable": false,
+                "details": {
+                  "refused": [
+                    {"host": "*.hf.co", "reason": "wildcard"},
+                    {"host": "192.168.1.20", "reason": "ip_address"},
+                    {"host": "https://example.com/data", "reason": "not_a_host_name"}
+                  ]
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Codex didn't add them",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/codex/sites",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"hosts": ["huggingface.co"]}
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SITE_NOT_ADDED",
+                "message": "Codex didn't add those sites, so they stay blocked.",
+                "retryable": false,
+                "details": {"hosts": ["huggingface.co"], "reason": "overridden"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "no hosts",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "POST",
+            "path": "/api/v1/codex/sites",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"hosts": []}
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "INVALID_REQUEST_BODY",
+                "message": "The body must carry hosts: 1 to 20 host names.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "NERVIS's relay",
+          "request": {
+            "caller": "client.nervis",
+            "method": "POST",
+            "path": "/api/v1/codex/sites",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"hosts": ["huggingface.co"]}
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "AGENT_CLIENT_NOT_ALLOWED",
+                "message": "A Clarvis credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/codex/sites/{host}",
+      "needs": "an admin credential: NERVIS's Codex card, through its control route",
+      "answer": "SitesView {defaults, added}, as Codex holds it after the write",
+      "rules": [
+        "{host} is checked by the same rule as POST's hosts: 422 SITES_REFUSED otherwise",
+        "a default site is never removed: 409 SITE_NOT_REMOVED {host, reason: default_site}, and nothing is written",
+        "a host that isn't on the added list writes nothing and answers the view",
+        "otherwise one config/batchWrite replace of the profile's sites without that host (the defaults and every other site kept) with reloadUserConfig: true; anything but status ok is 409 SITE_NOT_REMOVED {host, reason}",
+        "audited as ravis.codex.site_removed {host}",
+        "a Codex thread already loaded keeps reaching a removed site; threads started or reopened afterwards don't"
+      ],
+      "examples": [
+        {
+          "name": "removed",
+          "request": {"caller": "admin.launcher", "method": "DELETE", "path": "/api/v1/codex/sites/huggingface.co"},
+          "response": {
+            "status": 200,
+            "body": {
+              "defaults": ["registry.npmjs.org", "registry.yarnpkg.com", "repo.yarnpkg.com", "pypi.org", "files.pythonhosted.org", "crates.io", "*.crates.io", "static.rust-lang.org", "proxy.golang.org", "sum.golang.org", "rubygems.org", "index.rubygems.org", "repo.maven.apache.org", "repo1.maven.org", "plugins.gradle.org", "services.gradle.org", "downloads.gradle.org", "github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com", "nodejs.org", "deno.land", "jsr.io"],
+              "added": ["download.pytorch.org"]
+            }
+          }
+        },
+        {
+          "name": "a default site is never removed",
+          "request": {"caller": "admin.launcher", "method": "DELETE", "path": "/api/v1/codex/sites/pypi.org"},
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SITE_NOT_REMOVED",
+                "message": "That is one of RAVIS's default sites, so it stays allowed.",
+                "retryable": false,
+                "details": {"host": "pypi.org", "reason": "default_site"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Codex didn't remove it",
+          "request": {"caller": "admin.launcher", "method": "DELETE", "path": "/api/v1/codex/sites/huggingface.co"},
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SITE_NOT_REMOVED",
+                "message": "Codex didn't remove that site, so it stays allowed.",
+                "retryable": false,
+                "details": {"host": "huggingface.co", "reason": "overridden"},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a client credential",
+          "request": {"caller": "client.clarvis", "method": "DELETE", "path": "/api/v1/codex/sites/huggingface.co"},
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "An admin credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
     }
   ],
   "account_fingerprint": [
     "on sign-in RAVIS stores sha256(\"ravis-codex-account:\" + lowercase(email)); with a null email, the sha256 of the rate-limit read's accountId; otherwise a weak plan-only fingerprint, flagged on the card",
     "a different fingerprint is account_changed: new sessions and turns get 409 CODEX_NOT_READY, and the dashboard asks This is my account or Sign out",
-    "a plan change is a notice only; this catches accidental swaps, not a determined local program"
+    "a plan change is a notice only; this catches accidental swaps, not a determined local program",
+    "the fingerprint is served as bare sha256 hex (64 lowercase hex digits, no sha256: prefix) in GET /api/v1/codex → account.fingerprint_sha256 and SessionView → codex.account_fingerprint alike, so the two compare as they come"
   ],
   "reprove_rules": {
     "trigger": "the owner, from the menu bar only: NERVIS menu → Codex → Re-test the file rules… → a confirmation → run.py codex reprove",
@@ -1030,9 +1299,10 @@
       {
         "nervis": "POST /api/v1/ravis/codex/runs/{sid}/stop",
         "ravis": "POST /api/v1/agent-sessions/{sid}/owner-stop (owner-stop.json)"
-      }
+      },
+      {"nervis": "DELETE /api/v1/ravis/codex/sites/{host}", "ravis": "DELETE /api/v1/codex/sites/{host} (NERVIS builds it in N2b)"}
     ],
-    "never": "no NERVIS route reaches /api/v1/codex/reprove, the calibration route, or any other agent-session or project-lock route; reads of /api/v1/codex use the existing GET relay"
+    "never": "no NERVIS route reaches /api/v1/codex/reprove, the calibration route, POST /api/v1/codex/sites, or any other agent-session or project-lock route; reads of /api/v1/codex and /api/v1/codex/sites use the existing GET relay"
   },
   "launcher": {
     "codex sign-in": {
@@ -1067,6 +1337,8 @@
     "ravis.codex.signed_out",
     "ravis.codex.account_confirmed",
     "ravis.codex.version_accepted",
-    "ravis.codex.version_acceptance_revoked"
+    "ravis.codex.version_acceptance_revoked",
+    "ravis.codex.sites_allowed {hosts}",
+    "ravis.codex.site_removed {host}"
   ]
 }

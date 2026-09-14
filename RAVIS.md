@@ -1480,6 +1480,7 @@ commands, file contents or diffs, except the relay stream and snapshot a session
 | `GET /api/v1/codex/version-check`; `POST /api/v1/codex/accept-version`; `DELETE /api/v1/codex/accept-version/{sha256}` | admin | The report on an untested binary, and accepting or revoking it; an accepted version stays paused until the file-rules re-test proves it |
 | `POST` and `GET /api/v1/codex/reprove` | `admin.owner_cli` to start; any named caller to read | The file-rules re-test, started from the menu bar; 403 `REPROOF_NOT_ALLOWED` for every other credential, NERVIS's included |
 | `POST` and `GET /api/v1/codex/calibration/runs`, `GET …/runs/{run_id}` | `admin.owner_cli` | Exist only while `RAVIS_CODEX_CALIBRATION=1`: start a calibration run on two throwaway git projects (with an `Idempotency-Key` and the owner's allowance go-ahead), and read its progress and result. `ravis codex calibrate`, run as `tools/run.py codex calibrate`, calls them |
+| `GET` and `POST /api/v1/codex/sites`; `DELETE /api/v1/codex/sites/{host}` | read: Clarvis, NERVIS or admin; add: Clarvis; remove: admin | The sites Codex's commands may reach: RAVIS's defaults and the sites the owner added. Adding checks every host first and writes nothing if one is refused; a default is never removed. A change reaches Codex threads started or reopened afterwards |
 
 Admin here is UX and audit, not a boundary against local programs (runbook §2.2).
 
@@ -1507,6 +1508,27 @@ its original result rather than repeat it. Workspace roots resolve to a realpath
 `agent_allowed_roots`; `$HOME`, configuration and credential folders, `.run` folders, an allowed-roots
 entry itself, and — by the owner's decision — RAVIS's own checkout and its sibling `clarvis` are
 refused with 422 `WORKSPACE_ROOT_NOT_ALLOWED`.
+
+**Allowed sites, reopening, and each task's model and effort — the contract for R5 (14 September
+2026).** The owner chose two ways to make allowing a site smoother. *Before a task*, Clarvis asks
+the owner about the sites the task will likely need and adds them with `POST /api/v1/codex/sites`:
+every host must be an exact public host name, or the answer is 422 `SITES_REFUSED` naming each
+refused host with why, and nothing is written; a write Codex doesn't take is 409 `SITE_NOT_ADDED`.
+`GET` shows RAVIS's defaults and the sites added; `DELETE …/{host}` removes an added site and never a
+default (409 `SITE_NOT_REMOVED`). *During a task*, the site asks one turn opens share a `group_id`
+and are open together, one group at a time. A loaded Codex thread keeps the site list it was loaded
+with, so when a turn ends with site asks open, or with a site allowed since the thread loaded, RAVIS
+unsubscribes from the thread at once and emits `site.reopening`; it asks `thread/loaded/list` every
+2 s until Codex lets go (`site.reopened`, about a minute on 0.154.0) or 120 s have passed
+(`site.reopen_incomplete`: a newly allowed site may still be blocked), then resumes the thread as
+after a restart. A turn asked for meanwhile answers 202 and starts after the resume; a Stop, a switch
+or a settle skip the resume but never the wait, and the next turn resumes the thread. A turn never
+starts in a thread loaded before the task's last allowed site. `CreateSession` takes an optional
+`effort`, checked against its model's efforts in `model/list` (422 `EFFORT_NOT_OFFERED`; a model
+Codex doesn't list is 422 `MODEL_NOT_OFFERED`), sent on every `turn/start` and shown as
+`SessionView` → `codex.effort`. Account fingerprints are bare sha256 hex wherever RAVIS serves them.
+The shapes are the fixtures': `agent-sessions.json` → `reopening`, `codex-admin.json`,
+`event-stream.json` and `conventions.json` → `open_points`.
 
 **As built in M29's third increment (R3, 0.23.15, 13 September 2026)**, in `src/ravis/agent/`: every
 route above but the project lock's, against the fixtures. The approval settings are the ones
@@ -1632,9 +1654,10 @@ inside the launcher's six seconds. While a new Codex build waits to run, new tas
 `agent_history_retention_days` (90) unused, unless a Clarvis checkpoint still names them.
 `GET /api/v1/codex` gives named callers `account.fingerprint_sha256`.
 
-**NERVIS reaches none of these** except `GET /api/v1/codex` through its GET relay, and seven control
-routes: the sign-in, sign-out, account and version routes above, and a task's Stop, which forwards to
-`owner-stop` (`NERVIS.md` §8).
+**NERVIS reaches none of these** except `GET /api/v1/codex` and `GET /api/v1/codex/sites` through its
+GET relay, and seven control routes: the sign-in, sign-out, account and version routes above, and a
+task's Stop, which forwards to `owner-stop` (`NERVIS.md` §8). An eighth, removing an added site
+through `DELETE /api/v1/codex/sites/{host}`, comes with NERVIS's N2b.
 
 ## 15.2 Events and traces
 

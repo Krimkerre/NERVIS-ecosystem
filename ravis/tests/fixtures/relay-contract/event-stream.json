@@ -66,8 +66,10 @@
           "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
           "active_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
           "model": "gpt-6-astra",
+          "effort": "medium",
           "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
-          "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
+          "account_fingerprint": "9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9",
+          "reopening": null
         },
         "branch": {
           "name": "clarvis/add-utc",
@@ -259,6 +261,33 @@
       }
     },
     {
+      "event": "site.reopening",
+      "data": "{group_id, hosts}: a Codex thread keeps the site list it was loaded with, so RAVIS let go of the task's thread to reopen it (agent-sessions.json → reopening). hosts are the group's asks and any site allowed since the thread loaded; SessionView → codex.reopening says the same until the reopen ends",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "group_id": "sg_01J9ZKD5E6F7G8H9J0K1L2M3N4",
+        "hosts": ["download.pytorch.org", "huggingface.co"]
+      }
+    },
+    {
+      "event": "site.reopened",
+      "data": "{group_id, hosts}: Codex let go of the thread, so from the task's next turn it reaches every site allowed so far",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "group_id": "sg_01J9ZKD5E6F7G8H9J0K1L2M3N4",
+        "hosts": ["download.pytorch.org", "huggingface.co"]
+      }
+    },
+    {
+      "event": "site.reopen_incomplete",
+      "data": "{group_id, hosts}: Codex still held the thread after 120 s; the task carries on in it, and a site allowed since it loaded may still be blocked",
+      "example_data": {
+        "session_id": "as_01J9ZK4T6Q8M2V7R3N5B1C0D",
+        "group_id": "sg_01J9ZKD5E6F7G8H9J0K1L2M3N4",
+        "hosts": ["download.pytorch.org", "huggingface.co"]
+      }
+    },
+    {
       "event": "usage.updated",
       "data": "{windows, limit_reached}",
       "example_data": {
@@ -359,8 +388,10 @@
                 "thread_id": "019a1c2e-7b3d-7f10-9c4e-2d5b8a6f1e30",
                 "active_turn_id": "019a1c2e-8c4f-7a21-b5d3-3e6c9b7f2a41",
                 "model": "gpt-6-astra",
+                "effort": "medium",
                 "runtime_sha256": "3a6112d6096b0d1b2b7d08941f20245d82aaf747ace7ddaedea09d9b702329ec",
-                "account_fingerprint": "sha256:9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9"
+                "account_fingerprint": "9c1e7b52f0a4d8e3c6b1a7f2e5d9c0b4a8f3e7d1c5b9a2f6e0d4c8b3a7f1e5d9",
+                "reopening": null
               },
               "branch": {
                 "name": "clarvis/add-utc",

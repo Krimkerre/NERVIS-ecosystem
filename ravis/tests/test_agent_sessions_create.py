@@ -19,6 +19,7 @@ import os
 import uuid
 from pathlib import Path
 
+import pytest
 from tests.agent_rig import (
     SESSIONS,
     TOKEN,
@@ -41,6 +42,8 @@ from ravis.agent.calibration_dependent import APPROVAL_POLICY
 from ravis.codex.account import account_fingerprint
 
 
+@pytest.mark.xfail(strict=True, reason="R5's contract names effort, reopening and group_id "
+                   "ahead of the code; the commit that serves them removes this marker")
 def test_a_task_is_created_in_the_contracts_shape_and_takes_the_project(tmp_path: Path) -> None:
     rig = ready_rig(tmp_path)
     root, git_dir = project(rig)

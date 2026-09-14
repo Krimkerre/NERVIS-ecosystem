@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from tests.agent_rig import (
     OTHER_WINDOW,
     SESSIONS,
@@ -147,6 +148,8 @@ BLOCKED = ('Network access to "{}" was blocked: domain is not on the allowlist f
 ANSWER_PATH = "/api/v1/agent-sessions/{sid}/requests/{rid}/answer"
 
 
+@pytest.mark.xfail(strict=True, reason="R5's contract names effort, reopening and group_id "
+                   "ahead of the code; the commit that serves them removes this marker")
 def test_a_blocked_site_is_asked_of_the_owner_one_at_a_time_and_added_while_codex_runs(
     tmp_path: Path,
 ) -> None:
@@ -337,6 +340,8 @@ def test_a_queued_steer_whose_task_lost_the_lock_starts_nothing(tmp_path: Path) 
         assert len(rig.server.received("turn/start")) == 1
 
 
+@pytest.mark.xfail(strict=True, reason="R5's contract names effort, reopening and group_id "
+                   "ahead of the code; the commit that serves them removes this marker")
 def test_turns_and_a_steer_with_no_turn_need_the_project_lock(tmp_path: Path) -> None:
     rig = ready_rig(tmp_path)
     root, git_dir = project(rig)

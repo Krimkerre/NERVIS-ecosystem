@@ -42,6 +42,8 @@ EVENT_EXAMPLES = {event["event"]: event["example_data"]
                   for event in fixture("event-stream.json")["events"]}
 
 
+@pytest.mark.xfail(strict=True, reason="R5's contract names effort, reopening and group_id "
+                   "ahead of the code; the commit that serves them removes this marker")
 def test_a_first_connection_starts_with_the_snapshot_and_a_reconnect_replays_its_cursor(
     tmp_path: Path,
 ) -> None:

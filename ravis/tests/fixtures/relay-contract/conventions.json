@@ -12,7 +12,7 @@
   "files": {
     "conventions.json": "this file: transport, callers, headers, the error catalogue and the shared rules",
     "codex-state.json": "GET /api/v1/codex: state, allowance and running tasks",
-    "codex-admin.json": "sign-in, sign-out, account confirmation, version acceptance, the file-rules re-test, NERVIS's control routes",
+    "codex-admin.json": "sign-in, sign-out, account confirmation, version acceptance, the file-rules re-test, the allowed sites, NERVIS's control routes",
     "openai-refusal.json": "the 400 on /v1/chat/completions and /v1/embeddings, and the conditional /v1/models entry",
     "agent-sessions.json": "the relay's session routes and shapes",
     "event-stream.json": "the per-session SSE stream",
@@ -80,6 +80,7 @@
   "identifiers": {
     "session_id": "as_ prefix",
     "request_id": "rq_ prefix",
+    "group_id": "sg_ prefix: the site asks one turn opened, shown as one card",
     "lock_id": "pl_ prefix",
     "thread_id, turn_id, item_id": "Codex's own ids, passed through",
     "transfer_token, claim_id": "opaque",
@@ -108,7 +109,7 @@
     "AGENT_CLIENT_NOT_ALLOWED": {
       "status": [403],
       "retryable": false,
-      "where": "every agent-session and project-lock route except owner-stop, GETs included"
+      "where": "every agent-session and project-lock route except owner-stop, GETs included, and since R5 POST /api/v1/codex/sites"
     },
     "AGENT_SESSION_NOT_FOUND": {
       "status": [404],
@@ -145,7 +146,7 @@
     "CODEX_RUNTIME_UNAVAILABLE": {
       "status": [503],
       "retryable": true,
-      "where": "session create, transcript, a sign-in whose start timed out, and since R4 every agent-session and project-lock route while RAVIS is still reconciling after a restart"
+      "where": "session create, transcript, a sign-in whose start timed out, and since R4 every agent-session and project-lock route while RAVIS is still reconciling after a restart; since R5 the sites routes while Codex isn't running with its file rules or doesn't say which sites it allows, and a session create naming a model or an effort before Codex has listed its models"
     },
     "CODEX_RUN_IN_PROGRESS": {
       "status": [409],
@@ -182,6 +183,11 @@
       "retryable": false,
       "where": "answer with a decision outside the request's allowed_decisions"
     },
+    "EFFORT_NOT_OFFERED": {
+      "status": [422],
+      "retryable": false,
+      "where": "session create whose effort isn't one of its model's efforts in model/list (the default model's when model is empty): details {model, effort, efforts}"
+    },
     "EMPTY_STEER": {"status": [422], "retryable": false, "where": "steer with empty text"},
     "EVENT_CURSOR_EXPIRED": {
       "status": [409],
@@ -191,7 +197,7 @@
     "FORBIDDEN": {
       "status": [403],
       "retryable": false,
-      "where": "the Codex admin routes for a caller without an admin credential (RAVIS's existing code)"
+      "where": "the Codex admin routes for a caller without an admin credential (RAVIS's existing code); since R5 GET /api/v1/codex/sites for a caller that is neither Clarvis, NERVIS nor an admin, and DELETE /api/v1/codex/sites/{host} for a caller without an admin credential"
     },
     "GIT_DIR_NOT_ALLOWED": {
       "status": [422],
@@ -216,7 +222,7 @@
     "INVALID_REQUEST_BODY": {
       "status": [422],
       "retryable": false,
-      "where": "a Codex admin route (sign-in, sign-out, account/confirm, accept-version, reprove), or since R3 an agent-session route and since R4 a project-lock route, whose body is not a JSON object, lacks a field the route needs, or names a value the route doesn't take (a mode, a turn kind, a settle next, a transfer's to); and a lock heartbeat, release or transfer without X-Lock-Lease"
+      "where": "a Codex admin route (sign-in, sign-out, account/confirm, accept-version, reprove), or since R3 an agent-session route and since R4 a project-lock route, whose body is not a JSON object, lacks a field the route needs, or names a value the route doesn't take (a mode, a turn kind, a settle next, a transfer's to, since R5 a create's effort that isn't text, or a sites body without 1 to 20 host names); and a lock heartbeat, release or transfer without X-Lock-Lease"
     },
     "LEASE_REVOKED": {
       "status": [409],
@@ -232,6 +238,11 @@
       "status": [409],
       "retryable": false,
       "where": "session create, turns and lock create with a transfer token that is unknown, expired or for another root"
+    },
+    "MODEL_NOT_OFFERED": {
+      "status": [422],
+      "retryable": false,
+      "where": "session create naming a model model/list doesn't offer this account: details {model, models}"
     },
     "NESTED_PROJECT_LOCKED": {
       "status": [409],
@@ -299,10 +310,20 @@
       "retryable": false,
       "where": "turns and DELETE on a session that still needs a settle"
     },
+    "SITES_REFUSED": {
+      "status": [422],
+      "retryable": false,
+      "where": "POST /api/v1/codex/sites and DELETE /api/v1/codex/sites/{host} naming a host that isn't an exact public host name: details {refused: [{host, reason: not_a_host_name | wildcard | ip_address | local_name}]}, and nothing is written"
+    },
     "SITE_NOT_ADDED": {
       "status": [409],
       "retryable": false,
-      "where": "answer allow_site when Codex didn't add the site to its allowlist (it answered okOverridden, refused or didn't answer, or the host isn't a plain public host name); the site stays blocked and the request open"
+      "where": "answer allow_site (details {host, reason}), and since R5 POST /api/v1/codex/sites (details {hosts, reason}), when Codex didn't add the site to its allowlist (it answered okOverridden, refused or didn't answer, or the host isn't a plain public host name); the site stays blocked, and a site request stays open"
+    },
+    "SITE_NOT_REMOVED": {
+      "status": [409],
+      "retryable": false,
+      "where": "DELETE /api/v1/codex/sites/{host} for one of RAVIS's default sites (reason default_site), or when Codex didn't take the write (overridden, not_written, codex_did_not_answer): details {host, reason}; the site stays allowed"
     },
     "SIGN_IN_METHOD_NOT_SUPPORTED": {
       "status": [422],
@@ -434,6 +455,10 @@
     "Decided by R4: the checkout lock file's leftover entries are {pid, start, comm}, start as ps -o lstart= in the C locale (lock-rule-cases.json → lock_file_leftover). RAVIS writes the holding Codex session's recorded command processes there at each two-second look, and [] once they are confirmed gone. A window that finds a gone RAVIS holder may end exactly those, each by pid and start time, never by group.",
     "Decided by R4: GET /api/v1/codex → account.fingerprint_sha256 is the current account's fingerprint, in the form SessionView → codex.account_fingerprint carries it, so a checkpoint's account can be compared with the current one. Named callers only; an anonymous reader doesn't get the field.",
     "Decided by R4: every agent-session and project-lock route answers 503 CODEX_RUNTIME_UNAVAILABLE until a restart's reconciliation has run. Session create and turns answer 409 CODEX_NOT_READY {state: signed_in, reason: codex_update_pending} while a new Codex build waits to run, and a turn only waiting for an answer becomes paused_for_update ten minutes after the build appears.",
-    "Decided by R4: a replayed transfer returns the same transfer token within a RAVIS run, and a new one for the same live transfer after a restart (project-locks.json → decided_in_r4)."
+    "Decided by R4: a replayed transfer returns the same transfer token within a RAVIS run, and a new one for the same live transfer after a restart (project-locks.json → decided_in_r4).",
+    "Decided by R5: RAVIS serves account fingerprints as bare sha256 hex (64 lowercase hex digits, no sha256: prefix) in SessionView → codex.account_fingerprint and GET /api/v1/codex → account.fingerprint_sha256 alike. It always did; the examples said sha256:…. home.fingerprint and a lock's root_hash keep their sha256: prefix.",
+    "Decided by R5: GET /api/v1/codex/sites answers Clarvis's and NERVIS's client credentials and any admin credential; POST takes only Clarvis's client credential (the owner's click in Clarvis), refused like the relay with 403 AGENT_CLIENT_NOT_ALLOWED; DELETE takes only an admin credential (NERVIS's Codex card, through a control route). POST and DELETE write nothing unless every host passes and Codex's list could be read; a DELETE of a host that isn't on the added list writes nothing and answers the view.",
+    "Decided by R5: the site asks one turn opens are open together as one group (group_id, sg_…), and one group is open at a time. A settle during a reopen skips the resume, as a Stop or a switch does, and never the wait for Codex to let go: the next turn resumes the thread. site.reopened ends a reopen Codex let go of, site.reopen_incomplete one it didn't within 120 s. A turn never starts in a Codex thread loaded before the task's last allowed site.",
+    "Decided by R5: an effort left out is null in SessionView → codex.effort and absent from turn/start, so Codex uses the model's default_effort. A named model is checked against model/list too (422 MODEL_NOT_OFFERED), since an effort can only be checked against a model Codex lists."
   ]
 }
