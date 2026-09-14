@@ -35,6 +35,14 @@ def named_caller_required() -> CodexRefusalError:
     return CodexRefusalError("FORBIDDEN", 403, "A RAVIS credential is required to read this.")
 
 
+def sites_reader_required() -> CodexRefusalError:
+    """The allowed sites are Clarvis's, NERVIS's and the owner's to read (R5)."""
+    return CodexRefusalError(
+        "FORBIDDEN", 403,
+        "A Clarvis, NERVIS or admin credential is required to read the allowed sites.",
+    )
+
+
 def reproof_not_allowed() -> CodexRefusalError:
     return CodexRefusalError(
         "REPROOF_NOT_ALLOWED",

@@ -23,9 +23,10 @@ module. It acts out what calibration asks of a real Codex, closely enough that e
   write it logs (`config_written`) is applied here when its status is `ok`, and reaches a thread
   loaded after it: a loaded thread keeps the sites it was loaded with, in its next turn too, as
   Codex 0.154.0's did in runs `cal_ed672bf12c6f` and `cal_85aa0ece0f52` (Cal-5).
-  `thread/unsubscribe` unloads a thread that has had a calibration turn, `thread/resume` then
-  loads it afresh, and `thread/fork` copies one into a new thread. `config/read` with
-  `includeLayers` shows the written sites in a user layer.
+  `thread/unsubscribe` unloads a thread that has had a turn — at once, or after the scenario's
+  `unload_after_seconds` — `thread/resume` then loads it afresh, and `thread/fork` copies one into
+  a new thread. The relay half's `fetch` goes through the same proxy (`site_allowed`).
+  `config/read` with `includeLayers` shows the written sites in a user layer.
 - **Real long-running processes for K6**, shaped like Codex 0.154.0's (K6's transcripts,
   `cal_d2185ed08f50` and `cal_330b7525d115`): K6's one command per project (Cal-3) is one command
   root — a `/bin/sh` that waits — started in the thread's folder, in a session of its own, with no
@@ -252,6 +253,11 @@ def _site_allowed(api: Any, thread: dict[str, Any], host: str) -> bool:
         sites -= api.state.get("default_sites", set())
     return any(host == site or (site.startswith("*.") and host.endswith(site[1:]))
                for site in sites)
+
+
+def site_allowed(api: Any, thread: dict[str, Any], host: str) -> bool:
+    """Whether a command in `thread` reaches `host`: the pretend proxy, for the relay's `fetch`."""
+    return _site_allowed(api, thread, host)
 
 
 def _sites_seen(api: Any, thread: dict[str, Any], found: set[str]) -> dict[str, str]:
@@ -547,6 +553,7 @@ def _resume(api: Any, params: dict[str, Any]) -> dict[str, Any] | str:
         return "thread not found or archived"
     if "resume_forgets" in faults(api):
         thread.pop("remembered", None)
+    thread.pop("unsubscribed", None)  # an unload still pending no longer applies
     if thread.pop("unloaded", False):
         thread.pop("sites_at_load", None)  # loaded again from disk: the sites as they are now
     thread["roots"] = params.get("runtimeWorkspaceRoots") or thread.get("roots")
@@ -581,11 +588,27 @@ def _steer(_api: Any, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _unsubscribe(api: Any, params: dict[str, Any]) -> dict[str, Any]:
-    """Unload a thread that has had a calibration turn at once (Codex takes about 50 s)."""
+    """Unload a thread that has had a turn: at once, or after the scenario's `unload_after_seconds`.
+
+    Codex takes about 50-60 s; a relay test sets a moment, so a turn can be asked for meanwhile. A
+    resume before then cancels the pending unload, as a thread followed again stays loaded.
+    """
     thread = api.state["threads"].get(params.get("threadId"))
     never = "thread_never_unloads" in faults(api)
-    if thread is not None and "sites_at_load" in thread and not never:
-        thread["unloaded"] = True
+    if thread is None or not thread.get("had_turn") or never:
+        return {"status": "unsubscribed"}
+    token = uuid.uuid4().hex
+    thread["unsubscribed"] = token
+
+    def unload() -> None:
+        if thread.get("unsubscribed") == token:
+            thread["unloaded"] = True
+
+    delay = float(api.scenario.get("unload_after_seconds") or 0)
+    if delay > 0:
+        threading.Timer(delay, unload).start()
+    else:
+        unload()
     return {"status": "unsubscribed"}
 
 

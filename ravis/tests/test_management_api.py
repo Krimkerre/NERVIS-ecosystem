@@ -81,11 +81,12 @@ def test_a_read_endpoint_does_not_accept_a_write() -> None:
 def test_every_write_this_surface_serves_is_one_it_declares() -> None:
     """The mutation surface, asserted rather than described.
 
-    RAVIS serves thirty-three writes: two on a provider credential, one on a provider's
+    RAVIS serves thirty-five writes: two on a provider credential, one on a provider's
     enabled flag, one on its model filter, one on a pool's membership, one
-    curating every pool, one lifting a tool-refusal suppression, seven for
+    curating every pool, one lifting a tool-refusal suppression, nine for
     Codex (sign-in, its cancellation, sign-out, account confirmation, accepting
-    and revoking a build, and the file-rules re-test), fourteen on Codex tasks
+    and revoking a build, the file-rules re-test, and adding and removing an
+    allowed site), fourteen on Codex tasks
     (the agent-session relay, the owner Stop among them), and five on the project
     lock. Each is
     deliberate; what is not acceptable is another appearing without anybody
@@ -162,6 +163,12 @@ def test_every_write_this_surface_serves_is_one_it_declares() -> None:
         # The file-rules re-test: the one write that starts Codex work, so only the
         # owner's command-line credential may call it, never NERVIS's (F-A3).
         "POST /api/v1/codex/reprove",
+        # Added deliberately, 14 September 2026 (R5, RAVIS.md §15.1.2): the sites Codex's
+        # commands may reach. Adding takes only Clarvis's client credential (the owner's click
+        # before a task), removing only an admin credential (NERVIS's Codex card); a default
+        # is never removed, and both are audited. Tested in `tests/test_codex_sites.py`.
+        "POST /api/v1/codex/sites",
+        "DELETE /api/v1/codex/sites/{host}",
     }, "a write appeared or vanished on the management surface"
 
 

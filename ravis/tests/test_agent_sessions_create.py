@@ -9,6 +9,8 @@ What RAVIS is held to here:
 - a retried create replays its answer, token included, and starts nothing more;
 - the live-session limit; a locked project, or one inside or around a locked folder, refused;
 - a resume unarchives and resumes the task's thread;
+- **a task runs at the effort it was created with, on every turn**; a model or an effort Codex
+  doesn't offer is refused before anything starts, and one it hasn't listed yet waits (R5);
 - the list and `GET /api/v1/codex` → `runs` show each caller only what the contract lets it see.
 """
 
@@ -19,7 +21,6 @@ import os
 import uuid
 from pathlib import Path
 
-import pytest
 from tests.agent_rig import (
     SESSIONS,
     TOKEN,
@@ -36,14 +37,12 @@ from tests.agent_rig import (
     refused,
     serving,
 )
-from tests.codex_rig import SIGNED_IN
+from tests.codex_rig import SIGNED_IN, eventually
 
 from ravis.agent.calibration_dependent import APPROVAL_POLICY
 from ravis.codex.account import account_fingerprint
 
 
-@pytest.mark.xfail(strict=True, reason="R5's contract names effort, reopening and group_id "
-                   "ahead of the code; the commit that serves them removes this marker")
 def test_a_task_is_created_in_the_contracts_shape_and_takes_the_project(tmp_path: Path) -> None:
     rig = ready_rig(tmp_path)
     root, git_dir = project(rig)
@@ -67,6 +66,7 @@ def test_a_task_is_created_in_the_contracts_shape_and_takes_the_project(tmp_path
         assert (started["cwd"], started["runtimeWorkspaceRoots"]) == (str(root), [str(root)])
         assert started["ephemeral"] is False and "sandbox" not in started
         assert "STEP: <n>" in started["developerInstructions"]
+        assert "Network access to … was blocked" in started["developerInstructions"]
         task = Task(relay, session["id"], body["session_token"], body)
         assert task.frames(until=lambda seen: bool(seen))[0].event == "snapshot"
         # Following from the create's own cursor shows everything after it, the turn starting
@@ -213,6 +213,75 @@ def test_a_resume_unarchives_and_resumes_the_tasks_thread(tmp_path: Path) -> Non
         second.reaches("completed_needs_review")
         texts = [m["params"]["input"][0]["text"] for m in rig.server.received("turn/start")]
         assert texts[-1] == "RELAY\nsay caught up"
+
+
+def test_a_task_runs_at_the_effort_it_was_created_with_on_every_turn(tmp_path: Path) -> None:
+    rig = ready_rig(tmp_path, scenario={"steer_refused": True})
+    root, git_dir = project(rig)
+    with serving(rig) as relay:
+        relay.ready()
+        task = relay.started(root, git_dir, text="RELAY\nask npm test\nsay one",
+                             model="gpt-6-astra", effort="medium")
+        assert (task.view()["codex"]["model"], task.view()["codex"]["effort"]) == (
+            "gpt-6-astra", "medium")
+        request = task.pending()
+        # Codex refuses the steer, so it starts the follow-on turn: that one runs at the effort too.
+        task.post("steer", {"text": "Also update the README."}, keyed=True)
+        task.answer(request["id"], {"kind": "once"})
+        eventually(lambda: len(rig.server.received("turn/start")) == 2, what="the follow-on turn")
+        task.reaches("completed_needs_review")
+        assert task.settle("idle").status_code == 200
+        continued = task.post("turns", {"text": "RELAY\nsay three", "kind": "continue"},
+                              keyed=True)
+        assert continued.status_code == 202
+        eventually(lambda: len(rig.server.received("turn/start")) == 3, what="the third turn")
+        efforts = [message["params"]["effort"] for message in rig.server.received("turn/start")]
+        assert efforts == ["medium", "medium", "medium"]
+        assert rig.service.agents.store.session(task.id)["effort"] == "medium"  # type: ignore[index]
+        plain = relay.started(*project(rig, "plain"), text="RELAY\nsay one",
+                              task_id=str(uuid.uuid4()))
+        assert plain.view()["codex"]["effort"] is None
+        eventually(lambda: len(rig.server.received("turn/start")) == 4, what="the plain turn")
+        assert "effort" not in rig.server.received("turn/start")[-1]["params"]
+
+
+def test_a_model_or_effort_codex_doesnt_offer_is_refused_before_anything_starts(
+    tmp_path: Path,
+) -> None:
+    rig = ready_rig(tmp_path)
+    root, git_dir = project(rig)
+    with serving(rig) as relay:
+        relay.ready()
+        effort = refused(relay.create(root, git_dir, model="gpt-6-astra", effort="xhigh"), 422,
+                         "EFFORT_NOT_OFFERED", model="gpt-6-astra", effort="xhigh",
+                         efforts=["low", "medium"])
+        shown = example("POST", SESSIONS, "an effort that model doesn't offer")
+        assert effort["message"] == shown["body"]["error"]["message"]
+        # Naming no model checks the effort against the one Codex uses by default.
+        refused(relay.create(root, git_dir, effort="high"), 422, "EFFORT_NOT_OFFERED",
+                model="gpt-6-astra", efforts=["low", "medium"])
+        model = refused(relay.create(root, git_dir, model="gpt-4.1"), 422, "MODEL_NOT_OFFERED",
+                        model="gpt-4.1", models=["gpt-6-astra", "gpt-5.6-sol"])
+        shown = example("POST", SESSIONS, "a model Codex doesn't offer")
+        assert model["message"] == shown["body"]["error"]["message"]
+        refused(relay.create(root, git_dir, effort=7), 422, "INVALID_REQUEST_BODY")
+        assert not rig.server.received("thread/start")
+        assert not (root / ".git" / "clarvis-engine.lock").exists()
+        task = relay.started(root, git_dir, model="gpt-5.6-sol", effort="low")
+        assert task.view()["codex"]["effort"] == "low"
+        assert rig.server.received("thread/start")[-1]["params"]["model"] == "gpt-5.6-sol"
+
+
+def test_a_named_effort_waits_until_codex_has_listed_its_models(tmp_path: Path) -> None:
+    rig = ready_rig(tmp_path, scenario={"silent_methods": ["model/list"]})
+    root, git_dir = project(rig)
+    with serving(rig) as relay:
+        relay.ready()
+        error = refused(relay.create(root, git_dir, effort="low"), 503,
+                        "CODEX_RUNTIME_UNAVAILABLE")
+        assert error["retryable"] is True
+        assert not rig.server.received("thread/start")
+        relay.started(root, git_dir)
 
 
 def test_the_list_and_runs_show_each_caller_what_it_may_see(tmp_path: Path) -> None:

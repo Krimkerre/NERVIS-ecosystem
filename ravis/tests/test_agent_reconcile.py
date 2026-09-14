@@ -15,7 +15,9 @@ What RAVIS is held to:
   new task starts meanwhile (review AL5);
 - a running task's processes are recorded, and written into its checkout lock file as
   `{pid, start, comm}`;
-- Codex's own threads are deleted after 90 days unused, unless a checkpoint still names them.
+- Codex's own threads are deleted after 90 days unused, unless a checkpoint still names them;
+- **a restart while a task's thread was reopening** resumes the thread when its next turn starts,
+  with the profile, roots and the task's effort, and a turn that waited for the reopen is uncertain.
 
 The restart cases build the previous RAVIS's rows in a throwaway database and start a new
 `AgentSessions` on it, with a pretend process table: nothing real is signalled.
@@ -40,6 +42,7 @@ from tests.agent_rig import TASK_ID, FakeClock, project, ready_rig, refused, ser
 from tests.codex_rig import eventually
 
 from ravis.agent import locks as locks_module
+from ravis.agent.calibration_dependent import thread_resume_params, turn_start_params
 from ravis.agent.cleanup import CleanupTimings
 from ravis.agent.roots import root_hash
 from ravis.agent.session import SessionTimings
@@ -87,6 +90,9 @@ class FakeHost:
 
     def profile_name(self) -> str | None:
         return None
+
+    def models(self) -> tuple[Any, ...]:
+        return ()
 
     def account_fingerprint(self) -> str | None:
         return None
@@ -324,6 +330,51 @@ def test_a_window_holding_the_file_leaves_it_untouched_and_the_lock_superseded(
     assert codes == ["LOCK_SUPERSEDED"]
     assert {"lock_id": "pl_1", "state": "superseded", "holder_kind": "codex_session"} in [
         data for name, data in events if name == "ravis.project_lock.changed"]
+
+
+def test_a_restart_while_a_thread_reopened_resumes_it_when_the_next_turn_starts(
+    tmp_path: Path,
+) -> None:
+    root, git_dir = workspace(tmp_path)
+    other_root, other_git = workspace(tmp_path, "waited")
+
+    def build(store: AgentStore) -> None:
+        # Settled while Codex let go of its thread; a site ask still open. RAVIS keeps no record
+        # of the reopen itself: a restart restarts Codex, and every thread with it.
+        store.insert_session({**session_row("as_1", root, git_dir, "idle"), "effort": "medium"})
+        store.insert_lock(lock_row("pl_1", "as_1", root))
+        store.insert_request("rq_1", "as_1", "turn-1", "", "site", host="download.pytorch.org")
+        # A turn asked for while the thread reopened, not yet begun.
+        store.insert_session(session_row("as_2", other_root, other_git, "starting"))
+
+    path = previous_ravis(tmp_path, build)
+    ravis_file(root, git_dir, "as_1", "pl_1")
+    host = FakeHost()
+    host.answers.update({"thread/resume": {"thread": {"id": "thread-1"}},
+                         "turn/start": {"turn": {"id": "turn-2"}}})
+    sessions = restart(path, settings_for(tmp_path), FakeTable([]), host)
+    seen: list[Any] = []
+
+    async def carry_on() -> None:
+        session = sessions.find("as_1")
+        assert session is not None
+        seen.append((session.view()["codex"]["reopening"], session.thread_loaded))
+        await session.turn("carry_on", "The owner allowed download.pytorch.org.", None)
+        for _ in range(200):
+            if any(method == "turn/start" for method, _ in host.asked):
+                break
+            await asyncio.sleep(0.01)
+
+    run(sessions, carry_on)
+
+    assert seen == [(None, False)]
+    methods = [method for method, _ in host.asked]
+    assert methods.index("thread/resume") < methods.index("turn/start")
+    asked = dict(host.asked)
+    assert asked["thread/resume"] == thread_resume_params("thread-1", root, "agent", "")
+    assert asked["turn/start"] == turn_start_params(
+        "thread-1", root, "agent", "The owner allowed download.pytorch.org.", "medium")
+    assert reopened(path).session("as_2")["state"] == "uncertain"  # type: ignore[index]
 
 
 def test_a_superseded_task_cant_start_a_turn(tmp_path: Path) -> None:

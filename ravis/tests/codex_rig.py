@@ -84,6 +84,8 @@ FAST = ServiceTimings(
             thread_start_seconds=3.0, turn_start_seconds=3.0, steer_seconds=1.0,
             interrupt_seconds=1.0, interrupt_wait_seconds=1.0, archive_seconds=2.0,
             turns_list_seconds=1.0, file_item_wait_seconds=0.3,
+            unsubscribe_seconds=1.0, loaded_list_seconds=1.0, unload_poll_seconds=0.05,
+            unload_cap_seconds=5.0,
             cleanup=CleanupTimings(terminals_seconds=1.0, term_wait_seconds=0.2,
                                    confirm_seconds=1.5),
         ),

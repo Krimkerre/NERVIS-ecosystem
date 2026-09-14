@@ -758,6 +758,11 @@ class CodexService:
     def profile_name(self) -> str | None:
         return self._profile.name if self._profile is not None else None
 
+    def models(self) -> tuple[ModelFacts, ...]:
+        """What `model/list` last offered this account: a task's model and effort are checked
+        against it (R5). Empty while signed out or before the first read."""
+        return self._models
+
     def account_fingerprint(self) -> str | None:
         return self._account.fingerprint if self._account is not None else None
 

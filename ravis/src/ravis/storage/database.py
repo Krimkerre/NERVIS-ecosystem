@@ -288,6 +288,16 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        10,
+        "The reasoning effort a Codex task runs at, per RAVIS.md §17 (M29, R5)",
+        """
+        -- The effort Clarvis chose for a task: one of its model's efforts in Codex's model/list,
+        -- sent on every turn/start. NULL leaves it to the model's default. Fixed for the task's
+        -- life, like its model.
+        ALTER TABLE agent_session ADD COLUMN effort TEXT;
+        """,
+    ),
 ]
 
 

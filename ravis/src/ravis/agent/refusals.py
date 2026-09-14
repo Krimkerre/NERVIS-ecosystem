@@ -236,6 +236,50 @@ def site_not_added(host: str, reason: str) -> CodexRefusalError:
     )
 
 
+def sites_not_added(hosts: list[str], reason: str) -> CodexRefusalError:
+    """The sites the owner allowed before a task, not taken by Codex: they stay blocked (R5)."""
+    return CodexRefusalError(
+        "SITE_NOT_ADDED", 409, "Codex didn't add those sites, so they stay blocked.",
+        hosts=hosts, reason=reason,
+    )
+
+
+def sites_refused(refused: list[dict[str, str]], action: str) -> CodexRefusalError:
+    """Hosts RAVIS never allows — a wildcard, an IP address, a local name — each with why (R5).
+
+    `action` is what therefore didn't happen to any of them: `added` or `removed`.
+    """
+    return CodexRefusalError(
+        "SITES_REFUSED", 422,
+        f"RAVIS allows only exact public host names, so nothing was {action}.", refused=refused,
+    )
+
+
+def site_not_removed(host: str, reason: str) -> CodexRefusalError:
+    """A site that stays allowed: one of RAVIS's defaults, or a removal Codex didn't take (R5)."""
+    message = (
+        "That is one of RAVIS's default sites, so it stays allowed." if reason == "default_site"
+        else "Codex didn't remove that site, so it stays allowed."
+    )
+    return CodexRefusalError("SITE_NOT_REMOVED", 409, message, host=host, reason=reason)
+
+
+def model_not_offered(model: str, models: list[str]) -> CodexRefusalError:
+    """A create naming a model Codex's `model/list` doesn't offer this account (R5)."""
+    return CodexRefusalError(
+        "MODEL_NOT_OFFERED", 422, "Codex doesn't offer that model to this account.",
+        model=model, models=models,
+    )
+
+
+def effort_not_offered(model: str, effort: str, efforts: list[str]) -> CodexRefusalError:
+    """A create naming an effort its model doesn't offer (R5)."""
+    return CodexRefusalError(
+        "EFFORT_NOT_OFFERED", 422, "That model doesn't offer that effort.",
+        model=model, effort=effort, efforts=efforts,
+    )
+
+
 def event_cursor_expired(oldest_event_id: int) -> CodexRefusalError:
     return CodexRefusalError(
         "EVENT_CURSOR_EXPIRED",

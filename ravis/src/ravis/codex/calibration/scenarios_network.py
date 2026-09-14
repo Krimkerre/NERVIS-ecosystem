@@ -65,7 +65,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from ravis.agent.calibration_dependent import network_domains_key
-from ravis.agent.sites import SiteAllowlist, blocked_hosts
+from ravis.agent.sites import SiteAllowlist, blocked_hosts, user_sites
 from ravis.codex.calibration.harness import (
     POLL_SECONDS,
     Listed,
@@ -367,21 +367,6 @@ async def _user_sites(ctx: ScenarioContext, session: Session) -> dict[str, Any] 
     except CodexRpcError:
         return None
     return user_sites(read, ctx.profile_name)
-
-
-def user_sites(read: object, profile: str) -> dict[str, Any] | None:
-    """The profile's sites in `config/read`'s user layer: {} when it has none, None if unknown."""
-    layers = read.get("layers") if isinstance(read, dict) else None
-    if not isinstance(layers, list):
-        return None
-    for layer in layers:
-        name = layer.get("name") if isinstance(layer, dict) else None
-        if isinstance(name, dict) and name.get("type") == "user":
-            node: object = layer.get("config")
-            for key in ("permissions", profile, "network", "domains"):
-                node = node.get(key) if isinstance(node, dict) else None
-            return dict(node) if isinstance(node, dict) else {}
-    return {}
 
 
 async def _put_sites_back(ctx: ScenarioContext, session: Session, run: K3Run) -> None:

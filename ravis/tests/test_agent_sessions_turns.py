@@ -24,7 +24,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
 from tests.agent_rig import (
     OTHER_WINDOW,
     SESSIONS,
@@ -148,9 +147,7 @@ BLOCKED = ('Network access to "{}" was blocked: domain is not on the allowlist f
 ANSWER_PATH = "/api/v1/agent-sessions/{sid}/requests/{rid}/answer"
 
 
-@pytest.mark.xfail(strict=True, reason="R5's contract names effort, reopening and group_id "
-                   "ahead of the code; the commit that serves them removes this marker")
-def test_a_blocked_site_is_asked_of_the_owner_one_at_a_time_and_added_while_codex_runs(
+def test_blocked_sites_are_asked_of_the_owner_as_one_group_and_added_while_codex_runs(
     tmp_path: Path,
 ) -> None:
     rig = ready_rig(tmp_path)
@@ -167,7 +164,11 @@ def test_a_blocked_site_is_asked_of_the_owner_one_at_a_time_and_added_while_code
         frames = task.frames(after=0, until=has("session.state", state="completed_needs_review"))
         assert [(f["host"], f["protocol"]) for f in named(frames, "site.blocked")] == [
             ("pypi.org", "https"), ("api.github.com", "https"), ("example.com", "http")]
-        [site] = task.view()["pending_requests"]
+        # One turn's asks are one group, open together (R5).
+        site, github, left = task.view()["pending_requests"]
+        assert [ask["payload"]["host"] for ask in (site, github, left)] == [
+            "pypi.org", "api.github.com", "example.com"]
+        assert site["group_id"] == github["group_id"] == left["group_id"]
         assert keys(site) == keys(fixture("agent-sessions.json")["request_view_examples"][4])
         assert (site["kind"], site["payload"], site["allowed_decisions"]) == (
             "site", {"host": "pypi.org", "protocol": "https"}, ["allow_site", "keep_blocked"])
@@ -184,10 +185,8 @@ def test_a_blocked_site_is_asked_of_the_owner_one_at_a_time_and_added_while_code
                        "mergeStrategy": "upsert", "value": {"pypi.org": "allow"}}],
             "reloadUserConfig": True,
         }]
-        [github] = task.view()["pending_requests"]
-        assert github["payload"]["host"] == "api.github.com"
         assert task.answer(github["id"], {"kind": "keep_blocked"}, key="k-keep").status_code == 200
-        [left] = task.view()["pending_requests"]
+        assert [ask["id"] for ask in task.view()["pending_requests"]] == [left["id"]]
         # A site ask never holds the task up: the work saves, and ending the task resolves it.
         assert task.settle("idle").status_code == 200
         assert relay.call("DELETE", f"{SESSIONS}/{task.id}", token=task.token).status_code == 200
@@ -340,8 +339,6 @@ def test_a_queued_steer_whose_task_lost_the_lock_starts_nothing(tmp_path: Path) 
         assert len(rig.server.received("turn/start")) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="R5's contract names effort, reopening and group_id "
-                   "ahead of the code; the commit that serves them removes this marker")
 def test_turns_and_a_steer_with_no_turn_need_the_project_lock(tmp_path: Path) -> None:
     rig = ready_rig(tmp_path)
     root, git_dir = project(rig)

@@ -153,6 +153,10 @@ DEVELOPER_INSTRUCTIONS = "\n".join((
     "manages git.",
     '- Before each step of the plan, write "STEP: <n>. <what>" on its own line.',
     "- Run the checks the plan lists and report each command with its real output.",
+    # R5: a blocked site is the owner's to allow, and RAVIS reopens the task once they have (a
+    # loaded thread never sees a site added later), so Codex stops instead of working around it.
+    '- When a command is refused with a "Network access to … was blocked" line, don\'t look for '
+    "another source or a workaround: end the turn, saying which site is needed and why.",
     "- If you need a decision, ask with request_user_input rather than guessing.",
 ))
 
@@ -204,15 +208,24 @@ def thread_resume_params(thread_id: str, root: Path, mode: str, profile: str) ->
     }
 
 
-def turn_start_params(thread_id: str, root: Path, mode: str, text: str) -> dict[str, Any]:
-    """`turn/start`: the mode as it is now (a change applies from the next turn), roots and box."""
-    return {
+def turn_start_params(
+    thread_id: str, root: Path, mode: str, text: str, effort: str | None = None
+) -> dict[str, Any]:
+    """`turn/start`: the mode as it is now (a change applies from the next turn), roots and box.
+
+    And the task's effort when it chose one, on every turn (R5): calibration's transcripts show
+    Codex 0.154.0 taking `effort` on `turn/start`. None leaves it to the model's default.
+    """
+    params: dict[str, Any] = {
         "threadId": thread_id,
         "input": [{"type": "text", "text": text}],
         "approvalPolicy": APPROVAL_POLICY[mode],
         "runtimeWorkspaceRoots": [str(root)],
         "sandboxPolicy": _box(root),
     }
+    if effort:
+        params["effort"] = effort
+    return params
 
 
 # ── Answers (calibration K8, K11) ────────────────────────────────────────────────────────────────

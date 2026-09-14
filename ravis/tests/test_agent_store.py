@@ -1,6 +1,8 @@
 """The relay's pieces on their own: migration 8, retention, request views, redaction and more.
 
-- **Migration 8** is backed up first (`ravis.db.v7.bak`) and can be rolled back to 7 from it.
+- **Migration 8** is backed up first (`ravis.db.v7.bak`) and can be rolled back to 7 from it, and
+  so is **migration 10** (each task's effort, R5) to 9.
+- **Codex is told to stop at a blocked site** and say which it needs, rather than work around it.
 - **Retention** deletes sessions, turns and requests 30 days after they ended, process rows 24 hours
   after they were confirmed gone, and kept answers after 24 hours — and nothing live.
 - **Request views** built from Codex's own request shapes are the contract's examples, decisions
@@ -86,6 +88,35 @@ def test_migration_9_is_backed_up_first_and_records_each_process_once(
     assert restore_backup(path, 8) == 8
     assert "ravis_instance" not in {row[0] for row in sqlite3.connect(path).execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+
+def test_migration_10_is_backed_up_first_and_adds_each_tasks_effort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "ravis.db"
+    with monkeypatch.context() as patched:
+        patched.setattr(storage, "MIGRATIONS", storage.MIGRATIONS[:9])
+        before = prepare_database(str(path))
+        assert before.schema_version == 9
+        AgentStore(before).insert_session(_session("as_before", None))
+    store = AgentStore(prepare_database(str(path)))
+    assert (tmp_path / "ravis.db.v9.bak").exists()
+    assert store.session("as_before")["effort"] is None  # type: ignore[index]
+    store.insert_session({**_session("as_after", None), "effort": "medium"})
+    assert store.session("as_after")["effort"] == "medium"  # type: ignore[index]
+    assert restore_backup(path, 9) == 9
+    columns = {row[1] for row in sqlite3.connect(path).execute("PRAGMA table_info(agent_session)")}
+    assert "effort" not in columns and "model" in columns
+
+
+def test_codex_is_told_to_stop_at_a_blocked_site_and_say_which_it_needs() -> None:
+    [line] = [line for line in calibrated.DEVELOPER_INSTRUCTIONS.splitlines()
+              if "Network access to" in line]
+    assert "was blocked" in line and "workaround" in line
+    assert "end the turn, saying which site is needed and why" in line
+    started = calibrated.thread_start_params(EXAMPLE_ROOT, "agent", "clarvis_run", "", "as_1")
+    resumed = calibrated.thread_resume_params("thread-1", EXAMPLE_ROOT, "agent", "clarvis_run")
+    assert line in started["developerInstructions"] and line in resumed["developerInstructions"]
 
 
 def _session(session_id: str, ended_at: str | None) -> dict[str, Any]:

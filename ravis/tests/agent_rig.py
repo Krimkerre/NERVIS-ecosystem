@@ -138,10 +138,11 @@ def project(rig: CodexRig, name: str = "add-utc-demo", *, git: bool = True
 def create_body(root: Path, git_dir: Path | None, *, text: str = "RELAY\nwait",
                 window: str = WINDOW, start: dict[str, Any] | None = None,
                 transfer_token: str | None = None, max_steps: int = 25, mode: str = "agent",
-                task_id: str = TASK_ID) -> dict[str, Any]:
+                task_id: str = TASK_ID, model: str = "", effort: object = None) -> dict[str, Any]:
+    named = {} if effort is None else {"effort": effort}
     return {
         "workspace_root": str(root), "clarvis_task_id": task_id,
-        "window": {"id": window, "host": "code-server"}, "mode": mode, "model": "",
+        "window": {"id": window, "host": "code-server"}, "mode": mode, "model": model, **named,
         "branch": {"name": "clarvis/add-utc", "head_commit": "3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7c"},
         "git_dir": str(git_dir) if git_dir else "",
         "start": start or {"kind": "brief", "text": text},

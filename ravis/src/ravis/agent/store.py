@@ -1,4 +1,4 @@
-"""Migration 8's tables, as the relay reads and writes them (design §4.10; RAVIS.md §17).
+"""Migrations 8 to 10's tables, as the relay reads and writes them (design §4.10; RAVIS.md §17).
 
 Shaped like `sessions.py`'s `SessionStore`: one class over the shared `Database`, an injected
 clock, rows in and out as plain dicts. **Metadata only** — ids, states, kinds, counts, timestamps
@@ -25,7 +25,7 @@ from ravis.storage.database import Database
 SESSION_COLUMNS = frozenset({
     "id", "application_id", "workspace_root", "workspace_root_hash", "workspace_name", "git_dir",
     "clarvis_task_id", "engine", "codex_thread_id", "active_turn_id", "last_turn_id", "model",
-    "mode", "file_rules", "state", "token_sha256", "trace_id", "runtime_sha256",
+    "effort", "mode", "file_rules", "state", "token_sha256", "trace_id", "runtime_sha256",
     "account_fingerprint", "branch_name", "head_commit_at_start", "max_steps", "last_event_id",
     "created_at", "updated_at", "ended_at",
 })

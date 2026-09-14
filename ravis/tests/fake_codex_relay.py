@@ -8,6 +8,7 @@ schema (`codex-app-server-ts-0.154.0-alpha.6.2`):
 |---|---|
 | `say <text>` | an agent message: started, two deltas, completed |
 | `run <command> => <output>` | a command that needs no approval: started, its output, completed |
+| `fetch <host>` | a command reaching a site through Codex's pretend proxy: through, or blocked |
 | `ask <command>` | a command approval in the project; runs it on accept, stops on cancel |
 | `ask-network <host>` | a network approval, with the amendment Codex would propose for the host |
 | `ask-outside <command>` | the same, in a folder outside the project |
@@ -28,7 +29,13 @@ Every answer RAVIS gives is logged (`relay_answer`), so a test can check exactly
 answers one completed turn whose command printed something that looks like a key, and
 `config/batchWrite` answers as Codex 0.154.0 does (Cal-3): `okOverridden` when a launch flag already
 sets the key it writes — a `domains` table inside the profile's `-c` network section — and `ok`
-otherwise, unless the scenario's `site_add_status` says how Codex answers adding one site.
+otherwise, unless the scenario says how Codex answers the owner's sites: `site_add_status` for an
+upsert without a wildcard (every site write but RAVIS's defaults), `site_replace_status` for a
+`replace`.
+
+A relay thread reads the site list when it loads, as the calibration half's threads do: its first
+turn, or the first after a resume reloads it (`sites_at_load`). So `fetch` reaches a site allowed
+later only once RAVIS has reopened the thread — or never, with `thread_never_unloads`.
 """
 
 from __future__ import annotations
@@ -66,9 +73,14 @@ def _write_status(api: Any, params: dict[str, Any]) -> str:
     edits = [edit for edit in params.get("edits") or [] if isinstance(edit, dict)]
     if any(_launch_sets(str(edit.get("keyPath", ""))) for edit in edits):
         return "okOverridden"  # the command-line layer outranks the user configuration
-    one_site = (len(edits) == 1 and edits[0].get("mergeStrategy") == "upsert"
-                and len(edits[0].get("value") or {}) == 1)
-    return str(api.scenario.get("site_add_status", "ok")) if one_site else "ok"
+    if len(edits) != 1:
+        return "ok"
+    strategy, sites = edits[0].get("mergeStrategy"), edits[0].get("value") or {}
+    if strategy == "replace":
+        return str(api.scenario.get("site_replace_status", "ok"))
+    # RAVIS's defaults are the only write carrying a wildcard; every other upsert is the owner's.
+    owners = strategy == "upsert" and not any(str(site).startswith("*.") for site in sites)
+    return str(api.scenario.get("site_add_status", "ok")) if owners else "ok"
 
 
 def _launch_sets(key_path: str) -> bool:
@@ -108,8 +120,11 @@ def _turns_list(api: Any, params: dict[str, Any]) -> dict[str, Any] | str:
 def turn(api: Any, thread_id: str, turn_id: str, prompt: str, stop: threading.Event
          ) -> dict[str, Any] | None:
     """Act out the turn's lines; the turn's error when a line fails it, else None."""
+    thread = api.state["threads"][thread_id]
+    # The site list this load of the thread reads: set by its first turn after it was loaded.
+    thread.setdefault("sites_at_load", dict(api.user_sites()))
     context = {"api": api, "thread_id": thread_id, "turn_id": turn_id, "stop": stop,
-               "cwd": api.state["threads"][thread_id]["cwd"]}
+               "cwd": thread["cwd"]}
     for line in prompt.splitlines()[1:]:
         if stop.is_set():
             return None
@@ -209,6 +224,20 @@ def run(context: dict[str, Any], rest: str) -> None:
     item = _command_item(context, command)
     _started(context, item)
     _finish_command(context, item, output)
+
+
+def fetch(context: dict[str, Any], host: str) -> None:
+    """A command reaching a site through Codex's pretend proxy (the calibration half's).
+
+    Through when the thread's list, as it was when the thread loaded, allows the host; otherwise the
+    proxy's fixed blocked line, which RAVIS turns into a site ask.
+    """
+    api = context["api"]
+    item = _command_item(context, f"curl -sI https://{host}")
+    _started(context, item)
+    reached = api.site_allowed(api.state["threads"][context["thread_id"]], host)
+    _finish_command(context, item,
+                    f"HTTP/2 200 from {host}" if reached else api.site_blocked.format(host=host))
 
 
 def ask(context: dict[str, Any], command: str, cwd: str | None = None) -> None:
@@ -342,8 +371,8 @@ def wait(context: dict[str, Any], _rest: str) -> None:
 
 
 ACTIONS: dict[str, Any] = {
-    "say": say, "run": run, "ask": ask, "ask-network": ask_network, "ask-outside": ask_outside,
-    "edit": edit,
+    "say": say, "run": run, "fetch": fetch, "ask": ask, "ask-network": ask_network,
+    "ask-outside": ask_outside, "edit": edit,
     "edit-unseen": edit_unseen, "grant": grant,
     "question": question, "secret": secret, "elicit": elicit, "plan": plan, "reroute": reroute,
     "steps": steps, "spawn": spawn, "fail": fail, "wait": wait,

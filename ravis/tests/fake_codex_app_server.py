@@ -9,8 +9,9 @@ to a malformed line.
 
 **What a test controls.**
 - A *scenario*, read at start: the account, the allowance, and which failures to act out — exit at
-  start, never answer some methods, answer `initialize` as another version or home, refuse the
-  sign-in as "already in use", and how a re-test turn behaves.
+  start, never answer some methods (`silent_methods`) or refuse them at once (`refused_methods`),
+  answer `initialize` as another version or home, refuse the sign-in as "already in use", and how
+  a re-test turn behaves.
 - *Commands* dropped into a control folder while it runs, carried out in order and deleted first
   (so a restarted fake never repeats one): send a notification, crash, stop answering, complete or
   fail the sign-in, swap the account, change the allowance.
@@ -24,6 +25,7 @@ sandbox it pretends to enforce only ever reads or writes files the test created 
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -242,6 +244,11 @@ def turn_start(params: dict[str, Any]) -> dict[str, Any] | str:
     thread_id = params.get("threadId")
     if thread_id not in state["threads"]:
         return f"thread not found: {thread_id}"
+    if state["threads"][thread_id].get("unloaded"):
+        # As Codex does: a thread it has unloaded must be resumed before it takes a turn.
+        return f"thread not loaded: {thread_id}"
+    # A thread with a turn has a rollout, so Codex can unload it and resume it from disk.
+    state["threads"][thread_id]["had_turn"] = True
     turn_id = str(uuid.uuid4())
     state["interrupts"][turn_id] = threading.Event()
     parts = [part.get("text", "") for part in params.get("input", []) if isinstance(part, dict)]
@@ -386,6 +393,10 @@ API = types.SimpleNamespace(
     answered=answered, server_ids=server_ids,
 )
 HANDLERS.update(calibration.handlers(API))
+# The pretend proxy the relay half's `fetch` goes through, kept by the calibration half.
+API.site_allowed = functools.partial(calibration.site_allowed, API)
+API.user_sites = functools.partial(calibration.user_sites, API)
+API.site_blocked = calibration.SITE_BLOCKED
 # The agent-session relay's half, registered last: its `turn/steer` can be told to refuse.
 HANDLERS.update(relay.handlers(API))
 
@@ -435,7 +446,7 @@ def respond(request_id: Any, method: str, params: dict[str, Any]) -> None:
         error(request_id, -32600, "Not initialized")
         return
     handler = HANDLERS.get(method)
-    if handler is None:
+    if handler is None or method in SCENARIO.get("refused_methods", ()):
         error(request_id, -32600, f"Invalid request: unknown variant `{method}`, expected one of …")
         return
     result = handler(params)

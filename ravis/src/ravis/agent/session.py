@@ -30,6 +30,16 @@ window's routes: interrupt the turn (5 s) and wait up to 3 s for Codex to end it
 task's processes and confirm (`cleanup.py`), then emit `turn.completed` with the confirmation, and
 the settle state — or `leftover`, naming what still runs.
 
+**Reopening after blocked sites** (R5; `agent-sessions.json` → `reopening`). A loaded Codex thread
+keeps the site list it was loaded with, so when a turn ends with site asks open from it, or with a
+site allowed since the thread loaded, the task lets go of its thread at once (`site.reopening`),
+waits for Codex to unload it (`reopen.py`: asked every 2 s, at most 120 s) and resumes it as after
+a restart (`site.reopened`, or `site.reopen_incomplete` at the cap). A turn asked for meanwhile
+starts after the resume; a Stop, a switch or a settle skip the resume, never the wait, and the next
+turn resumes the thread instead. **A turn never starts in a thread loaded before the task's last
+allowed site**: allowing one while no turn runs reopens the thread straight away. The site asks one
+turn opens form a group and open together, a group at a time (`sites.py`, `SiteAsks`).
+
 **Content** passes through memory only: request payloads until answered, and the event log
 (`events.py`). The database gets ids, states and kinds (`store.py`).
 """
@@ -59,6 +69,7 @@ from ravis.agent.cleanup import (
 from ravis.agent.events import EventLog
 from ravis.agent.locks import ProjectLocks
 from ravis.agent.redact import command_hidden
+from ravis.agent.reopen import Reopening, let_go, unloaded
 from ravis.agent.requests import (
     KINDS,
     PathContext,
@@ -67,7 +78,14 @@ from ravis.agent.requests import (
     payload_and_decisions,
 )
 from ravis.agent.sites import DECISIONS as SITE_DECISIONS
-from ravis.agent.sites import SiteAllowlist, blocked_hosts, protocol_for, site_payload
+from ravis.agent.sites import (
+    SiteAllowlist,
+    SiteAsk,
+    SiteAsks,
+    blocked_hosts,
+    protocol_for,
+    site_payload,
+)
 from ravis.agent.store import AgentStore
 from ravis.agent.tokens import new_id
 from ravis.agent.translate import (
@@ -89,6 +107,7 @@ from ravis.codex.rpc import (
     CodexTimeoutError,
     CodexUnavailableError,
 )
+from ravis.codex.state import ModelFacts
 from ravis.config import Settings
 
 logger = logging.getLogger("ravis")
@@ -122,6 +141,7 @@ class CodexHost(Protocol):
     def release(self, thread_id: str) -> None: ...
     def readiness(self) -> tuple[str, str] | None: ...
     def profile_name(self) -> str | None: ...
+    def models(self) -> tuple[ModelFacts, ...]: ...
     def account_fingerprint(self) -> str | None: ...
     def running_sha256(self) -> str | None: ...
     def app_server_pid(self) -> int | None: ...
@@ -146,6 +166,12 @@ class SessionTimings:
     claim_seconds: float = 300.0
     #: How long a file-change approval waits for its item to say what it writes (K12).
     file_item_wait_seconds: float = 2.0
+    #: Reopening a thread after a blocked site (R5): `thread/unsubscribe`'s wait, each
+    #: `thread/loaded/list`'s, how often it is asked, and how long Codex gets to let go.
+    unsubscribe_seconds: float = 10.0
+    loaded_list_seconds: float = 10.0
+    unload_poll_seconds: float = 2.0
+    unload_cap_seconds: float = 120.0
     cleanup: CleanupTimings = CleanupTimings()
 
 
@@ -232,6 +258,8 @@ class AgentSession:
         self.state: str = row["state"]
         self.mode: str = row["mode"]
         self.model: str | None = row["model"]
+        #: The effort chosen at create, sent on every `turn/start`; None leaves it to the model.
+        self.effort: str | None = row["effort"]
         self.thread_id: str | None = row["codex_thread_id"]
         self.active_turn_id: str | None = row["active_turn_id"]
         self.last_turn_id: str | None = row["last_turn_id"]
@@ -259,9 +287,16 @@ class AgentSession:
         self._open: dict[str, OpenRequest] = {}
         #: File-change approvals waiting for their item (calibration K12), by item id.
         self._awaiting: dict[str, OpenRequest] = {}
-        #: Sites Codex's proxy blocked in this task: every host seen, and those still to ask.
-        self._sites_seen: set[str] = set()
-        self._sites_waiting: list[tuple[str, str | None, Any, Any]] = []
+        #: Sites Codex's proxy blocked in this task, grouped by the turn that blocked them.
+        self._site_asks = SiteAsks()
+        #: Sites the owner allowed while the thread stayed loaded, by host: each one's group (R5).
+        self._allowed_since_load: dict[str, str] = {}
+        #: The thread's reopen under way, if any (R5, `reopen.py`).
+        self._reopening: Reopening | None = None
+        #: Whether this Codex process has had the thread loaded: an unsubscribed one still archives.
+        self._codex_knows_thread = False
+        #: The consumer handling a message right now, which a thread's new hold never cancels.
+        self._handling: asyncio.Task[Any] | None = None
         self._resolved: dict[str, str] = {}
         self._file_changes: dict[str, list[dict[str, Any]]] = {}
         self._hidden_output: dict[str, bool] = {}
@@ -288,10 +323,11 @@ class AgentSession:
     def _reserve(self, through: int) -> None:
         self._context.store.update_session(self.id, last_event_id=through)
 
-    def _task(self, work: Coroutine[Any, Any, None]) -> None:
+    def _task(self, work: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
         task = asyncio.create_task(work)
         self._tasks.add(task)
         task.add_done_callback(self._finished)
+        return task
 
     def _finished(self, task: asyncio.Task[None]) -> None:
         self._tasks.discard(task)
@@ -319,8 +355,10 @@ class AgentSession:
             "file_rules": "strict",
             "codex": {
                 "thread_id": self.thread_id, "active_turn_id": self.active_turn_id,
-                "model": self.model, "runtime_sha256": self.runtime_sha256,
+                "model": self.model, "effort": self.effort,
+                "runtime_sha256": self.runtime_sha256,
                 "account_fingerprint": self.account_fingerprint,
+                "reopening": self._reopening.view() if self._reopening is not None else None,
             },
             "branch": {"name": self.branch_name, "head_commit_at_start": self.head_commit},
             "pending_requests": [request.view for request in self._open.values()],
@@ -494,14 +532,19 @@ class AgentSession:
                 self.thread_id, str(self.root), str(self.git_dir) if self.git_dir else None)
 
     def _hold_thread(self) -> None:
+        """Follow the thread from now on: it is loaded, with Codex's site list as it is now."""
         if self.thread_id is None:
             return
         self.inbox = Inbox()
         self._context.codex.hold(self.thread_id, self.inbox)
-        self.thread_loaded = True
-        if self._consumer is not None:
-            self._consumer.cancel()
-        self._consumer = asyncio.create_task(self._consume())
+        self.thread_loaded = self._codex_knows_thread = True
+        # Every site allowed so far reaches this load of the thread (R5).
+        self._allowed_since_load.clear()
+        retiring, self._consumer = self._consumer, asyncio.create_task(self._consume(self.inbox))
+        if retiring is not None and retiring is not self._handling:
+            # Idle on its old inbox, so cancelling it cuts nothing off. One busy with a message — a
+            # turn's end, say, which may be what reopened the thread — finishes it, then stops.
+            retiring.cancel()
 
     async def _resume_thread(self) -> None:
         """After Codex's process restarted, or RAVIS did: `thread/resume` in the new process."""
@@ -532,7 +575,8 @@ class AgentSession:
         if ready is not None:
             raise refusals.codex_not_ready(*ready)
         self._context.locks.take_for_turn(self, transfer_token)
-        if not self.thread_loaded:
+        if not self.thread_loaded and self._reopening is None:
+            # Unloaded after a restart, or by a reopen whose resume was skipped: resumed now.
             await self._resume_thread()
         self.start_turn(kind, text)
         return {"turn": {"state": "starting"}}
@@ -542,7 +586,20 @@ class AgentSession:
             raise refusals.session_not_found()
 
     def start_turn(self, kind: str, text: str) -> None:
-        """Begin a turn: queued feedback goes in front of the text, and is delivered in it."""
+        """Begin a turn — or, while the thread reopens, once it has been resumed (R5)."""
+        self._reopen_if_stale()
+        if self._reopening is None:
+            self._begin_turn(kind, text)
+            return
+        # It waits for the reopen: `starting` now, as any turn asked for; `_reopened` begins it.
+        self._turn = _Turn(kind=kind)
+        self.stop_requested, self.stopped_by = False, None
+        self.processes = Processes()
+        self._reopening.queued = (kind, text)
+        self.set_state("starting")
+
+    def _begin_turn(self, kind: str, text: str) -> None:
+        """Send the turn: queued feedback goes in front of the text, and is delivered in it."""
         queued, self.queued = self.queued, []
         for feedback in queued:
             self.emit("feedback", text=feedback, how="delivered_in_turn")
@@ -556,7 +613,8 @@ class AgentSession:
 
     async def _send_turn_start(self, text: str) -> None:
         codex, timings = self._context.codex, self._context.timings
-        params = calibrated.turn_start_params(str(self.thread_id), self.root, self.mode, text)
+        params = calibrated.turn_start_params(str(self.thread_id), self.root, self.mode, text,
+                                              self.effort)
         try:
             result = await codex.request("turn/start", params, timeout=timings.turn_start_seconds)
         except CodexTimeoutError:
@@ -586,13 +644,18 @@ class AgentSession:
 
     # ── Codex's messages for this thread ─────────────────────────────────────
 
-    async def _consume(self) -> None:
-        while True:
-            item = await self.inbox.get()
+    async def _consume(self, inbox: Inbox) -> None:
+        """Handle one inbox's messages in order, until the thread is held with another inbox."""
+        while inbox is self.inbox:
+            item = await inbox.get()
+            self._handling = asyncio.current_task()
             try:
                 await self._handle(item)
             except Exception:  # noqa: BLE001 — one bad message must not stop the task's stream
                 logger.exception("agent: session %s couldn't handle %s", self.id, item.method)
+            finally:
+                if self._handling is asyncio.current_task():
+                    self._handling = None
 
     async def _handle(self, item: InboxItem) -> None:
         if item.request_id is not None:
@@ -670,29 +733,32 @@ class AgentSession:
     def _site_blocks(self, turn_id: Any, item: dict[str, Any]) -> None:
         """A command Codex's proxy blocked names a site: ask the owner about it (`sites.py`)."""
         for host in blocked_hosts(item.get("aggregatedOutput")):
-            if host in self._sites_seen:
-                continue
-            self._sites_seen.add(host)
             protocol = protocol_for(host, item.get("command"))
-            self.emit("site.blocked", turn_id=turn_id, item_id=item.get("id"), host=host,
-                      protocol=protocol)
-            self._sites_waiting.append((host, protocol, turn_id, item.get("id")))
-        self._open_next_site()
+            if self._site_asks.blocked(turn_id, item.get("id"), host, protocol) is not None:
+                self.emit("site.blocked", turn_id=turn_id, item_id=item.get("id"), host=host,
+                          protocol=protocol)
+        self._open_waiting_sites()
 
-    def _open_next_site(self) -> None:
-        """One site ask open at a time; the next opens once the owner decided the last."""
-        if not self._sites_waiting or any(r.kind == "site" for r in self._open.values()):
-            return
-        host, protocol, turn_id, item_id = self._sites_waiting.pop(0)
+    def _open_site_groups(self) -> set[str]:
+        return {str(r.codex_params["group_id"]) for r in self._open.values() if r.kind == "site"}
+
+    def _open_waiting_sites(self) -> None:
+        """A group's asks open together; a later group's wait until that group is decided (R5)."""
+        for ask in self._site_asks.openable(self._open_site_groups()):
+            self._open_site(ask)
+
+    def _open_site(self, ask: SiteAsk) -> None:
         request_id = new_id("rq_")
         store = self._context.store
-        store.insert_request(request_id, self.id, turn_id, "", "site", host=host)
+        store.insert_request(request_id, self.id, ask.turn_id, "", "site", host=ask.host)
         view = {
-            "id": request_id, "kind": "site", "turn_id": turn_id, "item_id": item_id,
-            "opened_at": store.stamp(), "payload": site_payload(host, protocol),
+            "id": request_id, "kind": "site", "turn_id": ask.turn_id, "group_id": ask.group_id,
+            "item_id": ask.item_id, "opened_at": store.stamp(),
+            "payload": site_payload(ask.host, ask.protocol),
             "allowed_decisions": list(SITE_DECISIONS),
         }
-        self._open[request_id] = OpenRequest(request_id, "site", view, {"host": host}, None, None,
+        params = {"host": ask.host, "group_id": ask.group_id}
+        self._open[request_id] = OpenRequest(request_id, "site", view, params, None, None,
                                              self._context.clock())
         self.emit("request.opened", request=view)
         self._meta("ravis.agent_session.request_opened", request_id=request_id, kind="site")
@@ -707,7 +773,9 @@ class AgentSession:
             # So Clarvis can have Codex retry the step the proxy blocked.
             self.emit("site.allowed", request_id=request.id, host=host)
         self._resolve(request, "window", word)
-        self._open_next_site()
+        if word == "allow_site":
+            self._site_allowed(host, str(request.codex_params["group_id"]))
+        self._open_waiting_sites()
         return {"resolved": True, "decision_kind": word}
 
     def site_host(self, request_id: str) -> str | None:
@@ -716,6 +784,104 @@ class AgentSession:
         if request is None or request.kind != "site":
             return None
         return str(request.codex_params["host"])
+
+    # ── Reopening the thread after blocked sites (R5, `reopen.py`) ────────────
+
+    def _site_allowed(self, host: str, group_id: str) -> None:
+        """A site allowed: a thread already loaded can't reach it, so the thread is reopened.
+
+        Straight away while no turn runs; when the running turn ends otherwise.
+        """
+        if not self.thread_loaded:
+            return  # unloaded, or being reopened: its next load reads Codex's list afresh
+        self._allowed_since_load[host] = group_id
+        if self.state not in TURN_STATES and self.state != "stopping":
+            self._reopen_if_stale()
+
+    def _reopen_if_stale(self) -> None:
+        """Never a turn in a thread loaded before the task's last allowed site: reopen it first."""
+        if self._reopening is None and self.thread_loaded and self._allowed_since_load:
+            groups = list(self._allowed_since_load.values())
+            self._begin_reopen(groups[-1], list(self._allowed_since_load))
+
+    def _reopen_after_turn(self, turn_id: Any) -> None:
+        """A turn ended with site asks open from it: reopen its thread while the owner decides."""
+        if self._reopening is not None or not self.thread_loaded:
+            return
+        group = self._site_asks.group_of(turn_id)
+        asking = group is not None and (
+            group in self._open_site_groups() or self._site_asks.waiting(group))
+        if group is None or not asking:
+            self._reopen_if_stale()
+            return
+        hosts = [*self._site_asks.hosts(group), *self._allowed_since_load]
+        self._begin_reopen(group, list(dict.fromkeys(hosts)))
+
+    def _begin_reopen(self, group_id: str | None, hosts: list[str]) -> None:
+        """Let go of the thread now, so Codex can unload it while the owner decides."""
+        if self.thread_id is None:
+            return
+        self._context.codex.release(self.thread_id)
+        self.thread_loaded = False
+        reopening = Reopening(group_id, tuple(hosts), self._context.store.stamp())
+        self._reopening = reopening
+        self.emit("site.reopening", group_id=group_id, hosts=list(hosts))
+        reopening.task = self._task(self._reopen(reopening))
+
+    async def _reopen(self, reopening: Reopening) -> None:
+        """`thread/unsubscribe`, then wait for Codex to unload the thread (2 s polls, 120 s)."""
+        codex, timings, thread_id = self._context.codex, self._context.timings, str(self.thread_id)
+        await let_go(codex.request, thread_id, seconds=timings.unsubscribe_seconds)
+        gone = await unloaded(codex.request, thread_id, poll_seconds=timings.unload_poll_seconds,
+                              cap_seconds=timings.unload_cap_seconds,
+                              request_seconds=timings.loaded_list_seconds)
+        async with self.action_lock:
+            if self._reopening is reopening:
+                await self._reopened(reopening, gone=gone)
+
+    async def _reopened(self, reopening: Reopening, *, gone: bool) -> None:
+        """The wait ended: say how, resume the thread unless skipped, begin a turn that waited."""
+        self._reopening = None
+        self.emit("site.reopened" if gone else "site.reopen_incomplete",
+                  group_id=reopening.group_id, hosts=list(reopening.hosts))
+        if not reopening.resume and reopening.queued is None:
+            return  # a Stop, a switch or a settle skipped it: the next turn resumes the thread
+        try:
+            await self._resume_thread()
+        except CodexRefusalError as failure:
+            if reopening.queued is not None:
+                self._task(self._turn_not_resumed(str(failure)))
+            return
+        if reopening.queued is not None:
+            self._begin_turn(*reopening.queued)
+
+    async def _turn_not_resumed(self, message: str) -> None:
+        """A turn that waited for the reopen ends failed when Codex couldn't resume the thread."""
+        if self._turn.end_reason is not None:
+            return  # a Stop, or Codex's process ending, got there first
+        self._turn.end_reason = "completed"
+        self._turn.status, self._turn.error = "failed", turn_start_error(message)
+        await self._conclude_turn()
+
+    def _skip_resume(self) -> None:
+        """A Stop, a switch or a settle while the thread reopens: the wait goes on, the resume
+        doesn't, and the next turn resumes the thread instead."""
+        if self._reopening is not None:
+            self._reopening.resume = False
+
+    def _drop_waiting_turn(self) -> None:
+        """A Stop drops a turn waiting for the reopen: it never began, so nothing waits on it."""
+        if self._reopening is not None and self._reopening.queued is not None:
+            self._reopening.queued = None
+            self._turn.began.set()
+            self._turn.done.set()
+
+    def _forget_reopen(self) -> Reopening | None:
+        """The task ended, or Codex's process did: the wait stops, and nothing is resumed."""
+        reopening, self._reopening = self._reopening, None
+        if reopening is not None and reopening.task is not None:
+            reopening.task.cancel()
+        return reopening
 
     def _elicitation_declined(self, _params: dict[str, Any]) -> None:
         """An MCP server asked for input: RAVIS's router declined it (review AL2); say so."""
@@ -889,13 +1055,18 @@ class AgentSession:
     # ── Ending a turn: Stop, the step cap, the policy, a crash ───────────────
 
     def stop(self, by: str) -> str:
-        """A Stop from a window (interrupt, cancel) or the owner (owner-stop), under the lock."""
+        """A Stop from a window (interrupt, cancel) or the owner (owner-stop), under the lock.
+
+        While the thread reopens, a Stop skips the resume and drops a turn waiting for it (R5).
+        """
+        self._skip_resume()
         if self.state == "stopping" or self.state not in TURN_STATES:
             return self.state
         if self._turn.end_reason is not None:
             return self.state
         self.stopped_by = by
         self.set_state("stopping")
+        self._drop_waiting_turn()
         self._end_turn_as("stop", "stop" if by == "window" else "owner_stop")
         return "stopping"
 
@@ -978,7 +1149,12 @@ class AgentSession:
         """Codex's process stopped: a running turn is cut off, and its thread must be resumed."""
         if self.thread_id is not None:
             self._context.codex.release(self.thread_id)
-        self.thread_loaded = False
+        self.thread_loaded = self._codex_knows_thread = False
+        # Every thread goes with the process, so the next load reads Codex's list afresh (R5).
+        self._allowed_since_load.clear()
+        reopening = self._forget_reopen()
+        if reopening is not None:
+            self.emit("site.reopened", group_id=reopening.group_id, hosts=list(reopening.hosts))
         if self.state not in TURN_STATES and self.state != "stopping":
             return
         self._turn.done.set()
@@ -996,10 +1172,13 @@ class AgentSession:
             completed["error"] = error
         completed["processes_confirmed_gone"] = confirmation.confirmed_gone
         self.emit("turn.completed", **completed)
-        if self.active_turn_id is not None and self._turn.end_reason != "completed":
-            self._context.store.end_turn(self.id, self.active_turn_id, status,
+        ended = self.active_turn_id
+        if ended is not None and self._turn.end_reason != "completed":
+            self._context.store.end_turn(self.id, ended, status,
                                          uncertain=self._turn.end_reason == "crash")
         self.active_turn_id = None
+        # Before any follow-on turn, which then waits for the reopen (R5).
+        self._reopen_after_turn(ended)
         target = FINAL_STATE.get(str(self._turn.end_reason), "completed_needs_review")
         if not confirmation.confirmed_gone:
             self._after_leftover = target
@@ -1115,6 +1294,7 @@ class AgentSession:
             raise refusals.claim_invalid()
         self.claim = None
         self.processes = Processes(0, True, ())
+        self._skip_resume()  # settled while the thread reopens: the next turn resumes it (R5)
         if next_step == "end" or self.end_after_settle:
             await self.end()
         elif next_step == "transfer":
@@ -1131,6 +1311,7 @@ class AgentSession:
         """`POST …/cancel`: Stop now if a turn runs, and end once the work is settled."""
         self._refuse_if_over()
         self.end_after_settle = True
+        self._skip_resume()
         if self.state in TURN_STATES:
             self.stop("window")
         elif self.state == "idle":
@@ -1149,7 +1330,9 @@ class AgentSession:
 
     async def end(self) -> None:
         """Archive the thread (kept, not deleted), let the lock go, and say the task is over."""
-        if self.thread_id is not None and self.thread_loaded:
+        self._forget_reopen()
+        # A thread this Codex process had loaded — being reopened or not — is archived.
+        if self.thread_id is not None and self._codex_knows_thread:
             with contextlib.suppress(CodexRpcError, CodexUnavailableError):
                 await self._context.codex.request(
                     "thread/archive", {"threadId": self.thread_id},

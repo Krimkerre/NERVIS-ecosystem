@@ -43,6 +43,7 @@ from tests.codex_rig import (
     state_of,
 )
 
+from ravis.agent.identity import require_agent_client
 from ravis.api.management import codex as codex_routes
 from ravis.config import data_directory
 from ravis.credentials import config_directory
@@ -149,7 +150,12 @@ def test_the_re_test_is_the_one_codex_route_that_needs_the_owners_credential() -
         ("/api/v1/codex/account/confirm", "POST"), ("/api/v1/codex/version-check", "GET"),
         ("/api/v1/codex/accept-version", "POST"),
         ("/api/v1/codex/accept-version/{sha256}", "DELETE"),
+        # R5: removing an added site is NERVIS's Codex card's, through its control route.
+        ("/api/v1/codex/sites/{host}", "DELETE"),
     }
+    # R5: Clarvis, NERVIS or an admin reads the sites; only Clarvis's client credential adds.
+    assert guarded[("/api/v1/codex/sites", "GET")] == {codex_routes.require_sites_reader}
+    assert guarded[("/api/v1/codex/sites", "POST")] == {require_agent_client}
 
 
 # ── When it may run ─────────────────────────────────────────────────────────

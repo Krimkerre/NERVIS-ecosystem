@@ -6,14 +6,17 @@
    waiting to run — else 409 `CODEX_NOT_READY {state, reason}`, the reason
    `strict_file_rules_unproven` while calibration or the re-test hasn't proven them (owner
    decision D2), `codex_update_pending` while a new build waits (review AL5);
-3. the live-session limit (default 3) — 409 `CODEX_SESSION_LIMIT`;
-4. the project lock, taken atomically, or with a transfer token (`locks.py`) — 409;
-5. the row, then `thread/start` (or `thread/unarchive` and `thread/resume`) — 503 if Codex
+3. a named model must be one Codex's `model/list` offers (422 `MODEL_NOT_OFFERED`), and a named
+   effort one of that model's efforts — the default model's when none is named (422
+   `EFFORT_NOT_OFFERED`); while Codex hasn't listed its models, either is 503 (R5);
+4. the live-session limit (default 3) — 409 `CODEX_SESSION_LIMIT`;
+5. the project lock, taken atomically, or with a transfer token (`locks.py`) — 409;
+6. the row, then `thread/start` (or `thread/unarchive` and `thread/resume`) — 503 if Codex
    doesn't answer, and then the lock is let go and the row marked failed;
-6. `session.state starting` (event 1), the answer rendered — so a window following from the
+7. `session.state starting` (event 1), the answer rendered — so a window following from the
    create's `last_event_id` still gets `turn.started` — and only then the first turn.
 
-Steps 2 to 5 run under one lock, so two creates can't both slip under the limit.
+Steps 2 to 6 run under one lock, so two creates can't both slip under the limit.
 
 **Starting** (design §4.4, "RAVIS restart"), before any agent-session or project-lock route
 answers (`ready`; until then they answer 503): RAVIS records its own instance; every task a
@@ -74,6 +77,7 @@ from ravis.codex.lock_rule import own_start
 from ravis.codex.process_table import Kill, Snapshot, read_cwds, snapshot
 from ravis.codex.refusals import CodexRefusalError
 from ravis.codex.rpc import CodexRpcError, CodexUnavailableError
+from ravis.codex.state import ModelFacts
 from ravis.config import Settings
 from ravis.storage.database import Database
 
@@ -117,6 +121,8 @@ class CreateRequest:
     window_host: str
     mode: str
     model: str
+    #: The effort named, or None for the model's own default (R5).
+    effort: str | None
     branch_name: str | None
     head_commit: str | None
     start: dict[str, Any]
@@ -142,7 +148,7 @@ def create_request(body: dict[str, Any]) -> CreateRequest:
     return CreateRequest(
         workspace_root=str(body.get("workspace_root") or ""), git_dir=body.get("git_dir"),
         task_id=task_id, window_id=window["id"], window_host=str(window.get("host") or ""),
-        mode=mode, model=str(body.get("model") or ""),
+        mode=mode, model=str(body.get("model") or ""), effort=_effort(body.get("effort")),
         branch_name=_text(branch.get("name")), head_commit=_text(branch.get("head_commit")),
         start=start, transfer_token=_text(_mapping(body.get("lock")).get("transfer_token")),
         max_steps=max_steps,
@@ -162,6 +168,13 @@ def _start(value: object) -> dict[str, Any]:
     return {"kind": kind, "text": str(start.get("text") or "")}
 
 
+def _effort(value: object) -> str | None:
+    """The effort a create names, as text; absent, null or empty leaves it to the model (R5)."""
+    if value is None or isinstance(value, str):
+        return value or None
+    raise _invalid("effort must be text: one of the model's efforts.")
+
+
 def _mapping(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -172,6 +185,13 @@ def _text(value: object) -> str | None:
 
 def _invalid(message: str) -> CodexRefusalError:
     return CodexRefusalError("INVALID_REQUEST_BODY", 422, message)
+
+
+def _chosen_model(models: tuple[ModelFacts, ...], named: str) -> ModelFacts | None:
+    """The model a create names; naming none, the one Codex uses by default (else its first)."""
+    if named:
+        return next((model for model in models if model.id == named), None)
+    return next((model for model in models if model.is_default), models[0])
 
 
 def checkpoint_names_thread(row: dict[str, Any]) -> bool:
@@ -330,6 +350,7 @@ class AgentSessions:
             ready = self._codex.readiness()
             if ready is not None:
                 raise refusals.codex_not_ready(*ready)
+            self._offered(wanted)
             live = sum(1 for known in self._sessions.values() if known.live)
             if live >= self.settings.agent_session_limit:
                 raise refusals.session_limit()
@@ -357,6 +378,21 @@ class AgentSessions:
             raise
         self._sessions[session.id] = session
 
+    def _offered(self, wanted: CreateRequest) -> None:
+        """A named model must be one Codex offers, and a named effort one that model offers."""
+        if not wanted.model and wanted.effort is None:
+            return
+        models = self._codex.models()
+        if not models:
+            raise refusals.runtime_unavailable(
+                "Codex hasn't listed its models yet, so the model and effort can't be checked; "
+                "try again in a moment.")
+        chosen = _chosen_model(models, wanted.model)
+        if chosen is None:
+            raise refusals.model_not_offered(wanted.model, [model.id for model in models])
+        if wanted.effort is not None and wanted.effort not in chosen.efforts:
+            raise refusals.effort_not_offered(chosen.id, wanted.effort, list(chosen.efforts))
+
     def _row(self, application_id: str, wanted: CreateRequest, workspace: roots.Workspace,
              token: str) -> dict[str, Any]:
         stamp = self.store.stamp()
@@ -366,7 +402,8 @@ class AgentSessions:
             "workspace_name": workspace.name,
             "git_dir": str(workspace.git_dir) if workspace.git_dir else None,
             "clarvis_task_id": wanted.task_id, "codex_thread_id": None, "active_turn_id": None,
-            "last_turn_id": None, "model": wanted.model or None, "mode": wanted.mode,
+            "last_turn_id": None, "model": wanted.model or None, "effort": wanted.effort,
+            "mode": wanted.mode,
             "state": "starting", "token_sha256": token_sha256(token), "trace_id": uuid.uuid4().hex,
             "runtime_sha256": self._codex.running_sha256(),
             "account_fingerprint": self._codex.account_fingerprint(),
@@ -382,7 +419,8 @@ class AgentSessions:
             "workspace_root": str(session.root), "workspace_root_hash": session.root_hash,
             "workspace_name": session.name,
             "git_dir": str(session.git_dir) if session.git_dir else None,
-            "clarvis_task_id": session.task_id, "model": session.model, "mode": session.mode,
+            "clarvis_task_id": session.task_id, "model": session.model, "effort": session.effort,
+            "mode": session.mode,
             "file_rules": "strict", "state": session.state, "token_sha256": session.token_sha256,
             "trace_id": session.trace_id, "runtime_sha256": session.runtime_sha256,
             "account_fingerprint": session.account_fingerprint,

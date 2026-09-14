@@ -1,4 +1,4 @@
-"""Codex agent sessions and the project lock (M29's third and fourth increments, R3 and R4).
+"""Codex agent sessions and the project lock (M29's increments R3 and R4, and R5's additions).
 
 RAVIS runs one Codex process for the whole Mac (`ravis.codex`). This package is what turns it into
 tasks a Clarvis window can start, follow, answer, steer, stop and reattach to after closing
@@ -20,8 +20,9 @@ code and the event stream — is the fixtures in `tests/fixtures/relay-contract/
 | `translate.py` | Codex's notifications as relay events; turn failures in the owner's words |
 | `events.py` | each task's event ids, its two replay buffers and the SSE frames |
 | `redact.py` | command output that might hold a secret, hidden before it is relayed |
-| `sites.py` | a site Codex's network proxy blocked, asked of the owner; the allowlist, added live |
-| `store.py` | migrations 8 and 9: sessions, turns, requests, processes, locks, threads |
+| `sites.py` | blocked sites asked of the owner, in groups; the allowlist, added live or ahead |
+| `reopen.py` | letting go of a task's thread until Codex unloads it, after blocked sites |
+| `store.py` | migrations 8 to 10: sessions, turns, requests, processes, locks, threads |
 | `calibration_dependent.py` | **every value calibration's `summary.json` replaces**, in one place |
 | `locks.py` | the project lock as a Codex session holds it, and the views both engines share |
 | `lock_api.py` | Clarvis's own runs taking the lock: acquire, adopt, takeover, transfer |
@@ -41,4 +42,11 @@ release, takeover, transfer, read); per-task process attribution by Codex's proc
 command's folder and pid-plus-start identity, recorded in `agent_process` and in the checkout lock
 file; restart reconciliation with the adoption rule; the group-and-descendants kill at a takeover;
 interrupting turns at shutdown; `paused_for_update`; and the 90-day sweep of Codex's threads.
+
+**What R5 added:** the sites the owner allows before a task (`GET`, `POST` and `DELETE
+/api/v1/codex/sites`, served from `api/management/codex.py` over `sites.py`'s allowlist); site asks
+grouped by the turn that blocked them; reopening a task's thread when a turn ends with site asks
+open, or with a site allowed since the thread loaded (`reopen.py`), a turn asked for meanwhile
+starting after the resume; and each task's effort, checked against `model/list` and sent on every
+`turn/start` (migration 10).
 """

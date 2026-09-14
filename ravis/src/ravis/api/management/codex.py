@@ -12,6 +12,9 @@ The shapes, codes and messages are the contract fixtures `codex-state.json` and 
 | `GET /version-check`, `POST /accept-version`, `DELETE /accept-version/{sha256}` | admin |
 | `POST /reprove` | admin of an application in `codex_reproof_applications` (`owner_cli`) |
 | `GET /reprove` | any named caller |
+| `GET /sites` | Clarvis's client credential, NERVIS's (its GET relay) or an admin credential |
+| `POST /sites` | Clarvis's client credential only (`require_agent_client`) |
+| `DELETE /sites/{host}` | admin: NERVIS's Codex card, through its control route |
 
 **Admin here is UX and audit, not a boundary** against a program running as the owner (design §2.2
 fact 14): the credentials are 0600 files and NERVIS's control token is served in its page. What the
@@ -27,8 +30,12 @@ holds one. The sign-in page's address is on the admin routes only — `GET /api/
 sign-in waits, but not where.
 
 **Audited** (design §3.9): sign-in started and cancelled, signed out, account confirmed, version
-accepted and revoked, re-test started; the re-test's answers and result are audited by the service
-as they happen.
+accepted and revoked, re-test started, sites allowed and a site removed (R5); the re-test's answers
+and result are audited by the service as they happen.
+
+**The allowed sites** (R5, `codex-admin.json`): the owner allows the sites a task will likely need
+from Clarvis before it starts, and removes an added one from NERVIS's Codex card. The list itself is
+Codex's own configuration, read and written by `agent/sites.py`'s `SiteAllowlist`.
 """
 
 from __future__ import annotations
@@ -41,6 +48,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from ravis.agent.identity import require_agent_client
+from ravis.agent.sites import MOST_HOSTS, SiteAllowlist
 from ravis.api.management import audit
 from ravis.codex import refusals
 from ravis.codex.idempotency import valid_key
@@ -65,6 +74,18 @@ def require_admin(request: Request) -> None:
 def require_named_caller(request: Request) -> None:
     if request.state.identity.is_anonymous:
         raise refusals.named_caller_required()
+
+
+def require_sites_reader(request: Request) -> None:
+    """Who may read the allowed sites (R5): Clarvis, NERVIS's GET relay, or an admin credential."""
+    identity = request.state.identity
+    if identity.is_anonymous:
+        raise refusals.sites_reader_required()
+    if identity.may_write_configuration:
+        return
+    readers = {"nervis", *_service(request).settings.agent_client_applications}
+    if identity.application_id not in readers:
+        raise refusals.sites_reader_required()
 
 
 def require_owner_cli(request: Request) -> None:
@@ -196,3 +217,43 @@ async def start_reproof(request: Request) -> JSONResponse:
 @router.get("/reprove", dependencies=[Depends(require_named_caller)])
 async def read_reproof(request: Request) -> dict[str, Any]:
     return _service(request).reproof_view()
+
+
+# ── The sites Codex's commands may reach (R5) ────────────────────────────────
+
+
+def _sites(request: Request) -> SiteAllowlist:
+    return _service(request).agents.context.sites
+
+
+def _hosts(body: dict[str, Any]) -> list[object]:
+    """The body's `hosts`: 1 to 20 strings, or 422; each is checked as a site afterwards."""
+    hosts = body.get("hosts")
+    if (not isinstance(hosts, list) or not 1 <= len(hosts) <= MOST_HOSTS
+            or not all(isinstance(host, str) for host in hosts)):
+        raise refusals.invalid_body(f"The body must carry hosts: 1 to {MOST_HOSTS} host names.")
+    return hosts
+
+
+@router.get("/sites", dependencies=[Depends(require_sites_reader)])
+async def read_sites(request: Request) -> dict[str, Any]:
+    """RAVIS's default sites and the ones the owner added, read from Codex each time."""
+    return await _sites(request).listed()
+
+
+@router.post("/sites", dependencies=[Depends(require_agent_client)])
+async def allow_sites(request: Request) -> dict[str, Any]:
+    """The owner's click in Clarvis before a task: every host checked, then one write."""
+    hosts = _hosts(await _json_object(request))
+    allowed, view = await _sites(request).allow(hosts)
+    audit.record(request, "ravis.codex.sites_allowed", hosts=allowed)
+    return view
+
+
+@router.delete("/sites/{host}", dependencies=[Depends(require_admin)])
+async def remove_site(host: str, request: Request) -> dict[str, Any]:
+    """NERVIS's Codex card removing a site the owner added; a default is never removed."""
+    removed, view = await _sites(request).remove(host)
+    if removed is not None:
+        audit.record(request, "ravis.codex.site_removed", host=removed)
+    return view
