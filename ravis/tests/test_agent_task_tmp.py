@@ -263,7 +263,7 @@ def test_migration_12_records_whose_folder_each_thread_uses_and_rolls_back_to_11
 # ── Through the relay, with the fake Codex ─────────────────────────────────
 
 
-def test_an_ended_task_s_folder_goes_and_one_that_can_continue_keeps_it(tmp_path: Path) -> None:
+def test_an_ended_task_s_folder_goes_and_its_record_is_cleared(tmp_path: Path) -> None:
     rig = ready_rig(tmp_path)
     root, git_dir = project(rig)
     with serving(rig) as relay:
@@ -275,7 +275,9 @@ def test_an_ended_task_s_folder_goes_and_one_that_can_continue_keeps_it(tmp_path
         (folder / "tmpcodex" / "scratch.txt").write_text("what a command left")
         task.reaches("completed_needs_review")
         assert task.settle("idle").json()["state"] == "idle"
-        assert folder.is_dir(), "a settled task can carry on, so it keeps its folder"
+        # 0.26.3: a task kept for follow-ups keeps only the folder's record while it rests.
+        assert not folder.exists()
+        assert rig.service.agents.store.session(task.id)["tmp_folder_id"] == task.id
 
         ended = relay.call("DELETE", f"{SESSIONS}/{task.id}", token=task.token)
 
@@ -389,8 +391,10 @@ def test_the_next_start_removes_what_ended_tasks_still_owe(tmp_path: Path) -> No
     locked_root, _ = project(rig, "locked")
 
     def task(session_id: str, where: Path, *, folder: str | None = None, made: str = "",
-             unfinished: bool = False) -> Path:
-        state = ({"state": "idle"} if unfinished
+             unfinished: str | None = None) -> Path:
+        # An unfinished task names its state: one owed a settle still needs its folder, while a
+        # resting (idle) one doesn't (0.26.3, `test_agent_task_tmp_resting.py`).
+        state = ({"state": unfinished} if unfinished
                  else {"state": "ended", "ended_at": agents.store.stamp()})
         agents.store.insert_session(a_row(session_id, workspace_root=str(where),
                                           workspace_root_hash=root_hash(where), **state))
@@ -402,12 +406,12 @@ def test_the_next_start_removes_what_ended_tasks_still_owe(tmp_path: Path) -> No
         return path
 
     owed = task("as_before", root, folder="as_before")
-    # A resumed task, not finished, uses the folder of the task that started its thread.
+    # A resumed task owed a settle uses the folder of the task that started its thread.
     shared = task("as_starter", root, folder="as_shared")
-    task("as_resumer", root, folder="as_shared", unfinished=True)
-    # An unfinished task with no folder of its own still holds its project's parents.
+    task("as_resumer", root, folder="as_shared", unfinished="completed_needs_review")
+    # A stopped task with no folder of its own still holds its project's parents.
     quiet = task("as_quiet_old", quiet_root, folder="as_quiet_old", made=".clarvis,tmp")
-    task("as_quiet_live", quiet_root, unfinished=True)
+    task("as_quiet_live", quiet_root, unfinished="stopped")
     stuck = task("as_stuck", stuck_root, folder="as_stuck") / "tmpq3x9"
     (stuck / "left.txt").write_text("a command's")
     stuck.chmod(0o500)

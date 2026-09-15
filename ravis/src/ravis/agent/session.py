@@ -40,6 +40,14 @@ turn resumes the thread instead. **A turn never starts in a thread loaded before
 allowed site**: allowing one while no turn runs reopens the thread straight away. The site asks one
 turn opens form a group and open together, a group at a time (`sites.py`, `SiteAsks`).
 
+**The temp folder** (`task_tmp.py`, RAVIS 0.26.3). The folder a task's commands get as `TMPDIR` is
+removed whenever the task **rests** — `idle`, settled with every process confirmed gone — and made
+again, under the action lock, before Codex's next step in the task: every `turn/start` (a carry-on,
+a follow-on a steer starts, a turn that waited for a reopen) and every `thread/resume` (after a
+restart, or a site reopen). A folder that can't be made refuses that step with a plain reason; no
+turn starts without it. Every other state keeps it: a turn running or stopping, processes not
+confirmed gone (`leftover`), and a settle owed.
+
 **Content** passes through memory only: request payloads until answered, and the event log
 (`events.py`). The database gets ids, states and kinds (`store.py`).
 """
@@ -117,6 +125,13 @@ SETTLE_STATES = frozenset({
     "stopped", "completed_needs_review", "paused_unanswered", "paused_for_update", "uncertain",
 })
 OVER = frozenset({"ended", "failed"})
+#: Unfinished and with nothing running: no turn or Stop under way, and no settle owed. The only
+#: state in which a task's temp folder is removed while the task can still carry on (0.26.3).
+RESTING = frozenset({"idle"})
+#: Why a step was refused when the task's temp folder couldn't be made (`_prepare_tmp`).
+TMP_NOT_MADE = ("RAVIS couldn't make this task's temp folder in the project (.clarvis/tmp), so "
+                "Codex didn't take the step. Check that the project folder can be written to and "
+                "has no shortcut named .clarvis or tmp, then try again.")
 #: How each way a turn can be ended lands (`None` is a turn that ended on its own).
 FINAL_STATE = {
     "stop": "stopped", "policy_timeout": "paused_unanswered", "update": "paused_for_update",
@@ -192,6 +207,9 @@ class Context:
     emit: Callable[..., None]
     #: Called once a task is over for good, so its temp folder can go (`AgentSessions._task_over`).
     task_over: Callable[[AgentSession], None]
+    #: Called, under the task's action lock, when it has nothing running, so its temp folder goes
+    #: until Codex's next step in it (`AgentSessions._task_resting`).
+    task_resting: Callable[[AgentSession], None]
 
 
 @dataclass
@@ -263,8 +281,9 @@ class AgentSession:
         #: The effort chosen at create, sent on every `turn/start`; None leaves it to the model.
         self.effort: str | None = row["effort"]
         self.thread_id: str | None = row["codex_thread_id"]
-        #: The temp folder this task's thread was started with, for `agent_thread` (migration 12).
-        self._tmp_folder: str | None = None
+        #: The temp folder this task's thread was started with (migration 12): kept while the folder
+        #: itself comes and goes, so it can be made again before each step — after a restart too.
+        self._tmp_folder: str | None = row.get("tmp_folder_id")
         #: Whether the project had a `.clarvis` before this task took its lock, whose file goes in
         #: `.clarvis` without git — so RAVIS knows whether that folder is its own to remove.
         self._clarvis_before = task_tmp.clarvis_exists(self.root)
@@ -321,6 +340,15 @@ class AgentSession:
     @property
     def over(self) -> bool:
         return self.state in OVER
+
+    @property
+    def resting(self) -> bool:
+        """Nothing running and nothing owed: settled, every process confirmed gone (0.26.3).
+
+        While a task rests no command of Codex's can run in it, so its temp folder isn't needed
+        until its next step, which makes it again first.
+        """
+        return self.state in RESTING and self.processes.confirmed_gone
 
     @property
     def live(self) -> bool:
@@ -550,12 +578,17 @@ class AgentSession:
                 self._tmp_folder)
 
     def _prepare_tmp(self, folder: str | None) -> None:
-        """Make the temp folder this task's commands will use, and record it (`task_tmp.py`).
+        """Make the temp folder this task's commands will use, record it, or refuse the step.
 
         A new task's is named after itself. A resumed task's is its thread's, because
         `thread/resume` carries no `TMPDIR` — and the task that started the thread may have removed
-        it when it ended, so it is made again here. None is a thread from before RAVIS recorded
-        whose folder it uses, and then there is nothing to make.
+        it, so it is made again here. None is a thread from before RAVIS recorded whose folder it
+        uses, and then there is nothing to make.
+
+        The parents made now are added to what the task already recorded, so a parent removed while
+        the task rested and made again is RAVIS's to remove again. A folder that isn't there
+        afterwards refuses the step (503 `CODEX_RUNTIME_UNAVAILABLE`): Codex was given this `TMPDIR`
+        when the thread started, and never gets a missing one.
         """
         if folder is None:
             return
@@ -564,6 +597,16 @@ class AgentSession:
         self._tmp_folder = folder
         self._context.store.record_tmp(
             self.id, folder, task_tmp.merge(str(row.get("tmp_parents_made") or ""), made))
+        if not task_tmp.ready(self.root, folder):
+            raise refusals.runtime_unavailable(TMP_NOT_MADE)
+
+    def _ensure_tmp(self) -> None:
+        """Before Codex's next step in this thread: its temp folder, made again if it was removed.
+
+        Always under the action lock, so the task can't come to rest — and lose the folder — between
+        this and the step.
+        """
+        self._prepare_tmp(self._tmp_folder)
 
     def _hold_thread(self) -> None:
         """Follow the thread from now on: it is loaded, with Codex's site list as it is now."""
@@ -581,8 +624,10 @@ class AgentSession:
             retiring.cancel()
 
     async def _resume_thread(self) -> None:
-        """After Codex's process restarted, or RAVIS did: `thread/resume` in the new process."""
+        """After Codex's process restarted, or RAVIS did, or a site reopen: `thread/resume`."""
         timings = self._context.timings
+        # The thread loads with its TMPDIR, so the folder is there first (0.26.3).
+        self._ensure_tmp()
         params = calibrated.thread_resume_params(
             str(self.thread_id), self.root, self.mode, self._context.codex.profile_name() or "")
         try:
@@ -608,7 +653,16 @@ class AgentSession:
         ready = self._context.codex.readiness()
         if ready is not None:
             raise refusals.codex_not_ready(*ready)
-        self._context.locks.take_for_turn(self, transfer_token)
+        # The temp folder, removed while the task rested, is made again before anything else: one
+        # that can't be made refuses the turn here, before the lock is taken, so a refused turn
+        # never leaves a resting task holding the project (0.26.3).
+        self._ensure_tmp()
+        try:
+            self._context.locks.take_for_turn(self, transfer_token)
+        except CodexRefusalError:
+            if self.resting:
+                self._context.task_resting(self)  # no turn after all: the folder goes again
+            raise
         if not self.thread_loaded and self._reopening is None:
             # Unloaded after a restart, or by a reopen whose resume was skipped: resumed now.
             await self._resume_thread()
@@ -888,6 +942,9 @@ class AgentSession:
             return
         if reopening.queued is not None:
             self._begin_turn(*reopening.queued)
+        elif self.resting:
+            # Resumed with nothing to run: the folder made for the resume goes again (0.26.3).
+            self._context.task_resting(self)
 
     async def _turn_not_resumed(self, message: str) -> None:
         """A turn that waited for the reopen ends failed when Codex couldn't resume the thread."""
@@ -1254,6 +1311,8 @@ class AgentSession:
         async with self.action_lock:
             try:
                 self._context.locks.take_for_turn(self, None)
+                # Never removed since the turn that just ended, unless something outside did it.
+                self._ensure_tmp()
             except CodexRefusalError:
                 self._not_delivered()
                 return False
@@ -1337,6 +1396,11 @@ class AgentSession:
         else:
             self._context.locks.release(self)
             self.set_state("idle")
+        if self.resting:
+            # Kept for follow-ups with nothing running: its temp folder goes until the next step,
+            # here under the action lock the route holds, so no turn of its own is starting
+            # (0.26.3).
+            self._context.task_resting(self)
         return self.view()
 
     # ── Ending the task ──────────────────────────────────────────────────────

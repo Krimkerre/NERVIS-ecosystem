@@ -1,11 +1,20 @@
-"""A Codex task's temp folder: made when its thread starts, removed when the task is over.
+"""A Codex task's temp folder: there while Codex can use it, removed whenever nothing runs.
 
 **Why this exists.** Every task's commands get `<root>/.clarvis/tmp/<sid>` as their `TMPDIR`
 (design §4.9, calibration K2b), and RAVIS made that folder when a task started and never removed
 it: on 15 September 2026 the live test's project `live-test-a` still held `.clarvis/tmp/as_…/tmp…`
-after its task had ended. This module removes it once the task is over for good — ended, or its
-creation failed — and, when RAVIS made them and nothing else is in them, `.clarvis/tmp` and
-`.clarvis` too.
+after its task had ended. RAVIS 0.26.2 removed it once the task was over for good — ended, or its
+creation failed — but Clarvis never ends a task: it settles every finished one to `idle`, kept for
+follow-ups, so the folders stayed. Since 0.26.3 (owner decision, 15 September 2026) the folder is
+removed whenever the task has nothing running (`AgentSessions._task_resting`) and made again before
+Codex takes the task's next step: every `turn/start` and every `thread/resume`
+(`AgentSession._ensure_tmp`). When RAVIS made them and nothing else is in them, `.clarvis/tmp` and
+`.clarvis` go too, and are made again with it.
+
+**Making it** walks down the same way removing does: `.clarvis`, then `tmp`, then the task's folder,
+each made and opened relative to the folder before it and refusing a symbolic link, so a link in
+the project can't make RAVIS create a folder somewhere else. `ready` then says whether the folder is
+really there; a step Codex would take without it is refused instead.
 
 **Which folder.** A resumed task runs in a thread started by an earlier task, and `thread/resume`
 carries no `TMPDIR`, so its commands keep the folder named after the task that started the thread.
@@ -27,8 +36,9 @@ git are never touched.
 unfinished tasks use and whether anything else holds the project; a folder in use is kept, and the
 parents are kept while the project is busy.
 
-**Never an error for the task.** A failure is logged and reported to the caller, which tries again
-on RAVIS's next start.
+**Never an error for the task.** A failed removal is logged and reported to the caller, which tries
+again later: at the task's next rest, or RAVIS's next start. A folder that can't be made is logged
+too, and the caller refuses the step that needed it.
 """
 
 from __future__ import annotations
@@ -76,21 +86,67 @@ def make(root: Path, folder: str, *, clarvis_existed: bool | None = None) -> str
     project without git RAVIS's own lock file goes in `.clarvis` a moment before this, and that
     `.clarvis` is RAVIS's to remove too.
 
-    Never raises: a task whose temp folder can't be made still starts, as it always did, and its
-    commands find out when they write there.
+    Each level is made with `mkdir` relative to the one before and then opened without following a
+    link, so nothing is ever made through a link. The parents get the default mode, as before; the
+    task's own folder `0700`, so only this user reads what its commands leave there.
+
+    Never raises: a failure is logged, and `ready` tells the caller the folder isn't there.
     """
     if not FOLDER_NAME.fullmatch(folder):
         logger.warning("agent: refused to make a task temp folder named %r", folder)
         return ""
-    parents = {CLARVIS: root / CLARVIS, TMP: root / CLARVIS / TMP}
-    missing = [name for name, path in parents.items() if not os.path.lexists(path)]
-    if clarvis_existed is False and CLARVIS not in missing:
-        missing.append(CLARVIS)
+    if os.path.realpath(root) != str(root):
+        logger.warning("agent: %s is no longer the project's real path, so no task temp folder was "
+                       "made in it", root)
+        return ""
+    created: list[str] = []
+    reached: list[str] = []
     try:
-        (parents[TMP] / folder).mkdir(0o700, parents=True, exist_ok=True)
+        folder_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as failure:
+        logger.warning("agent: couldn't open %s to make a task temp folder: %s", root, failure)
+        return ""
+    try:
+        for name, mode in ((CLARVIS, 0o777), (TMP, 0o777), (folder, 0o700)):
+            try:
+                os.mkdir(name, mode, dir_fd=folder_fd)
+                created.append(name)
+            except FileExistsError:
+                pass  # already there: opened below, which refuses a link or a file in its place
+            inner = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=folder_fd)
+            os.close(folder_fd)
+            folder_fd = inner
+            reached.append(name)
     except OSError as failure:
         logger.warning("agent: couldn't make a task temp folder in %s: %s", root, failure)
-    return merge("", ",".join(name for name in missing if os.path.lexists(parents[name])))
+    finally:
+        os.close(folder_fd)
+    # A `.clarvis` RAVIS's own lock file made a moment before is RAVIS's to remove, as is one made
+    # here.
+    if clarvis_existed is False and CLARVIS in reached:
+        created.append(CLARVIS)
+    return merge("", ",".join(created))
+
+
+def ready(root: Path, folder: str) -> bool:
+    """Whether `<root>/.clarvis/tmp/<folder>` is a real folder, reached without following a link.
+
+    Asked right after `make`, before a step of Codex's that would hand commands this `TMPDIR`.
+    """
+    if not FOLDER_NAME.fullmatch(folder) or os.path.realpath(root) != str(root):
+        return False
+    opened: list[int] = []
+    try:
+        opened.append(os.open(root, os.O_RDONLY | os.O_DIRECTORY))
+        for name in (CLARVIS, TMP, folder):
+            opened.append(os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                  dir_fd=opened[-1]))
+    except OSError:
+        return False
+    finally:
+        for descriptor in opened:
+            os.close(descriptor)
+    return True
 
 
 def remove(

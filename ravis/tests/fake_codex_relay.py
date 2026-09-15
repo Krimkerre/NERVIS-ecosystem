@@ -22,6 +22,7 @@ schema (`codex-app-server-ts-0.154.0-alpha.6.2`):
 | `spawn` | a long-running command process carrying this project's sandbox root parameter |
 | `fail <codexErrorInfo>` | the turn fails with that error |
 | `wait` | the turn waits until it is interrupted |
+| `tmpdir` | a command printing whether the thread's `TMPDIR` is a real folder right now |
 
 Every answer RAVIS gives is logged (`relay_answer`), so a test can check exactly what reached
 "Codex" — and an interrupted turn leaves its request open, as the real Codex does (K7).
@@ -370,10 +371,27 @@ def wait(context: dict[str, Any], _rest: str) -> None:
     context["stop"].wait(60)
 
 
+def tmpdir_there(api: Any, thread_id: object) -> bool | None:
+    """Whether the `TMPDIR` a thread was started with is a real folder now; None if it has none."""
+    thread = api.state["threads"].get(thread_id) or {}
+    folder = (thread.get("config") or {}).get("shell_environment_policy.set.TMPDIR")
+    if not folder:
+        return None
+    return Path(folder).is_dir() and not Path(folder).is_symlink()
+
+
+def tmpdir(context: dict[str, Any], _rest: str) -> None:
+    """What `test -d "$TMPDIR"` in the turn would find: the folder RAVIS must have made first."""
+    there = tmpdir_there(context["api"], context["thread_id"])
+    item = _command_item(context, 'test -d "$TMPDIR"')
+    _started(context, item)
+    _finish_command(context, item, "TMPDIR is a folder" if there else "TMPDIR is missing")
+
+
 ACTIONS: dict[str, Any] = {
     "say": say, "run": run, "fetch": fetch, "ask": ask, "ask-network": ask_network,
     "ask-outside": ask_outside, "edit": edit,
     "edit-unseen": edit_unseen, "grant": grant,
     "question": question, "secret": secret, "elicit": elicit, "plan": plan, "reroute": reroute,
-    "steps": steps, "spawn": spawn, "fail": fail, "wait": wait,
+    "steps": steps, "spawn": spawn, "fail": fail, "wait": wait, "tmpdir": tmpdir,
 }

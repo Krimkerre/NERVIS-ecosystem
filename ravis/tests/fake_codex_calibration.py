@@ -557,6 +557,12 @@ def _resume(api: Any, params: dict[str, Any]) -> dict[str, Any] | str:
     if thread.pop("unloaded", False):
         thread.pop("sites_at_load", None)  # loaded again from disk: the sites as they are now
     thread["roots"] = params.get("runtimeWorkspaceRoots") or thread.get("roots")
+    # Whether the TMPDIR the thread was started with is a folder as it loads again, so a test can
+    # hold RAVIS to making it before the resume (RAVIS 0.26.3).
+    folder = (thread.get("config") or {}).get("shell_environment_policy.set.TMPDIR")
+    if folder:
+        api.log("thread_resumed", thread_id=params["threadId"],
+                tmpdir_there=os.path.isdir(folder) and not os.path.islink(folder))
     return {"thread": {"id": params["threadId"], "cwd": thread["cwd"]}, "cwd": thread["cwd"],
             "model": "gpt-6-astra", "modelProvider": "openai", "approvalPolicy": "untrusted",
             "approvalsReviewer": "user", "sandbox": {"type": "workspaceWrite"}}

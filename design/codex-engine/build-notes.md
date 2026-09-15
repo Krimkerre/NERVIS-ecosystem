@@ -2,6 +2,51 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From RAVIS 0.26.3 (ecosystem, 15 September 2026) — a task's temp folder goes whenever it rests
+- **Found live** (15:21): 0.26.2 removed `<root>/.clarvis/tmp/<folder>` only when a task was over for good, and that
+  never happens for a normal task. `live-test-a` (`as_01M2GQHTBZ86ZR1VMCF01PBVW4`, `tmp_parents_made` empty) and
+  `live-test-c` (`as_01M2JKMTGG9QMVAXKPMC26WKB6`, `.clarvis,tmp`) are both `idle` with their folders.
+- **Clarvis never ends a task.** It settles every finished Codex task with `next: 'idle'` (`clarvis/src/engine/codex/
+  runCore.ts` ~1466) and never calls `DELETE /api/v1/agent-sessions/{id}`; `relayClient.end` has no caller. RAVIS never
+  expires an idle task either (the 90-day sweep is of Codex's threads). Anything RAVIS ties to a task's end won't run
+  for tasks Clarvis starts; tie it to rest instead. (Lead's finding; not re-read here — Clarvis's checkout was off
+  limits.)
+- **Owner decision:** RAVIS removes the folder whenever a task has nothing running and makes it again when Codex takes
+  the next step; tasks stay open for follow-ups; only RAVIS changes.
+- **Decided per state** (`session.py` `RESTING`, `AgentSession.resting`):
+  - removed: `idle` with every process confirmed gone — settled with `next: idle` or `transfer` (the transfer's
+    reserved lock keeps the parents), or its thread resumed by a site reopen with nothing to run; open site asks and a
+    reopen still waiting don't keep it, since the reopen's resume makes it again;
+  - kept: `starting`, `running`, `waiting_on_you` (a turn is asked for or active), `stopping` (interrupt and clean-up
+    under way), `leftover` (processes not confirmed gone), and the settle states `stopped`, `completed_needs_review`,
+    `paused_unanswered`, `paused_for_update`, `uncertain`;
+  - `ended`, `failed`: as 0.26.2.
+  Another task of the project counts as needing its folder and the parents unless it rests with its action lock free
+  (`AgentSessions._rests`): a task starting a turn is still `idle` while its thread resumes.
+- **Made again** (`AgentSession._ensure_tmp`, under the action lock) before every `turn/start` — in `turn()` before the
+  project lock is taken, so a refusal leaves no lock and a lock refusal removes it again; in a queued steer's follow-on;
+  in a turn that waited for a reopen — and in `_resume_thread` (restart, site reopen), and at create for `thread/start`
+  and `thread/resume`. `task_tmp.make` now walks `.clarvis`, `tmp`, the folder with `mkdir`/`open(O_NOFOLLOW)` relative
+  to the level before, the folder `0700`, parents default mode as before; `task_tmp.ready` then checks it is a real
+  folder. Not there: 503 `CODEX_RUNTIME_UNAVAILABLE` with a plain reason (turn, create), the waiting turn failed (reopen),
+  the steer `not_delivered` (follow-on). No new refusal code, no contract change.
+- **Records:** `tmp_folder_id` and `tmp_parents_made` stay while a task rests (loaded again at a restart); parents made
+  again are merged in. At rest, parents kept for a task that needs them pass to it (it keeps its own claim too); at an
+  end, to an unfinished task of the project, one that needs its folder first.
+- **Start:** every resting task's folder, then their parents (a second pass, so two resting tasks of one project don't
+  keep each other's parents), then what ended tasks owe.
+- **Calibration and the re-test** use their own throwaway projects and `plan.thread_tmp`, not a task's folder: unchanged.
+- **Tests** (`ravis/tests/test_agent_task_tmp_resting.py`, 28, against the fake Codex; the fake relay gained `tmpdir`,
+  and the fake's `thread/resume` logs whether the thread's `TMPDIR` is a folder): the lifecycle (running, `leftover`,
+  `stopped` keep it; `idle` removes it; the next turn finds it, `0700`), tasks taking turns in one project, a site reopen
+  while resting and a resume create, links (inside the folder, in place of `tmp`, in place of the folder), `.clarvis`
+  with `engine.lock` or a checkpoint, a folder that can't be made (turn, follow-on, create), the start sweep over every
+  state, a shared folder kept while its user runs, stops, is left over, is owed a settle or has processes unconfirmed
+  (another task ending or resting), parents handed on and recorded again, and the two races (a settle and a turn
+  together; a task ending while another makes their shared folder during its resume). Two 0.26.2 tests changed their
+  expectation: an idle task no longer keeps its folder.
+- **Guard proof** (`scratchpad/guard_proof_0263.py`): 27 rules broken one at a time on a snapshot copy, 27 caught.
+
 ## From RAVIS 0.26.1 (ecosystem, 14 September 2026) — the skills loop in the live stack
 - **Found live** after the restart onto `214addc`/`e434cf9`: `GET /api/v1/codex` stuck on `runtime_down` "Codex found a
   change in its skills…", `ravis.codex.state_changed` about 3 a second, `.run/ravis.log` about 1.5 MB a minute.

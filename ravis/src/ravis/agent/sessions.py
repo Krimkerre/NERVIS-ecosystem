@@ -30,10 +30,15 @@ leftover processes looked at again; lock heartbeats, and superseded locks re-che
 ended tasks' event logs dropped 30 minutes after they end; retention, and the 90-day sweep of
 Codex's own threads, hourly.
 
-**Temp folders** (`task_tmp.py`, 0.26.2): a task over for good — ended, or its start failed — has
-its `<root>/.clarvis/tmp/<folder>` removed at once, and `.clarvis/tmp` and `.clarvis` too when RAVIS
-made them and they are empty; never a folder or parent another unfinished task of the project still
-needs. Each start first removes what earlier tasks still owe.
+**Temp folders** (`task_tmp.py`). A task's `<root>/.clarvis/tmp/<folder>` is removed — with
+`.clarvis/tmp` and `.clarvis` when RAVIS made them and they are empty — whenever the task has
+nothing running: when it rests (`idle`, 0.26.3), under its action lock, and when it is over for
+good (ended, or its start failed, 0.26.2). It is made again before Codex's next step in the task
+(`session.py`). Clarvis never ends a task, only settles it to `idle` for follow-ups, which is why
+resting matters. Never removed: a folder or parent another unfinished task of the project needs —
+any that isn't resting, or that has an action under way (a turn starting, say) — or parents while a
+lock holds the project. A task's records keep its folder's name and the parents RAVIS made while it
+rests. Each start first removes every resting task's folder, then what ended tasks still owe.
 
 **The processes** (design §4.5): every 2 s while a turn runs, Codex's processes are looked at and
 attributed (`attribution.py`), recorded, and written into each task's checkout lock file.
@@ -74,7 +79,14 @@ from ravis.agent.locks import ProjectLocks
 from ravis.agent.reconcile import LockReconciler
 from ravis.agent.redact import Redactor
 from ravis.agent.requests import PathContext, mapping
-from ravis.agent.session import TURN_STATES, AgentSession, CodexHost, Context, SessionTimings
+from ravis.agent.session import (
+    RESTING,
+    TURN_STATES,
+    AgentSession,
+    CodexHost,
+    Context,
+    SessionTimings,
+)
 from ravis.agent.sites import SiteAllowlist
 from ravis.agent.store import AgentStore
 from ravis.agent.tokens import new_id, new_token, token_matches, token_sha256
@@ -261,6 +273,7 @@ class AgentSessions:
             sites=SiteAllowlist(codex.request, codex.profile_name),
             paths=lambda root: PathContext(root, denied, redactor), settings=settings,
             timings=timings.session, clock=clock, emit=emit, task_over=self._task_over,
+            task_resting=self._task_resting,
         )
         #: False until a restart's reconciliation has run: the routes answer 503 until then.
         self.ready = False
@@ -440,52 +453,109 @@ class AgentSessions:
 
     # ── Temp folders (`task_tmp.py`) ─────────────────────────────────────────
 
+    def _task_resting(self, session: AgentSession) -> None:
+        """A task has nothing running: its temp folder goes until Codex's next step in it (0.26.3).
+
+        Called under the task's action lock, just after it settled to `idle` or its thread was
+        resumed with nothing to run, so no turn of its own can be starting. Its records stay: the
+        folder's name, made again before the next step, and the parents RAVIS made, which it may
+        remove again. A failure is logged, never the task's error, and tried again at its next rest
+        or RAVIS's next start.
+        """
+        row = self.store.session(session.id)
+        if row is not None:
+            self._rest_folder(row)
+
+    def _rest_folder(self, row: dict[str, Any], *, parents: bool = True) -> None:
+        """Remove a resting task's folder, as the project's tasks that still need theirs allow.
+
+        When those tasks keep the parents RAVIS made for this one, the first of them may remove
+        them too once it stops needing them, so the last task to stop is the one that tidies up.
+        `parents=False` removes only the folder: the start's first pass.
+        """
+        if not row["tmp_folder_id"]:
+            return
+        project = row["workspace_root_hash"]
+        needing = [other for other in self._others(project, row["id"]) if not self._rests(other)]
+        made = str(row["tmp_parents_made"] or "") if parents else ""
+        task_tmp.remove(Path(row["workspace_root"]), str(row["tmp_folder_id"]), made=made,
+                        folders_in_use=self._folders(needing),
+                        project_busy=self._locked(project) or bool(needing))
+        if made and needing:
+            self._inherit_parents(needing[0], made)
+
     def _task_over(self, session: AgentSession) -> None:
         """A task is over for good: its temp folder goes, unless another task still needs it."""
-        others = [other.id for other in self._sessions.values()
-                  if other is not session and not other.over
-                  and other.root_hash == session.root_hash]
-        self._release_tmp(session.id, others)
+        self._release_tmp(session.id)
 
     def _sweep_task_folders(self) -> None:
-        """Temp folders owed by tasks that ended while no RAVIS was there to remove them.
+        """At start: every resting task's folder, then what tasks that ended still owe.
 
-        A crash between a task's end and its folder's removal, a removal that failed, and every task
-        that ended before RAVIS removed temp folders at all (0.26.2) — the live test's project
-        among them.
+        No task has an action under way yet. Resting tasks include every one Clarvis settled and
+        kept for follow-ups before RAVIS removed a resting task's folder (0.26.3) — the live tests'
+        projects among them. Ended ones: a crash between a task's end and its folder's removal, a
+        removal that failed, and tasks that ended before 0.26.2. Every resting folder goes first,
+        then the resting tasks' parents, then what ended tasks owe — so no task's parents are kept
+        for a folder that is about to go, whichever order the tasks come in.
         """
-        live = self.store.live_sessions()
+        resting = [row for row in self.store.live_sessions() if row["state"] in RESTING]
+        for row in resting:
+            self._rest_folder(row, parents=False)
+        for row in resting:
+            self._rest_folder(row)
         for row in self.store.ended_with_tmp():
-            project = row["workspace_root_hash"]
-            self._release_tmp(row["id"], [other["id"] for other in live
-                                          if other["workspace_root_hash"] == project])
+            self._release_tmp(row["id"])
 
-    def _release_tmp(self, session_id: str, others: list[str]) -> None:
+    def _release_tmp(self, session_id: str) -> None:
         """Remove one ended task's temp folder, as the project's other unfinished tasks allow.
 
-        `others` are the ids of the project's other unfinished tasks. Their folders are kept, and
-        while any of them runs, or a lock holds the project, so are `.clarvis/tmp` and `.clarvis`
-        — which the first of them then inherits the right to remove. What couldn't be done stays
+        The folders of the project's tasks that still need theirs are kept, and while any of them
+        does, or a lock holds the project, so are `.clarvis/tmp` and `.clarvis`. The right to
+        remove the parents passes to an unfinished task of the project — one that needs its folder
+        first — so it isn't lost with the ended task's records. What couldn't be done stays
         recorded, for the next start's sweep.
         """
         ended = self.store.session(session_id)
         if ended is None or not ended["tmp_folder_id"]:
             return
-        neighbours = [row for row in (self.store.session(other) for other in others) if row]
-        locked = any(lock["root_hash"] == ended["workspace_root_hash"]
-                     for lock in self.store.locks())
+        project = ended["workspace_root_hash"]
+        others = self._others(project, session_id)
+        needing = [row for row in others if not self._rests(row)]
+        locked = self._locked(project)
         made = str(ended["tmp_parents_made"] or "")
         done = task_tmp.remove(
             Path(ended["workspace_root"]), str(ended["tmp_folder_id"]), made=made,
-            folders_in_use=frozenset(str(row["tmp_folder_id"]) for row in neighbours
-                                     if row["tmp_folder_id"]),
-            project_busy=locked or bool(neighbours),
+            folders_in_use=self._folders(needing), project_busy=locked or bool(needing),
         )
-        if made and neighbours:
-            self._inherit_parents(neighbours[0], made)
+        if made and others:
+            self._inherit_parents((needing or others)[0], made)
             made = ""
         if done and not (made and locked):
             self.store.record_tmp(session_id, None, "")
+
+    def _others(self, project: str, but: str) -> list[dict[str, Any]]:
+        """The project's other unfinished tasks, as recorded — one still being created included."""
+        return [row for row in self.store.live_sessions()
+                if row["workspace_root_hash"] == project and row["id"] != but]
+
+    def _rests(self, row: dict[str, Any]) -> bool:
+        """Whether another task of the project doesn't need its temp folder or the parents now.
+
+        Only a resting task with no action under way: its action lock held means a turn, a resume
+        or a settle may be using or making the folder this moment. Before the start has loaded the
+        tasks, the record is all there is, and nothing acts on any of them.
+        """
+        if row["state"] not in RESTING:
+            return False
+        session = self._sessions.get(row["id"])
+        return session is None or (session.resting and not session.action_lock.locked())
+
+    def _locked(self, project: str) -> bool:
+        return any(lock["root_hash"] == project for lock in self.store.locks())
+
+    @staticmethod
+    def _folders(rows: list[dict[str, Any]]) -> frozenset[str]:
+        return frozenset(str(row["tmp_folder_id"]) for row in rows if row["tmp_folder_id"])
 
     def _inherit_parents(self, heir: dict[str, Any], made: str) -> None:
         """An unfinished task of the project takes over removing the parents RAVIS made."""

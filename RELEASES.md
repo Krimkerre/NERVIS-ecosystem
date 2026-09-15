@@ -1276,7 +1276,32 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.26.2
+## RAVIS — 0.26.3
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Finished Codex tasks no longer leave their temp folder behind.** 0.26.2 removed a task's temp
+  folder (`.clarvis/tmp/<task id>` inside the project) only when the task ended. But Clarvis never
+  ends a finished task: it keeps it open for follow-ups. So the folders stayed, as the live tests'
+  projects `live-test-a` and `live-test-c` showed.
+- **The folder now goes whenever a task has nothing running.** Once a task's work is saved and it is
+  waiting for a follow-up, RAVIS removes its temp folder, and `.clarvis/tmp` and `.clarvis` too if
+  RAVIS made them and nothing else is in them. The task stays open.
+- **It comes back before Codex does anything more.** Before a follow-up turn, and before RAVIS
+  reconnects a task to Codex (after a restart, or so a newly allowed website gets through), RAVIS
+  makes the folder again. If it can't, the turn is refused with a message saying why, instead of
+  starting without a temp folder.
+- **Kept whenever something could still use it:** while a turn runs or is being stopped, while
+  commands aren't confirmed stopped, and while work waits to be saved — for this task, and for any
+  other task of the same project using that folder.
+- **The same care as before.** Only that folder, only inside the project, no shortcut followed out of
+  it (now when making the folder, too), and Clarvis's own lock and checkpoint files keep `.clarvis`.
+  A removal that fails is logged and tried again later, never the task's error.
+- **On its next start** RAVIS removes the folders of the tasks already waiting for a follow-up, so
+  the live tests' leftover folders go then.
+- **For operators:** no database change. Tested against the fake Codex only.
+
+### 0.26.2
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

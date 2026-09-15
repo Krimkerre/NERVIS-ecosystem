@@ -1885,6 +1885,18 @@ is logged and tried again at the next start, which also removes what earlier tas
 rows are filled in from their threads, with no parents recorded. It is backed up first
 (`ravis.db.v11.bak`); rolling back loses only those records.
 
+**Temp folders while a task rests (0.26.3, no migration).** Clarvis never ends a Codex task: it settles
+each finished one to `idle` for follow-ups, so 0.26.2's removal at a task's end never ran for a normal
+task. A task's folder is now also removed whenever the task **rests** — `idle`, every process confirmed
+gone, no settle owed — under its action lock, with the parents RAVIS made when they are empty and
+nothing else holds the project; `tmp_folder_id` and `tmp_parents_made` stay set while it rests, so the
+folder and those parents are made, recorded and removed again consistently. Before Codex's next step in
+the task — every `turn/start` and every `thread/resume` — the folder is made again under that lock,
+walking down from the project root without following a symbolic link, and a folder that can't be made
+refuses the step (`503 CODEX_RUNTIME_UNAVAILABLE`) rather than run it without its `TMPDIR`. Another
+task's folder and the parents it needs are kept while that task isn't resting or has an action under
+way. Each start removes every resting task's folder before what ended tasks still owe.
+
 ---
 
 # 18. Repository structure

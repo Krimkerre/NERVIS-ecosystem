@@ -551,12 +551,16 @@ and on or off. A task id, the stop's key and a site's name are
 checked before anything reaches RAVIS.
 
 Each Codex task's commands have a temp folder inside the project, `.clarvis/tmp/<task id>`. Since
-15 September 2026 (RAVIS 0.26.2) RAVIS removes it when the task ends, or when its start fails, and
-removes `.clarvis/tmp` and `.clarvis` too when RAVIS made them and nothing else is in them. It never
-follows a shortcut out of the project, never touches Clarvis's own lock or checkpoint files, and
-leaves a folder another unfinished task of the same project still uses. A task that can still carry
-on keeps its folder, and a resumed task gets its folder back. Before 0.26.2 the folders stayed —
-the live test's project still had one — and RAVIS removes those the next time it starts.
+RAVIS 0.26.3 (15 September 2026) RAVIS removes it whenever the task has nothing running — once its
+work is saved and it waits for a follow-up — and when the task ends, and makes it again just before
+Codex does anything more in that task: the next turn, or reconnecting the task to Codex. If RAVIS
+can't make it, that turn is refused with a message saying so. `.clarvis/tmp` and `.clarvis` go too
+when RAVIS made them and nothing else is in them. The folder stays while a turn runs or is being
+stopped, while commands aren't confirmed stopped, and while work waits to be saved, for any task of
+the project using it. RAVIS never follows a shortcut out of the project and never touches Clarvis's
+own lock or checkpoint files. RAVIS 0.26.2 removed the folder only when a task ended, but Clarvis
+never ends a task — it keeps finished ones open for follow-ups — so the folders stayed; RAVIS removes
+those the next time it starts.
 
 ### Codex in the menu bar
 
