@@ -242,8 +242,13 @@ def test_a_trace_is_fetched_from_the_hub_rather_than_filtered_out_of_a_window() 
     # — so the trace it missed was a recent one, which is every trace anybody
     # actually asks about. Written the other way round the test passed against
     # the bug, which is how it was caught.
+    #
+    # Spread over five sources, fifty each: 250 events from one source in a tight
+    # loop is a flood that NERVIS 0.31.0's guard holds back, and the failure after
+    # it — same source, same type — would be held with it.
     for n in range(250):
-        hub.ingest({**an_event(f"noise {n}"), "event_id": f"ev-{n}", "trace_id": ""})
+        hub.ingest({**an_event(f"noise {n}"), "event_id": f"ev-{n}", "trace_id": "",
+                    "source": {"service_type": "ravis", "service_id": f"noise-{n % 5}"}})
     hub.ingest({**an_event("the failure"), "event_id": "ev-wanted", "trace_id": wanted})
 
     body = client.post("/api/v1/diagnostics/packet", json={"trace_id": wanted}).json()

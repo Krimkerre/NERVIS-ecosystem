@@ -473,7 +473,49 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.30.0
+## NERVIS — 0.31.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **One service can no longer fill the event hub and wipe everyone else's history.** On 14 September a
+  RAVIS bug (fixed in RAVIS 0.26.1) sent about a hundred events a second for eight minutes. NERVIS keeps
+  at most 50,000 events, so the loop pushed out every older one — the whole history from 4 to 14
+  September. NERVIS now has a flood guard. The owner decided how it should behave on 15 September.
+- **Identical events are stored once, with a count.** When a service sends the same event again within
+  a minute, NERVIS adds one to the stored event's count and notes when it last arrived, instead of
+  storing a copy. An event that belongs to a request's trace is merged only with a true copy, so a
+  trace keeps every step.
+- **Each service has a speed limit:** 120 events at once, then 12 a minute. Past that, NERVIS keeps
+  only the newest event of each kind waiting and stores it once that kind has been quiet for five
+  seconds, so the dashboard and the alarms show the state a burst ended on. Measured against real
+  traffic, the busiest service normally sends about 24 events in its busiest minute.
+- **Each service has a daily share of the store:** 5% of it, which is 2,500 events a day, seven times
+  the busiest real day. Even sending at that limit for all fourteen days, one service fills at most 70%
+  of the store, so on its own it can't push a quiet service's events out. The share is counted from
+  what is stored, so restarting NERVIS doesn't reset it.
+- **Services see no change.** Sending events gets the same answer as before (202, every event counted
+  as accepted), so a service stuck in a loop isn't pushed into retrying harder.
+- **NERVIS says when the guard kicked in.** It records a `nervis.events.flood_guarded` event when the
+  guard starts on a service (a warning, which chat reports as something that went wrong) and another
+  when it lets go, with how many events it held back. Those events never count against any service's
+  limits. If NERVIS stops while the guard is on, it stores what it was holding and says it stopped.
+- **The dashboard says it too.** The Events screen and the Overview's Recent events card say which
+  service the guard is holding back, since when and how many so far, and name any guard that ended in
+  the last day. An event that arrived more than once shows its count, such as "×49,850 · last 23:39:17".
+- **An open Events screen isn't cut off by a flood any more**: live screens receive the same thinned
+  feed that is stored.
+- **For operators:** the numbers are settings — `NERVIS_EVENT_SOURCE_BURST`,
+  `NERVIS_EVENT_SOURCE_PER_MINUTE`, `NERVIS_EVENT_SOURCE_DAILY_SHARE`, `NERVIS_EVENT_COLLAPSE_SECONDS`,
+  `NERVIS_EVENT_GUARD_QUIET_SECONDS` and `NERVIS_EVENT_GUARD_RELEASE_SECONDS`. `GET /api/v1/events`
+  gains a `guard` field, and an event read back can carry `_repeats` and `_last_received_at`. The
+  database gains two columns (migration 12), and NERVIS backs the database up before adding them. The
+  event envelope services send is unchanged, so no service needs updating.
+- **What this doesn't do:** the flood events already stored on 14 September stay until they are
+  removed, and the history they pushed out is not recovered. While a service is flooding, a different
+  event of the same kind from that same service can be replaced by a newer one before it is stored;
+  the guard's count of what it held back includes it.
+
+### 0.30.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -2159,6 +2201,10 @@ Published as gates rather than as a list, so they are counted rather than rememb
   refuses a route on it. The other ten hard constraints in that table are real; this one was
   advertised without a line saying otherwise, which the soft column's unimplemented entries
   already had and the hard column now has too.
+- **NERVIS's flood guard keeps the last event of each kind, not every one** (0.31.0). While a
+  service sends faster than NERVIS keeps events, a different event of the same kind from that same
+  service — an error between two state changes, say — can be replaced by a newer one before it is
+  stored. The guard's own event counts it among those held back. Other services are unaffected.
 - **NERVIS's control token is CSRF-grade, not authentication.** It stops a page on
   another origin from driving RAVIS's six proxied configuration mutations with no
   credential at all — the gap RAVIS's own stabilization work found. It does not stop a

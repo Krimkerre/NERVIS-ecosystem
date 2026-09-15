@@ -293,6 +293,20 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
+As of 15 September 2026 (NERVIS 0.31.0): the event hub has a **flood guard**. On 14 September a
+RAVIS loop (a bug fixed in RAVIS 0.26.1) sent about a hundred events a second for eight minutes.
+NERVIS keeps at most 50,000 events, so the loop filled the store and pushed out the whole history
+from 4 to 14 September — which is why the guard exists, and why events from before 14 September are
+missing. Now the same event sent again within a minute is stored once with a count; each service may
+send 120 events at once and then 12 a minute, and past that only the newest event of each kind waits
+and is stored once that kind goes quiet; and each service may add at most 2,500 events a day, 5% of
+the store, so one service can't push the others' history out. The last event of each kind is always
+kept, and services get the same answer as before. When the guard starts or stops on a service,
+NERVIS records a `nervis.events.flood_guarded` event, and the Events screen and the Overview's Recent
+events card say which service, since when, and how many events were held back. An event that arrived
+more than once shows "×" and its count. The events the loop already stored stay until the owner
+removes them.
+
 As of 14 September 2026 (NERVIS 0.30.0): the Codex card also has a **Skills** list. A skill is a set
 of instructions Codex can decide to follow, and in the first live test Codex ran one of the owner's
 own skills that nobody asked for. The list shows every skill Codex can use, grouped by where it

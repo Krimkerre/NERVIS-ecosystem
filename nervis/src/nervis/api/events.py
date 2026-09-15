@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Request
@@ -23,7 +25,13 @@ from fastapi.responses import StreamingResponse
 from nervis.enrollment import presented_secret
 from nervis.errors import InvalidConfigurationError
 from nervis.events import Rejected, ends_stream, heartbeat, sse_frame
+from nervis.flood import GUARD_EVENT
 from nervis.instances import Instances
+
+# How far back the event read reports the flood guard's own events. A day,
+# because "the guard kicked in last night" is still news the next morning, and
+# a week of them would bury today's.
+GUARD_RECENT_SECONDS = 86_400.0
 
 # How far back a resuming subscriber is replayed in one connection. Named rather
 # than a literal in the call, because it is a *policy*: past this the client is
@@ -155,7 +163,29 @@ async def read_events(request: Request) -> dict[str, Any]:
         "items": items,
         "next_cursor": items[-1]["_sequence"] if items else _int(query.get("after"), 0),
         "latest_sequence": hub.latest_sequence(),
+        "guard": _guard(hub),
     }
+
+
+def _guard(hub: Any) -> dict[str, Any]:
+    """The flood guard: on or not, its limits, who it guards now, and the last day.
+
+    **With the feed, not beside it.** A screen that lists events and says nothing
+    about the guard passes a thinned feed off as the whole one, so the one read
+    every event list already makes carries it.
+
+    `recent` is the guard's own events from the last day, newest first, read from
+    the store so a restart does not forget that it kicked in. Only those NERVIS
+    stored as itself: a producer posting an event of the same name is not the guard.
+    """
+    cutoff = datetime.fromtimestamp(time.time() - GUARD_RECENT_SECONDS, timezone.utc)
+    stamp = cutoff.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    recent = [
+        event for event in hub.query(event_type=GUARD_EVENT, service="nervis",
+                                     latest=True, limit=20)
+        if str(event.get("_received_at") or "") >= stamp
+    ]
+    return {**hub.guard_report(), "recent": recent[::-1]}
 
 
 @router.get("/quarantine")

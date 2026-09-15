@@ -293,6 +293,10 @@ def test_the_repair_migration_unquotes_what_the_old_importer_wrote(tmp_path: Any
             ('[{"id": "cp_nervis"}]',),
         )
         connection.execute("DELETE FROM applied_migration WHERE version >= 11")
+        # And undo migration 12, which added two columns, so the database really
+        # is at version 10 when it is reopened. Its `ADD COLUMN` cannot run twice.
+        connection.execute("ALTER TABLE event DROP COLUMN repeats")
+        connection.execute("ALTER TABLE event DROP COLUMN last_received_at")
 
     repaired = prepare_database(path)
     assert read_setting(repaired, "voice.selected_profile") == "vp_1044b39e85"

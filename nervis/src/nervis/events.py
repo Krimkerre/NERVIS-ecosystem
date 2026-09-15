@@ -23,12 +23,34 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import threading
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
+from nervis.flood import (
+    GUARD_EVENT,
+    SHARE_WINDOW_SECONDS,
+    Count,
+    FloodGuard,
+    GuardLimits,
+    Notice,
+    Settlement,
+)
 from nervis.storage import Database
+
+# How often an arriving event also settles the guard — writes waiting counts,
+# stores final states, releases guards. The app's own tick does it too; this one
+# means a busy hub never depends on that tick to catch up.
+SETTLE_EVERY_SECONDS = 1.0
+
+# The columns a stored event is read back with. One spelling, because three
+# queries read events and a repeat count missing from one of them would show a
+# collapsed row as a single event on exactly one screen.
+EVENT_COLUMNS = "sequence, envelope, received_at, repeats, last_received_at"
 
 # §4.4's required fields. Everything else in the envelope is optional and is
 # preserved untouched — §4.2 says consumers ignore unknown optional fields, and
@@ -120,11 +142,28 @@ class Hub:
         *,
         retention_days: float = 14.0,
         retention_events: int = 50_000,
+        guard: GuardLimits | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        """`guard` switches the flood guard on with those limits.
+
+        **Off unless given, and the app always gives it** (`limits_from` in
+        `app.py`). A hub built bare is the one the trace, diagnostics and
+        retention tests drive with hundreds of events from one made-up source,
+        and what they test is not the guard. `clock` is monotonic seconds, and
+        exists so the guard's tests can run eight minutes of flood in one.
+        """
         self._database = database
         self._retention_days = retention_days
         self._retention_events = retention_events
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+        self._clock = clock
+        self._guard = FloodGuard(guard, self._stored_recently) if guard is not None else None
+        # Re-entrant, because storing a guard event goes back through `_accept`
+        # while the lock is held. A lock at all because sync routes run in a
+        # threadpool and can `emit` while the loop thread ingests.
+        self._lock = threading.RLock()
+        self._settled_at = clock()
 
     # ── Ingestion ───────────────────────────────────────────────────────────
 
@@ -134,22 +173,154 @@ class Hub:
         A duplicate `event_id` is accepted and stored once — §4.4 says consumers
         tolerate duplicates, and a producer replaying after a reconnect is doing
         the right thing rather than making a mistake. It is **not** re-broadcast,
-        because a subscriber that already saw it does not need it twice.
+        because a subscriber that already saw it does not need it twice. Nor does
+        it count against its source's allowance: nothing new was stored.
+
+        **With the flood guard on, accepted is not the same as stored.** An event
+        may be counted onto an identical row or held back (`flood.py`). It is
+        still returned as accepted, because to the producer it was — a refusal
+        would be retried, and a looping producer retrying is the flood again.
         """
         checked = validate(payload)
         if isinstance(checked, Rejected):
             self._quarantine(payload, checked)
             return checked
-        sequence = self._store(checked)
+        with self._lock:
+            if self._guard is None or self._known(checked):
+                self._accept(checked)
+            else:
+                self._admit(self._guard, checked)
+        return checked
+
+    def _accept(self, event: dict[str, Any]) -> int:
+        """Store one event and hand it to subscribers. Zero when it was already here.
+
+        **Subscribers get exactly what is stored.** A repeat counted onto a row
+        and an event held back are never broadcast, so a live screen sees the
+        same collapsed feed a reload would — rather than the flood the store was
+        spared, arriving at a hundred frames a second and cutting every tab loose
+        with a gap.
+        """
+        sequence = self._store(event)
         if sequence:
             # **The sequence travels with the broadcast.** It used to be added
             # only by `_view`, on the way out of storage — so a live frame went
             # out with an empty `id:`, and a client that reconnected after
             # receiving one had no cursor for it and silently replayed from
             # wherever its last *stored* read had left off.
-            checked["_sequence"] = sequence
-            self._broadcast(checked)
-        return checked
+            event["_sequence"] = sequence
+            self._broadcast(event)
+        return sequence
+
+    def _known(self, event: Mapping[str, Any]) -> bool:
+        """Whether this `event_id` is already stored."""
+        row = self._database.connection.execute(
+            "SELECT 1 FROM event WHERE event_id = ? LIMIT 1", (str(event["event_id"]),)
+        ).fetchone()
+        return row is not None
+
+    def _admit(self, guard: FloodGuard, event: dict[str, Any]) -> None:
+        """One event through the flood guard: stored, counted, or held back."""
+        now, wall = self._clock(), _stamp()
+        if now - self._settled_at >= SETTLE_EVERY_SECONDS:
+            self._apply(guard, guard.settle(now, wall), now)
+        admission = guard.admit(event, now, wall)
+        # The guard's own event goes first, so a feed read in order says the
+        # guard engaged before it shows what the guard let through.
+        if admission.notice is not None:
+            self._announce(admission.notice)
+        if admission.count is not None:
+            self._write_counts([admission.count])
+        if admission.store:
+            self._record(guard, event, now, wall)
+
+    def _record(self, guard: FloodGuard, event: dict[str, Any], now: float, wall: str) -> None:
+        """Store an event the guard let through, and tell the guard its sequence."""
+        sequence = self._accept(event)
+        if sequence:
+            displaced = guard.stored(event, sequence, now, wall)
+            if displaced is not None:
+                self._write_counts([displaced])
+
+    def settle(self, *, final: bool = False) -> None:
+        """Write waiting counts, store final states and release quiet guards.
+
+        Called on a short timer by the app, and with `final=True` on shutdown,
+        which stores everything still held regardless of limits.
+        """
+        if self._guard is None:
+            return
+        with self._lock:
+            now = self._clock()
+            self._apply(self._guard, self._guard.settle(now, _stamp(), final=final), now)
+
+    def _apply(self, guard: FloodGuard, settlement: Settlement, now: float) -> None:
+        self._settled_at = now
+        self._write_counts(settlement.counts)
+        wall = _stamp()
+        for final in settlement.finals:
+            self._record(guard, final, now, wall)
+        for notice in settlement.notices:
+            self._announce(notice)
+
+    def _announce(self, notice: Notice) -> None:
+        """Store one guard event, **around** the guard rather than through it.
+
+        This is what makes the guard's own events exempt: they never reach
+        `FloodGuard.admit`, so they spend no allowance and cannot engage a guard
+        on NERVIS. It is decided by the code path, not by the event's type —
+        anything *posted* as `nervis.events.flood_guarded` goes through the guard
+        like everything else, so a producer cannot slip past by naming itself.
+        Still validated, because §3.1 has NERVIS's own events refused by the same
+        rules as anyone's.
+        """
+        checked = validate(_envelope(
+            GUARD_EVENT, severity=notice.severity, data=notice.data,
+            subject={"type": "service", "id": notice.service_type},
+        ))
+        if isinstance(checked, Rejected):
+            self._quarantine(notice.data, checked)
+            return
+        self._accept(checked)
+
+    def _write_counts(self, counts: list[Count]) -> None:
+        if not counts:
+            return
+        with self._database.connection as connection:
+            connection.executemany(
+                "UPDATE event SET repeats = ?, last_received_at = ? WHERE sequence = ?",
+                [(count.repeats, count.last_seen, count.sequence) for count in counts],
+            )
+
+    def _stored_recently(self, service_type: str, service_id: str) -> int:
+        """How many events the store holds from one source from the last day.
+
+        Asked once per source, so the daily share survives a restart. The guard's
+        own events are left out: they are NERVIS's, and exempt.
+        """
+        row = self._database.connection.execute(
+            "SELECT COUNT(*) AS n FROM event WHERE received_at >= ? AND service_type = ? "
+            "AND event_type != ? "
+            "AND COALESCE(json_extract(envelope, '$.source.service_id'), '') = ?",
+            (_stamp(time.time() - SHARE_WINDOW_SECONDS), service_type, GUARD_EVENT, service_id),
+        ).fetchone()
+        return int(row["n"])
+
+    def guard_report(self) -> dict[str, Any]:
+        """Whether the flood guard is on, its limits, and who it is guarding now."""
+        if self._guard is None:
+            return {"on": False, "limits": None, "active": []}
+        limits = self._guard.limits
+        with self._lock:
+            active = self._guard.report()
+        return {
+            "on": True,
+            "limits": {
+                "burst": limits.burst, "per_minute": limits.per_minute,
+                "daily_rows": limits.daily_rows, "collapse_seconds": limits.collapse_seconds,
+            },
+            "active": active,
+        }
 
     def _store(self, event: Mapping[str, Any]) -> int:
         """Write one event and return its sequence. Zero when it was already here."""
@@ -214,23 +385,15 @@ class Hub:
         events took a private path would be the one producer nobody could
         validate. That is also why this can return a `Rejected`: NERVIS's own
         events go through the same door and are refused by the same rules.
+
+        The same door includes the flood guard: NERVIS publishing its own state
+        changes in a loop is as possible as RAVIS doing it. Only the guard's own
+        events go around it (`_announce`).
         """
-        return self.ingest({
-            "event_id": uuid.uuid4().hex,
-            "event_type": event_type,
-            "event_version": "1.0.0",
-            "occurred_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-            "source": {"service_type": "nervis"},
-            "subject": dict(subject or {}),
-            # Without these a NERVIS event joins no trace, and §11.2's waterfall
-            # draws the callee's lane alone — which is the one shape it exists
-            # to improve on.
-            "trace_id": trace_id,
-            "request_id": request_id,
-            "severity": severity,
-            "data": dict(data or {}),
-            "privacy": {"classification": "operational", "redactions": []},
-        })
+        return self.ingest(_envelope(
+            event_type, severity=severity, data=data, subject=subject,
+            trace_id=trace_id, request_id=request_id,
+        ))
 
     # ── Reading ─────────────────────────────────────────────────────────────
 
@@ -293,7 +456,7 @@ class Hub:
         values.append(max(1, min(limit, 1000)))
         order = "DESC" if latest else "ASC"
         rows = self._database.connection.execute(
-            f"SELECT sequence, envelope, received_at FROM event "  # noqa: S608 - names are literals
+            f"SELECT {EVENT_COLUMNS} FROM event "  # noqa: S608 - names are literals
             f"WHERE {' AND '.join(clauses)} ORDER BY sequence {order} LIMIT ?",
             values,
         )
@@ -330,7 +493,7 @@ class Hub:
             return []
         placeholders = ",".join("?" for _ in wanted)
         rows = self._database.connection.execute(
-            f"SELECT sequence, envelope, received_at FROM event "  # noqa: S608 - names are literals
+            f"SELECT {EVENT_COLUMNS} FROM event "  # noqa: S608 - names are literals
             f"WHERE trace_id IN ({placeholders}) ORDER BY sequence",
             wanted,
         )
@@ -372,10 +535,21 @@ class Hub:
         `received_at` travels beside `occurred_at` rather than replacing it:
         §11.2 requires clock skew to be visible, and one timestamp cannot show
         it.
+
+        **A collapsed row says so, beside the envelope and never inside it.**
+        `_repeats` is how many times the flood guard saw this same event and
+        `_last_received_at` when it last did; both appear only when it saw it
+        more than once. The envelope stays exactly what the producer sent — the
+        count is a fact about arrivals, which is NERVIS's, not about the event,
+        which is the producer's.
         """
         envelope: dict[str, Any] = json.loads(row["envelope"])
         envelope["_sequence"] = row["sequence"]
         envelope["_received_at"] = row["received_at"]
+        repeats = int(row["repeats"] or 1)
+        if repeats > 1:
+            envelope["_repeats"] = repeats
+            envelope["_last_received_at"] = row["last_received_at"]
         return envelope
 
     # ── Fan-out ─────────────────────────────────────────────────────────────
@@ -427,6 +601,17 @@ class Hub:
 
         Quarantine is bounded by the same count, because a producer emitting
         malformed events emits them at exactly the rate it emits good ones.
+
+        **The count bound is also how one source erased everyone's history** —
+        on 14 September a RAVIS loop filled it in eight minutes. That is not fixed
+        here but upstream of it, in the flood guard, which keeps any one source
+        from reaching this bound on its own. Pruning stays oldest-first across
+        every source, because §4.1's cursor floor (`oldest_sequence`) is only a
+        true floor if nothing below it survives.
+
+        Age is measured from a row's first arrival, not its last repeat: a row
+        still being repeated after fourteen days goes, and the next repeat starts
+        a new one.
         """
         moment = now or datetime.now(timezone.utc)
         cutoff = moment.timestamp() - self._retention_days * 86_400
@@ -444,6 +629,40 @@ class Hub:
                 (self._retention_events,),
             )
         return int(aged.rowcount or 0) + int(excess.rowcount or 0)
+
+
+def _stamp(at: float | None = None) -> str:
+    """A wall-clock time in the store's own spelling (`received_at`'s, to the ms)."""
+    moment = datetime.fromtimestamp(time.time() if at is None else at, timezone.utc)
+    return moment.strftime("%Y-%m-%dT%H:%M:%S.") + f"{moment.microsecond // 1000:03d}Z"
+
+
+def _envelope(
+    event_type: str,
+    *,
+    severity: str,
+    data: Mapping[str, Any] | None,
+    subject: Mapping[str, Any] | None,
+    trace_id: str = "",
+    request_id: str = "",
+) -> dict[str, Any]:
+    """One of NERVIS's own events, in §4.4's envelope."""
+    return {
+        "event_id": uuid.uuid4().hex,
+        "event_type": event_type,
+        "event_version": "1.0.0",
+        "occurred_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "source": {"service_type": "nervis"},
+        "subject": dict(subject or {}),
+        # Without these a NERVIS event joins no trace, and §11.2's waterfall
+        # draws the callee's lane alone — which is the one shape it exists
+        # to improve on.
+        "trace_id": trace_id,
+        "request_id": request_id,
+        "severity": severity,
+        "data": dict(data or {}),
+        "privacy": {"classification": "operational", "redactions": []},
+    }
 
 
 # The frame a subscriber gets when it has fallen behind and been dropped. Named

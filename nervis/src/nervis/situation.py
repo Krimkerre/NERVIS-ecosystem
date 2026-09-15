@@ -249,21 +249,29 @@ def _event_summary(events: Sequence[Mapping[str, Any]], now: datetime) -> list[s
     turn: §7.2 lists what a conversation stores and this is not on it, and the
     fence is a guard against injection rather than a licence to include more.
     A count tells the model something happened; the Events screen holds what.
+
+    **A collapsed row counts as every time it arrived.** The flood guard stores
+    an identical event once with `_repeats`, and counting that row as one would
+    tell chat a service that sent the same warning four hundred times sent it
+    once.
     """
     recent = [event for event in events if _within(event, now)]
     if not recent:
         return ["recent events: none in the last 15 minutes"]
     severities: dict[str, int] = {}
     kinds: dict[str, int] = {}
+    total = 0
     for event in recent:
+        times = max(1, int(event.get("_repeats") or 1))
+        total += times
         severity = str(event.get("severity") or "info")
-        severities[severity] = severities.get(severity, 0) + 1
+        severities[severity] = severities.get(severity, 0) + times
         kind = clip(str(event.get("event_type") or "?"))
-        kinds[kind] = kinds.get(kind, 0) + 1
+        kinds[kind] = kinds.get(kind, 0) + times
     tally = ", ".join(
         f"{count} {name}" for name, count in sorted(severities.items(), key=lambda i: -i[1])
     )
-    lines = [f"recent events (last 15 minutes): {len(recent)} — {tally}"]
+    lines = [f"recent events (last 15 minutes): {total} — {tally}"]
     top = sorted(kinds.items(), key=lambda item: (-item[1], item[0]))[:MAX_EVENT_KINDS]
     lines += [f"  {name} ×{count}" for name, count in top]
     return lines

@@ -251,6 +251,46 @@ class Settings(BaseSettings):
     # forever.
     event_retention_days: float = 14.0
     event_retention_count: int = 50_000
+
+    # ── The flood guard (`flood.py`) ─────────────────────────────────────────
+    # **Why these exist.** On 14 September 2026 a RAVIS bug published about a
+    # hundred events a second for eight minutes (274 at its peak), filled the
+    # count above and pushed out every older event — the whole history from 4 to
+    # 14 September. These bound what one service can do to the store. A service
+    # is its `source.service_type` plus `source.service_id`.
+    #
+    # **Measured against real traffic, read-only, on 15 September.** The busiest
+    # normal source in the 4 September backup is NERVIS itself: at most 7 events
+    # in a second, 10 in a minute, 26 in ten minutes, 98 in an hour and 339 in a
+    # day. RAVIS publishes two events per request, and its busiest real stretch
+    # (usage records, 12–14 September) was 12 requests a minute, 112 an hour and
+    # 173 a day — about 24, 224 and 346 events.
+    #
+    # How many events a service may send at once before the guard steps in:
+    # five times RAVIS's busiest minute and twelve times NERVIS's.
+    event_source_burst: int = 120
+    # How fast that allowance comes back, per minute. With the burst on top, three
+    # to four times the busiest real ten minutes and hour. The eight-minute flood
+    # would have stored about 216 rows instead of 50,000.
+    event_source_per_minute: float = 12.0
+    # The most one service may add to the store in a day, as a share of the count
+    # above: 5% is 2,500 events, seven times the busiest real day. The guarantee
+    # it buys: a service at its full allowance for all fourteen retention days
+    # holds 35,000 events, 70% of the store, so on its own it can never push
+    # another service's events out before their fourteen days are up.
+    event_source_daily_share: float = 0.05
+    # Identical events from one service within this many seconds of the last one
+    # are stored once with a count. Measured on the backup, sixty seconds merges
+    # a Clarvis window re-announcing itself on the same port every 45 seconds and
+    # nothing that belongs to a different trace.
+    event_collapse_seconds: float = 60.0
+    # How long a kind of event must go quiet before the newest one the guard held
+    # back is stored, so the dashboard shows the state a burst ended on.
+    event_guard_quiet_seconds: float = 5.0
+    # How long a service must stay within its allowance before the guard lets go
+    # and says so. Five minutes, so a service that floods in bursts produces at
+    # most one pair of guard events every five minutes rather than one per burst.
+    event_guard_release_seconds: float = 300.0
     # And how long that fast window lasts, which is a **hard bound rather than a
     # condition**. The first version sped up whenever anything looked unwell,
     # which is a loop with no exit: probing four MEP endpoints every three

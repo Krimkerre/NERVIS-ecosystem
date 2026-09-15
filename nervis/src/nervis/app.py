@@ -85,6 +85,7 @@ from nervis.errors import (
     to_response,
 )
 from nervis.events import Hub
+from nervis.flood import limits_from
 from nervis.instances import Instances
 from nervis.probes import probe
 from nervis.registry import (
@@ -102,6 +103,9 @@ from nervis.web import register_dashboard
 NextCall = Callable[[Request], Awaitable[Any]]
 
 logger = logging.getLogger("nervis")
+
+# How often the flood guard is settled while nothing arrives (`_settle_events_periodically`).
+EVENT_SETTLE_SECONDS = 1.0
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -247,6 +251,9 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         api.state.database,
         retention_days=settings.event_retention_days,
         retention_events=settings.event_retention_count,
+        # Always on in the running service. See `flood.py` for the night that
+        # made it necessary and `config.py` for why each number is what it is.
+        guard=limits_from(settings),
     )
     # When probing began, for the startup window in `_next_interval`. Monotonic
     # so a clock adjustment cannot widen or close the window by surprise.
@@ -417,6 +424,24 @@ def _install_clarvis(api: FastAPI) -> None:
         logger.info("%s", outcome)
 
 
+async def _settle_events_periodically(api: FastAPI) -> None:
+    """Let the flood guard store final states and release, on a one-second tick.
+
+    **Its own task, unlike retention on the probe timer**, because what it does
+    is time-sensitive in a way retention is not: when a flooding service stops,
+    the newest event of each kind it held back is the state the dashboard and the
+    alarms should show, and the probe timer would leave the old one showing for
+    up to twenty seconds. Arrivals settle the guard too; this covers the silence
+    after a burst, which is exactly when there are none.
+    """
+    while True:
+        await asyncio.sleep(EVENT_SETTLE_SECONDS)
+        try:
+            api.state.hub.settle()
+        except Exception:  # noqa: BLE001 - a settle that raised must not end the tick
+            logger.exception("settling the event flood guard failed")
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     """Keep the registry warm while the service is up.
@@ -451,13 +476,23 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     # say something, not a reason for NERVIS not to start.
     if getattr(api.state.settings, "clarvis_auto_install", False):
         asyncio.create_task(asyncio.to_thread(_install_clarvis, api))
+    settling = asyncio.create_task(_settle_events_periodically(api))
     try:
         yield
     finally:
         api.state.stopping.set()
         task.cancel()
+        settling.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        with contextlib.suppress(asyncio.CancelledError):
+            await settling
+        # **What the flood guard still holds is stored before NERVIS goes.** A
+        # held event is the newest state of its kind from a service that was
+        # flooding; exiting with it in memory would drop exactly the event the
+        # guard promises to keep.
+        with contextlib.suppress(Exception):
+            api.state.hub.settle(final=True)
         # The unattended thought, if one is in flight. It is no longer awaited
         # by the loop above, so cancelling that task no longer reaches it — and
         # an outstanding model call would hold the shutdown open exactly the way

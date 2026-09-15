@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 3715 tests, no network, no live service
+.venv/bin/pytest                      # part of 3737 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 62 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 534 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1464 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1486 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 3715 passing across the four, conformance `PASS`.
+Expected: all clean, 3737 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -19580,6 +19580,84 @@ skipped, so the comparison against RAVIS's originals ran; a copy corrupted by on
 `CLARVIS.md`), `tools/check_releases.py`, `tools/knowledge_check.py`, `tools/check_dead_code.py`,
 `tools/check_no_tracked_secrets.py` and `tools/check_degradation.py` all pass. The clean-clone gate was
 not run. No product source changed, no service was started, Codex was not run, and no version moved.
+
+## The event hub's flood guard — 2026-09-15 (NERVIS 0.31.0)
+
+**Why.** On 14 September 2026, from 23:32 to 23:39, RAVIS 0.26.0 flipped Codex between "ready" and
+"switching skills" in a tight loop (fixed in RAVIS 0.26.1, `63df7ac`) and published every flip as
+`ravis.codex.state_changed`. Read-only from `nervis/nervis.db` on 15 September: 49,982 of them, about a
+hundred a second and 274 in the busiest second, **alternating** between two states (25,004 and 24,978),
+so a guard that merged only identical repeats would have stored them all. NERVIS's retention is a count
+(`event_retention_count`, 50,000), so the store pruned everything older — the whole history from 4 to
+14 September — and nine other events were left when the loop stopped. **Owner decision, 15 September:**
+NERVIS collapses a burst of identical events from one source into one with a count, limits how fast any
+single source can fill the store so a quiet service's history survives, and the dashboard says when the
+guard kicked in. Losing the old history is accepted; the owner removes the flood events.
+
+**What was built.** `nervis/src/nervis/flood.py` (new) is the guard: per source (`service_type` plus
+`service_id`) a burst allowance and a sustained rate on arrivals, a daily share of stored rows seeded
+from the store so a restart does not reset it, identical events counted onto the newest stored row of
+their type, and — past the allowance — only the newest event of each type held, stored once that type is
+quiet. `nervis/src/nervis/events.py` asks it before storing, writes the counts, settles it, stores its
+`nervis.events.flood_guarded` events around it (so they are exempt) and returns `_repeats` and
+`_last_received_at` on reads; subscribers get exactly what is stored. Migration 12
+(`nervis/src/nervis/storage/database.py`) adds `repeats` and `last_received_at` to `event`.
+`nervis/src/nervis/app.py` switches the guard on from settings, settles it on a one-second tick and
+stores what it holds on shutdown. `GET /api/v1/events` gains `guard` (`nervis/src/nervis/api/events.py`);
+chat's event tally counts repeats (`nervis/src/nervis/situation.py`). The Events screen's feed and the
+Overview's Recent events card say in plain words which service the guard is holding back, since when and
+how many so far, and name a guard that ended in the last day; a collapsed row shows "×N · last …"
+(`nervis/index.html`, gate `nervis/tools/flood_check.js`). Producers are unchanged: 202, every event
+counted accepted. Documented in `NERVIS.md` §11.1, `ECOSYSTEM_RUNBOOK.md` §4.4, `RELEASES.md` (the
+0.31.0 entry and a known limitation) and `nervis/knowledge/nervis.md`.
+
+**The numbers, each a setting in `nervis/src/nervis/config.py`, measured read-only** from the 4 September
+backup `nervis/nervis.db.v10.bak` (1,041 ordinary events, plus a 48,959-event load probe in 43 seconds
+on 30 August) and RAVIS's usage records in `ravis/ravis.db` (12–14 September, two events per request):
+
+| Setting | Value | Measured against |
+|---|---|---|
+| `event_source_burst` | 120 at once | busiest minute: NERVIS 10 events, RAVIS 12 requests (about 24 events) |
+| `event_source_per_minute` | 12 | busiest ten minutes: NERVIS 26, RAVIS about 70; hour: 98 and about 224 |
+| `event_source_daily_share` | 5% (2,500 a day) | busiest day: NERVIS 339, RAVIS about 346; fourteen days at the limit fill 70% of the store |
+| `event_collapse_seconds` | 60 | merges a Clarvis window re-announcing on one port every 45 s, and nothing in a different trace |
+| `event_guard_quiet_seconds` | 5 | the state a burst ended on is stored within about six seconds |
+| `event_guard_release_seconds` | 300 | at most one engage-and-release pair per service every five minutes |
+
+Against the measured flood, eight minutes would have stored about 216 rows plus its final state instead
+of 49,982. Final states may exceed the daily share by one burst and no more. **A trade-off, recorded as
+a known limitation:** while a source floods, a different event of the same type from that source can be
+replaced by a newer one before it is stored; the guard's count includes it.
+
+**Tests.** `nervis/tests/test_flood_guard.py`, 22 tests, drive the hub on a fake clock: the measured
+shape (alternating states at 100 a second while a quiet SIRVIS keeps all 300 older events under a
+1,000-event cap, and the final state stored), identical collapse with a count and last time, events in
+two traces or two Clarvis windows kept apart, identical events with fresh trace ids collapsed while
+flooding, counts written, a stale held event dropped, the daily share and its survival across a restart,
+final states bounded past the share, one engaged and one released event, the guard's own events exempt
+while one posted under its name is not, 202 through the route, the app's tick and shutdown storing what
+is held, the documented defaults, live subscribers and the real SSE endpoint not cut loose, retention by
+days, a replayed id spending nothing, and chat's tally. Existing tests changed where identical envelopes
+now collapse or one source's burst is thinned: three in `nervis/tests/test_m6_events.py` and one in
+`nervis/tests/test_m12_diagnostics.py`; the repair test in `nervis/tests/test_m18_settings_transfer.py`
+also undoes migration 12 when it rewinds to version 10. NERVIS's 1,486 tests pass in a snapshot of HEAD
+plus these files, ruff and mypy clean; the count at the top of this file moves from 3715 to 3737.
+
+**Guard proof.** 32 rules were each broken in a snapshot copy, one at a time, and every break failed a
+test or the dashboard gate: the rate, the share, identical collapse, trace ids and a traced event's time
+keeping events apart, collapse whatever the trace ids while flooding, the final state stored when quiet,
+final states bounded past the share, a stored event making a held one stale, release when calm, the share
+surviving a restart, a displaced count and a settled count written, the guard's events exempt and exempt
+by path rather than name, a replayed id spending nothing, subscribers getting only stored events, an
+unguarded repeat counted at once, reads showing the count, retention by days, 202 with every event
+accepted, `guard` on the read, shutdown and the tick storing what is held, the guard on in the running
+service, the default numbers, chat's tally, and on the dashboard the Overview line, the Events line, a
+row's count, escaped service names, an ended guard and a guard NERVIS stopped during.
+
+**Not verified.** Nothing ran against the live stack. The next NERVIS start applies migration 12 to the
+live store, writing `nervis.db.v11.bak` first, and the editable install reports 0.30.0 until it is
+reinstalled. The dashboard lines were checked by the gate, not in a browser. The 14 September flood
+events are still in the store for the owner to remove, and RAVIS's publishing is unchanged.
 
 ## Starting the thing
 

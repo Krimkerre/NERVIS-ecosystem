@@ -354,6 +354,12 @@ Events are immutable facts. Event type plus version determines the `data` schema
 Producers redact secrets and prompt/file content by default. Consumers tolerate duplicates
 by `event_id`. Ordering is guaranteed only within a declared source stream.
 
+A collector may store identical events from one source once with a count, and may hold back
+events from a source that sends faster than it keeps them, provided the newest event of each type
+from that source is kept and the producer still gets its ordinary answer. Nothing about the
+envelope changes for a producer. NERVIS's flood guard does exactly this, since 0.31.0, after one
+producer's loop pushed every other service's history out of its store (`NERVIS.md` §11.1).
+
 ### 4.5 Error envelope
 
 ```json

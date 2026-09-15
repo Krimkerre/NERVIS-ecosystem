@@ -749,8 +749,17 @@ def test_ingestion_keeps_answering_while_a_subscriber_is_full() -> None:
         hub = client.app.state.hub
         stalled = hub.subscribe()
 
+        # **From three producers, each inside the flood guard's burst.** One source
+        # sending 276 events in a tight loop is, since NERVIS 0.31.0, a flood the
+        # guard holds back — so it can no longer overrun a subscriber by itself,
+        # which is the guard doing its job. Several producers at once still can,
+        # and that is what this test is about. Each event carries its own data,
+        # because identical ones are now stored once with a count.
         for n in range(SUBSCRIBER_BUFFER + 20):
-            answered = client.post("/api/v1/events", json=envelope(event_id=f"flood-{n}"))
+            answered = client.post("/api/v1/events", json=envelope(
+                event_id=f"flood-{n}", data={"n": n},
+                source={"service_type": "ravis", "service_id": f"r{n % 3}", "instance_id": "i1"},
+            ))
             assert answered.status_code == 202, "ingestion stopped while a reader was full"
 
         assert stalled.qsize() <= SUBSCRIBER_BUFFER, "the subscriber buffer is not a bound"
@@ -766,8 +775,9 @@ def test_what_the_hub_holds_is_readable_rather_than_inferred() -> None:
     observable. A queue nobody can read the depth of is one an operator can only
     guess about when the machine is busy."""
     with an_api() as client:
+        # Distinct data, because the flood guard stores identical events once.
         for n in range(5):
-            client.post("/api/v1/events", json=envelope(event_id=f"seen-{n}"))
+            client.post("/api/v1/events", json=envelope(event_id=f"seen-{n}", data={"n": n}))
 
         feed = client.get("/api/v1/events?limit=1000").json()
 
@@ -783,8 +793,11 @@ def test_a_replaying_producer_cannot_grow_the_hub_without_bound() -> None:
     reconnects and resends its backlog is the ordinary way a hub is flooded,
     and retention is what stops that becoming unbounded storage."""
     with an_api(retention_events=4) as client:
+        # Twelve distinct events. Twelve copies of one event under new ids are,
+        # since NERVIS 0.31.0, one row with a count — bounded before retention
+        # ever has to act, and not what this test is asking about.
         for n in range(12):
-            client.post("/api/v1/events", json=envelope(event_id=f"replay-{n}"))
+            client.post("/api/v1/events", json=envelope(event_id=f"replay-{n}", data={"n": n}))
         client.app.state.hub.enforce_retention()
 
         kept = client.get("/api/v1/events?limit=1000").json()["items"]

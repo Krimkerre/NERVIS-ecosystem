@@ -5467,7 +5467,7 @@ async function nervis(){
    ${inst.items.map(c=>`<div class="table-row five"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${warnUnless(c.live)}">${escapeHtml(c.state)}</span><span class="mono">${escapeHtml(bridgeDoing(c))}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
    <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — <b>never merged</b>, because §6.6 says an instance describes the host serving it. Each registered itself with the enrollment secret only this user can read, and holds a lease it renews; a window that closes stops counting within ${escapeHtml(String(inst.lease||45))}s. <b>No workspace path, file or token is stored</b> — the registration has no field for one. <b>Doing</b> is a second read, of each Bridge's own <b>/v1/status</b>, presenting the token NERVIS issued it — one window, one answer, never merged; a row NERVIS could not read says <i>unknown</i> and why, because a blank cell reads as <i>idle</i>. NERVIS reads these and never acts on them: it cannot resolve a gate, run a tool, or widen a workspace root — and <b>waiting for you</b> is displayed, never answered.</small>`
    :banner('No Clarvis Bridge has registered',inst.live?'NERVIS is answering and no editor window has announced itself. Registration is per extension host, so this is the ordinary state with no editor open. Clarvis itself is unaffected.':'NERVIS is not reachable from this page, so whether a Bridge is running is unknown.','info')}</div>
-  <div class="card narrow${escapeHtml(liveClass(ev.live))}"><h3>Recent events</h3>${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
+  <div class="card narrow${escapeHtml(liveClass(ev.live))}"><h3>Recent events</h3>${floodGuardNotes(ev.guard)}${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}${e._repeats>1?` <i style="font-style:normal;opacity:.6">×${escapeHtml(Number(e._repeats).toLocaleString('en-GB'))}</i>`:''}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
   ${overviewTraceCard(tr,bar)}
   <!-- **This card demonstrated the point it was making.** It set out to show
        that a service-reported fact, a NERVIS observation and an operator
@@ -5791,6 +5791,57 @@ async function actOnNote(id,verb){
  if(ok){await paintNotePip();render()}
 }
 
+/* The flood guard, said in plain words wherever events are listed (NERVIS 0.31.0).
+
+   On 14 September 2026 a RAVIS loop sent about a hundred events a second for eight
+   minutes, filled the hub and pushed out ten days of history. NERVIS now holds back
+   what one service sends too fast — so a list of events that did not say so would
+   pass a thinned feed off as the whole one. `guard` is `/api/v1/events`'s own field:
+   who is guarded right now, and the guard's own events from the last day.
+
+   Everything a service named is escaped: a service id is whatever a producer sent. */
+function floodGuardNotes(guard){
+ const g=guard||{},active=g.active||[],recent=(g.recent||[]).map(e=>e.data||{});
+ const lines=active.map(a=>banner(`The flood guard is holding back events from ${floodGuardWho(a)}`,
+   `Since ${noteExact(a.since)} it has sent events faster than NERVIS keeps them, so repeats are
+    counted instead of stored and the rest are held back — <b>${floodGuardCount(a.held_back)}</b> so
+    far. The last event of each kind is still kept, and other services' events are not affected.`));
+ /* Newest first, as the API gives them. A guard that engaged and never released, and
+    is not on now, is one NERVIS stopped (or was stopped) during — said too, rather
+    than dropped. */
+ for(const d of recent){
+  if(d.phase==='released')lines.push(`<p class="flood-note" style="margin:6px 0">The flood guard held
+   back <b>${floodGuardCount(d.held_back)}</b> events from ${floodGuardWho(d)} between
+   ${noteExact(d.since)} and ${noteExact(d.until)}.</p>`);
+  else if(d.phase==='engaged'&&floodGuardUnfinished(d,active,recent))lines.push(`<p class="flood-note"
+   style="margin:6px 0">The flood guard started holding back events from ${floodGuardWho(d)} at
+   ${noteExact(d.since)}, and NERVIS stopped before it could count them.</p>`);
+ }
+ return lines.slice(0,4).join('');
+}
+
+/* A service as a person reads it: its name, and its id when it sent one. */
+function floodGuardWho(d){
+ const known={nervis:'NERVIS',ravis:'RAVIS',sirvis:'SIRVIS',clarvis:'Clarvis'};
+ const name=known[d.service_type]||d.service_type||'a service with no name';
+ return `<b>${escapeHtml(name)}</b>${d.service_id?` (${escapeHtml(d.service_id)})`:''}`;
+}
+
+function floodGuardCount(n){return escapeHtml(Number(n||0).toLocaleString('en-GB'))}
+
+/* Whether an engaged guard neither released nor is on now. */
+function floodGuardUnfinished(d,active,recent){
+ const same=x=>x.service_type===d.service_type&&x.service_id===d.service_id;
+ return !active.some(same)&&!recent.some(x=>x.phase==='released'&&same(x)&&x.since===d.since);
+}
+
+/* A collapsed row's count, for a list that shows one line per stored event:
+   "×49,850 · last 23:39:17". Empty for an event that arrived once. */
+function repeatNote(e){
+ return e&&e._repeats>1
+  ?`×${Number(e._repeats).toLocaleString('en-GB')} · last ${eventClock(e._last_received_at)} · `:'';
+}
+
 async function eventsView(){
  heading('Event hub','NERVIS\'s own hub. Live, filtered, and honest about who is producing.',
   control('Clear filters','clearEventFilters'));
@@ -5846,6 +5897,7 @@ async function eventsView(){
 
  $('#content').innerHTML=`
   <div class="card full${liveClass(feedLive)}"><h3>Feed <span class="chip">${escapeHtml(feed.items.length)} shown · seq ${escapeHtml(feed.latest_sequence)}</span></h3>${cell(`
+   ${floodGuardNotes(feed.guard)}
    <div class="filter-row">
     ${['','nervis','ravis','sirvis'].map(v=>`<button class="mode-chip${escapeHtml(f.service===v?' on':'')}" onclick="setEventFilter('service','${jsAttr(v)}')">${v||'all services'}</button>`).join('')}
     ${['','info','warning','error'].map(v=>`<button class="mode-chip${escapeHtml(f.severity===v?' on':'')}" onclick="setEventFilter('severity','${jsAttr(v)}')">${v||'any severity'}</button>`).join('')}
@@ -5859,7 +5911,7 @@ async function eventsView(){
      <span class="mono">${escapeHtml(dash((e.source||{}).service_type))}</span>
      <span class="mono">${escapeHtml(e.event_type||'')}</span>
      <span><span class="chip${sev(e.severity)}">${escapeHtml(e.severity||'info')}</span></span>
-     <span style="opacity:.8">${escapeHtml(JSON.stringify(e.data||{}).slice(0,90))}</span></div>`).join('')}`
+     <span style="opacity:.8">${escapeHtml(repeatNote(e)+JSON.stringify(e.data||{}).slice(0,90))}</span></div>`).join('')}`
     :(feedLive
       ?`<small class="mono dim">no event matches. The hub is running — <b>seq ${escapeHtml(feed.latest_sequence)}</b> events have passed through it — so this is a filter, not an outage.</small>`
       /* The same empty list, from a read that failed. `feed` is seeded as

@@ -390,6 +390,24 @@ MIGRATIONS: list[tuple[int, str, str]] = [
            AND json_type(value) = 'text';
         """,
     ),
+    (
+        12,
+        "a repeat count beside each stored event, for the flood guard",
+        # **Beside the envelope, not in it.** On 14 September 2026 one RAVIS loop
+        # filled the event hub in eight minutes and pushed out ten days of
+        # history. The flood guard (`flood.py`) now stores an identical event
+        # once and counts the rest onto that row: `repeats` is how many times it
+        # arrived and `last_received_at` when it last did. The envelope stays as
+        # the producer sent it, for the reason migration 5 gives.
+        #
+        # Defaults that describe every row already stored truthfully: each
+        # arrived once, and has no later sighting. Adding a column with a
+        # constant default is instant in SQLite, whatever the table's size.
+        """
+        ALTER TABLE event ADD COLUMN repeats INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE event ADD COLUMN last_received_at TEXT NOT NULL DEFAULT '';
+        """,
+    ),
 ]
 
 

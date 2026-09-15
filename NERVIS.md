@@ -729,6 +729,33 @@ Ingestion may be HTTP POST, SSE subscription or WebSocket. Prefer service-to-NER
 NERVIS subscriptions over polling. Retention is bounded and configurable — 7–30 days is a
 sensible default. **High-volume raw logs must not grow forever.**
 
+**No one source may fill the hub — the flood guard, NERVIS 0.31.0.** On 14 September 2026 a
+RAVIS loop published about a hundred events a second for eight minutes, the count bound filled,
+and every older event — 4 to 14 September — was pruned. The hub now meters each source
+(`source.service_type` plus `source.service_id`) before it stores (`nervis/src/nervis/flood.py`):
+
+- An event identical to the newest stored event of its type from that source, within
+  `event_collapse_seconds` (60) of its last sighting, is counted onto that row — `repeats` and
+  `last_received_at`, read back as `_repeats` and `_last_received_at` beside the envelope. Trace
+  ids, and a traced event's time, are part of "identical" unless the source is over its rate.
+- A source may send `event_source_burst` (120) events at once and `event_source_per_minute` (12)
+  after that. Past it, only the newest event of each type waits, and it is stored once that type has
+  been quiet for `event_guard_quiet_seconds` (5). **The latest event of each type is never dropped**,
+  and whatever is still held is stored on shutdown.
+- A source adds at most `event_source_daily_share` (5%) of the retention count a day — at the
+  default, fourteen days at that limit fill 70% of the store. It is counted from the store, so a
+  restart does not reset it; final states may run one burst past it.
+
+Ingestion still answers 202 and counts every event accepted. The guard stores
+`nervis.events.flood_guarded` when it engages (`warning`) and releases (`info`, with `held_back`,
+`collapsed`, `thinned` and `types`); those are written around the guard, never through it, so they
+cannot spend an allowance or engage a guard, while an event *posted* under that name is metered like
+any other. SSE subscribers receive exactly what is stored. `GET /api/v1/events` carries `guard` —
+`on`, `limits`, `active`, and the last day's guard events as `recent` — and the Events screen and the
+Overview's Recent events card say it in words. Pruning stays oldest-first across sources, so §4.1's
+cursor floor holds. The envelope producers send is unchanged. Each number's measurement is in
+`nervis/src/nervis/config.py`.
+
 > **The hub is operational telemetry, not the system of record** for SIRVIS evidence, RAVIS
 > accounting or Clarvis workspace state. Producers stay authoritative.
 
