@@ -25,7 +25,25 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.2
+## Clarvis — 0.17.3
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **A Codex follow-up asks whether to build on the work Codex left.** In the live test on 15
+  September, Codex built a greeter on its own branch and the owner chose "Leave it there". The next
+  request ("Also add a --shout option…") then started a new Codex task on a new branch from `master`,
+  so Codex never saw its own greeter and wrote a second one beside it. Now, when earlier Codex work is
+  still on a branch that isn't merged, Clarvis asks first: **Build on `<branch>`** picks that Codex
+  task back up on its branch, so Codex adds to its own work and keeps the earlier conversation, or
+  **Start fresh from `<trunk>`** starts a new task as before. The branch named is the project's own
+  trunk, never assumed to be `main`. Typing "continue" or "start fresh" works like the buttons and is
+  never sent to Codex. Unanswered means nothing runs. Unattended doesn't ask: it builds on the branch
+  the window is on when that holds Codex's work, otherwise starts fresh, and says which. Switching to
+  another branch is refused while you have uncommitted changes, naming the files.
+- **Known gap, unchanged:** Clarvis's own engine still starts every task from the trunk, so the same
+  follow-up with it doesn't see the earlier run's branch.
+
+### 0.17.2
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 

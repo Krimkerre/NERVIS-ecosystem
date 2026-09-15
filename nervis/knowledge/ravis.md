@@ -312,7 +312,10 @@ on a branch of its own, so the project has to be a git repository: since Clarvis
 refused because the folder has no git offers **Set up git here** in the chat (git init and a first
 commit, then the task carries on), even if Clarvis's own git offer was declined before, and typing
 "git init" does the same. Folders NERVIS hands a task over in already start as git repositories
-(NERVIS 0.29.3). The task keeps running with no
+(NERVIS 0.29.3). Since Clarvis 0.17.3, when earlier Codex work is still on a branch that isn't
+merged, Clarvis asks before a new Codex task whether to **Build on** that branch (Codex picks its
+earlier task back up there and keeps the conversation) or **Start fresh** from the project's trunk;
+Unattended picks on its own and says which. The task keeps running with no
 editor open, and another window can reattach to it. Only a Clarvis credential holding the task's
 token may do any of that; NERVIS and admin credentials are refused. The menu bar and the dashboard
 can only stop a task, after confirming its folder and turn. A question nobody answers pauses the

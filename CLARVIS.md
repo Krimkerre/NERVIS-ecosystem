@@ -384,6 +384,21 @@ named like the Clarvis pools; it was `ravis/codex` until the owner renamed it on
   once git is really set up. Clarvis's own pre-run offer is asked for its own engine only. Task
   folders NERVIS hands over start as repositories with the brief committed (NERVIS 0.29.3), so they
   never meet this.
+- **Earlier Codex work left on its branch** (owner's decision, 15 September 2026, "Ask each time";
+  built in Clarvis 0.17.3). Before a Codex task starts, Clarvis looks for earlier Codex work in the
+  project that is still waiting: a RAVIS session that is `idle`, whose key this Mac's token file holds
+  and RAVIS accepts, on a branch that still exists and isn't merged into the project's trunk (the
+  plan's declared trunk, else the branch a new task starts from, never a literal `main`). When there
+  is some, the owner is asked each time: **Build on `<branch>`** (at most three, the window's branch
+  first, then the most recent) picks that session back up with a `continue` turn carrying the new
+  request, on its own branch, so Codex adds to its own work and keeps the conversation; **Start fresh
+  from `<trunk>`** starts a new task on a new branch as before, leaving the earlier session idle.
+  Typed answers work like the buttons and are never sent to Codex; unanswered, stopped or a mode
+  switch runs nothing. Unattended doesn't ask: it builds on the window's branch when that is left
+  work, otherwise starts fresh, and says which. Switching to another branch is refused while the owner
+  has uncommitted work. The earlier session is given the chat's current mode before its turn. A
+  session without a stored key isn't offered, and no token is reissued to find out. Clarvis's own
+  engine still starts every task from the trunk.
 - **The checkpoint** is `<git_dir>/clarvis-task-checkpoint.json` (0600, never committed;
   `<root>/.clarvis/task-checkpoint.json` without git), because `workspaceState` is per host and a task
   moves between hosts. It is written atomically, only while holding the project lock, at most 64 KB,
