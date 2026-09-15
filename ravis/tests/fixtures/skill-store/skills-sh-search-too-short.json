@@ -1,0 +1,9 @@
+{
+  "about": "skills.sh's refusal of a one-letter search, recorded while RAVIS 0.28.1 was built (one of three calls the owner's coordinator allowed). An empty query gets the same answer (measured by the coordinator the same evening), so skills.sh can't list everything: RAVIS never sends a query shorter than two characters, and reads skills.sh's own words from any 400 it gets.",
+  "recorded_at": "2026-09-15T20:24:39Z",
+  "request": "GET https://skills.sh/api/search?q=a&limit=5",
+  "status": 400,
+  "answer": {
+    "error": "Query must be at least 2 characters"
+  }
+}

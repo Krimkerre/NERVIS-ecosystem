@@ -25,7 +25,19 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.5
+## Clarvis — 0.17.6
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Clarvis follows a skill it picks itself.** In the 15 September live test, Clarvis's own engine
+  read a changelog skill it chose on its own and then wrote the changelog in its usual layout; named
+  in the task, the skill was followed. A skill it reads is now presented as instructions to follow
+  for how it does the parts of the task the skill covers (steps, format, structure, style), unless
+  the owner's request or plan.md's conventions say otherwise. A skill never widens the task, isn't a
+  message from you, and changes none of Clarvis's rules: approvals still apply to anything it says
+  to run.
+
+### 0.17.5
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -1382,7 +1394,28 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.28.0
+## RAVIS — 0.28.1
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+Fixes for what you found using Browse on 15 September.
+
+- **skills.sh is never asked for fewer than 2 letters.** It refuses such a search, so RAVIS answers
+  "skills.sh needs a search of at least 2 letters." without asking it. When skills.sh refuses a
+  search for another reason, RAVIS passes on its own words.
+- **A search is remembered for 5 minutes**, whatever its capital letters, so typing back to the same
+  words doesn't ask skills.sh again. Only answers RAVIS could read are remembered, and whether each
+  result is installed is checked fresh every time.
+- **Installing from skills.sh works whatever the letter case.** skills.sh writes repository names in
+  lower case (composiohq/awesome-claude-skills, where GitHub has ComposioHQ). RAVIS finds the skill's
+  folder anyway, and shows it as installed in the search and in the source's list.
+- **Big collections list their own skills first.** A source still lists at most 300 skills, but the
+  ones at the top of its repository now come before those in sub-folders, so
+  ComposioHQ/awesome-claude-skills's own skills, such as changelog-generator, are no longer pushed
+  out by its hundreds of generated `composio-skills` folders. The source's line says how many were
+  left out. The limit stays 300, since every skill listed is read once a day.
+
+### 0.28.0
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

@@ -1642,7 +1642,14 @@ own sources can be hidden, not removed. A GitHub source's listing (its tree, one
 the page's reads fetch nothing. A link is looked up only when the page shows it, at most 10 a call,
 a skill folder's link by one raw read and no API call; look-ups stop while GitHub rate-limits RAVIS
 or its hourly allowance is down to 10. An entry found through a list or skills.sh installs from the
-repository the skill lives in, which Update reads later. **Network rules** (`agent/skill_web.py`):
+repository the skill lives in, which Update reads later. **Since 0.28.1**, from the owner's first
+use of Browse: a GitHub source lists at most 300 skills (50 at one link) with the folders nearest
+its top first, then alphabetically, and its problem says how many were left out; the cap stays 300,
+since each skill listed is one raw read a day. skills.sh is never sent a query under 2 characters
+(it answers HTTP 400), its own words are passed on when it refuses one (`Web.get`'s `readable`), and
+a query's results are kept 5 minutes in memory whatever its letter case, at most 100, failures
+never; its `source` comes in lower case, so the skill's folder and the installed badge are matched
+whatever the case. **Network rules** (`agent/skill_web.py`):
 https only; GitHub's four hosts for GitHub, skills.sh's host for its search, exactly the added host
 for a website; redirects only within those; 5 s to connect, 20 s between bytes and 60 s in all,
 sizes capped while streaming; never a credential, and the environment isn't trusted; a rate-limited

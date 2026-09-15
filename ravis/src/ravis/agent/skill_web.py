@@ -153,14 +153,17 @@ class Web:
         return until
 
     async def get(self, url: str, *, hosts: frozenset[str], most_bytes: int,
-                  accept: str | None = None) -> Fetched:
+                  accept: str | None = None, readable: frozenset[int] = frozenset()) -> Fetched:
         """A GET under every rule above: `NotFoundError`, `RateLimitedError`, `UnreachableError`
-        or `RefusedError` when it can't be answered with a status in the 200s."""
+        or `RefusedError` when it can't be answered with a status in the 200s, or in `readable`:
+        statuses whose answer the caller reads itself, under the same size cap (skills.sh says
+        why it refused a search in a 400's body, RAVIS 0.28.1). A rate-limiting status never
+        belongs there."""
         _allowed(url, hosts, "not_https")
         headers = {"Accept": accept} if accept else {}
         try:
             async with asyncio.timeout(TOTAL_SECONDS):
-                return await self._follow(url, hosts, most_bytes, headers)
+                return await self._follow(url, hosts, most_bytes, headers, readable)
         except TimeoutError:
             raise UnreachableError(f"{host_of(url)} took longer than {TOTAL_SECONDS:.0f} seconds "
                                    "to answer") from None
@@ -186,7 +189,7 @@ class Web:
         return self._http
 
     async def _follow(self, url: str, hosts: frozenset[str], most_bytes: int,
-                      headers: dict[str, str]) -> Fetched:
+                      headers: dict[str, str], readable: frozenset[int]) -> Fetched:
         for _ in range(MOST_REDIRECTS + 1):
             host = host_of(url) or ""
             until = self.blocked_until(host)
@@ -198,7 +201,8 @@ class Web:
                     url = urljoin(url, response.headers.get("location", ""))
                     _allowed(url, hosts, "redirect_elsewhere", came_from=host)
                     continue
-                self._check_status(host, response)
+                if response.status_code not in readable:
+                    self._check_status(host, response)
                 body = await _read_at_most(response, most_bytes, host)
                 return Fetched(url, response.status_code, response.headers, body)
         raise RefusedError("too_many_redirects",

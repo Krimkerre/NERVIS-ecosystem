@@ -479,9 +479,14 @@ owner switches them on NERVIS's Skills page.
   (`GET /api/v1/skills/models`) and added as a capped section after Clarvis's own rules: each
   skill's name, id and a description cut at 160 characters, about 1,500 characters in all. Nothing is
   added when no skill is on, or when RAVIS isn't the run's provider. A switch counts from the next
-  run.
+  run. The section tells the model to read a skill that fits with `readSkill` and follow its
+  instructions (steps, format and style) for how it does the parts of the task the skill covers,
+  unless the owner's request or plan.md's conventions say otherwise; a skill never widens the task
+  (Clarvis 0.17.6).
 - **Reading a skill.** `readSkill` (`GET /api/v1/skills/models/read`) runs in the extension host,
-  never through `runCommand`. Its text arrives as reference material, not as the owner's message. It
+  never through `runCommand`. Its text arrives as the skill's instructions: followed for how the
+  covered parts of the task are done, after the owner's request and plan.md's conventions, never
+  widening the task, and never as the owner's message (Clarvis 0.17.6). It
   only reads and needs no step approval; a run's first eight reads don't count against the step cap.
   A refused read is a tool result, never a failed run.
 - **Precedence.** Skills can't override Clarvis's rules: step approvals, the command gate, Workspace

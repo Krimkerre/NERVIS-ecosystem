@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -333,33 +333,56 @@ def _unread(folder: str, repository: Repository, problem: str) -> Head:
 
 
 def skill_folders(entries: Sequence[TreeEntry], roots: Sequence[str], most: int
-                  ) -> tuple[list[tuple[str, str | None]], bool]:
-    """Folders holding a `SKILL.md` below any of `roots`: each with its license file, and whether
-    the list stopped at `most`.
+                  ) -> tuple[list[tuple[str, str | None]], int]:
+    """Folders holding a `SKILL.md` below any of `roots`: each with its license file, and how many
+    more the cap at `most` left out (0 when none were).
+
+    **Shallowest first, then alphabetically** (RAVIS 0.28.1): the folders right below a root come
+    before the ones in sub-folders, so a cap never cuts a collection's own skills for the
+    sub-collections beside them. ComposioHQ/awesome-claude-skills keeps `changelog-generator` at
+    its top beside hundreds of `composio-skills/<app>-automation` folders, and an alphabetical cap
+    of 300 could list the generated ones and leave the collection's own out. Depth is counted below
+    each root; at the same depth the roots keep their order.
 
     At most `MOST_DEPTH` folders below a root; a skill's own sub-folders aren't searched for more
     skills; a hidden folder below a root is skipped (a root may itself be hidden, like openai's
     `skills/.curated`).
     """
     blobs = {entry.path for entry in entries if entry.type == "blob"}
-    found: list[tuple[str, str | None]] = []
-    for root in roots:
-        prefix = f"{root}/" if root else ""
-        candidates = sorted(path[:-len(SKILL_FILE)].rstrip("/") for path in blobs
-                            if path.startswith(prefix) and path.rsplit("/", 1)[-1] == SKILL_FILE)
-        for folder in candidates:
-            below = folder[len(prefix):].split("/") if folder != root else []
-            if (len(below) > MOST_DEPTH or any(part.startswith(".") for part in below)
-                    or any(_inside(folder, taken) for taken, _ in found)):
-                continue
-            if len(found) >= most:
-                return found, True
-            found.append((folder, _license_file(blobs, folder)))
-    return found, False
+    # (depth, root's place, folder): sorting the tuples is the whole ordering rule.
+    candidates = sorted((depth, index, folder) for index, root in enumerate(roots)
+                        for folder, depth in _below(blobs, root))
+    taken: list[str] = []
+    held: set[str] = set()
+    for _, _, folder in candidates:
+        # A shallower folder is always seen first, so a skill's own sub-folders are skipped here.
+        if not _inside_taken(folder, held):
+            taken.append(folder)
+            held.add(folder)
+    listed = [(folder, _license_file(blobs, folder)) for folder in taken[:most]]
+    return listed, max(0, len(taken) - most)
 
 
-def _inside(folder: str, other: str) -> bool:
-    return other == "" and folder != "" or folder.startswith(f"{other}/")
+def _below(blobs: set[str], root: str) -> Iterator[tuple[str, int]]:
+    """Each folder below `root` holding a `SKILL.md`, with how many folders below the root it lies
+    (0 for the root itself); none deeper than `MOST_DEPTH`, and none inside a hidden folder."""
+    prefix = f"{root}/" if root else ""
+    for path in blobs:
+        if not path.startswith(prefix) or path.rsplit("/", 1)[-1] != SKILL_FILE:
+            continue
+        folder = path[:-len(SKILL_FILE)].rstrip("/")
+        below = folder[len(prefix):].split("/") if folder != root else []
+        if len(below) <= MOST_DEPTH and not any(part.startswith(".") for part in below):
+            yield folder, len(below)
+
+
+def _inside_taken(folder: str, taken: set[str]) -> bool:
+    """Whether a folder already taken holds this one: the repository's top (`""`) holds every
+    other folder, and `a/b` holds `a/b/c`. Looked up by each parent, not by scanning every folder
+    taken, since a big repository can hold thousands of skills."""
+    parts = folder.split("/")
+    return (folder != "" and "" in taken) or any(
+        "/".join(parts[:count]) in taken for count in range(1, len(parts)))
 
 
 def _license_file(blobs: set[str], folder: str) -> str | None:

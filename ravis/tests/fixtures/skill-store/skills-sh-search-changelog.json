@@ -1,0 +1,50 @@
+{
+  "about": "One real skills.sh search, made while RAVIS 0.28.1 was built (one of three calls the owner's coordinator allowed), after the owner found ComposioHQ/awesome-claude-skills's changelog-generator missing from Browse. It fixes the shape RAVIS reads as skills.sh answers it: extra top-level fields (searchType, searchVersion, count, duration_ms), each skill's id as source/skillId, and source in lower case, where GitHub has ComposioHQ. Nothing was installed from it. RAVIS itself asks with limit=20.",
+  "recorded_at": "2026-09-15T20:24:38Z",
+  "request": "GET https://skills.sh/api/search?q=changelog&limit=5",
+  "status": 200,
+  "answer": {
+    "query": "changelog",
+    "searchType": "fuzzy",
+    "searchVersion": "legacy",
+    "skills": [
+      {
+        "id": "heygen-com/hyperframes/changelog-video",
+        "skillId": "changelog-video",
+        "name": "changelog-video",
+        "installs": 60030,
+        "source": "heygen-com/hyperframes"
+      },
+      {
+        "id": "wshobson/agents/changelog-automation",
+        "skillId": "changelog-automation",
+        "name": "changelog-automation",
+        "installs": 12507,
+        "source": "wshobson/agents"
+      },
+      {
+        "id": "elevenlabs/skills/update-skills-from-changelog",
+        "skillId": "update-skills-from-changelog",
+        "name": "update-skills-from-changelog",
+        "installs": 2464,
+        "source": "elevenlabs/skills"
+      },
+      {
+        "id": "riekelt/technical-writer/writing-changelogs",
+        "skillId": "writing-changelogs",
+        "name": "writing-changelogs",
+        "installs": 7616,
+        "source": "riekelt/technical-writer"
+      },
+      {
+        "id": "composiohq/awesome-claude-skills/changelog-generator",
+        "skillId": "changelog-generator",
+        "name": "changelog-generator",
+        "installs": 6603,
+        "source": "composiohq/awesome-claude-skills"
+      }
+    ],
+    "count": 5,
+    "duration_ms": 473
+  }
+}

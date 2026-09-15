@@ -35,7 +35,9 @@
     "github_api_reserve": 10,
     "own_sources": 30,
     "search_results": 20,
-    "query_characters": 100
+    "query_characters": 100,
+    "search_least_characters": 2,
+    "search_kept_minutes": 5
   },
   "rules": {
     "specification": [
@@ -107,7 +109,8 @@
         "Source: {id, kind: github | link_list | search | website, label, repository, folders, path, ref, site, default, deprecated, uncurated, note, hidden, fetched_at, stale, problem, count}; stale is true when the listing is missing or older than a day, never for search",
         "Entry: {id, source, state: ready | unresolved | problem | not_installable, name, description, license, label, problem, lives_in, repository, folder, ref, site, link, installed, install}",
         "install is the body of POST /api/v1/skills/previews that reviews the entry, or null when it can't be installed here",
-        "a hidden source lists no entries"
+        "a hidden source lists no entries",
+        "a GitHub source lists at most 300 skills (50 at one link): the folders nearest the top first, then alphabetically; when some are left out, problem says how many (0.28.1)"
       ],
       "examples": [
         {
@@ -320,7 +323,11 @@
       "needs": "an admin credential",
       "body": "{query: 1-100 characters}",
       "answer": "{source: skills_sh, query, note, results: [{name, skill, repository, installs, installed, install}], problem}",
-      "rules": ["results come most installed first; any failure of skills.sh is problem, in plain words, with 200 and no results"],
+      "rules": ["results come most installed first; any failure of skills.sh is problem, in plain words, with 200 and no results",
+        "a query shorter than 2 characters is never sent to skills.sh, which refuses one: problem is \"skills.sh needs a search of at least 2 letters.\" (0.28.1)",
+        "when skills.sh refuses a search (HTTP 400), problem gives its own words: \"skills.sh refused the search: …\" (0.28.1)",
+        "a query's results are kept in RAVIS's memory 5 minutes, whatever its letter case, so the same words don't ask skills.sh again; installed is worked out on every answer (0.28.1)",
+        "source in skills.sh's answer comes in lower case; GitHub reads a repository's name in any case, and the skill's folder is found whatever its case (0.28.1)"],
       "examples": [
         {
           "name": "results",

@@ -11,14 +11,19 @@ removed):
 - **VoltAgent/awesome-agent-skills** — a **link list**: a README linking to skills kept in other
   repositories, over a thousand. Uncurated.
 - **skills.sh** — a **search** source (Vercel's open directory), asked only when the owner searches.
-  Uncurated, ranked by installs. Not a documented public API: a failure is a plain line.
+  Uncurated, ranked by installs. Not a documented public API: a failure is a plain line. It refuses
+  a search shorter than two characters (measured 15 September 2026: HTTP 400, "Query must be at
+  least 2 characters"), so RAVIS never sends one and says so instead.
 And the owner's own: a **GitHub** repository (optional folder, branch or tag), a **link list** (a
 repository's README or another Markdown file in it), or a **website with an Agent Skills index**
 (`skill_sites.py`). At most `MOST_OWN_SOURCES`.
 
 **What is fetched when, and kept a day** (`skill_market_cache`, `CACHE_HOURS`):
 - A GitHub source: its repository's tree (one API call) and each skill folder's `SKILL.md` front
-  matter (raw files, not counted by GitHub's API limit), at most `MOST_SKILLS_PER_SOURCE`.
+  matter (raw files, not counted by GitHub's API limit), at most `MOST_SKILLS_PER_SOURCE`: the
+  folders nearest the top first, then alphabetically, and the problem line says how many were left
+  out (0.28.1). The cap stays 300: each skill listed is one raw read a day, and ComposioHQ's
+  hundreds of generated `composio-skills/<app>-automation` folders come after its own skills now.
 - A link list: its file, raw. **Its links are resolved lazily** (`resolve`): only the ones the page
   is showing, at most `MOST_RESOLVE_PER_CALL` per call, each kept a day. A link to a skill's own
   folder costs one raw read and no API call; a folder of skills or a repository costs one API call
@@ -26,7 +31,9 @@ repository's README or another Markdown file in it), or a **website with an Agen
   to installs, and says so. A link to any host but GitHub is listed as not installable here and
   never fetched.
 - A website: its index, from its own host only.
-- skills.sh: nothing is kept; each search asks again.
+- skills.sh: a query's results are kept in memory `SEARCH_KEPT_MINUTES`, whatever its letter case
+  (0.28.1), since the Skills page now searches as the owner types; nothing is written to disk, and
+  a failed search asks again next time.
 `refresh` reads a source again when its listing is older than a day, or always when forced; a
 source that can't be read keeps its last listing, with why. GETs never fetch: they answer from the
 cache, so the Skills page's reads stay quick.
@@ -78,8 +85,15 @@ MOST_SKILLS_PER_LINK = 50
 API_RESERVE = 10
 MOST_OWN_SOURCES = 30
 MOST_QUERY_CHARACTERS = 100
+#: skills.sh refuses a shorter search (HTTP 400, measured 15 September 2026), so none is sent.
+LEAST_QUERY_CHARACTERS = 2
+SHORT_QUERY = "skills.sh needs a search of at least 2 letters."
 SEARCH_LIMIT = 20
 MOST_SEARCH_BYTES = 256 * 1024
+#: How long a query's results are kept, whatever its letter case (0.28.1): the Skills page searches
+#: as the owner types, and typing back to words just searched shouldn't ask skills.sh again.
+SEARCH_KEPT_MINUTES = 5
+MOST_KEPT_SEARCHES = 100
 #: A cached listing that never was read: stale at once, so the next refresh tries again.
 NEVER = datetime(1970, 1, 1, tzinfo=UTC)
 UNCURATED_LIST = "Uncurated: a list of links to skills kept in other people's repositories."
@@ -140,6 +154,9 @@ class SkillMarket:
         self._installs = installs
         self._lock: asyncio.Lock | None = None
         self._lock_loop: asyncio.AbstractEventLoop | None = None
+        #: skills.sh's parsed results by query (case-folded), with when they were asked: kept in
+        #: memory only, `SEARCH_KEPT_MINUTES`, at most `MOST_KEPT_SEARCHES`, oldest dropped first.
+        self._searches: dict[str, tuple[datetime, list[dict[str, Any]]]] = {}
 
     @property
     def _web(self) -> Any:
@@ -341,13 +358,12 @@ class SkillMarket:
                     "problem": f"Only the first {MOST_LINKS} links are listed." if cut else None}
         entries, truncated = await github.tree(repository, ref)
         labels = dict(source.roots)
-        folders, stopped = skill_folders(entries, list(labels), MOST_SKILLS_PER_SOURCE)
+        folders, left_out = skill_folders(entries, list(labels), MOST_SKILLS_PER_SOURCE)
         heads = await github.heads(repository, ref, folders)
         skills = [{**_head_view(head), "label": _label(head.folder, labels)} for head in heads]
         problem = ("GitHub cut the repository's list of files short, so some skills may be "
                    "missing." if truncated else
-                   f"Only the first {MOST_SKILLS_PER_SOURCE} skills are listed." if stopped
-                   else None)
+                   left_out_words(MOST_SKILLS_PER_SOURCE, left_out, "") if left_out else None)
         return {"skills": skills, "problem": problem}
 
     async def _read_site(self, source: Source) -> dict[str, Any]:
@@ -423,48 +439,74 @@ class SkillMarket:
                 entries, _ = await github.tree(repository, ref or "HEAD")
             except NotFoundError:
                 continue
-            folders, stopped = skill_folders(entries, [folder], MOST_SKILLS_PER_LINK)
+            folders, left_out = skill_folders(entries, [folder], MOST_SKILLS_PER_LINK)
             if not folders:
                 return {"skills": [], "problem": "There is no folder holding a SKILL.md at that "
                                                  "link."}
             heads = await github.heads(repository, ref or "HEAD", folders)
             return {"skills": [_link_skill(repository, ref, head) for head in heads],
-                    "problem": (f"Only the first {MOST_SKILLS_PER_LINK} skills at that link are "
-                                "listed." if stopped else None)}
+                    "problem": (left_out_words(MOST_SKILLS_PER_LINK, left_out, " at that link")
+                                if left_out else None)}
         return {"skills": [], "problem": f"GitHub has no such branch, tag or folder in "
                                          f"{repository.full}."}
 
     # ── skills.sh ────────────────────────────────────────────────────────────
 
     async def search(self, query: str) -> dict[str, Any]:
-        """skills.sh's results for a query, most installed first; a failure is a plain line."""
+        """skills.sh's results for a query, most installed first; a failure is a plain line.
+
+        Never sent when shorter than `LEAST_QUERY_CHARACTERS`, and answered from the same query
+        kept `SEARCH_KEPT_MINUTES` when there is one (0.28.1). Whether each result is installed is
+        worked out on every answer, kept or not, so an install shows at once."""
         source = self.source("skills_sh", "search")
-        base = self._settings.skills_sh_url.rstrip("/")
-        host = host_of(base)
         answer: dict[str, Any] = {"source": source.id, "query": query, "note": source.note,
                                   "results": [], "problem": None}
+        if len(query) < LEAST_QUERY_CHARACTERS:
+            return {**answer, "problem": SHORT_QUERY}
+        results, problem = await self._results(query)
+        if problem is not None:
+            return {**answer, "problem": problem}
+        records = await asyncio.to_thread(self._installs.records)
+        # Copies, so what is kept is never marked: the next answer works installed out again.
+        return {**answer, "results": [
+            {**result, "installed": any(_found_installed(record, result) for record in records)}
+            for result in results]}
+
+    async def _results(self, query: str) -> tuple[list[dict[str, Any]], str | None]:
+        """A query's results, kept or asked for now; or none, with why in plain words. Only an
+        answer RAVIS could read is kept: a failure asks again next time."""
+        key, now = query.casefold(), self._now()
+        kept = self._searches.get(key)
+        if kept is not None and now - kept[0] < timedelta(minutes=SEARCH_KEPT_MINUTES):
+            return kept[1], None
+        base = self._settings.skills_sh_url.rstrip("/")
+        host = host_of(base)
         if host is None:
-            return {**answer, "problem": "RAVIS's skills.sh address isn't an https address, so "
-                                         "it can't search."}
+            return [], "RAVIS's skills.sh address isn't an https address, so it can't search."
         try:
             fetched = await self._web.get(
                 f"{base}/api/search?q={quote(query)}&limit={SEARCH_LIMIT}",
-                hosts=frozenset({host}), most_bytes=MOST_SEARCH_BYTES, accept="application/json")
+                hosts=frozenset({host}), most_bytes=MOST_SEARCH_BYTES, accept="application/json",
+                readable=frozenset({400}))
         except WebError as failure:
-            why = failure_words(failure)
-            return {**answer, "problem": f"skills.sh couldn't be searched: {why}"}
+            return [], f"skills.sh couldn't be searched: {failure_words(failure)}"
+        if fetched.status == 400:
+            return [], refused_words(fetched.body)
         results = search_results(fetched.body)
         if results is None:
-            return {**answer, "problem": "skills.sh answered in a shape RAVIS doesn't read, so "
-                                         "there are no results to show."}
-        records = await asyncio.to_thread(self._installs.records)
-        for result in results:
-            result["installed"] = any(
-                record.origin.kind == "github"
-                and (record.origin.repository or "").lower() == result["repository"].lower()
-                and (record.origin.folder or "").rsplit("/", 1)[-1] == result["skill"]
-                for record in records)
-        return {**answer, "results": results}
+            return [], UNREADABLE_SEARCH
+        self._keep(key, now, results)
+        return results, None
+
+    def _keep(self, key: str, now: datetime, results: list[dict[str, Any]]) -> None:
+        """A query's results kept: expired queries dropped first, then the oldest while there are
+        `MOST_KEPT_SEARCHES` (a dict keeps the order queries were added in)."""
+        fresh = timedelta(minutes=SEARCH_KEPT_MINUTES)
+        self._searches = {kept: value for kept, value in self._searches.items()
+                          if now - value[0] < fresh and kept != key}
+        while len(self._searches) >= MOST_KEPT_SEARCHES:
+            del self._searches[next(iter(self._searches))]
+        self._searches[key] = (now, results)
 
 
 # ── Shapes ───────────────────────────────────────────────────────────────────
@@ -569,6 +611,40 @@ def failure_words(failure: WebError) -> str:
         return (f"{refusals.host_label(failure.host)} is rate-limiting RAVIS; try again at "
                 f"{refusals.local_time(failure.retry_at)}.")
     return refusals.sentence(failure.why)
+
+
+def left_out_words(listed: int, left_out: int, where: str) -> str:
+    """A capped listing's problem line: how many it lists of how many, in which order, and how many
+    it leaves out (0.28.1). `where` is `""` for a source, `" at that link"` for a link."""
+    verb = "is" if left_out == 1 else "are"
+    return (f"Only the first {listed} of {listed + left_out} skills{where} are listed, top folders "
+            f"before sub-folders; {left_out} {verb} left out.")
+
+
+UNREADABLE_SEARCH = ("skills.sh answered in a shape RAVIS doesn't read, so there are no results "
+                     "to show.")
+
+
+def refused_words(body: bytes) -> str:
+    """skills.sh's refusal of a search (HTTP 400), in its own words when its answer carries some:
+    `{"error": "Query must be at least 2 characters"}`, as recorded on 15 September 2026."""
+    try:
+        said = json.loads(body).get("error")
+    except (ValueError, AttributeError):
+        said = None
+    if not isinstance(said, str) or not said.strip():
+        return "skills.sh refused the search without saying why."
+    return f"skills.sh refused the search: {refusals.sentence(one_line(said, 200))}"
+
+
+def _found_installed(record: Install, result: dict[str, Any]) -> bool:
+    """Whether an install came from a search result: the same repository, and a folder named as
+    the result's skill, whatever the letter case of either (skills.sh's `source` comes in lower
+    case, and GitHub's own name may not)."""
+    folder = (record.origin.folder or "").rsplit("/", 1)[-1]
+    return (record.origin.kind == "github"
+            and (record.origin.repository or "").lower() == str(result["repository"]).lower()
+            and folder.lower() == str(result["skill"]).lower())
 
 
 ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?P<rest>.+)$")

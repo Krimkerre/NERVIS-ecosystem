@@ -18,6 +18,15 @@ recorded while this was built (`fixtures/skill-store/skills-sh-search.json`). Wh
 - **the owner's own sources**: checked, added, hidden and removed, RAVIS's own hidden only, at
   most thirty; **a website's index** listed and installed with its digest checked;
 - **skills.sh**: most installed first, only its host fetched, and every failure a plain line.
+
+And since 0.28.1, what the owner found using Browse on 15 September 2026:
+- **a capped source lists its top folders first** and says how many it left out;
+- **skills.sh's real answer** (`skills-sh-search-changelog.json`) is read as recorded, and a
+  lowercased `source` installs from the folder GitHub has and shows as installed;
+- **a one-letter search is never sent**, and skills.sh's own refusal is said in its words
+  (`skills-sh-search-too-short.json`);
+- **a query is kept five minutes**, whatever its letter case, at most a hundred, and a failure is
+  never kept.
 """
 
 from __future__ import annotations
@@ -32,7 +41,7 @@ import pytest
 from tests.agent_rig import refused, serving
 from tests.skill_store_rig import ADMIN, StoreRig, body_of, skill_md, store_rig
 
-from ravis.agent import store_refusals
+from ravis.agent import skill_market, store_refusals
 from ravis.agent.skill_package import SPECIFICATION
 from ravis.agent.skill_sites import SCHEMA_V2
 
@@ -166,6 +175,26 @@ def test_listings_are_kept_a_day_and_read_again_when_stale_or_forced(store: Stor
     assert (first, kept, forced) == (3, 3, 4)
     assert stale == [True, True, True, True, False]
     assert len(api_calls(store)) == 7
+
+
+def test_a_capped_source_lists_its_top_folders_first_and_says_how_many_are_left_out(
+        store: StoreRig, monkeypatch: pytest.MonkeyPatch) -> None:
+    """ComposioHQ/awesome-claude-skills as the owner met it on 15 September 2026: its own skills at
+    the top, and hundreds of generated `composio-skills/<app>-automation` folders sorting first."""
+    monkeypatch.setattr(skill_market, "MOST_SKILLS_PER_SOURCE", 3)
+    generated = {f"composio-skills/{app}-automation/SKILL.md": skill_md(f"{app}-automation")
+                 for app in ("asana", "box", "canva", "discord")}
+    store.github.repository("ComposioHQ/awesome-claude-skills", {
+        "README.md": b"# Awesome", **generated,
+        "changelog-generator/SKILL.md": skill_md("changelog-generator"),
+        "file-organizer/SKILL.md": skill_md("file-organizer")})
+    with serving(store.rig) as relay:
+        view = post(relay, REFRESH, {"source": "composio"})
+
+    assert [entry["folder"] for entry in entries(view, "composio")] == [
+        "changelog-generator", "file-organizer", "composio-skills/asana-automation"]
+    assert source(view, "composio")["problem"] == (
+        "Only the first 3 of 6 skills are listed, top folders before sub-folders; 3 are left out.")
 
 
 def test_a_source_that_cant_be_read_keeps_its_last_listing_and_says_why(store: StoreRig) -> None:
@@ -411,7 +440,8 @@ def test_skills_sh_results_come_most_installed_first_from_its_host_alone(store: 
                                               "skill": "pdf", "via": "skills_sh"}
     assert [result["installed"] for result in again["results"]] == [True, False, False, False,
                                                                      False]
-    assert [url for url in store.internet.calls if "skills.sh" in url] == [SEARCH_URL, SEARCH_URL]
+    # The second search is answered from the query kept five minutes; installed is worked out anew.
+    assert [url for url in store.internet.calls if "skills.sh" in url] == [SEARCH_URL]
 
 
 @pytest.mark.parametrize("answer, said", [
@@ -443,6 +473,136 @@ def test_skills_sh_rate_limiting_says_when(store: StoreRig) -> None:
     lifts = store_refusals.local_time(store.clock() + timedelta(minutes=10))
     assert found["problem"] == (f"skills.sh couldn't be searched: skills.sh is rate-limiting "
                                 f"RAVIS; try again at {lifts}.")
+
+
+def recording(name: str) -> dict[str, Any]:
+    return json.loads((FIXTURES / name).read_text())  # type: ignore[no-any-return]
+
+
+CHANGELOG_URL = "https://skills.sh/api/search?q=changelog&limit=20"
+
+
+def test_skills_sh_is_read_in_the_shape_it_really_answers(store: StoreRig) -> None:
+    """The search for "changelog" recorded on 15 September 2026: top-level fields beside `skills`,
+    each skill's `id` as `source/skillId`, and `source` in lower case."""
+    answer = recording("skills-sh-search-changelog.json")["answer"]
+    store.internet.page(CHANGELOG_URL, answer)
+    with serving(store.rig) as relay:
+        found = post(relay, SEARCH, {"query": "changelog"})
+
+    assert found["problem"] is None
+    assert [(result["repository"], result["skill"], result["name"], result["installs"])
+            for result in found["results"]] == [
+        ("heygen-com/hyperframes", "changelog-video", "changelog-video", 60030),
+        ("wshobson/agents", "changelog-automation", "changelog-automation", 12507),
+        ("riekelt/technical-writer", "writing-changelogs", "writing-changelogs", 7616),
+        ("composiohq/awesome-claude-skills", "changelog-generator", "changelog-generator", 6603),
+        ("elevenlabs/skills", "update-skills-from-changelog", "update-skills-from-changelog",
+         2464)]
+    assert {"searchType", "searchVersion", "count", "duration_ms"} <= set(answer)
+    assert all(raw["id"] == f"{raw['source']}/{raw['skillId']}" for raw in answer["skills"])
+
+
+def test_a_lowercased_skills_sh_source_installs_from_the_folder_github_has(store: StoreRig
+                                                                           ) -> None:
+    """skills.sh says `composiohq/awesome-claude-skills`; GitHub keeps ComposioHQ's. The install
+    finds `changelog-generator`, and it shows as installed in the search and in the listing."""
+    store.internet.page(CHANGELOG_URL, recording("skills-sh-search-changelog.json")["answer"])
+    with serving(store.rig) as relay:
+        found = post(relay, SEARCH, {"query": "changelog"})
+        result = next(item for item in found["results"] if item["skill"] == "changelog-generator")
+        preview = post(relay, PREVIEWS, result["install"])
+        post(relay, INSTALLS, {"preview_id": preview["preview_id"]})
+        again = post(relay, SEARCH, {"query": "Changelog"})
+        listed = post(relay, REFRESH, {"source": "composio"})
+
+    assert result["install"] == {"origin": "github",
+                                 "repository": "composiohq/awesome-claude-skills",
+                                 "skill": "changelog-generator", "via": "skills_sh"}
+    assert (preview["name"], preview["source"]["folder"]) == (
+        "changelog-generator", "changelog-generator")
+    assert preview["source"]["repository"].lower() == "composiohq/awesome-claude-skills"
+    assert [item["installed"] for item in again["results"]] == [False, False, False, True, False]
+    assert named(listed, "composio")["changelog-generator"]["installed"] is True
+
+
+def test_installed_and_a_skills_folder_are_matched_whatever_the_letter_case(store: StoreRig
+                                                                           ) -> None:
+    """Installed from ComposioHQ's own listing, the skill shows as installed in skills.sh's
+    lowercased answer; and a skill named in other capitals still finds its folder."""
+    answer = recording("skills-sh-search-changelog.json")["answer"]
+    shouted = {**answer, "skills": [{**raw, "skillId": raw["skillId"].upper()}
+                                    for raw in answer["skills"]]}
+    store.internet.page(CHANGELOG_URL, shouted)
+    with serving(store.rig) as relay:
+        listed = post(relay, REFRESH, {"source": "composio"})
+        preview = post(relay, PREVIEWS, named(listed, "composio")["changelog-generator"]["install"])
+        post(relay, INSTALLS, {"preview_id": preview["preview_id"]})
+        found = post(relay, SEARCH, {"query": "changelog"})
+        again = post(relay, PREVIEWS, {"origin": "github",
+                                       "repository": "composiohq/awesome-claude-skills",
+                                       "skill": "CHANGELOG-GENERATOR", "via": "skills_sh"})
+
+    assert preview["source"]["repository"] == "ComposioHQ/awesome-claude-skills"
+    assert [item["installed"] for item in found["results"]] == [False, False, False, True, False]
+    assert again["source"]["folder"] == "changelog-generator"
+
+
+@pytest.mark.parametrize("query", ["a", " b "])
+def test_a_search_of_one_letter_is_never_sent(store: StoreRig, query: str) -> None:
+    with serving(store.rig) as relay:
+        found = post(relay, SEARCH, {"query": query})
+
+    assert (found["results"], found["problem"]) == (
+        [], "skills.sh needs a search of at least 2 letters.")
+    assert store.internet.calls == []
+
+
+def test_a_skills_sh_refusal_is_said_in_its_own_words(store: StoreRig) -> None:
+    refusal = recording("skills-sh-search-too-short.json")
+    store.internet.page("https://skills.sh/api/search?q=ab&limit=20", refusal["answer"],
+                        status=refusal["status"])
+    store.internet.page("https://skills.sh/api/search?q=cd&limit=20", {"message": 7}, status=400)
+    with serving(store.rig) as relay:
+        said = post(relay, SEARCH, {"query": "ab"})
+        unsaid = post(relay, SEARCH, {"query": "cd"})
+
+    assert said["problem"] == "skills.sh refused the search: Query must be at least 2 characters."
+    assert unsaid["problem"] == "skills.sh refused the search without saying why."
+    assert (said["results"], unsaid["results"]) == ([], [])
+
+
+def test_a_query_is_kept_five_minutes_whatever_its_letter_case(store: StoreRig) -> None:
+    upper = "https://skills.sh/api/search?q=PDF&limit=20"
+    failing = "https://skills.sh/api/search?q=docx&limit=20"
+    store.internet.page(SEARCH_URL, recorded())
+    store.internet.page(upper, recorded())
+    store.internet.page(failing, status=500)
+    with serving(store.rig) as relay:
+        post(relay, SEARCH, {"query": "pdf"})
+        store.clock.advance(minutes=4)
+        kept = post(relay, SEARCH, {"query": "PDF"})
+        store.clock.advance(minutes=2)
+        post(relay, SEARCH, {"query": "PDF"})
+        post(relay, SEARCH, {"query": "docx"})
+        post(relay, SEARCH, {"query": "docx"})
+
+    assert [url for url in store.internet.calls if "skills.sh" in url] == [
+        SEARCH_URL, upper, failing, failing]
+    assert (kept["query"], len(kept["results"]), kept["problem"]) == ("PDF", 5, None)
+
+
+def test_at_most_a_hundred_queries_are_kept_the_oldest_dropped_first(
+        store: StoreRig, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(skill_market, "MOST_KEPT_SEARCHES", 2)
+    for query in ("pdf", "docx", "xlsx"):
+        store.internet.page(f"https://skills.sh/api/search?q={query}&limit=20", recorded())
+    with serving(store.rig) as relay:
+        for query in ("pdf", "docx", "xlsx", "xlsx", "docx", "pdf"):
+            post(relay, SEARCH, {"query": query})
+
+    assert [url.split("q=")[1].split("&")[0] for url in store.internet.calls
+            if "skills.sh" in url] == ["pdf", "docx", "xlsx", "pdf"]
 
 
 def test_skills_sh_address_is_a_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

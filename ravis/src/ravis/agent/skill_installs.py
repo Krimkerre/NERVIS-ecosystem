@@ -322,12 +322,18 @@ class SkillInstalls:
         return Located(repository, ref, folder, await self.github.commit(repository, ref))
 
     async def _find_skill(self, repository: Repository, skill: str) -> Located:
-        """The folder holding a `SKILL.md` whose folder is named `skill`: the shallowest."""
+        """The folder holding a `SKILL.md` whose folder is named `skill`: the shallowest.
+
+        Matched whatever the letter case (RAVIS 0.28.1): skills.sh names its results in lower case
+        (`composiohq/awesome-claude-skills`), and GitHub answers a repository's name in any case,
+        so only the folder's name needed it."""
         commit = await self.github.commit(repository, None)
         entries, _ = await self.github.tree(repository, commit)
         folders, _ = skill_folders(entries, [""], 10_000)
+        wanted = skill.lower()
         named = sorted((found for found, _ in folders
-                        if (found.rsplit("/", 1)[-1] if found else repository.name) == skill),
+                        if (found.rsplit("/", 1)[-1] if found else repository.name).lower()
+                        == wanted),
                        key=lambda found: (found.count("/"), found))
         if not named:
             raise NotFoundError(f"{repository.full} has no folder named {skill} holding a SKILL.md")

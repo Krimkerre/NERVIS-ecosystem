@@ -171,17 +171,35 @@ def test_the_skill_folders_a_listing_shows() -> None:
         "skills/other/SKILL.md", "README.md",
     ), ["skills/.curated"], 10)
 
-    assert listed == [("skills/.curated/a/b/c/d", None), ("skills/.curated/pdf", "LICENSE.txt")]
-    assert not stopped
+    assert listed == [("skills/.curated/pdf", "LICENSE.txt"), ("skills/.curated/a/b/c/d", None)]
+    assert stopped == 0
 
 
 def test_a_listing_at_a_repositorys_top_and_its_cap() -> None:
-    capped, stopped = skill_folders(blobs("one/SKILL.md", "two/SKILL.md", "three/SKILL.md"),
-                                    [""], 2)
+    capped, left_out = skill_folders(blobs("one/SKILL.md", "two/SKILL.md", "three/SKILL.md"),
+                                     [""], 2)
     top, _ = skill_folders(blobs("SKILL.md", "inner/SKILL.md"), [""], 5)
 
-    assert [folder for folder, _ in capped] == ["one", "three"] and stopped
+    assert [folder for folder, _ in capped] == ["one", "three"] and left_out == 1
     assert top == [("", None)]
+
+
+def test_a_capped_listing_takes_the_folders_nearest_the_top_first() -> None:
+    """ComposioHQ/awesome-claude-skills's shape, found by the owner on 15 September 2026: its own
+    skills at the top, beside a folder of generated ones that sort before them."""
+    generated = [f"composio-skills/{app}-automation/SKILL.md" for app in ("asana", "box", "canva")]
+    capped, left_out = skill_folders(blobs(
+        *generated, "zapier/SKILL.md", "changelog-generator/SKILL.md", "a/b/SKILL.md",
+        "changelog-generator/examples/SKILL.md",
+    ), [""], 3)
+    roots, _ = skill_folders(blobs("skills/.experimental/x/SKILL.md",
+                                   "skills/.curated/z/y/SKILL.md", "skills/.curated/w/SKILL.md"),
+                             ["skills/.curated", "skills/.experimental"], 10)
+
+    assert [folder for folder, _ in capped] == ["changelog-generator", "zapier", "a/b"]
+    assert left_out == 3
+    assert [folder for folder, _ in roots] == [
+        "skills/.curated/w", "skills/.experimental/x", "skills/.curated/z/y"]
 
 
 def test_a_listing_entry_reads_front_matter_leniently_and_says_what_is_wrong() -> None:
