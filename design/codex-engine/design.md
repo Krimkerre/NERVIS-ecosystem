@@ -859,6 +859,8 @@ These are unchanged in kind. Each checks the control token, then calls `ravis_pe
 
 **Temp folder per task.** Each thread gets its temp folder inside its project: `config: {"shell_environment_policy.set.TMPDIR": "<root>/.clarvis/tmp/<sid>"}` on `thread/start`. The key is **unverified**; calibration K2b checks it. If it fails, commands get no writable temp folder, and the failure is recorded and put to the owner.
 
+**Removed when the task is over (RAVIS 0.26.2).** Nothing removed the folder, and the first live task left one behind. It now goes when the task ends or its start fails, with `.clarvis/tmp` and `.clarvis` when RAVIS made them and they are empty (`ravis/src/ravis/agent/task_tmp.py`, migration 12). The walk starts at the project root and never follows a symbolic link; Clarvis's lock and checkpoint in `.clarvis` keep that folder; a folder or parent another unfinished task of the project needs is kept. `thread/resume` sends no `TMPDIR`, so a resumed thread keeps the folder named after the task that started it: RAVIS records that task per thread and makes the folder again on resume. A failure is logged, never the task's error, and retried at the next start.
+
 **Spawn and initialize.**
 - `asyncio.create_subprocess_exec(..., start_new_session=True)`: its own session and process group, so signals meant for RAVIS don't hit it. The pid and start time are recorded.
 - `initialize`: `clientInfo {name:"ravis", title:"RAVIS", version}` and `capabilities {experimentalApi:true}` (needed for permission profiles and background terminals; the pin covers the experimental surface).

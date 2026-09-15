@@ -1276,7 +1276,30 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.26.1
+## RAVIS — 0.26.2
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **A Codex task's temp folder is removed when the task is over.** Each task's commands get a temp
+  folder inside the project, `.clarvis/tmp/<task id>`, and RAVIS never removed it: after the live test,
+  the project `live-test-a` still held one. Now it goes when the task ends, or when its start fails,
+  and so do `.clarvis/tmp` and `.clarvis` if RAVIS made them and nothing else is in them.
+- **Only that folder, and only inside the project.** RAVIS never follows a shortcut (a symbolic link)
+  out of the project and removes nothing else. Clarvis's own lock and checkpoint files keep `.clarvis`
+  in place, and a folder another unfinished task of the same project uses stays until that task ends.
+- **A task that can still carry on keeps its folder.** Saving a task's work and keeping it removes
+  nothing; ending it does.
+- **Resuming a task makes its folder again.** A resumed task's commands keep using the temp folder its
+  first run had, so RAVIS makes that folder again when the task resumes.
+- **If removing fails, the task isn't affected.** RAVIS logs it and tries again the next time it
+  starts. That start also removes the temp folders of tasks that ended before this version — only the
+  folders, because which `.clarvis` folders RAVIS had made wasn't recorded then.
+- **For operators:** the database gains three columns (migration 12), backed up first
+  (`ravis.db.v11.bak`); rolling back loses only those records.
+- **Not covered:** a task left waiting that nobody ends keeps its folder, because RAVIS keeps such a
+  task able to carry on. Tested against the fake Codex only.
+
+### 0.26.1
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

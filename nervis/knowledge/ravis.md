@@ -550,6 +550,14 @@ the version report; accepting a version; and switching a skill, which carries on
 and on or off. A task id, the stop's key and a site's name are
 checked before anything reaches RAVIS.
 
+Each Codex task's commands have a temp folder inside the project, `.clarvis/tmp/<task id>`. Since
+15 September 2026 (RAVIS 0.26.2) RAVIS removes it when the task ends, or when its start fails, and
+removes `.clarvis/tmp` and `.clarvis` too when RAVIS made them and nothing else is in them. It never
+follows a shortcut out of the project, never touches Clarvis's own lock or checkpoint files, and
+leaves a folder another unfinished task of the same project still uses. A task that can still carry
+on keeps its folder, and a resumed task gets its folder back. Before 0.26.2 the folders stayed —
+the live test's project still had one — and RAVIS removes those the next time it starts.
+
 ### Codex in the menu bar
 
 The menu bar app has a Codex line under the model runtimes, read from `tools/run.py status --json`:

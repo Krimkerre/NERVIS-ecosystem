@@ -1873,6 +1873,18 @@ with, one of its model's efforts in Codex's `model/list`, or NULL for the model'
 backed up first (`ravis.db.v9.bak`); rolling back loses only the efforts, and a RAVIS older than
 0.25.0 refuses to open the migrated database until that backup is restored.
 
+**Migration 12 (0.26.2)** records which temp folder a Codex task uses, so RAVIS can remove it once the
+task is over (`src/ravis/agent/task_tmp.py`): `agent_thread.tmp_session_id`, the task whose id names the
+folder a thread's `TMPDIR` points at — fixed when the thread starts, because `thread/resume` carries no
+`TMPDIR` — `agent_session.tmp_folder_id`, cleared once the folder is removed, and
+`agent_session.tmp_parents_made`, which of `.clarvis` and `.clarvis/tmp` RAVIS made for the task. A task
+that ended or whose start failed has `<root>/.clarvis/tmp/<folder>` removed, walking from the project
+root without following a symbolic link, and its parents only when RAVIS made them, they are empty and
+no other unfinished task or lock holds the project; a resume makes its thread's folder again; a failure
+is logged and tried again at the next start, which also removes what earlier tasks still owe. Existing
+rows are filled in from their threads, with no parents recorded. It is backed up first
+(`ravis.db.v11.bak`); rolling back loses only those records.
+
 ---
 
 # 18. Repository structure

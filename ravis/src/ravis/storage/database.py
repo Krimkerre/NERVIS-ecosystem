@@ -313,6 +313,35 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        12,
+        "Which temp folder a Codex task uses, and which of its parents RAVIS made (M29, 0.26.2)",
+        """
+        -- A task's commands get <root>/.clarvis/tmp/<folder> as their TMPDIR, and RAVIS now
+        -- removes that folder once the task is over (agent/task_tmp.py). Only ids and folder names
+        -- RAVIS chose are stored here, never anything a task wrote.
+        --   agent_thread.tmp_session_id: the task whose id names the folder a thread's TMPDIR
+        --     points at. thread/resume carries no TMPDIR, so a resume keeps its thread's folder
+        --     and makes it again; this outlives that task's own 30-day record, as the thread does.
+        --   agent_session.tmp_folder_id: the folder a task uses, until RAVIS has removed it.
+        --   agent_session.tmp_parents_made: which of .clarvis and .clarvis/tmp RAVIS made for it,
+        --     the only parents it may remove, and only once they are empty.
+        ALTER TABLE agent_thread ADD COLUMN tmp_session_id TEXT;
+        UPDATE agent_thread SET tmp_session_id = (
+            SELECT started.id FROM agent_session AS started
+             WHERE started.codex_thread_id = agent_thread.thread_id
+             ORDER BY started.created_at LIMIT 1);
+        ALTER TABLE agent_session ADD COLUMN tmp_folder_id TEXT;
+        ALTER TABLE agent_session ADD COLUMN tmp_parents_made TEXT NOT NULL DEFAULT '';
+        -- Tasks from before: a started task made the folder named after itself, and a resumed one
+        -- used its thread's. Which parents they made was never recorded, so none of theirs are
+        -- removed — only the folders.
+        UPDATE agent_session SET tmp_folder_id = COALESCE(
+            (SELECT thread.tmp_session_id FROM agent_thread AS thread
+              WHERE thread.thread_id = agent_session.codex_thread_id),
+            agent_session.id);
+        """,
+    ),
 ]
 
 

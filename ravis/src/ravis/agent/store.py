@@ -259,12 +259,42 @@ class AgentStore:
 
     # ── Codex's threads, kept past their task's records (design §4.10) ───────
 
-    def remember_thread(self, thread_id: str, workspace_root: str, git_dir: str | None) -> None:
+    def remember_thread(self, thread_id: str, workspace_root: str, git_dir: str | None,
+                        tmp_session_id: str | None = None) -> None:
+        """A thread and when it was last used — and, once known, whose folder is its TMPDIR.
+
+        The folder's owner is never overwritten: it is fixed when the thread starts, and a resume
+        passes the same one or none (migration 12).
+        """
         self._execute(
-            "INSERT INTO agent_thread (thread_id, workspace_root, git_dir, last_used_at) "
-            "VALUES (?, ?, ?, ?) ON CONFLICT (thread_id) DO UPDATE SET "
-            "last_used_at = excluded.last_used_at, deleted_at = NULL",
-            (thread_id, workspace_root, git_dir, self.stamp()),
+            "INSERT INTO agent_thread (thread_id, workspace_root, git_dir, last_used_at, "
+            "tmp_session_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT (thread_id) DO UPDATE SET "
+            "last_used_at = excluded.last_used_at, deleted_at = NULL, "
+            "tmp_session_id = COALESCE(agent_thread.tmp_session_id, excluded.tmp_session_id)",
+            (thread_id, workspace_root, git_dir, self.stamp(), tmp_session_id),
+        )
+
+    def thread_tmp_session(self, thread_id: str) -> str | None:
+        """The task whose id names the temp folder this thread's commands use, if recorded."""
+        rows = self._execute("SELECT tmp_session_id FROM agent_thread WHERE thread_id = ?",
+                             (thread_id,))
+        value = rows[0]["tmp_session_id"] if rows else None
+        return str(value) if value else None
+
+    # ── Task temp folders (migration 12, `task_tmp.py`) ──────────────────────
+
+    def record_tmp(self, session_id: str, folder: str | None, made: str) -> None:
+        """The temp folder a task uses (None once removed) and the parents RAVIS made for it."""
+        self._execute(
+            "UPDATE agent_session SET tmp_folder_id = ?, tmp_parents_made = ? WHERE id = ?",
+            (folder, made, session_id),
+        )
+
+    def ended_with_tmp(self) -> list[dict[str, Any]]:
+        """Tasks that are over and whose temp folder RAVIS still owes a removal."""
+        return self._execute(
+            "SELECT * FROM agent_session WHERE ended_at IS NOT NULL AND tmp_folder_id IS NOT NULL "
+            "ORDER BY created_at"
         )
 
     def unused_threads(self, unused_for: timedelta) -> list[dict[str, Any]]:

@@ -30,6 +30,11 @@ leftover processes looked at again; lock heartbeats, and superseded locks re-che
 ended tasks' event logs dropped 30 minutes after they end; retention, and the 90-day sweep of
 Codex's own threads, hourly.
 
+**Temp folders** (`task_tmp.py`, 0.26.2): a task over for good — ended, or its start failed — has
+its `<root>/.clarvis/tmp/<folder>` removed at once, and `.clarvis/tmp` and `.clarvis` too when RAVIS
+made them and they are empty; never a folder or parent another unfinished task of the project still
+needs. Each start first removes what earlier tasks still owe.
+
 **The processes** (design §4.5): every 2 s while a turn runs, Codex's processes are looked at and
 attributed (`attribution.py`), recorded, and written into each task's checkout lock file.
 
@@ -59,7 +64,7 @@ from pathlib import Path
 from typing import Any
 
 from ravis.agent import calibration_dependent as calibrated
-from ravis.agent import refusals, roots
+from ravis.agent import refusals, roots, task_tmp
 from ravis.agent.attribution import CwdReader, ProcessSampler, SampledTask
 from ravis.agent.cleanup import CleanupTimings, ProcessCleanup, lock_file_leftover
 from ravis.agent.group_kill import GroupKill, GroupKillTimings
@@ -255,7 +260,7 @@ class AgentSessions:
             codex=codex, store=self.store, locks=self.locks, cleanup=cleanup,
             sites=SiteAllowlist(codex.request, codex.profile_name),
             paths=lambda root: PathContext(root, denied, redactor), settings=settings,
-            timings=timings.session, clock=clock, emit=emit,
+            timings=timings.session, clock=clock, emit=emit, task_over=self._task_over,
         )
         #: False until a restart's reconciliation has run: the routes answer 503 until then.
         self.ready = False
@@ -276,6 +281,8 @@ class AgentSessions:
 
     async def start(self) -> None:
         """Recover what a previous RAVIS left, reconcile the locks, then serve and tick."""
+        # Before retention drops the records that say which temp folders are still owed.
+        self._sweep_task_folders()
         self.store.enforce_retention()
         self._last_retention = self.clock()
         instances = [(int(row["pid"]), str(row["pid_start"])) for row in self.store.instances()]
@@ -375,6 +382,8 @@ class AgentSessions:
             self.locks.release(session)
             stamp = self.store.stamp()
             self.store.update_session(session.id, state="failed", ended_at=stamp)
+            # A start that failed had already made its temp folder, which goes like any other.
+            self._task_over(session)
             raise
         self._sessions[session.id] = session
 
@@ -428,6 +437,60 @@ class AgentSessions:
             "max_steps": session.max_steps, "last_event_id": 0,
             "created_at": session.created_at, "updated_at": session.updated_at,
         }
+
+    # ── Temp folders (`task_tmp.py`) ─────────────────────────────────────────
+
+    def _task_over(self, session: AgentSession) -> None:
+        """A task is over for good: its temp folder goes, unless another task still needs it."""
+        others = [other.id for other in self._sessions.values()
+                  if other is not session and not other.over
+                  and other.root_hash == session.root_hash]
+        self._release_tmp(session.id, others)
+
+    def _sweep_task_folders(self) -> None:
+        """Temp folders owed by tasks that ended while no RAVIS was there to remove them.
+
+        A crash between a task's end and its folder's removal, a removal that failed, and every task
+        that ended before RAVIS removed temp folders at all (0.26.2) — the live test's project
+        among them.
+        """
+        live = self.store.live_sessions()
+        for row in self.store.ended_with_tmp():
+            project = row["workspace_root_hash"]
+            self._release_tmp(row["id"], [other["id"] for other in live
+                                          if other["workspace_root_hash"] == project])
+
+    def _release_tmp(self, session_id: str, others: list[str]) -> None:
+        """Remove one ended task's temp folder, as the project's other unfinished tasks allow.
+
+        `others` are the ids of the project's other unfinished tasks. Their folders are kept, and
+        while any of them runs, or a lock holds the project, so are `.clarvis/tmp` and `.clarvis`
+        — which the first of them then inherits the right to remove. What couldn't be done stays
+        recorded, for the next start's sweep.
+        """
+        ended = self.store.session(session_id)
+        if ended is None or not ended["tmp_folder_id"]:
+            return
+        neighbours = [row for row in (self.store.session(other) for other in others) if row]
+        locked = any(lock["root_hash"] == ended["workspace_root_hash"]
+                     for lock in self.store.locks())
+        made = str(ended["tmp_parents_made"] or "")
+        done = task_tmp.remove(
+            Path(ended["workspace_root"]), str(ended["tmp_folder_id"]), made=made,
+            folders_in_use=frozenset(str(row["tmp_folder_id"]) for row in neighbours
+                                     if row["tmp_folder_id"]),
+            project_busy=locked or bool(neighbours),
+        )
+        if made and neighbours:
+            self._inherit_parents(neighbours[0], made)
+            made = ""
+        if done and not (made and locked):
+            self.store.record_tmp(session_id, None, "")
+
+    def _inherit_parents(self, heir: dict[str, Any], made: str) -> None:
+        """An unfinished task of the project takes over removing the parents RAVIS made."""
+        self.store.record_tmp(heir["id"], heir["tmp_folder_id"],
+                              task_tmp.merge(str(heir["tmp_parents_made"] or ""), made))
 
     # ── Looking tasks up ─────────────────────────────────────────────────────
 

@@ -57,7 +57,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ravis.agent import calibration_dependent as calibrated
-from ravis.agent import refusals
+from ravis.agent import refusals, task_tmp
 from ravis.agent.attribution import SampledTask
 from ravis.agent.cleanup import (
     CleanupTimings,
@@ -190,6 +190,8 @@ class Context:
     clock: Callable[[], float]
     #: The MEP publisher's `emit(event, *, trace_id, data)`.
     emit: Callable[..., None]
+    #: Called once a task is over for good, so its temp folder can go (`AgentSessions._task_over`).
+    task_over: Callable[[AgentSession], None]
 
 
 @dataclass
@@ -261,6 +263,11 @@ class AgentSession:
         #: The effort chosen at create, sent on every `turn/start`; None leaves it to the model.
         self.effort: str | None = row["effort"]
         self.thread_id: str | None = row["codex_thread_id"]
+        #: The temp folder this task's thread was started with, for `agent_thread` (migration 12).
+        self._tmp_folder: str | None = None
+        #: Whether the project had a `.clarvis` before this task took its lock, whose file goes in
+        #: `.clarvis` without git — so RAVIS knows whether that folder is its own to remove.
+        self._clarvis_before = task_tmp.clarvis_exists(self.root)
         self.active_turn_id: str | None = row["active_turn_id"]
         self.last_turn_id: str | None = row["last_turn_id"]
         self.runtime_sha256: str | None = row["runtime_sha256"]
@@ -503,6 +510,7 @@ class AgentSession:
         profile = codex.profile_name() or ""
         try:
             if start["kind"] == "resume":
+                self._prepare_tmp(self._context.store.thread_tmp_session(start["thread_id"]))
                 with contextlib.suppress(CodexRpcError):
                     await codex.request("thread/unarchive", {"threadId": start["thread_id"]},
                                         timeout=timings.thread_start_seconds)
@@ -511,9 +519,7 @@ class AgentSession:
                 result = await codex.request("thread/resume", params,
                                              timeout=timings.thread_start_seconds)
             else:
-                with contextlib.suppress(OSError):
-                    calibrated.tmp_folder(self.root, self.id).mkdir(0o700, parents=True,
-                                                                     exist_ok=True)
+                self._prepare_tmp(self.id)
                 params = calibrated.thread_start_params(
                     self.root, self.mode, profile, self.model or "", self.id)
                 result = await codex.request("thread/start", params,
@@ -540,7 +546,24 @@ class AgentSession:
         """The thread and when it was last used, kept past the task's records (90-day sweep)."""
         if self.thread_id is not None:
             self._context.store.remember_thread(
-                self.thread_id, str(self.root), str(self.git_dir) if self.git_dir else None)
+                self.thread_id, str(self.root), str(self.git_dir) if self.git_dir else None,
+                self._tmp_folder)
+
+    def _prepare_tmp(self, folder: str | None) -> None:
+        """Make the temp folder this task's commands will use, and record it (`task_tmp.py`).
+
+        A new task's is named after itself. A resumed task's is its thread's, because
+        `thread/resume` carries no `TMPDIR` — and the task that started the thread may have removed
+        it when it ended, so it is made again here. None is a thread from before RAVIS recorded
+        whose folder it uses, and then there is nothing to make.
+        """
+        if folder is None:
+            return
+        made = task_tmp.make(self.root, folder, clarvis_existed=self._clarvis_before)
+        row = self._context.store.session(self.id) or {}
+        self._tmp_folder = folder
+        self._context.store.record_tmp(
+            self.id, folder, task_tmp.merge(str(row.get("tmp_parents_made") or ""), made))
 
     def _hold_thread(self) -> None:
         """Follow the thread from now on: it is loaded, with Codex's site list as it is now."""
@@ -1355,6 +1378,9 @@ class AgentSession:
         self._context.locks.release(self)
         self.set_state("ended")
         self.emit("session.ended", final_state="ended")
+        # Its temp folder goes now, unless another task of the project still uses it. Never an
+        # error for the task: a failure is logged and tried again at RAVIS's next start.
+        self._context.task_over(self)
         if self._consumer is not None:
             self._consumer.cancel()
 
