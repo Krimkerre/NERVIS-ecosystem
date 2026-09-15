@@ -1483,6 +1483,7 @@ commands, file contents or diffs, except the relay stream and snapshot a session
 | `GET` and `POST /api/v1/codex/sites`; `DELETE /api/v1/codex/sites/{host}` | read: Clarvis, NERVIS or admin; add: Clarvis; remove: admin | The sites Codex's commands may reach: RAVIS's defaults and the sites the owner added. Adding checks every host first and writes nothing if one is refused; a default is never removed. A change reaches Codex threads started or reopened afterwards |
 | `GET` and `POST /api/v1/codex/skills` | read: NERVIS or admin; switch: admin | Codex's skills and where each comes from — the NERVIS skills folder, the owner's personal skills, or built into Codex — and whether it is on. A switch names a skill Codex lists, by its path; RAVIS keeps the choice and applies it at every Codex start. A change counts from a task's next start or reopen (since 0.26.0). Since 0.27.0 the older form of `/api/v1/skills`, answering as before for NERVIS 0.31 |
 | `GET` and `POST /api/v1/skills`; `GET /api/v1/skills/models` and `GET /api/v1/skills/models/read` | list: NERVIS or admin; switch: admin; the other models' reads: Clarvis's or NERVIS's client credential, never admin | Every skill with a switch for Codex and one for the other models — Clarvis's own engine and NERVIS chat — read by RAVIS itself from the NERVIS skills folder and the owner's personal skills and lined up with Codex's list; and, for the programs calling those models, the skills switched on for them and one such skill's files. Answers while Codex is off (since 0.27.0; `skills.json`) |
+| `GET /api/v1/skills/installs` and `GET /api/v1/skills/market`; `POST /api/v1/skills/previews`, `…/previews/zip`, `…/previews/discard`, `…/installs`, `…/installs/update-preview`, `…/installs/remove`, `…/market/refresh`, `…/market/resolve`, `…/market/search`, `…/market/sources`, `…/market/sources/hide` and `…/market/sources/remove` | reads: NERVIS or admin; everything else: admin | The skill store (since 0.28.0): review a skill from a GitHub folder, a zip file or a website's Agent Skills index, install it switched off, update it after reviewing what changed, or move it to the Trash; and the marketplace's sources, their cached listings, lazy link look-ups and skills.sh's search. NERVIS's alone, specified in `ravis/tests/fixtures/skill-store/contract.json` |
 
 Admin here is UX and audit, not a boundary against local programs (runbook §2.2).
 
@@ -1592,6 +1593,64 @@ chose.** Its text becomes instructions to a model, so RAVIS serves only skills s
 owner's personal skills off until the owner switches one on, logs each read by caller, skill, file
 and size and never by what it says, and tells callers that a skill never outranks their own safety
 rules. `/api/v1/codex/skills` stays as the older form, for NERVIS 0.31.
+
+**Installing skills, and the marketplace — the owner's decisions of 15 September 2026 (0.28.0).**
+NERVIS's Skills page installs a skill from a **GitHub link to a skill folder**, a **zip file** or a
+**website's Agent Skills index**, and **never before a review** (`agent/skill_installs.py`). RAVIS
+fetches or unpacks the skill into a staging folder in its own data directory
+(`<data>/ravis-skill-store/staging`), never the skills folder, checks it (`agent/skill_package.py`)
+and answers a preview: name, description, license (the front matter's, else a license file's first
+line), each file with its kind (`skill_md`; `script`, by extension, a `#!` line or an executable
+bit; `binary`; `text`), `SKILL.md`'s text, warnings (scripts; a name clashing with something in the
+folder or with a personal skill; fields the specification doesn't name), and where it came from (the
+repository, folder, ref and the commit reviewed; or the website, index and digest). **The rules are
+the Agent Skills specification's** (agentskills.io, read 15 September 2026): `name` 1–64
+characters of `a-z`, `0-9` and single inner hyphens, and the folder's own name; `description`
+1–1024; `compatibility` 1–500; `license` and `allowed-tools` text; `metadata` a mapping; other
+fields, metadata that isn't text and a `SKILL.md` over 500 lines are warned about, never refused.
+**And RAVIS's own:** an archive at most 8 MB (RAVIS takes requests of 10 MB), each file 5 MB, all of
+them 20 MB and 300 files, `SKILL.md` 64 KB of UTF-8; no path leaving the skill, no link, special
+file, encrypted entry or submodule; one skill per archive; macOS's `__MACOSX` and `.DS_Store` left
+out. A preview lives 15 minutes, at most five wait, and its staging goes when it expires, is
+discarded or is used. **Confirming installs it switched off for Codex and for the other models:**
+both `skill_choice` rows are written off before the folder appears, the staged folder moves in with
+one `renamex_np` (`RENAME_EXCL`), the install is recorded (`skill_install`, migration 14: where from,
+ref, commit or digest, when, the content hash), audited as `ravis.skill_installed` without any file's
+contents, and Codex applies the switches again at once (`CodexService.skills_moved`); confirming the
+same preview again answers the same. A skill copied into the folder by hand still starts on.
+**Update** fetches from where the skill came from — its repository folder at its branch or tag (the
+default branch when none), the website's index (compared by digest), or a new zip file for a zip
+install — and reviews what changed: files added, removed and changed, and a `SKILL.md` diff. **Both
+switches go off when `SKILL.md` changed or a script was added or changed, and are kept otherwise**;
+the review says which. An update is refused when the installed folder changed after its review; the
+new folder takes the old one's place with `RENAME_SWAP`, and the earlier version goes to the Trash.
+Nothing updates on its own. **Remove** is only for skills RAVIS installed — never one put in the
+folder by hand, a personal or a built-in skill: the folder moves to `~/.Trash/<name> <date time>`,
+then its switches and record go. It is a plain move, so Finder's Put Back doesn't offer it: only
+Finder's own deletion records where an item came from, and asking Finder needs permission to control
+it, which a background service can't ask for without a dialog. When the skills folder is on another
+disk than the Trash, RAVIS refuses rather than copy and delete. **The marketplace**
+(`agent/skill_market.py`): anthropics/skills (`skills/`), openai/skills (`skills/.curated`,
+`skills/.experimental`; deprecated by its owner), ComposioHQ/awesome-claude-skills (skill folders
+at its top), the VoltAgent/awesome-agent-skills link list, skills.sh's search (`skills_sh_url`, not a
+documented API, so a failure is a plain line), and up to 30 of the owner's own: GitHub repositories,
+link lists, and websites with an Agent Skills index (`agent/skill_sites.py`:
+`.well-known/agent-skills/index.json`, then `.well-known/skills/index.json`, the address's own path
+before the root; version 0.2.0, whose sha256 digest every download must match, or 0.1.0). RAVIS's
+own sources can be hidden, not removed. A GitHub source's listing (its tree, one API call, and each
+`SKILL.md`'s front matter, read raw) and a list's links are kept a day in `skill_market_cache`, and
+the page's reads fetch nothing. A link is looked up only when the page shows it, at most 10 a call,
+a skill folder's link by one raw read and no API call; look-ups stop while GitHub rate-limits RAVIS
+or its hourly allowance is down to 10. An entry found through a list or skills.sh installs from the
+repository the skill lives in, which Update reads later. **Network rules** (`agent/skill_web.py`):
+https only; GitHub's four hosts for GitHub, skills.sh's host for its search, exactly the added host
+for a website; redirects only within those; 5 s to connect, 20 s between bytes and 60 s in all,
+sizes capped while streaming; never a credential, and the environment isn't trusted; a rate-limited
+host gets nothing until the time it gave, and the page says "GitHub is rate-limiting RAVIS; try
+again at HH:MM". The routes are NERVIS's alone, specified in `tests/fixtures/skill-store/contract.json`
+beside the relay contract, which is unchanged. **Unmeasured:** anything against the real GitHub,
+websites or skills.sh; a ref holding a slash on GitHub's real API; that Codex never lists a newly
+installed skill as on before RAVIS's apply switches it off.
 
 **As built in M29's third increment (R3, 0.23.15, 13 September 2026)**, in `src/ravis/agent/`: every
 route above but the project lock's, against the fixtures. The approval settings are the ones

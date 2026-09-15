@@ -44,11 +44,15 @@ from ravis.admission import (
 from ravis.agent.lock_routes import router as project_locks_router
 from ravis.agent.routes import owner_router as agent_owner_router
 from ravis.agent.routes import router as agent_router
+from ravis.agent.skill_installs import SkillInstalls
+from ravis.agent.skill_market import SkillMarket
+from ravis.agent.skill_web import Web
 from ravis.api.management import management_router
 from ravis.api.management.codex import router as codex_router
 from ravis.api.management.codex_calibration import router as calibration_router
 from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
+from ravis.api.management.skill_store import router as skill_store_router
 from ravis.api.management.skills import router as skills_router
 from ravis.api.openai import chat_router, embeddings_router, models_router
 from ravis.codex.service import CodexService
@@ -120,6 +124,9 @@ def create_app(settings: Settings) -> Any:
     # Skills for every engine (RAVIS 0.27.0): the Skills page's list and switches, and the reads
     # of the models that aren't Codex (`api/management/skills.py`).
     api.include_router(skills_router)
+    # The skill store (RAVIS 0.28.0): installing, updating and removing skills, and the
+    # marketplace, for NERVIS's Skills page (`api/management/skill_store.py`).
+    api.include_router(skill_store_router)
     # Codex tasks (M29's third increment): the owner's stop-only route on its own router, and
     # every other agent-session route behind the Clarvis client check (`agent/routes.py`).
     api.include_router(agent_owner_router)
@@ -181,6 +188,7 @@ def _lifespan(settings: Settings) -> Any:
             codex_start.cancel()
             # First, and bounded: Codex's process ends inside the launcher's six-second wait.
             await api.state.codex_service.stop()
+            await api.state.skill_installs.web.aclose()
             refresher.cancel()
             evidence_refresher.cancel()
             recorder.cancel()
@@ -487,6 +495,14 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
         settings, emit=api.state.events.emit, database=api.state.database
     )
     api.state.codex = api.state.codex_service.runtime
+    # The skill store (RAVIS 0.28.0). Every fetch it makes goes through one `Web`
+    # (`agent/skill_web.py`); an install, update or removal tells Codex to apply the switches
+    # again, through whichever Codex service the app holds when it happens.
+    api.state.skill_installs = SkillInstalls(
+        api.state.database, settings, Web(),
+        on_change=lambda: api.state.codex_service.skills_moved(),
+    )
+    api.state.skill_market = SkillMarket(api.state.database, settings, api.state.skill_installs)
     api.state.ecosystem = ravis_surface(
         service_id=api.state.service_id,
         machine_id=api.state.machine_id,

@@ -365,6 +365,57 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         DROP TABLE codex_skill_choice;
         """,
     ),
+    (
+        14,
+        "Installed skills and the skills marketplace's sources and cache (RAVIS 0.28.0)",
+        """
+        -- A skill RAVIS installed into NERVIS's skills folder from the Skills page, by its folder's
+        -- name there (agent/skill_installs.py): where it came from, so Update fetches from the
+        -- same place, and the hash of its files as installed, so a change made on this Mac shows.
+        -- origin 'github': repository, folder (in the repository, '' at its top), ref (NULL for
+        -- the default branch) and commit_sha; 'website': site, index_url and digest (NULL for an
+        -- index of version 0.1.0); 'zip': none of those. via is the marketplace source it was
+        -- found through, when it was. Only a skill with a row here can be updated or removed.
+        CREATE TABLE IF NOT EXISTS skill_install (
+            name         TEXT PRIMARY KEY,
+            origin       TEXT NOT NULL CHECK (origin IN ('github', 'website', 'zip')),
+            repository   TEXT,
+            folder       TEXT,
+            ref          TEXT,
+            commit_sha   TEXT,
+            site         TEXT,
+            index_url    TEXT,
+            digest       TEXT,
+            via          TEXT,
+            content_hash TEXT NOT NULL,
+            installed_at TEXT NOT NULL,
+            updated_at   TEXT
+        );
+        -- The marketplace's sources the owner added (agent/skill_market.py). The sources RAVIS
+        -- comes with are in code, and only their hiding is kept, in skill_market_hidden.
+        CREATE TABLE IF NOT EXISTS skill_market_source (
+            id         TEXT PRIMARY KEY,
+            kind       TEXT NOT NULL CHECK (kind IN ('github', 'link_list', 'website')),
+            repository TEXT,
+            path       TEXT NOT NULL DEFAULT '',
+            ref        TEXT,
+            site       TEXT,
+            added_at   TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS skill_market_hidden (
+            source_id TEXT PRIMARY KEY,
+            hidden_at TEXT NOT NULL
+        );
+        -- What RAVIS last read from a source or a link, as JSON, for a day: a GitHub source's
+        -- skills, a link list's links, a website's index, one link's skills. Only a cache: losing
+        -- it costs GitHub calls, nothing else.
+        CREATE TABLE IF NOT EXISTS skill_market_cache (
+            key        TEXT PRIMARY KEY,
+            fetched_at TEXT NOT NULL,
+            value      TEXT NOT NULL
+        );
+        """,
+    ),
 ]
 
 

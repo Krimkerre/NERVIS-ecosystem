@@ -389,6 +389,25 @@ Codex was kept. The Skills page reads and switches through `GET /api/v1/skills` 
 `POST /api/v1/skills`; the programs calling the other models read `GET /api/v1/skills/models` and
 `GET /api/v1/skills/models/read`; the older `GET /api/v1/codex/skills` still answers, for Codex alone.
 
+**It installs skills, and has a marketplace to find them** (RAVIS 0.28.0, 15 September 2026). From
+NERVIS's Skills page the owner can install a skill from a GitHub link to a skill's folder, from a zip
+file, or from a website that publishes an Agent Skills index. Nothing is installed before a review:
+RAVIS first downloads or unpacks the skill into a private staging folder of its own, checks it
+against the Agent Skills specification (agentskills.io) and its own safety rules — no paths leading
+out of the skill, no links, size limits, one skill at a time — and shows its name, description,
+license, its files with scripts marked, and its SKILL.md. **An installed skill arrives switched off**
+for Codex and for the other models, so the owner decides when it gets used; a skill copied into the
+folder by hand still starts on. **Update** fetches the skill again from where it came from and shows
+what changed; if its SKILL.md or a script changed, both switches go off again, and it never updates
+by itself. **Remove** moves the skill's folder to the Trash, and works only for skills RAVIS
+installed. The marketplace lists skills from anthropics/skills, openai/skills (marked deprecated by
+its owner), ComposioHQ/awesome-claude-skills, the VoltAgent/awesome-agent-skills link list, and
+skills.sh's search, plus GitHub repositories, link lists and websites the owner adds. Listings are
+kept for a day, and a link list's links are looked up only when shown, to stay inside GitHub's
+hourly limit for requests without a token; when GitHub is rate-limiting RAVIS, the page says when to
+try again. RAVIS talks only to GitHub, skills.sh and websites the owner added, over https, and never
+sends a password or token. Not yet tried against the real GitHub, websites or skills.sh.
+
 **It keeps one writer per project for both engines, and cleans up after Codex** (RAVIS 0.24.0).
 Clarvis's own coding runs take the project lock through `/api/v1/project-locks`. A window can take a
 project over from another window that is gone, unresponsive or waiting — never from a Codex task,

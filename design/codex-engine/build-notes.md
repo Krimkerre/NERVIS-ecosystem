@@ -2,6 +2,38 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From RAVIS 0.28.0 (ecosystem, 15 September 2026) — installing skills, and the marketplace
+- **Owner decisions (15 Sep):** install from a GitHub folder link or a zip, never before a review (name, description,
+  license, files with scripts flagged, `SKILL.md`); installed skills arrive off for both engines, hand-copied ones stay
+  on; Update reviews what changed first and is never automatic; Remove moves to the Trash. A marketplace: anthropics/skills,
+  openai/skills (deprecated by its owner), ComposioHQ/awesome-claude-skills, the VoltAgent/awesome-agent-skills link list,
+  skills.sh's search, and the owner's GitHub sources, link lists and websites with an Agent Skills index. agentskills.io's
+  specification is the install rules, and its discovery standard the website source type.
+- **Decided here:** the update rule — both switches off when `SKILL.md` changed or a script was added or changed, kept
+  otherwise, and the review says which. Remove only for skills RAVIS installed (hand-copied ones are the owner's to move
+  in Finder). Caps: an 8 MB archive (RAVIS's request ceiling is 10 MB), 5 MB a file, 20 MB and 300 files, `SKILL.md`
+  64 KB; previews live 15 minutes, five at most. Listings kept 24 h; link look-ups lazy, 10 per call, stopping at 10 GitHub
+  API calls left. The Trash is a plain rename into `~/.Trash/<name> <YYYY-MM-DD HH.MM.SS>` (numbered when taken): no Put
+  Back, which needs Finder's own deletion and so permission to automate Finder; across disks RAVIS refuses. The name
+  rule takes the specification's `a-z`/`0-9` list over its "unicode lowercase" wording; unknown front matter fields warn,
+  never refuse. skills.sh's results are sorted by installs, so the page's "ranked by installs" is true.
+- **For NERVIS 0.33.0 (the next commit):** build against `ravis/tests/fixtures/skill-store/contract.json` (`routes`,
+  `nervis_control_routes`). The two reads (`GET /api/v1/skills/installs`, `/market`) go through the GET relay and never
+  fetch; everything that fetches is a POST (previews, refresh, resolve, search), so those control routes need long
+  timeouts. A zip is the raw body of `…/previews/zip`, at most 8 MB. Every market entry carries `install`, the exact
+  preview body; a preview of `kind: update` is an update, and `arrives_switched_off` says the page's line. The page matches
+  `installs[].path` to `GET /api/v1/skills` rows by path.
+- **Found while building:** `zipfile` clears an entry's flag bits on write, so the encrypted-entry test marks the central
+  directory afterwards; the refusal wording capitalised host and skill names at a sentence's start, now left as spelled.
+  `schemas.agentskills.io` didn't resolve, so the discovery schema 0.2.0 wasn't read: the rules are the coordinator's
+  description and `vercel-labs/skills`' `wellknown.ts`, which interleaves path and root where RAVIS tries the address's own
+  path first, as briefed.
+- **skills.sh:** one real search (2026-09-15T18:20:43Z, `q=pdf&limit=5`) fixed the shape `{skills: [{id, skillId, name,
+  installs, source}]}` (`ravis/tests/fixtures/skill-store/skills-sh-search.json`); nothing was installed from it.
+- **Not measured:** the real GitHub (a ref holding a slash on `commits/{ref}`, `git/trees/HEAD`, rate-limit headers as
+  sent), real websites, skills.sh beyond that one search, and whether Codex's own watcher lists a newly installed skill as
+  on before RAVIS's apply switches it off.
+
 ## From NERVIS 0.32.0 (ecosystem, 15 September 2026) — the Skills page, and NERVIS chat's skills
 - **The page:** NERVIS → Skills, in the NERVIS menu between System and Settings (`skillsView`, `SKILLS_PAGE`, `skillsBoard`
   in `nervis/index.html`). It reads RAVIS's `GET /api/v1/skills` through the relay outside `live()`, with a 12 s deadline

@@ -366,6 +366,12 @@ class Settings(BaseSettings):
     # later included, starts off for Codex and for the other models until the owner switches it
     # on. Codex finds the same folder on its own, through the owner's `HOME`.
     skills_personal_folder: str = "~/.agents/skills"
+    # **skills.sh's search** (owner decision, 15 September 2026): the skills marketplace's search
+    # source, asked at `<skills_sh_url>/api/search`, the address skills.sh's own open-source client
+    # uses (`vercel-labs/skills`, which lets `SKILLS_API_URL` change it). Only this address's host
+    # is fetched from for it, over https, and only for a search (`agent/skill_market.py`). Not a
+    # documented public API, so a failure is said in a line and never breaks the page.
+    skills_sh_url: str = "https://skills.sh"
     # The Apple team that must have signed the executable: OpenAI's.
     codex_expected_team_id: str = "2DC432GLL2"
     # How often RAVIS reads the ChatGPT plan's remaining allowance while no Codex turn is

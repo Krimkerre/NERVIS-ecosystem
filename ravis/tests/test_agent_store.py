@@ -158,7 +158,8 @@ def test_migration_13_keeps_every_codex_skill_switch_and_adds_the_other_models_o
 
     migrated = prepare_database(str(path))
 
-    assert migrated.schema_version == storage.MIGRATIONS[-1][0] == 13
+    # Migration 13 is this test's; a later one (14, the skill store's, 0.28.0) runs after it.
+    assert storage.MIGRATIONS[12][0] == 13 and migrated.schema_version == storage.MIGRATIONS[-1][0]
     assert (tmp_path / "ravis.db.v12.bak").exists()
     carried = sqlite3.connect(path).execute(
         "SELECT path, engine, enabled, changed_at FROM skill_choice ORDER BY path").fetchall()
@@ -177,6 +178,41 @@ def test_migration_13_keeps_every_codex_skill_switch_and_adds_the_other_models_o
     assert "skill_choice" not in {row[0] for row in old.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert old.execute("SELECT COUNT(*) FROM codex_skill_choice").fetchone()[0] == 2
+
+
+def test_migration_14_adds_the_skill_stores_tables_and_keeps_every_switch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The skill store's tables arrive (RAVIS 0.28.0), every switch made before them stays as it
+    was, an install's origin is one of the three, and rolled back to 13 they are gone again with
+    the switches still there."""
+    path = tmp_path / "ravis.db"
+    notes = "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/notes/SKILL.md"
+    store = {"skill_install", "skill_market_source", "skill_market_hidden", "skill_market_cache"}
+    with monkeypatch.context() as patched:
+        patched.setattr(storage, "MIGRATIONS", storage.MIGRATIONS[:13])
+        assert prepare_database(str(path)).schema_version == 13
+    before = sqlite3.connect(path)
+    with before:
+        before.execute("INSERT INTO skill_choice VALUES (?, 'models', 0, '2026-09-15T12:00:00Z')",
+                       (notes,))
+    before.close()
+
+    migrated = prepare_database(str(path))
+
+    tables = {row[0] for row in migrated.connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert storage.MIGRATIONS[13][0] == 14 and migrated.schema_version == storage.MIGRATIONS[-1][0]
+    assert store <= tables and (tmp_path / "ravis.db.v13.bak").exists()
+    assert SkillChoices(migrated, MODELS).get(notes) is False
+    with pytest.raises(sqlite3.IntegrityError):
+        migrated.connection.execute("INSERT INTO skill_install (name, origin, content_hash, "
+                                    "installed_at) VALUES ('notes', 'ftp', 'sha256:x', 'now')")
+    assert restore_backup(path, 13) == 13
+    old = sqlite3.connect(path)
+    assert not store & {row[0] for row in old.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert old.execute("SELECT COUNT(*) FROM skill_choice").fetchone()[0] == 1
 
 
 def test_codex_is_told_to_stop_at_a_blocked_site_and_say_which_it_needs() -> None:

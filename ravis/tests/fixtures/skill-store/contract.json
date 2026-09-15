@@ -1,0 +1,403 @@
+{
+  "contract": "RAVIS skill store, for NERVIS's Skills page",
+  "about": [
+    "RAVIS 0.28.0 and NERVIS 0.33.0. NERVIS's alone: Clarvis never calls these routes, so this fixture lives beside relay-contract/, not in it, and Clarvis's manifest doesn't cover it.",
+    "Errors use the MEP envelope; clients match on code and details, and the page shows message, which is written for the owner.",
+    "Implemented by ravis/src/ravis/api/management/skill_store.py over agent/skill_installs.py, agent/skill_market.py, agent/skill_package.py, agent/skill_github.py, agent/skill_sites.py and agent/skill_web.py."
+  ],
+  "decisions": [
+    "Owner, 15 September 2026: install a skill from a GitHub link to a skill folder or from a zip file, and never before a review: name, description, license, the file list with scripts flagged, and SKILL.md's text.",
+    "Installed skills arrive switched off for Codex and for the other models until the owner switches them on. Skills copied into NERVIS's skills folder by hand stay on, as before.",
+    "Update reviews what changed first and is never automatic. Remove moves the folder to the macOS Trash; nothing is deleted.",
+    "A marketplace: anthropics/skills, openai/skills (deprecated by its owner), ComposioHQ/awesome-claude-skills, the VoltAgent/awesome-agent-skills link list, skills.sh's search, and the owner's own GitHub repositories, link lists and websites with an Agent Skills index.",
+    "agentskills.io is the rules installs are checked against (its specification), and its discovery standard is how a website becomes a source."
+  ],
+  "checked_against": "https://agentskills.io/specification",
+  "access": {
+    "reads": "GET /api/v1/skills/installs and GET /api/v1/skills/market: NERVIS's client credential (its GET relay) or an admin credential; never Clarvis",
+    "writes": "every POST: an admin credential (NERVIS's Skills page, through its control routes)"
+  },
+  "limits": {
+    "archive_bytes": 8388608,
+    "file_bytes": 5242880,
+    "total_bytes": 20971520,
+    "files": 300,
+    "archive_entries": 1000,
+    "path_depth": 10,
+    "skill_md_bytes": 65536,
+    "preview_seconds": 900,
+    "previews_waiting": 5,
+    "cache_hours": 24,
+    "skills_per_source": 300,
+    "links_per_list": 2000,
+    "links_resolved_per_call": 10,
+    "skills_per_link": 50,
+    "github_api_reserve": 10,
+    "own_sources": 30,
+    "search_results": 20,
+    "query_characters": 100
+  },
+  "rules": {
+    "specification": [
+      "name: 1-64 characters of a-z, 0-9 and hyphens, not starting or ending with a hyphen, no two hyphens together, and the same as the skill's folder name",
+      "description: 1-1024 characters; license and allowed-tools: text; compatibility: 1-500 characters; metadata: a mapping",
+      "other front matter fields, metadata values that aren't text and a SKILL.md over 500 lines are warnings, never refusals"
+    ],
+    "package": [
+      "paths stay inside the skill: relative, no empty, . or .. part, no backslash, no control character, at most 10 folders deep",
+      "no symbolic or hard links, no special files, no encrypted zip entries, no git submodules",
+      "macOS's __MACOSX folder and .DS_Store files are left out and counted in a warning",
+      "one skill per archive: SKILL.md at the top, or inside one folder at the top",
+      "a file's kind is skill_md; script (by extension, a #! first line or an executable bit); binary (not UTF-8); or text"
+    ],
+    "network": [
+      "https only; GitHub sources, link lists and skills.sh results fetch only from github.com, api.github.com, codeload.github.com and raw.githubusercontent.com; skills.sh's search only from skills_sh_url's host; a website only from the host the owner added",
+      "redirects are followed only within the same call's hosts, at most five",
+      "connect 5 s, between bytes 20 s, 60 s in all; answers capped by size while streaming",
+      "no credential is ever sent, and the environment (netrc, proxies) isn't trusted",
+      "a rate-limited host gets nothing more until the time it said; GitHub's remaining allowance is read from its answers"
+    ],
+    "install": "Refused when anything is already at <skills folder>/<name>. Both switches are written off before the folder appears; the staged folder moves in in one step; the install is recorded. A repeated confirm of the same preview answers what the first did.",
+    "update": "Fetched from where the skill came from: a GitHub install's repository folder at its branch or tag (the default branch when none), a website's index (compared by digest), or a new zip file for a zip install. Both switches go off when SKILL.md changed or a script was added or changed; otherwise they are kept, and the review says which. Refused when the installed folder changed after the review. The earlier version goes to the Trash.",
+    "remove": "Only a skill RAVIS installed; never a skill put in the folder by hand, a personal skill or a built-in one. Its folder moves to ~/.Trash/<name> <YYYY-MM-DD HH.MM.SS> (numbered when taken), then both switches and the record go. Refused, changing nothing, when the folder can't be moved there.",
+    "installed": "A marketplace entry is installed when RAVIS installed a skill from the same GitHub repository folder, or the same website under the same name."
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/installs",
+      "needs": "NERVIS's client credential or an admin credential",
+      "answer": "Installs {folder, installs: [{name, path, source, installed_at, updated_at, content_hash, present, changed_on_this_mac}]}",
+      "rules": [
+        "path is the real path of the installed skill's SKILL.md, the same path GET /api/v1/skills lists it by",
+        "source is {origin: github, repository, folder, ref, commit, via, url}, {origin: website, site, index, digest, via} or {origin: zip}",
+        "present: the folder is still there; changed_on_this_mac: its files differ from what was installed"
+      ],
+      "examples": [
+        {
+          "name": "one skill installed from GitHub",
+          "response": {
+            "status": 200,
+            "body": {
+              "folder": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills",
+              "installs": [
+                {
+                  "name": "pdf",
+                  "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/pdf/SKILL.md",
+                  "source": {"origin": "github", "repository": "anthropics/skills", "folder": "skills/pdf", "ref": null, "commit": "0123456789abcdef0123456789abcdef01234567", "via": "anthropics", "url": "https://github.com/anthropics/skills/tree/0123456789abcdef0123456789abcdef01234567/skills/pdf"},
+                  "installed_at": "2026-09-15T20:00:00Z",
+                  "updated_at": null,
+                  "content_hash": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                  "present": true,
+                  "changed_on_this_mac": false
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/market",
+      "needs": "NERVIS's client credential or an admin credential",
+      "answer": "Market {checked_against, sources: [Source], entries: [Entry], github: {api_remaining, resets_at}}",
+      "rules": [
+        "fetches nothing: every listing is what the last refresh or resolve kept",
+        "Source: {id, kind: github | link_list | search | website, label, repository, folders, path, ref, site, default, deprecated, uncurated, note, hidden, fetched_at, stale, problem, count}; stale is true when the listing is missing or older than a day, never for search",
+        "Entry: {id, source, state: ready | unresolved | problem | not_installable, name, description, license, label, problem, lives_in, repository, folder, ref, site, link, installed, install}",
+        "install is the body of POST /api/v1/skills/previews that reviews the entry, or null when it can't be installed here",
+        "a hidden source lists no entries"
+      ],
+      "examples": [
+        {
+          "name": "after a refresh",
+          "response": {
+            "status": 200,
+            "body": {
+              "checked_against": "https://agentskills.io/specification",
+              "sources": [
+                {"id": "anthropics", "kind": "github", "label": "anthropics/skills", "repository": "anthropics/skills", "folders": ["skills"], "path": null, "ref": null, "site": null, "default": true, "deprecated": false, "uncurated": false, "note": "Some skills carry their own license terms: read each one's license.", "hidden": false, "fetched_at": "2026-09-15T20:00:00Z", "stale": false, "problem": null, "count": 1}
+              ],
+              "entries": [
+                {"id": "anthropics::anthropics/skills/skills/pdf", "source": "anthropics", "state": "ready", "name": "pdf", "description": "Read and write PDFs.", "license": "Proprietary. LICENSE.txt has complete terms", "label": null, "problem": null, "lives_in": "anthropics/skills", "repository": "anthropics/skills", "folder": "skills/pdf", "ref": null, "site": null, "link": "https://github.com/anthropics/skills/tree/HEAD/skills/pdf", "installed": false, "install": {"origin": "github", "repository": "anthropics/skills", "folder": "skills/pdf", "ref": null, "via": "anthropics"}}
+              ],
+              "github": {"api_remaining": 57, "resets_at": "2026-09-15T20:30:00Z"}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/previews",
+      "needs": "an admin credential",
+      "body": "{origin: github, url} | {origin: github, repository, folder?, ref?} | {origin: github, repository, skill} | {origin: website, source, name}; github bodies may carry via, a source id",
+      "answer": "Preview {preview_id, expires_at, kind: install | update, name, description, license: {text, from: front_matter | file | null}, compatibility, source, files: [{path, bytes, kind}], skill_md, warnings: [{code, message}], checked_against, arrives_switched_off, update}",
+      "rules": [
+        "fetches and checks the skill and stages it in RAVIS's own data folder, never the skills folder; nothing is installed",
+        "url is a github.com link to a folder (tree/), a SKILL.md (blob/) or a repository; skill finds the shallowest folder of that name holding a SKILL.md",
+        "kind is update when RAVIS already installed a skill of that name from the same place; update is then {changes: {added, removed, changed, skill_md_diff}, switches: reset | kept, why}, else null",
+        "warning codes: has_scripts, clashes_with_installed, clashes_with_personal, unknown_fields, metadata_not_text, long_skill_md, left_out",
+        "a preview lives 15 minutes; at most five wait, the oldest discarded first"
+      ],
+      "examples": [
+        {
+          "name": "a GitHub folder",
+          "request": {"body": {"origin": "github", "url": "https://github.com/anthropics/skills/tree/main/skills/pdf"}},
+          "response": {
+            "status": 200,
+            "body": {
+              "preview_id": "sp_REVIEW-ID",
+              "expires_at": "2026-09-15T20:15:00Z",
+              "kind": "install",
+              "name": "pdf",
+              "description": "Read and write PDFs.",
+              "license": {"text": "Proprietary. LICENSE.txt has complete terms", "from": "front_matter"},
+              "compatibility": null,
+              "source": {"origin": "github", "repository": "anthropics/skills", "folder": "skills/pdf", "ref": "main", "commit": "0123456789abcdef0123456789abcdef01234567", "via": null, "url": "https://github.com/anthropics/skills/tree/0123456789abcdef0123456789abcdef01234567/skills/pdf"},
+              "files": [{"path": "LICENSE.txt", "bytes": 12, "kind": "text"}, {"path": "SKILL.md", "bytes": 120, "kind": "skill_md"}, {"path": "scripts/extract.py", "bytes": 13, "kind": "script"}],
+              "skill_md": "---\nname: pdf\ndescription: Read and write PDFs.\nlicense: Proprietary. LICENSE.txt has complete terms\n---\n\n# Instructions\n",
+              "warnings": [{"code": "has_scripts", "message": "It has 1 script Codex could run: scripts/extract.py."}],
+              "checked_against": "https://agentskills.io/specification",
+              "arrives_switched_off": true,
+              "update": null
+            }
+          }
+        },
+        {
+          "name": "GitHub is rate-limiting",
+          "request": {"body": {"origin": "github", "url": "https://github.com/anthropics/skills/tree/main/skills/pdf"}},
+          "response": {"status": 503, "body": {"error": {"code": "SKILL_SOURCE_RATE_LIMITED", "message": "GitHub is rate-limiting RAVIS; try again at 22:30.", "retryable": true, "details": {"host": "api.github.com", "retry_at": "2026-09-15T20:30:00Z"}, "request_id": "…", "trace_id": "…"}}}
+        },
+        {
+          "name": "a name that isn't its folder's",
+          "request": {"body": {"origin": "github", "url": "https://github.com/o/r/tree/main/pdf-main"}},
+          "response": {"status": 422, "body": {"error": {"code": "SKILL_REFUSED", "message": "Its name 'pdf' isn't the name of its folder, 'pdf-main'; the specification says they must match.", "retryable": false, "details": {"reason": "name_mismatch"}, "request_id": "…", "trace_id": "…"}}}
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/previews/zip",
+      "needs": "an admin credential",
+      "body": "the zip file's bytes, the whole body, at most 8 MB",
+      "answer": "Preview, as POST /api/v1/skills/previews",
+      "rules": ["a zip whose skill RAVIS installed from a zip before is that skill's update"],
+      "examples": [
+        {
+          "name": "a zip that climbs out of its folder",
+          "response": {"status": 422, "body": {"error": {"code": "SKILL_REFUSED", "message": "The path '../escape.txt' would leave the skill's folder, or isn't a plain relative path.", "retryable": false, "details": {"reason": "unsafe_path"}, "request_id": "…", "trace_id": "…"}}}
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/previews/discard",
+      "needs": "an admin credential",
+      "body": "{preview_id}",
+      "answer": "{discarded}",
+      "rules": ["the preview's staging goes at once; discarded is false when there was no such preview"],
+      "examples": [{"name": "closed", "request": {"body": {"preview_id": "sp_REVIEW-ID"}}, "response": {"status": 200, "body": {"discarded": true}}}]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/installs",
+      "needs": "an admin credential",
+      "body": "{preview_id}",
+      "answer": "{installed: Install, switches: {codex: false, models: false}} for an install; {updated: Install, switches_reset, earlier_version: {trash, kept_at, problem}} for an update",
+      "rules": [
+        "the same preview confirmed again answers what the first confirm did and changes nothing",
+        "409 SKILL_ALREADY_INSTALLED when anything is at that name; 409 SKILL_CHANGED_SINCE_REVIEW when an installed folder changed after its review; 404 SKILL_PREVIEW_NOT_FOUND when the review expired or was discarded",
+        "earlier_version: trash is where the replaced version went; when it couldn't go, kept_at is where it stays and problem says why"
+      ],
+      "examples": [
+        {
+          "name": "installed",
+          "request": {"body": {"preview_id": "sp_REVIEW-ID"}},
+          "response": {
+            "status": 200,
+            "body": {
+              "installed": {"name": "pdf", "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/pdf/SKILL.md", "source": {"origin": "github", "repository": "anthropics/skills", "folder": "skills/pdf", "ref": "main", "commit": "0123456789abcdef0123456789abcdef01234567", "via": null, "url": "https://github.com/anthropics/skills/tree/0123456789abcdef0123456789abcdef01234567/skills/pdf"}, "installed_at": "2026-09-15T20:00:00Z", "updated_at": null, "content_hash": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "present": true, "changed_on_this_mac": false},
+              "switches": {"codex": false, "models": false}
+            }
+          }
+        },
+        {
+          "name": "updated",
+          "request": {"body": {"preview_id": "sp_UPDATE-ID"}},
+          "response": {
+            "status": 200,
+            "body": {
+              "updated": {"name": "pdf", "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/pdf/SKILL.md", "source": {"origin": "github", "repository": "anthropics/skills", "folder": "skills/pdf", "ref": "main", "commit": "89abcdef0123456789abcdef0123456789abcdef", "via": null, "url": "https://github.com/anthropics/skills/tree/89abcdef0123456789abcdef0123456789abcdef/skills/pdf"}, "installed_at": "2026-09-15T20:00:00Z", "updated_at": "2026-09-16T09:00:00Z", "content_hash": "sha256:60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752", "present": true, "changed_on_this_mac": false},
+              "switches_reset": true,
+              "earlier_version": {"trash": "/Users/owner/.Trash/pdf (before update) 2026-09-16 11.00.00", "kept_at": null, "problem": null}
+            }
+          }
+        },
+        {
+          "name": "a name already in the folder",
+          "request": {"body": {"preview_id": "sp_REVIEW-ID"}},
+          "response": {"status": 409, "body": {"error": {"code": "SKILL_ALREADY_INSTALLED", "message": "A skill named pdf is already in NERVIS's skills folder. It was put there by hand, so RAVIS leaves it alone.", "retryable": false, "details": {"name": "pdf", "installed_by_ravis": false}, "request_id": "…", "trace_id": "…"}}}
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/installs/update-preview",
+      "needs": "an admin credential",
+      "body": "{name}",
+      "answer": "Preview of kind update; or {name, up_to_date: true, source, changed_on_this_mac} when its source has nothing newer",
+      "rules": ["409 SKILL_NOT_UPDATABLE for a zip install, which updates from a new zip through POST /api/v1/skills/previews/zip; 404 SKILL_NOT_INSTALLED for a skill RAVIS didn't install"],
+      "examples": [
+        {
+          "name": "SKILL.md changed",
+          "request": {"body": {"name": "pdf"}},
+          "response": {
+            "status": 200,
+            "body": {
+              "preview_id": "sp_UPDATE-ID",
+              "expires_at": "2026-09-16T09:15:00Z",
+              "kind": "update",
+              "name": "pdf",
+              "description": "Read and write PDFs.",
+              "license": {"text": "Proprietary. LICENSE.txt has complete terms", "from": "front_matter"},
+              "compatibility": null,
+              "source": {"origin": "github", "repository": "anthropics/skills", "folder": "skills/pdf", "ref": "main", "commit": "89abcdef0123456789abcdef0123456789abcdef", "via": null, "url": "https://github.com/anthropics/skills/tree/89abcdef0123456789abcdef0123456789abcdef/skills/pdf"},
+              "files": [{"path": "LICENSE.txt", "bytes": 12, "kind": "text"}, {"path": "SKILL.md", "bytes": 131, "kind": "skill_md"}, {"path": "scripts/extract.py", "bytes": 13, "kind": "script"}],
+              "skill_md": "---\nname: pdf\ndescription: Read and write PDFs.\n---\n\n# New steps\n",
+              "warnings": [{"code": "has_scripts", "message": "It has 1 script Codex could run: scripts/extract.py."}],
+              "checked_against": "https://agentskills.io/specification",
+              "arrives_switched_off": false,
+              "update": {
+                "changes": {"added": [], "removed": [], "changed": [{"path": "SKILL.md", "bytes": 131, "kind": "skill_md"}], "skill_md_diff": "--- installed SKILL.md\n+++ update's SKILL.md\n@@ -5 +5 @@\n-# Instructions\n+# New steps"},
+                "switches": "reset",
+                "why": "Both switches go off, because SKILL.md changed; switch it on again once you have read the changes."
+              }
+            }
+          }
+        },
+        {
+          "name": "nothing newer",
+          "request": {"body": {"name": "pdf"}},
+          "response": {"status": 200, "body": {"name": "pdf", "up_to_date": true, "source": {"origin": "github", "repository": "anthropics/skills", "folder": "skills/pdf", "ref": "main", "commit": "0123456789abcdef0123456789abcdef01234567", "via": null, "url": "https://github.com/anthropics/skills/tree/0123456789abcdef0123456789abcdef01234567/skills/pdf"}, "changed_on_this_mac": false}}
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/installs/remove",
+      "needs": "an admin credential",
+      "body": "{name}",
+      "answer": "{removed, trash}",
+      "rules": ["trash is null when the folder was already gone; the record and switches go either way"],
+      "examples": [
+        {"name": "to the Trash", "request": {"body": {"name": "pdf"}}, "response": {"status": 200, "body": {"removed": "pdf", "trash": "/Users/owner/.Trash/pdf 2026-09-15 22.00.00"}}},
+        {"name": "put there by hand", "request": {"body": {"name": "by-hand"}}, "response": {"status": 404, "body": {"error": {"code": "SKILL_NOT_INSTALLED", "message": "RAVIS didn't install a skill named by-hand, so it can't update or remove it.", "retryable": false, "details": {"name": "by-hand"}, "request_id": "…", "trace_id": "…"}}}}
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/market/refresh",
+      "needs": "an admin credential",
+      "body": "{source?, force?}",
+      "answer": "Market, as GET /api/v1/skills/market",
+      "rules": ["reads every shown source (or the one named) whose listing is a day old, or all of them when force is true; a source that can't be read keeps its last listing and its problem says why"],
+      "examples": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/market/resolve",
+      "needs": "an admin credential",
+      "body": "{source: a link list's id, links: [1-50 of its links]}",
+      "answer": "Market, as GET /api/v1/skills/market, with note: null or why some links weren't looked up",
+      "rules": ["at most 10 links looked up per call, each kept a day; stops, with note, when GitHub rate-limits RAVIS or its hourly allowance is down to 10"],
+      "examples": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/market/search",
+      "needs": "an admin credential",
+      "body": "{query: 1-100 characters}",
+      "answer": "{source: skills_sh, query, note, results: [{name, skill, repository, installs, installed, install}], problem}",
+      "rules": ["results come most installed first; any failure of skills.sh is problem, in plain words, with 200 and no results"],
+      "examples": [
+        {
+          "name": "results",
+          "request": {"body": {"query": "pdf"}},
+          "response": {"status": 200, "body": {"source": "skills_sh", "query": "pdf", "note": "Uncurated, ranked by installs.", "results": [{"name": "pdf", "skill": "pdf", "repository": "anthropics/skills", "installs": 196349, "installed": false, "install": {"origin": "github", "repository": "anthropics/skills", "skill": "pdf", "via": "skills_sh"}}], "problem": null}}
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/market/sources",
+      "needs": "an admin credential",
+      "body": "{kind: github, repository, path?, ref?} | {kind: link_list, repository, path? (default README.md), ref?} | {kind: website, url}",
+      "answer": "Market, as GET /api/v1/skills/market",
+      "rules": ["409 MARKET_SOURCE_EXISTS for the same source twice; 409 MARKET_SOURCES_FULL past 30 of the owner's own"],
+      "examples": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/market/sources/hide",
+      "needs": "an admin credential",
+      "body": "{source, hidden}",
+      "answer": "Market, as GET /api/v1/skills/market",
+      "rules": ["any source, RAVIS's own included"],
+      "examples": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/market/sources/remove",
+      "needs": "an admin credential",
+      "body": "{source}",
+      "answer": "Market, as GET /api/v1/skills/market",
+      "rules": ["only the owner's own; 409 MARKET_SOURCE_IS_DEFAULT for RAVIS's own, which can be hidden"],
+      "examples": []
+    }
+  ],
+  "error_codes": {
+    "FORBIDDEN": {"status": [403], "retryable": false},
+    "INVALID_REQUEST_BODY": {"status": [422], "retryable": false},
+    "SKILL_REFUSED": {"status": [422], "retryable": false, "reasons": ["archive_too_large", "description_invalid", "digest_mismatch", "duplicate_path", "encrypted", "field_invalid", "file_too_large", "front_matter", "link", "name_invalid", "name_mismatch", "no_skill_md", "not_archive", "not_one_skill", "skill_md_not_text", "skill_md_too_large", "special_file", "submodule", "too_large", "too_many_files", "unsafe_path"]},
+    "SKILL_SOURCE_NOT_FOUND": {"status": [404], "retryable": false},
+    "SKILL_SOURCE_REFUSED": {"status": [422], "retryable": false, "reasons": ["host_not_allowed", "not_a_github_link", "not_https", "redirect_elsewhere", "too_large", "too_many_redirects"]},
+    "SKILL_SOURCE_UNREACHABLE": {"status": [503], "retryable": true},
+    "SKILL_SOURCE_RATE_LIMITED": {"status": [503], "retryable": true},
+    "SKILL_PREVIEW_NOT_FOUND": {"status": [404], "retryable": false},
+    "SKILL_ALREADY_INSTALLED": {"status": [409], "retryable": false},
+    "SKILL_NOT_INSTALLED": {"status": [404], "retryable": false},
+    "SKILL_NOT_UPDATABLE": {"status": [409], "retryable": false},
+    "SKILL_CHANGED_SINCE_REVIEW": {"status": [409], "retryable": false},
+    "SKILLS_FOLDER_UNUSABLE": {"status": [409], "retryable": false},
+    "SKILL_NOT_MOVED": {"status": [409], "retryable": false},
+    "MARKET_SOURCE_EXISTS": {"status": [409], "retryable": false},
+    "MARKET_SOURCE_NOT_FOUND": {"status": [404], "retryable": false},
+    "MARKET_SOURCE_IS_DEFAULT": {"status": [409], "retryable": false},
+    "MARKET_SOURCES_FULL": {"status": [409], "retryable": false}
+  },
+  "nervis_control_routes": [
+    {"method": "POST", "path": "/api/v1/ravis/skills/previews", "forwards": "POST /api/v1/skills/previews", "carries": ["origin", "url", "repository", "folder", "ref", "skill", "via", "source", "name"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/previews/zip", "forwards": "POST /api/v1/skills/previews/zip", "carries": ["the zip file's bytes, at most 8 MB"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/previews/discard", "forwards": "POST /api/v1/skills/previews/discard", "carries": ["preview_id"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/installs", "forwards": "POST /api/v1/skills/installs", "carries": ["preview_id"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/installs/update-preview", "forwards": "POST /api/v1/skills/installs/update-preview", "carries": ["name"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/installs/remove", "forwards": "POST /api/v1/skills/installs/remove", "carries": ["name"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/market/refresh", "forwards": "POST /api/v1/skills/market/refresh", "carries": ["source", "force"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/market/resolve", "forwards": "POST /api/v1/skills/market/resolve", "carries": ["source", "links"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/market/search", "forwards": "POST /api/v1/skills/market/search", "carries": ["query"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/market/sources", "forwards": "POST /api/v1/skills/market/sources", "carries": ["kind", "repository", "path", "ref", "url"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/market/sources/hide", "forwards": "POST /api/v1/skills/market/sources/hide", "carries": ["source", "hidden"]},
+    {"method": "POST", "path": "/api/v1/ravis/skills/market/sources/remove", "forwards": "POST /api/v1/skills/market/sources/remove", "carries": ["source"]}
+  ],
+  "audit": {
+    "ravis.skill_installed": ["name", "origin", "repository", "folder", "ref", "commit", "site", "digest", "via", "content_hash", "files", "scripts"],
+    "ravis.skill_updated": ["name", "origin", "repository", "folder", "ref", "commit", "site", "digest", "via", "content_hash", "files", "scripts", "switches_reset"],
+    "ravis.skill_removed": ["name", "trashed"],
+    "ravis.skill_source_added": ["source", "kind", "repository", "path", "ref", "site"],
+    "ravis.skill_source_hidden": ["source", "hidden"],
+    "ravis.skill_source_removed": ["source", "kind"],
+    "rule": "never a file's contents; every event also carries request_id and application_id"
+  }
+}

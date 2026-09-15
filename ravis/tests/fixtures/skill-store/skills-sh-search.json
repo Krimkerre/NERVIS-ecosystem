@@ -1,0 +1,49 @@
+{
+  "about": "One real skills.sh search, made once while RAVIS 0.28.0 was built (the owner's coordinator allowed one call), to fix the shape RAVIS reads. Nothing was installed from it. RAVIS itself asks with limit=20.",
+  "recorded_at": "2026-09-15T18:20:43Z",
+  "request": "GET https://skills.sh/api/search?q=pdf&limit=5",
+  "answer": {
+    "query": "pdf",
+    "searchType": "fuzzy",
+    "searchVersion": "legacy",
+    "skills": [
+      {
+        "id": "anthropics/skills/pdf",
+        "skillId": "pdf",
+        "name": "pdf",
+        "installs": 196349,
+        "source": "anthropics/skills"
+      },
+      {
+        "id": "vercel-labs/json-render/react-pdf",
+        "skillId": "react-pdf",
+        "name": "react-pdf",
+        "installs": 2079,
+        "source": "vercel-labs/json-render"
+      },
+      {
+        "id": "openai/skills/pdf",
+        "skillId": "pdf",
+        "name": "pdf",
+        "installs": 12434,
+        "source": "openai/skills"
+      },
+      {
+        "id": "github/awesome-copilot/pdftk-server",
+        "skillId": "pdftk-server",
+        "name": "pdftk-server",
+        "installs": 10034,
+        "source": "github/awesome-copilot"
+      },
+      {
+        "id": "anthropics/knowledge-work-plugins/view-pdf",
+        "skillId": "view-pdf",
+        "name": "view-pdf",
+        "installs": 6024,
+        "source": "anthropics/knowledge-work-plugins"
+      }
+    ],
+    "count": 5,
+    "duration_ms": 665
+  }
+}

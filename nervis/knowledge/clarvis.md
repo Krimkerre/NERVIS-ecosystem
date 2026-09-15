@@ -10,12 +10,12 @@ almost everything below is about restraint.
 
 ## What it can do to a workspace
 
-Nine tools, and no others: `readFile`, `listFiles`, `search`, `applyEdit`,
-`writeFile`, `runCommand`, `readDiagnostics`, `gitStatus`, `gitDiff`.
+Ten tools, and no others: `readFile`, `listFiles`, `search`, `applyEdit`,
+`writeFile`, `runCommand`, `readDiagnostics`, `gitStatus`, `gitDiff`, and `readSkill`.
 `readSkill` lets Clarvis's own engine read the full instructions of a skill the owner switched
 on for the other models (on NERVIS's Skills page), through RAVIS, when a task fits one; it only
-reads, never runs anything, and doesn't count against the step cap. It is being built for
-Clarvis 0.17.5 and isn't released yet.
+reads and never runs anything. A run's first eight skill reads don't count against the step cap;
+later ones do. Released in Clarvis 0.17.5.
 
 A read-only run is given only the reading tools, so "look but do not touch" is
 enforced by what the model is handed rather than by asking it nicely.

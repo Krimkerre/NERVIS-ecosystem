@@ -145,11 +145,13 @@ after it are the parts §6 of this document specifies:
 | 0.11.1 | the envelope NERVIS's hub actually requires — the first version was accepted by the specification and rejected by the implementation |
 | 0.11.2 | one chat turn names a single trace from start to finish |
 
-**The agent's tool set is nine and closed**: `readFile`, `listFiles`, `search`,
+**The agent's tool set is ten and closed**: `readFile`, `listFiles`, `search`,
 `applyEdit`, `writeFile`, `runCommand`, `readDiagnostics`, `gitStatus`,
-`gitDiff`. A read-only run is handed only the reading tools, so §7.3's restraint
-is a property of what the model receives rather than an instruction it is asked
-to respect.
+`gitDiff`, and since Clarvis 0.17.5 `readSkill`, offered only to a run of
+Clarvis's own engine whose instructions list the owner's skills (§5.6). A
+read-only run is handed only the reading tools, never `readSkill`, so §7.3's
+restraint is a property of what the model receives rather than an instruction
+it is asked to respect.
 
 **`clarvis.status.read@1` is the only capability declared `available`.** The
 event stream works — it heartbeats, replays a backlog on reconnect, and carries
@@ -466,6 +468,30 @@ named like the Clarvis pools; it was `ravis/codex` until the owner renamed it on
 - **Out of scope.** Switching engines automatically when the allowance runs out; Codex for chat,
   planning or the interview; remote hosts; any NERVIS control of a task other than Stop; Codex on the
   ecosystem's own repositories.
+
+## 5.6 Skills for Clarvis's own engine
+
+**Decided by the owner on 15 September 2026; RAVIS 0.27.0's `skills.json`; built in Clarvis 0.17.5.**
+RAVIS alone knows which skills exist and which are switched on for the models that aren't Codex; the
+owner switches them on NERVIS's Skills page.
+
+- **The list.** Read once at a run's start with Clarvis's client credential
+  (`GET /api/v1/skills/models`) and added as a capped section after Clarvis's own rules: each
+  skill's name, id and a description cut at 160 characters, about 1,500 characters in all. Nothing is
+  added when no skill is on, or when RAVIS isn't the run's provider. A switch counts from the next
+  run.
+- **Reading a skill.** `readSkill` (`GET /api/v1/skills/models/read`) runs in the extension host,
+  never through `runCommand`. Its text arrives as reference material, not as the owner's message. It
+  only reads and needs no step approval; a run's first eight reads don't count against the step cap.
+  A refused read is a tool result, never a failed run.
+- **Precedence.** Skills can't override Clarvis's rules: step approvals, the command gate, Workspace
+  Trust, protected paths and the mode still apply, and a skill's commands run only through the normal
+  command tool with its approvals.
+- **Failure.** When RAVIS or the skills list can't be read, the run goes on without skills; the chat
+  says so once, only when skills were on last time, and one log line records it.
+- **Scope.** Coding runs of Clarvis's own engine only: not answers, plain chat, the tool check or
+  background calls. Codex gets its skills from RAVIS directly (§5.5). Clarvis keeps no skill text
+  past the run, and nothing about skills reaches the Bridge.
 
 ---
 

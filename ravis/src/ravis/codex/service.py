@@ -511,6 +511,17 @@ class CodexService:
             self._skills, self._skills_detail = SKILLS_CHECKING, None
         self._apply_skills_soon()
 
+    def skills_moved(self) -> None:
+        """A skill was installed, updated or removed in NERVIS's folder from the Skills page
+        (`agent/skill_installs.py`, RAVIS 0.28.0): applied again at once, tasks waiting meanwhile,
+        exactly as for `skills/changed` — without waiting for Codex to notice the folder changed,
+        which isn't measured. An installed skill's switches are already off when it arrives."""
+        if self._supervisor.state != "running":
+            return
+        if self._skills == SKILLS_APPLIED:
+            self._skills, self._skills_detail = SKILLS_CHECKING, None
+        self._apply_skills_soon()
+
     def _set_skills(self, outcome: SkillsOutcome) -> None:
         self._skills, self._skills_detail = outcome
         if outcome[0] != SKILLS_APPLIED:

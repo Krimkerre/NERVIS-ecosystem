@@ -13,8 +13,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
+from ravis.agent import skill_web
 from ravis.config import Settings
 from ravis.credentials import KEYRING_SWITCH
 
@@ -85,6 +87,18 @@ def _never_the_operators_own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     # folder itself since 0.27.0, and its default is the owner's real `~/.agents/skills`.
     personal = tmp_path / "home" / ".agents" / "skills"
     monkeypatch.setenv("RAVIS_SKILLS_PERSONAL_FOLDER", str(personal))
+    # **And no test reaches the internet through the skill store** (RAVIS 0.28.0): a `Web` built
+    # without a transport of the test's own gets one that fails the test at its first request.
+    monkeypatch.setattr(skill_web, "live_transport", _no_network)
+
+
+def _no_network() -> httpx.AsyncBaseTransport:
+    """The skill store's transport in a test that didn't hand it a fake: every request fails."""
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"a test reached the network through the skill store: {request.url}")
+
+    return httpx.MockTransport(refuse)
 
 
 @pytest.fixture

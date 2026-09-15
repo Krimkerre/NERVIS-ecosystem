@@ -81,12 +81,15 @@ def test_a_read_endpoint_does_not_accept_a_write() -> None:
 def test_every_write_this_surface_serves_is_one_it_declares() -> None:
     """The mutation surface, asserted rather than described.
 
-    RAVIS serves thirty-seven writes: two on a provider credential, one on a provider's
+    RAVIS serves fifty writes: two on a provider credential, one on a provider's
     enabled flag, one on its model filter, one on a pool's membership, one
     curating every pool, one lifting a tool-refusal suppression, ten for
     Codex (sign-in, its cancellation, sign-out, account confirmation, accepting
     and revoking a build, the file-rules re-test, adding and removing an
     allowed site, and switching a skill), one switching a skill for either engine,
+    thirteen for the skill store (a review from GitHub or a website, a review from a zip,
+    discarding a review, installing or updating, looking for an update, removing, and the
+    marketplace's refresh, look-ups, search and three on its sources),
     fourteen on Codex tasks (the agent-session relay, the owner Stop among them),
     and five on the project lock. Each is
     deliberate; what is not acceptable is another appearing without anybody
@@ -148,6 +151,23 @@ def test_every_write_this_surface_serves_is_one_it_declares() -> None:
         "POST /api/v1/agent-sessions/{sid}/settle",
         "POST /api/v1/agent-sessions/{sid}/cancel",
         "DELETE /api/v1/agent-sessions/{sid}",
+        # Added deliberately, 15 September 2026 (RAVIS 0.28.0, the owner's decisions): the skill
+        # store, for NERVIS's Skills page alone. Every one needs an admin credential; installs,
+        # updates, removals and source changes are audited without any file's contents. Held in
+        # `tests/test_skill_store_routes.py`, `tests/test_skill_market.py` and the fixture
+        # `tests/fixtures/skill-store/contract.json`.
+        "POST /api/v1/skills/previews",
+        "POST /api/v1/skills/previews/zip",
+        "POST /api/v1/skills/previews/discard",
+        "POST /api/v1/skills/installs",
+        "POST /api/v1/skills/installs/update-preview",
+        "POST /api/v1/skills/installs/remove",
+        "POST /api/v1/skills/market/refresh",
+        "POST /api/v1/skills/market/resolve",
+        "POST /api/v1/skills/market/search",
+        "POST /api/v1/skills/market/sources",
+        "POST /api/v1/skills/market/sources/hide",
+        "POST /api/v1/skills/market/sources/remove",
         "POST /api/v1/agent-sessions/{sid}/reissue-token",
         "POST /api/v1/agent-sessions/{sid}/owner-stop",
         # Added deliberately, 13 September 2026 (M29's fourth increment, RAVIS.md §15.1.2):

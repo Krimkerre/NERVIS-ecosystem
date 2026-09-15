@@ -25,7 +25,24 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.4
+## Clarvis — 0.17.5
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Clarvis's own engine uses your skills.** At the start of a coding run that goes through RAVIS,
+  Clarvis reads the skills switched on for "Other models" on NERVIS's Skills page and adds a short
+  list to the agent's instructions: name, id and a description cut at 160 characters, capped at
+  about 1,500 characters. The agent reads a skill's full instructions with the new `readSkill` tool
+  only when one fits. Nothing is added when no skill is on. A switch counts from the next run.
+- **Skills can't override Clarvis's rules.** Skill text arrives as reference material, not as your
+  message; step approvals, the command gate, Workspace Trust, protected paths and the mode still
+  apply, and a skill's commands run only through the normal command tool with its approvals.
+  `readSkill` only reads, and a run's first eight reads don't count against the step cap.
+- **If RAVIS or the skills list can't be read,** the run goes on without skills. The chat says so
+  once, only when skills were on last time.
+- **Not covered:** plain chat and read-only answers get no skills.
+
+### 0.17.4
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -1340,7 +1357,40 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.27.0
+## RAVIS — 0.28.0
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Install skills, after a review.** From a GitHub link to a skill's folder, a zip file, or a
+  website that publishes an Agent Skills index. RAVIS fetches the skill into a staging folder of its
+  own first and shows a review: name, description, license, the files with scripts marked, and the
+  SKILL.md text. Nothing lands in NERVIS's skills folder until you confirm.
+- **Checked against the Agent Skills specification** (agentskills.io) and RAVIS's own rules: a
+  proper name that matches its folder, a description, no paths leading out of the skill, no links or
+  special files, size limits (an 8 MB archive, 5 MB a file, 20 MB and 300 files in all), and one
+  skill at a time.
+- **Installed skills arrive switched off** for Codex and for the other models, until you switch
+  them on. Skills you copy into the folder yourself still start on.
+- **Update** reads the skill again from where it came from and shows what changed, with a SKILL.md
+  diff. If SKILL.md or a script changed, both switches go off again; other changes keep them. It
+  never updates by itself.
+- **Remove** moves the skill's folder to the Trash, and only for skills RAVIS installed. Finder's Put
+  Back doesn't know where it came from: drag it back into the folder if you change your mind.
+- **A marketplace:** anthropics/skills, openai/skills (deprecated by its owner),
+  ComposioHQ/awesome-claude-skills, the VoltAgent/awesome-agent-skills link list (uncurated),
+  skills.sh's search (uncurated, ranked by installs), and GitHub repositories, link lists and
+  websites you add. Listings are kept a day; a link list's links are looked up only when shown.
+- **Careful on the network.** Only https, only to GitHub, skills.sh and websites you added, redirects
+  only within those, with timeouts and size limits, and never a token. When GitHub is rate-limiting
+  RAVIS, it says when to try again.
+- **For operators:** database migration 14 (backed up first); a new setting, `skills_sh_url`
+  (default `https://skills.sh`); new routes under `/api/v1/skills/installs`,
+  `/api/v1/skills/previews` and `/api/v1/skills/market`, for NERVIS alone, described in the new
+  fixture `tests/fixtures/skill-store/contract.json`; Clarvis's contract fixtures are unchanged.
+  Tested against a fake GitHub, fake websites and one recorded skills.sh answer only; NERVIS's page
+  for it comes in NERVIS 0.33.0.
+
+### 0.27.0
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
