@@ -384,21 +384,38 @@ named like the Clarvis pools; it was `ravis/codex` until the owner renamed it on
   once git is really set up. Clarvis's own pre-run offer is asked for its own engine only. Task
   folders NERVIS hands over start as repositories with the brief committed (NERVIS 0.29.3), so they
   never meet this.
-- **Earlier Codex work left on its branch** (owner's decision, 15 September 2026, "Ask each time";
-  built in Clarvis 0.17.3). Before a Codex task starts, Clarvis looks for earlier Codex work in the
-  project that is still waiting: a RAVIS session that is `idle`, whose key this Mac's token file holds
-  and RAVIS accepts, on a branch that still exists and isn't merged into the project's trunk (the
-  plan's declared trunk, else the branch a new task starts from, never a literal `main`). When there
-  is some, the owner is asked each time: **Build on `<branch>`** (at most three, the window's branch
-  first, then the most recent) picks that session back up with a `continue` turn carrying the new
-  request, on its own branch, so Codex adds to its own work and keeps the conversation; **Start fresh
-  from `<trunk>`** starts a new task on a new branch as before, leaving the earlier session idle.
-  Typed answers work like the buttons and are never sent to Codex; unanswered, stopped or a mode
-  switch runs nothing. Unattended doesn't ask: it builds on the window's branch when that is left
-  work, otherwise starts fresh, and says which. Switching to another branch is refused while the owner
-  has uncommitted work. The earlier session is given the chat's current mode before its turn. A
-  session without a stored key isn't offered, and no token is reissued to find out. Clarvis's own
-  engine still starts every task from the trunk.
+- **Build on earlier work, or start fresh** (both engines; Codex from Clarvis 0.17.3, Clarvis's own
+  engine from 0.17.4; the owner's decisions of 15 September 2026, "Ask each time"). Before a task
+  starts, Clarvis looks for work an earlier run of the same engine left in the project on a branch
+  that still exists and isn't merged into the project's trunk (the plan's declared trunk, else the
+  branch a new task starts from, never a literal `main`). When there is some, the owner is asked each
+  time: **Build on `<branch>`** or **Start fresh from `<trunk>`**, a new branch from the trunk that
+  never stacks on a `clarvis/*` branch. Typed answers work like the buttons and never reach the
+  model; unanswered, stopped or a mode switch runs nothing; Unattended doesn't ask, and picks and
+  says which: it builds on the window's branch when that is left work, and otherwise starts fresh.
+  Each engine offers only its own left work, and a branch both engines left is offered by both.
+  - **Codex:** left work is a RAVIS session that is `idle`, whose key this Mac's token file holds and
+    RAVIS accepts (at most three offered, the window's branch first, then the most recent). **Build
+    on** picks that session back up with a `continue` turn carrying the new request, on its own
+    branch, after giving it the chat's current mode, so Codex adds to its own work and keeps the
+    conversation; the earlier session stays idle on Start fresh. A session without a stored key isn't
+    offered, and no token is reissued to find out.
+  - **Clarvis's own engine:** left work is remembered in `<git dir>/clarvis-left-work.json` (0600,
+    never committed, shared by code-server and desktop VS Code), written whole under the project lock
+    at the end of each run that ends on its own branch: one entry per branch, newest first, at most
+    20, each with `branch`, `taskId`, `task`, a redacted `summary`, `startedFrom`, `headCommit`,
+    `files`, `inFlightAtStart`, `uncommitted` (with SHA-256, or null), `endedAt` and `host`. A run
+    counts as left while its branch exists and still holds that tip, and either has commits not in
+    the trunk or is the window's branch with the run's files still uncommitted as it left them.
+    **Build on** runs the new task on that branch, on top of that work, told the earlier task, its
+    closing summary and the branch's commit subjects. Tasks started from the command palette don't
+    ask and aren't remembered; only chat runs are.
+  - **The earlier run's own files are committed first** when the window is on its branch, with a chat
+    line ("Committed the last run's N files to `<branch>` so this run builds on them", or "… before
+    starting fresh"); files the owner had in flight, or changed since, are never swept in.
+  - **Switching branches**, for either engine: ignored files don't count; untracked files the other
+    branch doesn't have come along, named in a line of their own; tracked changes, or untracked files
+    that would clash, refuse the switch, naming the files.
 - **The checkpoint** is `<git_dir>/clarvis-task-checkpoint.json` (0600, never committed;
   `<root>/.clarvis/task-checkpoint.json` without git), because `workspaceState` is per host and a task
   moves between hosts. It is written atomically, only while holding the project lock, at most 64 KB,

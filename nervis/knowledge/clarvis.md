@@ -12,6 +12,10 @@ almost everything below is about restraint.
 
 Nine tools, and no others: `readFile`, `listFiles`, `search`, `applyEdit`,
 `writeFile`, `runCommand`, `readDiagnostics`, `gitStatus`, `gitDiff`.
+`readSkill` lets Clarvis's own engine read the full instructions of a skill the owner switched
+on for the other models (on NERVIS's Skills page), through RAVIS, when a task fits one; it only
+reads, never runs anything, and doesn't count against the step cap. It is being built for
+Clarvis 0.17.5 and isn't released yet.
 
 A read-only run is given only the reading tools, so "look but do not touch" is
 enforced by what the model is handed rather than by asking it nicely.

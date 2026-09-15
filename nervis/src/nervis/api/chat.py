@@ -37,7 +37,16 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from nervis import chat as store
-from nervis import commands, documents, knowledge, proposals, situation, transcript, workspace
+from nervis import (
+    commands,
+    documents,
+    knowledge,
+    proposals,
+    situation,
+    skills,
+    transcript,
+    workspace,
+)
 from nervis import recall as memory
 from nervis.api.chat_calls import (
     _forwarded,
@@ -382,6 +391,17 @@ async def send(request: Request) -> Any:
         )) if part
     )
 
+    # **The skills the owner switched on for the other models** (NERVIS 0.32.0, `nervis/skills.py`):
+    # the short list, and the one skill whose instructions fit this question, read before the model
+    # sees anything, the way the notes above are picked, because chat has no tools. Only for a real
+    # question to a model that gets the per-turn readings at all (`_turn_context`'s `wanted`), so a
+    # plain client, a greeting and a nudge cost RAVIS no read. The system message is settled here
+    # to know that; nothing assembled below changes it.
+    system = _house_system(body, database, greeting, conversation_id, nudge > 0)
+    awareness = "\n\n".join(part for part in (awareness, await _skills_reading(
+        request, entry, content, system=system, greeting=greeting, nudge=nudge,
+    )) if part)
+
     # Where a picture was asked for and this turn cannot make one, the way to
     # get one is stated. Nothing happens on any other turn.
     awareness = "\n\n".join(
@@ -408,7 +428,6 @@ async def send(request: Request) -> Any:
     awareness = "\n\n".join(
         part for part in (memory.block(remembered), awareness) if part
     )
-    system = _house_system(body, database, greeting, conversation_id, nudge > 0)
     # **The per-turn half, kept out of the system message on purpose.** See
     # `_turn_context`: a prefix that changes every turn is a prefix no provider
     # can cache, and the readings alone measure about eleven hundred tokens.
@@ -549,6 +568,24 @@ def _house_system(
     if (any(parts) or speaking_first) and _memory_scope(database) == "all":
         parts.append(_recall(database, conversation_id))
     return "\n\n".join(part for part in parts if part)
+
+
+async def _skills_reading(
+    request: Request, entry: RegistryEntry, content: str, *, system: str, greeting: bool,
+    nudge: int,
+) -> str:
+    """The skills this question gets (`nervis/skills.py`), or nothing.
+
+    Only for a real question to a model that gets the per-turn readings at all — the condition
+    `_turn_context`'s `wanted` puts them under — so a plain client, a greeting and a nudge cost
+    RAVIS no read and carry no skill.
+    """
+    if not (system and content) or greeting or nudge > 0:
+        return ""
+    return await skills.reading(
+        content, request.app.state.probe_client, entry.declaration.base_url,
+        request.app.state.settings.ravis_client_credential,
+    )
 
 
 def _turn_context(

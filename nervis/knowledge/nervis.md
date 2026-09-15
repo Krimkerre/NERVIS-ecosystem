@@ -307,16 +307,9 @@ events card say which service, since when, and how many events were held back. A
 more than once shows "×" and its count. The events the loop already stored stay until the owner
 removes them.
 
-As of 14 September 2026 (NERVIS 0.30.0): the Codex card also has a **Skills** list. A skill is a set
-of instructions Codex can decide to follow, and in the first live test Codex ran one of the owner's
-own skills that nobody asked for. The list shows every skill Codex can use, grouped by where it
-comes from — NERVIS's own skills folder (`clarvis/skills` in the NERVIS workspace), the owner's
-personal skills, or built into Codex — with a short description, whether it is on, and a **Switch
-on** / **Switch off** button. NERVIS's folder and Codex's built-in skills start on; personal skills
-start off, including any added later. A switch takes one click (clicking again switches it back),
-says "switching on…" while RAVIS applies it, and says plainly when Codex didn't take it. A change
-counts from a Codex task's next start or reopen. If RAVIS can't apply the owner's choices, the list
-says so, and no Codex task starts until it can.
+As of 15 September 2026 (NERVIS 0.32.0), skills have a page of their own, **NERVIS → Skills**
+(see *Skills, and how chat uses them*), and the Codex card keeps a line that opens it. Before
+that, in NERVIS 0.30.0 and 0.31, the card listed Codex's skills itself.
 
 As of 14 September 2026 (NERVIS 0.29.0): RAVIS → Dashboard has a **Codex card** under the
 headline tiles. It lists each Codex task RAVIS is running or holding — the project folder, its
@@ -589,6 +582,40 @@ Also fixed for this: chat now reads a whole document. The reading was capped
 at 40,000 characters — the blueprint that started this was 97,000 — so every
 opinion chat had about it was about less than half of it. The cap is now
 400,000, which covers a document several times that size.
+
+## Skills, and how chat uses them
+
+A skill is a folder of instructions for one kind of task, with a `SKILL.md` inside. Since NERVIS
+0.32.0 and RAVIS 0.27.0 (15 September 2026), skills are for more than Codex: Clarvis's own engine
+and NERVIS chat can use them too. Each skill has two switches — one for Codex, and one for "the
+other models", which means Clarvis's own engine and NERVIS chat together — so a skill can be on for
+one and off for the other.
+
+**The Skills page** is in NERVIS's menu, between System and Settings. It lists every skill under
+where it comes from: NERVIS's skills folder (`clarvis/skills` in the NERVIS workspace), the owner's
+personal skills (`~/.agents/skills`), and the ones built into Codex. Each shows its name, what it is
+for, where it lives, and a **Switch on** or **Switch off** for Codex and for the other models. Skills
+in NERVIS's folder start on for both; personal skills start off for both, and so does one added
+later; Codex's built-in skills are for Codex only and say "not available to other models". A skill
+RAVIS can't read properly — a broken header, a file that is too big — shows the problem and can't be
+switched on for the other models. A switch takes one click, says "switching on…" until RAVIS
+answers, and says plainly when it didn't take. For Codex a change counts from a task's next start or
+reopen; for the other models from their next request, which for chat is the next message. While
+Codex isn't running its switches wait, and the other models' still work. The RAVIS Dashboard's Codex
+card no longer lists skills; it has a line that opens this page.
+
+**How chat uses skills.** Chat has no tools and asks the model exactly once per answer, so NERVIS
+does the choosing itself, the way it picks notes like these: before asking, it reads RAVIS's list of
+skills switched on for the other models, matches the question against each skill's name and what it
+is for, and reads the full instructions of the one that fits. A skill fits when the question names
+it, or shares enough words with it; words every skill here could carry, such as "skill", "Codex" or
+the products' names, don't count, so asking for a skill by name is the sure way. The model gets the
+short list, at most 20 skills with a line each, and the fitting skill's instructions, at most 6,000
+characters, both marked as the owner's skill files and after a sentence saying NERVIS's own rules
+come first: a skill can't change what chat may say or do, approve or press anything, or override
+NERVIS's instructions. If RAVIS won't hand a skill over — it was switched off a moment ago, or its
+file can't be served — chat is told it couldn't read it, and answers anyway. Nothing is added when
+no skill is on, or for a request without a persona.
 
 ## How a question is assembled, and why the order costs money
 

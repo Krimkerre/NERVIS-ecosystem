@@ -32,4 +32,5 @@ voice
 export
 ravis_diagnostics
 codex
+skills
 flood

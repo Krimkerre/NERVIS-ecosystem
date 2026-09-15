@@ -25,7 +25,28 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.3
+## Clarvis — 0.17.4
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Clarvis's own engine asks too.** When its earlier run left work on a branch that isn't merged, a
+  new task first asks **Build on `<branch>`** (the new task runs on that branch, on top of that work,
+  told the earlier task, its closing summary and the branch's commit subjects) or **Start fresh from
+  `<trunk>`** (a new branch from the trunk; it never stacks on a `clarvis/*` branch). Typed answers
+  work like the buttons and never reach the model; unanswered means nothing runs; Unattended picks
+  and says which. The own engine remembers left work in a small file in the project's git folder,
+  never committed, shared by code-server and desktop VS Code.
+- **The earlier run's own files are committed first when the window is on its branch,** with a chat
+  line ("Committed the last run's N files to `<branch>` so this run builds on them", or "… before
+  starting fresh"). Files you had in flight, or changed since, are never swept in.
+- **Switching branches is friendlier, for both engines.** Ignored files don't count. Untracked files
+  the other branch doesn't have come along, named in their own line (for example `__pycache__/`).
+  Tracked changes, or untracked files that would clash, still refuse, naming the files. Clarvis
+  0.17.3 refused on any untracked file, and didn't check Codex's Start fresh.
+- **Not covered:** tasks started from the command palette don't ask and aren't remembered; only chat
+  runs are.
+
+### 0.17.3
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -491,7 +512,32 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.31.0
+## NERVIS — 0.32.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Skills have a page of their own.** NERVIS → Skills, in the menu between System and Settings,
+  lists every skill: the ones in NERVIS's skills folder, your personal skills, and the ones built
+  into Codex. Each shows what it is for and where it lives, with two switches: one for Codex, and one
+  for the other models, which are Clarvis's own engine and NERVIS chat.
+- **Where they start.** Skills in NERVIS's folder are on for both; your personal skills are off for
+  both, and so is any you add later; Codex's built-in skills are for Codex only.
+- **One click switches it.** The page says "switching on…" until RAVIS answers, then shows the new
+  state, or says plainly why it didn't change. A change counts for Codex from a task's next start or
+  reopen, and for chat from your next message.
+- **The Codex card on RAVIS → Dashboard no longer lists skills.** It has a line that opens the Skills
+  page instead.
+- **NERVIS chat uses skills.** Before it asks the model, NERVIS reads which skills are switched on for
+  the other models, and when your question names one or clearly matches what one is for, it reads
+  that skill's instructions. The model gets the short list and that one skill, after a sentence
+  saying NERVIS's own rules come first, so a skill can't override them. If a skill can't be read,
+  chat says so and answers anyway. Nothing is added when no skill is on.
+- **For operators:** the page and chat's skills need RAVIS 0.27.0; with an older RAVIS the page says
+  so and chat adds nothing. The control route `POST /api/v1/ravis/skills` replaces
+  `POST /api/v1/ravis/codex/skills`, and a new dashboard gate, `skills_check.js`, holds the page. No
+  database change. Tested against RAVIS's contract fixtures; not yet tried live.
+
+### 0.31.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

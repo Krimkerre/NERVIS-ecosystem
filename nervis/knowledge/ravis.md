@@ -548,14 +548,9 @@ opens it.
   Clarvis, each with **Remove** (two clicks). A removed site stops reaching Codex conversations that
   start or reopen afterwards; a task already running keeps reaching it until its conversation
   reopens. While Codex isn't running the list can't be read, and the card says so.
-- **Skills** (NERVIS 0.30.0, RAVIS 0.26.0). Every skill Codex can use, grouped by where it comes
-  from: NERVIS's skills folder (`clarvis/skills` in the NERVIS workspace, named on the card), the
-  owner's personal skills, and the ones built into Codex. Each shows its description, whether it is
-  on, and **Switch on** or **Switch off**, one click, which says "switching…" until RAVIS answers.
-  NERVIS's folder and Codex's own start on; personal skills start off, a new one included. A change
-  counts from a Codex task's next start or reopen. If Codex doesn't take a switch, the card says so
-  and the skill stays as it was; if RAVIS can't apply the owner's choices at all, the card says why
-  no Codex task can start.
+- **Skills** moved to a page of their own, NERVIS → Skills, in NERVIS 0.32.0: the card keeps a line
+  that opens it. NERVIS 0.30.0 and 0.31 listed Codex's skills on the card, each with a one-click
+  switch.
 - **A new Codex version.** When Homebrew installs a Codex build RAVIS hasn't tested, new tasks pause.
   **Check this version** shows RAVIS's seven checks on the build and what changed since the tested
   one; **Use this version…** (two clicks) accepts it. Accepting doesn't start the file-rules re-test
@@ -563,11 +558,11 @@ opens it.
   the re-test starts only from the menu bar (NERVIS → Codex → Re-test the file rules…), using one
   short Codex turn.
 
-Behind the card NERVIS forwards five control routes to RAVIS with its RAVIS admin credential, each
+Behind the card NERVIS forwards four control routes to RAVIS with its RAVIS admin credential, each
 after checking the page's control token: a task's Stop, to RAVIS's owner Stop; removing a site;
-the version report; accepting a version; and switching a skill, which carries only the skill's path
-and on or off. A task id, the stop's key and a site's name are
-checked before anything reaches RAVIS.
+the version report; and accepting a version. A task id, the stop's key and a site's name are
+checked before anything reaches RAVIS. The Skills page's switch has a control route of its own,
+which carries only the skill's path, which engine, and on or off.
 
 Each Codex task's commands have a temp folder inside the project, `.clarvis/tmp/<task id>`. Since
 RAVIS 0.26.3 (15 September 2026) RAVIS removes it whenever the task has nothing running — once its

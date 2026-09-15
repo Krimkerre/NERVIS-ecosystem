@@ -300,6 +300,37 @@ async def _read_peer(service: str, surface: str, request: Request) -> dict[str, 
     return result.as_dict()
 
 
+# **Registered before the peers' negotiated reads below, on purpose** (NERVIS 0.32.0). They add
+# `/ravis/{surface}` for GET and POST, and the first route that matches wins, so a single-segment
+# `/ravis/skills` declared after them answered 404 "no ravis surface 'skills'" and never reached
+# this handler. The Codex card's switch before it was two segments deep and never met that.
+@router.post("/ravis/skills", dependencies=[Depends(require_control)])
+async def switch_skill(request: Request) -> Any:
+    """Switch one skill on or off for Codex or for the other models (RAVIS 0.27.0, NERVIS 0.32.0).
+
+    NERVIS → Skills lists every skill RAVIS reads or Codex lists, by where it comes from, each
+    with a switch for Codex and one for the other models — Clarvis's own engine and NERVIS chat —
+    and sends the path of the skill switched, as RAVIS listed it, the engine, and `enabled`.
+    **Only those three travel**, taken from the page's body: RAVIS checks the path against what
+    it lists for that engine just now (404 `SKILL_NOT_FOUND` otherwise) and words a body that
+    isn't a switch (422), so NERVIS
+    adds no rule of its own to fall out of step with RAVIS's. The path is in the body, never the
+    address, so nothing the page sends can change where the call goes. RAVIS answers with the whole
+    list afterwards, which the page redraws from; a Codex switch Codex didn't take is 409
+    `SKILL_NOT_CHANGED`, and RAVIS puts it back. A change counts for Codex from a task's next start
+    or reopen, and for the other models from their next request.
+
+    It replaced the Codex card's `POST /api/v1/ravis/codex/skills` (NERVIS 0.30.0 and 0.31), which
+    switched Codex alone; RAVIS still answers that older form for a NERVIS that uses it.
+    """
+    page = await _json_body(request)
+    return await _codex_control(
+        request, "POST", "/api/v1/skills",
+        request.app.state.settings.ravis_admin_credential,
+        {"path": page.get("path"), "engine": page.get("engine"), "enabled": page.get("enabled")},
+    )
+
+
 # **Registered per peer rather than as `/{service}`.** A wildcard segment at
 # `/api/v1/{service}` matches everything under `/api/v1` — it swallowed
 # `/api/v1/chat/conversations` the moment it existed, because the chat router is
@@ -788,28 +819,6 @@ async def remove_codex_site(host: str, request: Request) -> Any:
     return await _codex_control(
         request, "DELETE", f"/api/v1/codex/sites/{host}",
         request.app.state.settings.ravis_admin_credential,
-    )
-
-
-@router.post("/ravis/codex/skills", dependencies=[Depends(require_control)])
-async def switch_codex_skill(request: Request) -> Any:
-    """Switch one of Codex's skills on or off for the owner (RAVIS 0.26.0, NERVIS 0.30.0).
-
-    The card lists every skill Codex has, by where it comes from — NERVIS's skills folder, the
-    owner's personal skills, built into Codex — and sends the path of the one switched, as RAVIS
-    listed it, with `enabled`. **Only those two travel**, taken from the page's body: RAVIS checks
-    the path against the skills Codex lists just now (404 `SKILL_NOT_FOUND` otherwise) and words a
-    body that isn't a switch (422), so NERVIS adds no rule of its own to fall out of step with
-    RAVIS's. The path is in the body, never the address, so nothing the page sends can change
-    where the call goes. RAVIS answers with the list as Codex holds it afterwards, which the card
-    redraws from; a switch Codex didn't take is 409 `SKILL_NOT_CHANGED`, and RAVIS puts it back. A
-    change counts from a Codex task's next start or reopen.
-    """
-    page = await _json_body(request)
-    return await _codex_control(
-        request, "POST", "/api/v1/codex/skills",
-        request.app.state.settings.ravis_admin_credential,
-        {"path": page.get("path"), "enabled": page.get("enabled")},
     )
 
 

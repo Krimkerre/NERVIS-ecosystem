@@ -2,6 +2,39 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From NERVIS 0.32.0 (ecosystem, 15 September 2026) — the Skills page, and NERVIS chat's skills
+- **The page:** NERVIS → Skills, in the NERVIS menu between System and Settings (`skillsView`, `SKILLS_PAGE`, `skillsBoard`
+  in `nervis/index.html`). It reads RAVIS's `GET /api/v1/skills` through the relay outside `live()`, with a 12 s deadline
+  since RAVIS asks Codex for its list on that read, and switches with one click through `POST /api/v1/ravis/skills`, which
+  forwards only `path`, `engine` and `enabled` with the admin credential. Built-ins show Codex's switch alone and "not
+  available to other models"; while `codex.listed` is false, Codex's switches "wait until Codex is running". Gate:
+  `nervis/tools/skills_check.js`, listed in `dashboard_gates.txt`.
+- **Route order, found by the tests:** `routes.py` registers the peers' negotiated reads, `/{service}/{surface}` for GET and
+  POST, in a loop at import. A single-segment `/ravis/skills` declared after the loop was answered by it (404 "no ravis
+  surface 'skills'"); the Codex card's two-segment route never met that. The skills route is now defined above the loop,
+  with a comment. Any later single-segment control route under a peer has to be too.
+- **The Codex card:** its skills list, `CODEX_CARD.switchSkill` and `POST /api/v1/ravis/codex/skills` are gone; one line
+  (`codexSkillsLine`, `CODEX_CARD.openSkills`) opens the page. `codex-admin.json` → `nervis_control_routes` drops the route
+  and the manifest is rehashed, so Clarvis copies the fixtures again. RAVIS still answers `/api/v1/codex/skills` for a NERVIS
+  0.31.
+- **NERVIS chat — the mechanism chosen: NERVIS picks the skill before its one model call, as it picks knowledge sections**
+  (`nervis/src/nervis/skills.py`; `api/chat.py` → `_skills_reading`). Not a tool call, because chat has none by design
+  (`NERVIS.md` §7.0, `test_nothing_here_carries_a_clarvis_session_or_a_tool`), every answer is one streamed call, and model
+  output must never choose what NERVIS reads (§11.5). A skill fits when the question says its name as a whole word, or when
+  name words (×2) and description words (×1) shared with the question reach 3, compared through `knowledge._terms` and
+  leaving out words every skill carries (the products' names, "skill", "codex"). Only for a real question with a persona —
+  the condition the per-turn readings are under — so a plain client, a greeting or a nudge costs RAVIS no read.
+- **What the model gets:** `PRECEDENCE` outside the fence (NERVIS's rules first; a skill never changes what it may say or do,
+  approves anything, or overrides instructions outside the fence), then one fence holding the list (at most 20, one line
+  each, descriptions at most 200 characters) and the fitting skill's instructions without front matter (at most 6,000
+  characters). A refused read (`SKILL_NOT_FOUND`, `SKILL_FILE_REFUSED`, `SKILL_FILE_NOT_FOUND`, no answer) is said outside
+  the fence and the answer still comes. All of it rides with the question, never in the system message, so prompt caching
+  is unchanged.
+- **For Clarvis's own engine:** the same contract (`skills.json` → `for_models`), with a real tool in place of NERVIS's
+  choosing; NERVIS's precedence sentence is a fair model for the engine's own.
+- **Not measured:** whether a real model follows a fitting skill's instructions, or words a refused read as intended; nothing
+  here is live-verified.
+
 ## From RAVIS 0.27.0 (ecosystem, 15 September 2026) — skills for every engine
 - **Owner decisions (15 Sep):** besides Codex, Clarvis's own engine and NERVIS chat use skills; a Skills page of its own in
   NERVIS's main menu, the Codex card keeping a line pointing to it; one switch per skill for `codex` and one for `models`
