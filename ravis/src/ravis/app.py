@@ -49,6 +49,7 @@ from ravis.api.management.codex import router as codex_router
 from ravis.api.management.codex_calibration import router as calibration_router
 from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
+from ravis.api.management.skills import router as skills_router
 from ravis.api.openai import chat_router, embeddings_router, models_router
 from ravis.codex.service import CodexService
 from ravis.config import Settings, resolved_capabilities
@@ -116,6 +117,9 @@ def create_app(settings: Settings) -> Any:
     api.include_router(management_router)
     api.include_router(credentials_router)
     api.include_router(codex_router)
+    # Skills for every engine (RAVIS 0.27.0): the Skills page's list and switches, and the reads
+    # of the models that aren't Codex (`api/management/skills.py`).
+    api.include_router(skills_router)
     # Codex tasks (M29's third increment): the owner's stop-only route on its own router, and
     # every other agent-session route behind the Clarvis client check (`agent/routes.py`).
     api.include_router(agent_owner_router)

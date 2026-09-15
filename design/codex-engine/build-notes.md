@@ -2,6 +2,42 @@
 
 > Working record beside `design.md`: what each landed increment told the next ones. Overridden by the canonical documents.
 
+## From RAVIS 0.27.0 (ecosystem, 15 September 2026) — skills for every engine
+- **Owner decisions (15 Sep):** besides Codex, Clarvis's own engine and NERVIS chat use skills; a Skills page of its own in
+  NERVIS's main menu, the Codex card keeping a line pointing to it; one switch per skill for `codex` and one for `models`
+  (Clarvis's own engine and NERVIS chat together); the NERVIS folder on for both, personal skills off for both (new ones
+  too), Codex's built-in skills Codex's only, shown with "not available to other models".
+- **For Clarvis's own engine (a later build, in the Clarvis repository).** Build against
+  `ravis/tests/fixtures/relay-contract/skills.json` and copy it with `codex-contract.sha256`. With Clarvis's client credential:
+  - `GET /api/v1/skills/models` → `{skills: [{id, name, description}]}`, NERVIS's folder first, by name. Empty: add nothing.
+  - `GET /api/v1/skills/models/read?skill=<id>&file=<path inside the skill, default SKILL.md>` →
+    `{skill, name, file, bytes, text}` (the file as it is, front matter included). 404 `SKILL_NOT_FOUND` for any skill not
+    switched on for `models` (unknown and malformed alike); 422 `SKILL_FILE_REFUSED {reason}` with `outside_skill`,
+    `hidden`, `too_large` (64 KB) or `not_text`; 404 `SKILL_FILE_NOT_FOUND`.
+  - Progressive disclosure (`skills.json` → `for_models`): the list in the instructions, one line per skill; a tool the model
+    calls with an id and a file path when a skill fits; the engine's own rules first, and said to outrank any skill; read the
+    list for each request and keep no skill text beyond it; a refused read told to the model plainly.
+  - Admin credentials are refused on both reads; `GET`/`POST /api/v1/skills` are NERVIS's and the owner's.
+- **Lining RAVIS's reading up with Codex's list — decided: real paths on both sides.** `realpath(Codex's path) ==
+  realpath(RAVIS's SKILL.md)`. Codex's choices stay keyed by the path Codex lists, exactly as 0.26.0 keyed and applied
+  them; the other models' are keyed by RAVIS's real path. Whether Codex resolves links before listing is unmeasured and
+  no longer matters. Codex-only: built-ins, and whatever RAVIS doesn't read (deeper than four folders, inside a hidden
+  folder, outside both roots); RAVIS-only: a link leading out of a root, listed with its problem and never read.
+- **Choices:** `skill_choice (path, engine)`; migration 13 copies `codex_skill_choice` in as engine `codex` and drops it
+  (restoring `ravis.db.v12.bak` gets it back). `SkillChoices(database, engine)` is bound to one engine, so no caller can
+  read another engine's switch; `CodexService` binds `codex`.
+- **`GET /api/v1/skills` doesn't need Codex:** when Codex's list is a 503 it answers RAVIS's reading alone with
+  `codex: {listed: false, problem}`; a Codex switch is then 503, as the older route is. The other models' reads never ask
+  Codex anything.
+- **Identifiers** are `<source>/<folder relative to root>`; at the same depth a real folder is followed before a link to
+  it, so an alias doesn't name the skill. A skill only Codex lists gets `<source>/<folder name>`, `~2` on a clash.
+- **The README** RAVIS wrote into the NERVIS folder in 0.26 is replaced only while word for word (`EARLIER_READMES`); the
+  new one points to NERVIS → Skills.
+- **For NERVIS 0.32.0 (the next commit):** `skills.json` → `nervis_control_routes` already names `POST /api/v1/ravis/skills`
+  (forwarding only `path`, `engine`, `enabled`); the page reads `GET /api/v1/skills` through the GET relay; NERVIS chat reads
+  the other models' routes itself with its client credential.
+- **Not measured:** how a real model uses the list or a skill's text; nothing here is live-verified.
+
 ## From RAVIS 0.26.3 (ecosystem, 15 September 2026) — a task's temp folder goes whenever it rests
 - **Found live** (15:21): 0.26.2 removed `<root>/.clarvis/tmp/<folder>` only when a task was over for good, and that
   never happens for a normal task. `live-test-a` (`as_01M2GQHTBZ86ZR1VMCF01PBVW4`, `tmp_parents_made` empty) and

@@ -1,6 +1,6 @@
 [project]
 name = "ravis"
-version = "0.26.3"
+version = "0.27.0"
 description = "Local-first AI routing gateway with an OpenAI-compatible API"
 requires-python = ">=3.11"
 dependencies = [
@@ -9,6 +9,9 @@ dependencies = [
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
   "httpx>=0.27",
+  # A skill's SKILL.md opens with YAML front matter (`agent/skill_catalog.py`, 0.27.0). Already
+  # installed with uvicorn[standard], and declared rather than borrowed from it, as below.
+  "pyyaml>=6.0",
   # Imported since M0 (`app.py` reads its correlation helpers) and never
   # declared — RAVIS was getting the shared package by accident of the
   # environment, which works until somebody installs RAVIS on its own.

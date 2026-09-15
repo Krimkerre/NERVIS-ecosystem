@@ -13,7 +13,9 @@ npm, pip and git need it (`codex/supervisor.py`), so Codex also found the owner'
   owner can switch any of them on.
 - **Codex's built-in skills** (`system` scope: imagegen, openai-docs, plugin-creator,
   review-agent, skill-creator, skill-installer) **start on**, and each can be switched off.
-- The switches live on NERVIS's RAVIS → Dashboard Codex card, and nowhere else.
+- The switches live on NERVIS's Skills page (since NERVIS 0.32.0; on its RAVIS → Dashboard Codex
+  card before), and nowhere else. Since RAVIS 0.27.0 each skill also has a switch for the models
+  that aren't Codex, which RAVIS reads and serves itself (`agent/skill_catalog.py`).
 
 **Where a skill comes from is decided by its path, not by Codex's scope** (measured on Codex
 0.154.0): a folder added with `skills/extraRoots/set` lists its skills as `user`, the same scope as
@@ -24,9 +26,9 @@ this whole Mac) and any scope a later Codex adds count as personal, so they star
 **`repo` skills belong to a task's own project**: Codex decides them, and RAVIS neither lists nor
 switches them.
 
-**RAVIS keeps the owner's choices** (`codex_skill_choice`, migration 11): a row only for a skill the
-owner switched. Codex's `config.toml` in RAVIS's own Codex home is where they are applied, never
-where they are kept.
+**RAVIS keeps the owner's choices** (migration 11; `skill_choice`, engine `codex`, since migration
+13): a row only for a skill the owner switched, by the path Codex lists. Codex's `config.toml` in
+RAVIS's own Codex home is where they are applied, never where they are kept.
 
 **Applied each time Codex's process becomes ready, before any task** (`CodexService`), and again
 whenever Codex says its skills changed (`skills/changed`): the folder is made, with a short
@@ -59,7 +61,8 @@ from a task's next start or reopen.
 NERVIS's GET relay or an admin credential; `POST /api/v1/codex/skills {path, enabled}` takes an
 admin credential — NERVIS's Codex card, through its control route — and only the path of a skill
 Codex listed just now. The choice is kept and everything applied again; a change Codex doesn't take
-puts the choice back, applies again, and is 409 `SKILL_NOT_CHANGED`.
+puts the choice back, applies again, and is 409 `SKILL_NOT_CHANGED`. Since RAVIS 0.27.0 they are the
+older form of `/api/v1/skills` (`api/management/skills.py`), whose Codex switch is this same one.
 """
 
 from __future__ import annotations
@@ -96,6 +99,12 @@ logger = logging.getLogger("ravis")
 SOURCES = ("nervis", "personal", "built_in")
 #: What a skill the owner never switched is: NERVIS's and Codex's own on, the owner's personal off.
 ON_UNLESS_SWITCHED = {"nervis": True, "personal": False, "built_in": True}
+#: The engines a skill has a switch for (owner decision, 15 September 2026): Codex, and the other
+#: models — Clarvis's own engine and NERVIS chat together (`agent/skill_catalog.py`).
+CODEX, MODELS = "codex", "models"
+ENGINES = (CODEX, MODELS)
+#: The other models' starting switches. Codex's built-in skills aren't theirs at all.
+MODELS_ON_UNLESS_SWITCHED = {"nervis": True, "personal": False}
 #: How many times the list is read and put right before RAVIS says it won't agree.
 APPLY_ROUNDS = 3
 REQUEST_SECONDS = 10.0
@@ -105,6 +114,23 @@ DESCRIPTION_LIMIT = 300
 UNREADABLE = "Codex isn't running, so its skills can't be read; try again in a moment."
 #: Written into the folder when RAVIS makes it, and never over a README the owner already has.
 README = """# NERVIS skills
+
+Skills for the ecosystem's models: the Codex tasks RAVIS runs for NERVIS and Clarvis, and the other
+models — Clarvis's own engine and NERVIS chat. Put each skill in a folder of its own here, with a
+`SKILL.md` inside.
+
+- Skills in this folder are **on** for Codex and for the other models, unless you switch one off.
+- Your personal skills (`~/.agents/skills`) start **off** for both, and so does any you add later.
+  Codex's built-in skills start **on**, and are for Codex only.
+- Switch any of them on or off on the NERVIS dashboard: NERVIS → Skills.
+- A change counts from a Codex task's next start or reopen, and from the other models' next
+  request.
+
+Codex tasks themselves can never be started in this folder or in a folder that holds it.
+"""
+#: The READMEs earlier RAVIS builds wrote. One still word for word is RAVIS's own, not the owner's,
+#: so it is brought up to date; a README anyone changed by so much as a character is left alone.
+EARLIER_READMES = ("""# NERVIS skills
 
 Skills for the Codex tasks RAVIS runs for NERVIS and Clarvis. Put each skill in a folder of its
 own here, with a `SKILL.md` inside.
@@ -116,7 +142,7 @@ own here, with a `SKILL.md` inside.
 - A change counts from a Codex task's next start or reopen.
 
 Codex tasks themselves can never be started in this folder or in a folder that holds it.
-"""
+""",)
 
 Request = Callable[..., Awaitable[Any]]
 #: Where the owner's choices stand for Codex, and a clause saying more: `state.SKILLS_*`.
@@ -163,12 +189,22 @@ def folder_refusal(settings: Settings) -> str | None:
 def prepare_folder(folder: Path) -> None:
     """Make the folder, and its `README.md` unless something is already there; `OSError` if not.
 
-    `lexists`, so a dangling link named README.md is left alone rather than written through.
+    `lexists`, so a dangling link named README.md is left alone rather than written through. An
+    earlier build's README, still word for word, is replaced by this build's.
     """
     folder.mkdir(parents=True, exist_ok=True)
     readme = folder / "README.md"
-    if not os.path.lexists(readme):
+    if not os.path.lexists(readme) or _earlier_readme(readme):
         readme.write_text(README, encoding="utf-8")
+
+
+def _earlier_readme(readme: Path) -> bool:
+    """Whether the README is a plain file RAVIS wrote before, unchanged since."""
+    try:
+        return (not readme.is_symlink() and readme.is_file()
+                and readme.read_text(encoding="utf-8") in EARLIER_READMES)
+    except (OSError, UnicodeDecodeError):
+        return False
 
 
 # ── What Codex lists ─────────────────────────────────────────────────────────
@@ -271,29 +307,40 @@ def _utc_now() -> datetime:
 
 
 class SkillChoices:
-    """The skills the owner switched on or off, by path (`codex_skill_choice`, migration 11)."""
+    """The skills the owner switched on or off for one engine, by path (`skill_choice`).
 
-    def __init__(self, database: Database, now: Callable[[], datetime] = _utc_now) -> None:
+    `codex`: by the path Codex lists a skill at, as since migration 11 (carried over by 13).
+    `models`: by the real path of the `SKILL.md` RAVIS read (`agent/skill_catalog.py`). Bound to
+    one engine when made, so no caller can read or write another engine's switch by mistake.
+    """
+
+    def __init__(self, database: Database, engine: str,
+                 now: Callable[[], datetime] = _utc_now) -> None:
+        if engine not in ENGINES:
+            raise ValueError(f"skills have no engine called {engine!r}")
         self._database = database
+        self._engine = engine
         self._now = now
 
     def get(self, path: str) -> bool | None:
         """The owner's switch for this skill, or None when they never switched it."""
         row = self._database.connection.execute(
-            "SELECT enabled FROM codex_skill_choice WHERE path = ?", (path,)
+            "SELECT enabled FROM skill_choice WHERE path = ? AND engine = ?", (path, self._engine)
         ).fetchone()
         return None if row is None else bool(row["enabled"])
 
     def choose(self, path: str, enabled: bool) -> None:
         self._database.connection.execute(
-            "INSERT INTO codex_skill_choice (path, enabled, changed_at) VALUES (?, ?, ?) "
-            "ON CONFLICT (path) DO UPDATE SET enabled = excluded.enabled, "
+            "INSERT INTO skill_choice (path, engine, enabled, changed_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (path, engine) DO UPDATE SET enabled = excluded.enabled, "
             "changed_at = excluded.changed_at",
-            (path, int(enabled), iso(self._now())),
+            (path, self._engine, int(enabled), iso(self._now())),
         )
 
     def forget(self, path: str) -> None:
-        self._database.connection.execute("DELETE FROM codex_skill_choice WHERE path = ?", (path,))
+        self._database.connection.execute(
+            "DELETE FROM skill_choice WHERE path = ? AND engine = ?", (path, self._engine)
+        )
 
 
 # ── Codex's skills, put to the owner's choices ───────────────────────────────

@@ -81,6 +81,10 @@ def _never_the_operators_own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     # to name its own must never create or read that one.
     skills = tmp_path / "coding" / "NERVIS workspace" / "clarvis" / "skills"
     monkeypatch.setenv("RAVIS_CODEX_SKILLS_FOLDER", str(skills))
+    # **And so are the owner's personal skills** (`agent/skill_catalog.py`): RAVIS reads that
+    # folder itself since 0.27.0, and its default is the owner's real `~/.agents/skills`.
+    personal = tmp_path / "home" / ".agents" / "skills"
+    monkeypatch.setenv("RAVIS_SKILLS_PERSONAL_FOLDER", str(personal))
 
 
 @pytest.fixture

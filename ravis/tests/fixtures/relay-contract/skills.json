@@ -1,0 +1,803 @@
+{
+  "contract": {
+    "name": "skills-contract",
+    "version": 1,
+    "specified": "2026-09-15",
+    "state": "built in RAVIS 0.27.0",
+    "owner": "RAVIS",
+    "consumers": [
+      "NERVIS 0.32.0: the Skills page and NERVIS chat",
+      "Clarvis's own engine: a later build, in the Clarvis repository"
+    ],
+    "canonical_text": [
+      "RAVIS.md §15.1.2",
+      "NERVIS.md §8"
+    ]
+  },
+  "about": "Skills for every engine (owner decisions, 15 September 2026): the Skills page's list and switches, and the reads of the models that aren't Codex. RAVIS owns this file in ravis/tests/fixtures/relay-contract/; Clarvis keeps a byte-identical copy in src/test/fixtures/, held to codex-contract.sha256. Every path, name and text is a fixture value.",
+  "decisions": [
+    "Besides Codex, skills are for Clarvis's own engine and NERVIS chat, together called the other models (engine models).",
+    "Each skill has one switch for Codex and one for the other models, so it can be on for one and off for the other.",
+    "The NERVIS skills folder's skills start on for both engines. The owner's personal skills start off for both, and so does any added later. Codex's built-in skills exist only for Codex.",
+    "A skill is trusted content the owner chose, and only a skill switched on is ever served."
+  ],
+  "access": "GET /api/v1/skills takes NERVIS's client credential (its GET relay) or an admin credential. POST /api/v1/skills takes an admin credential: NERVIS's Skills page, through its control route. GET /api/v1/skills/models and GET /api/v1/skills/models/read take Clarvis's client credential (an application in settings.agent_client_applications) or NERVIS's, and refuse anonymous callers, admin credentials and every other client. Each refusal is 403 FORBIDDEN. This is UX and audit, not a boundary against local programs.",
+  "older_forms": "GET and POST /api/v1/codex/skills (codex-admin.json) are the older form of GET and POST /api/v1/skills, for Codex alone. They answer exactly as they did, for NERVIS 0.31, and a Codex switch through either is the same choice.",
+  "skills": {
+    "what": "a folder holding a SKILL.md: YAML front matter with name and description, then the instructions, and perhaps other files the instructions point at",
+    "sources": {
+      "nervis": "the NERVIS skills folder, settings.codex_skills_folder (<NERVIS workspace>/clarvis/skills)",
+      "personal": "the owner's personal skills, settings.skills_personal_folder (~/.agents/skills)",
+      "built_in": "Codex's built-in skills, as Codex's own skills/list gives them; Codex's only"
+    },
+    "reading": [
+      "a skill is a folder at most four folders below its source's root holding a SKILL.md; hidden folders are skipped, and a skill's own sub-folders aren't searched for more",
+      "a link is followed only when its real path stays inside that root; a link leading out to a skill is listed with that problem and never read",
+      "SKILL.md, and any file served, is at most 64 KB of UTF-8 text",
+      "a skill without front matter, with YAML that doesn't parse, or without a name or a description is listed with its problem and never served",
+      "each skill once, by the real path of its SKILL.md, the NERVIS folder's first; a read stops at 200 skills or 2000 folders per root and says so"
+    ],
+    "id": "<source>/<the skill's folder relative to its root>, e.g. nervis/nervis-notes: stable while the folder keeps its name and place, and never a full path",
+    "lined_up_with_codex": "a skill Codex lists and a skill RAVIS read are one skill when the real path of Codex's path is the real path of RAVIS's SKILL.md, links followed on both sides"
+  },
+  "for_models": {
+    "mechanism": "progressive disclosure, as Codex uses skills: a short list in the model's instructions, and a skill's full text only when it fits",
+    "steps": [
+      "Before a model request, read GET /api/v1/skills/models. When it lists no skill, add nothing to the model's instructions.",
+      "Otherwise add a short list to the instructions: one line per skill with its name, description and id.",
+      "Read a skill's SKILL.md, or a file it names, with GET /api/v1/skills/models/read only when that skill fits: through a tool the model can call with the id and a path relative to the skill's folder, or, for a caller without tools, by choosing the fitting skill before the request, as NERVIS chat does.",
+      "Hand the text to the model marked as the owner's skill, after the program's own rules."
+    ],
+    "precedence": "A skill never overrides the calling program's own safety rules, approvals or tool limits. Say so in the instructions, with the program's rules first.",
+    "when_a_change_counts": "RAVIS reads the folders and the owner's switches on every call, so read the list for each model request and keep no skill text beyond the request that read it: a change counts from the other models' next request.",
+    "a_refused_read": "SKILL_NOT_FOUND (switched off since the list was read), SKILL_FILE_REFUSED or SKILL_FILE_NOT_FOUND is told to the model plainly, and the request carries on without that text."
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/skills",
+      "needs": "NERVIS's client credential (its GET relay) or an admin credential; never Clarvis",
+      "answer": "SkillsBoard {folders: {nervis, personal: {path, problem}}, codex: {listed, problem}, skills: [{id, name, description, source, path, problem, codex: {available, enabled}, models: {available, enabled}}]}",
+      "rules": [
+        "folders.<source>.path is that folder as a real path; problem is null, or why its skills aren't all listed: its setting can't be used, it can't be read, or the read stopped at a limit. A folder that isn't there yet lists nothing, with no problem",
+        "skills lists every skill RAVIS read in those folders and every skill Codex lists but a project's own, each once, lined up by real path, grouped nervis, personal, built_in and by name within each",
+        "id is <source>/<folder relative to its root> for a skill RAVIS read, and <source>/<folder name> for one only Codex lists, with ~2, ~3 added when two would be the same; path is the real path of RAVIS's SKILL.md, or Codex's path for a skill only Codex lists",
+        "description is one line of at most 300 characters; problem is null, or why the other models can't use a skill RAVIS couldn't read whole, in plain words",
+        "codex.available: Codex lists the skill just now; codex.enabled: Codex's own answer. codex.listed is false while Codex can't say which skills it has: codex.problem then says why, no skill has a Codex switch, and built-in skills aren't listed. Otherwise codex.problem is the sentence GET /api/v1/codex gives while the owner's choices can't be applied, or null",
+        "models.available: RAVIS read the skill whole, so never a built-in skill or one only Codex lists; models.enabled: served to the other models now",
+        "a skill the owner never switched is on for both engines when nervis and off for both when personal, one added later included; built_in is on for Codex",
+        "read from disk, the owner's switches and Codex on every call, never kept"
+      ],
+      "examples": [
+        {
+          "name": "every skill with a switch for each engine",
+          "request": {
+            "caller": "client.nervis",
+            "method": "GET",
+            "path": "/api/v1/skills"
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "folders": {
+                "nervis": {
+                  "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills",
+                  "problem": null
+                },
+                "personal": {
+                  "path": "/Users/owner/.agents/skills",
+                  "problem": null
+                }
+              },
+              "codex": {
+                "listed": true,
+                "problem": null
+              },
+              "skills": [
+                {
+                  "id": "nervis/half-written",
+                  "name": "half-written",
+                  "description": "",
+                  "source": "nervis",
+                  "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/half-written/SKILL.md",
+                  "problem": "its SKILL.md's front matter has no description",
+                  "codex": {
+                    "available": false,
+                    "enabled": false
+                  },
+                  "models": {
+                    "available": false,
+                    "enabled": false
+                  }
+                },
+                {
+                  "id": "nervis/nervis-notes",
+                  "name": "nervis-notes",
+                  "description": "How NERVIS tasks keep their notes.",
+                  "source": "nervis",
+                  "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/nervis-notes/SKILL.md",
+                  "problem": null,
+                  "codex": {
+                    "available": true,
+                    "enabled": true
+                  },
+                  "models": {
+                    "available": true,
+                    "enabled": true
+                  }
+                },
+                {
+                  "id": "personal/graphify",
+                  "name": "graphify",
+                  "description": "Turn any input into a knowledge graph.",
+                  "source": "personal",
+                  "path": "/Users/owner/.agents/skills/graphify/SKILL.md",
+                  "problem": null,
+                  "codex": {
+                    "available": true,
+                    "enabled": false
+                  },
+                  "models": {
+                    "available": true,
+                    "enabled": false
+                  }
+                },
+                {
+                  "id": "built_in/imagegen",
+                  "name": "imagegen",
+                  "description": "Generate or edit images.",
+                  "source": "built_in",
+                  "path": "/Users/owner/.local/share/ravis-codex/skills/.system/imagegen/SKILL.md",
+                  "problem": null,
+                  "codex": {
+                    "available": true,
+                    "enabled": true
+                  },
+                  "models": {
+                    "available": false,
+                    "enabled": false
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Codex isn't running: RAVIS's reading alone",
+          "request": {
+            "caller": "client.nervis",
+            "method": "GET",
+            "path": "/api/v1/skills"
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "folders": {
+                "nervis": {
+                  "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills",
+                  "problem": null
+                },
+                "personal": {
+                  "path": "/Users/owner/.agents/skills",
+                  "problem": null
+                }
+              },
+              "codex": {
+                "listed": false,
+                "problem": "Codex isn't running, so its skills can't be read; try again in a moment."
+              },
+              "skills": [
+                {
+                  "id": "nervis/nervis-notes",
+                  "name": "nervis-notes",
+                  "description": "How NERVIS tasks keep their notes.",
+                  "source": "nervis",
+                  "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/nervis-notes/SKILL.md",
+                  "problem": null,
+                  "codex": {
+                    "available": false,
+                    "enabled": false
+                  },
+                  "models": {
+                    "available": true,
+                    "enabled": true
+                  }
+                },
+                {
+                  "id": "personal/graphify",
+                  "name": "graphify",
+                  "description": "Turn any input into a knowledge graph.",
+                  "source": "personal",
+                  "path": "/Users/owner/.agents/skills/graphify/SKILL.md",
+                  "problem": null,
+                  "codex": {
+                    "available": false,
+                    "enabled": false
+                  },
+                  "models": {
+                    "available": true,
+                    "enabled": false
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "a Clarvis credential",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/skills"
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "A NERVIS or admin credential is required to read the skills.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills",
+      "needs": "an admin credential: NERVIS's Skills page, through its control route",
+      "body": "{path, engine, enabled}: a skill's path exactly as GET listed it; codex or models; true or false",
+      "answer": "SkillsBoard, after the change",
+      "rules": [
+        "a body without a path of 1 to 4096 characters, an engine of codex or models, and a boolean enabled is 422 INVALID_REQUEST_BODY",
+        "engine models: only the path of a skill RAVIS read whole just now. A built-in skill, one only Codex lists, one with a problem, or any other path is 404 SKILL_NOT_FOUND {engine} and nothing is kept. The choice is kept at once, by that real path, and counts from the other models' next request; Codex is never asked anything",
+        "engine codex: only the path of a skill Codex lists just now (503 CODEX_RUNTIME_UNAVAILABLE while Codex can't list them; 404 SKILL_NOT_FOUND {engine} for any other path), switched exactly as POST /api/v1/codex/skills switches it: kept by the path Codex lists and applied until skills/list agrees, and 409 SKILL_NOT_CHANGED {skill, reason} with the previous choice put back when Codex doesn't take it. It counts from a Codex task's next start or reopen",
+        "one engine's switch never changes the other's",
+        "switching a skill to what it already is changes nothing, so a retry is safe and no Idempotency-Key is needed",
+        "audited as ravis.skill_switched {name, source, engine, enabled} once kept, and for codex once Codex took it"
+      ],
+      "examples": [
+        {
+          "name": "a personal skill switched on for the other models",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/skills",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "path": "/Users/owner/.agents/skills/graphify/SKILL.md",
+              "engine": "models",
+              "enabled": true
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "folders": {
+                "nervis": {
+                  "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills",
+                  "problem": null
+                },
+                "personal": {
+                  "path": "/Users/owner/.agents/skills",
+                  "problem": null
+                }
+              },
+              "codex": {
+                "listed": true,
+                "problem": null
+              },
+              "skills": [
+                {
+                  "id": "nervis/half-written",
+                  "name": "half-written",
+                  "description": "",
+                  "source": "nervis",
+                  "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/half-written/SKILL.md",
+                  "problem": "its SKILL.md's front matter has no description",
+                  "codex": {
+                    "available": false,
+                    "enabled": false
+                  },
+                  "models": {
+                    "available": false,
+                    "enabled": false
+                  }
+                },
+                {
+                  "id": "nervis/nervis-notes",
+                  "name": "nervis-notes",
+                  "description": "How NERVIS tasks keep their notes.",
+                  "source": "nervis",
+                  "path": "/Users/owner/Documents/coding/NERVIS workspace/clarvis/skills/nervis-notes/SKILL.md",
+                  "problem": null,
+                  "codex": {
+                    "available": true,
+                    "enabled": true
+                  },
+                  "models": {
+                    "available": true,
+                    "enabled": true
+                  }
+                },
+                {
+                  "id": "personal/graphify",
+                  "name": "graphify",
+                  "description": "Turn any input into a knowledge graph.",
+                  "source": "personal",
+                  "path": "/Users/owner/.agents/skills/graphify/SKILL.md",
+                  "problem": null,
+                  "codex": {
+                    "available": true,
+                    "enabled": false
+                  },
+                  "models": {
+                    "available": true,
+                    "enabled": true
+                  }
+                },
+                {
+                  "id": "built_in/imagegen",
+                  "name": "imagegen",
+                  "description": "Generate or edit images.",
+                  "source": "built_in",
+                  "path": "/Users/owner/.local/share/ravis-codex/skills/.system/imagegen/SKILL.md",
+                  "problem": null,
+                  "codex": {
+                    "available": true,
+                    "enabled": true
+                  },
+                  "models": {
+                    "available": false,
+                    "enabled": false
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "a built-in skill for the other models",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/skills",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "path": "/Users/owner/.local/share/ravis-codex/skills/.system/imagegen/SKILL.md",
+              "engine": "models",
+              "enabled": true
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "SKILL_NOT_FOUND",
+                "message": "RAVIS doesn't list a skill at that path for that engine, so nothing was changed.",
+                "retryable": false,
+                "details": {
+                  "engine": "models"
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Codex didn't take it",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/skills",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "path": "/Users/owner/.local/share/ravis-codex/skills/.system/imagegen/SKILL.md",
+              "engine": "codex",
+              "enabled": false
+            }
+          },
+          "response": {
+            "status": 409,
+            "body": {
+              "error": {
+                "code": "SKILL_NOT_CHANGED",
+                "message": "Codex didn't take that change, so the skill stays as it was.",
+                "retryable": false,
+                "details": {
+                  "skill": "imagegen",
+                  "reason": "not_written"
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "Codex isn't running",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/skills",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "path": "/Users/owner/.agents/skills/graphify/SKILL.md",
+              "engine": "codex",
+              "enabled": true
+            }
+          },
+          "response": {
+            "status": 503,
+            "body": {
+              "error": {
+                "code": "CODEX_RUNTIME_UNAVAILABLE",
+                "message": "Codex isn't running, so its skills can't be read; try again in a moment.",
+                "retryable": true,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "not a switch",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "POST",
+            "path": "/api/v1/skills",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "path": "/Users/owner/.agents/skills/graphify/SKILL.md",
+              "enabled": true
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "INVALID_REQUEST_BODY",
+                "message": "The body must carry path, the path of a skill as RAVIS listed it; engine, codex or models; and enabled, true or false.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a client credential",
+          "request": {
+            "caller": "client.nervis",
+            "method": "POST",
+            "path": "/api/v1/skills",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "path": "/Users/owner/.agents/skills/graphify/SKILL.md",
+              "engine": "models",
+              "enabled": true
+            }
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "An admin credential is required.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/models",
+      "needs": "Clarvis's client credential or NERVIS's: the programs calling the models that aren't Codex; never an admin credential",
+      "answer": "{skills: [{id, name, description}]}",
+      "rules": [
+        "every skill RAVIS read whole whose switch for the other models is on, the NERVIS folder's first and by name within each; an empty list when none is",
+        "read from disk and the owner's switches on every call, never from Codex, so it answers while Codex is off and a change counts from the next call"
+      ],
+      "examples": [
+        {
+          "name": "the skills switched on for other models",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/skills/models"
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "skills": [
+                {
+                  "id": "nervis/nervis-notes",
+                  "name": "nervis-notes",
+                  "description": "How NERVIS tasks keep their notes."
+                },
+                {
+                  "id": "personal/graphify",
+                  "name": "graphify",
+                  "description": "Turn any input into a knowledge graph."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "an admin credential",
+          "request": {
+            "caller": "admin.launcher",
+            "method": "GET",
+            "path": "/api/v1/skills/models"
+          },
+          "response": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "A Clarvis or NERVIS client credential is required to read skills for other models.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/models/read",
+      "needs": "Clarvis's client credential or NERVIS's: the programs calling the models that aren't Codex; never an admin credential",
+      "query": "skill: an id from GET /api/v1/skills/models; file: a path inside the skill's folder, relative and / separated, SKILL.md when left out",
+      "answer": "{skill, name, file, bytes, text}: the file as UTF-8 text, a SKILL.md's front matter included",
+      "rules": [
+        "only a skill switched on for the other models just now and read whole: any other skill, switched off, unknown or with a problem alike, is 404 SKILL_NOT_FOUND, so a caller learns nothing about the skills it may not read",
+        "file must name a regular file inside the skill's own folder, links followed: an absolute path, an empty, . or .. part, a backslash, a control character, or a link leading out of the folder is 422 SKILL_FILE_REFUSED {reason: outside_skill}; a hidden part, as asked or where a link leads, is hidden; over 64 KB is too_large; not UTF-8 is not_text",
+        "no file there, a folder, or a file RAVIS may not read is 404 SKILL_FILE_NOT_FOUND",
+        "logged with the caller's application, the skill's id, the file's path and its size, refusals too; never what the file says"
+      ],
+      "examples": [
+        {
+          "name": "a skill's SKILL.md",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/skills/models/read",
+            "query": {
+              "skill": "nervis/nervis-notes"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "skill": "nervis/nervis-notes",
+              "name": "nervis-notes",
+              "file": "SKILL.md",
+              "bytes": 204,
+              "text": "---\nname: nervis-notes\ndescription: How NERVIS tasks keep their notes.\n---\n\n# Keeping notes\n\nKeep a task's notes in NOTES.md at the project's root, newest first.\nFor the layout, read references/guide.md.\n"
+            }
+          }
+        },
+        {
+          "name": "another file of the skill",
+          "request": {
+            "caller": "client.nervis",
+            "method": "GET",
+            "path": "/api/v1/skills/models/read",
+            "query": {
+              "skill": "nervis/nervis-notes",
+              "file": "references/guide.md"
+            }
+          },
+          "response": {
+            "status": 200,
+            "body": {
+              "skill": "nervis/nervis-notes",
+              "name": "nervis-notes",
+              "file": "references/guide.md",
+              "bytes": 75,
+              "text": "# The notes guide\n\nOne heading per day, and one line per finding under it.\n"
+            }
+          }
+        },
+        {
+          "name": "a skill switched off, or unknown",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/skills/models/read",
+            "query": {
+              "skill": "personal/graphify"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "SKILL_NOT_FOUND",
+                "message": "No skill with that identifier is switched on for other models.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a path out of the skill",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/skills/models/read",
+            "query": {
+              "skill": "nervis/nervis-notes",
+              "file": "../../../.ssh/id_ed25519"
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "SKILL_FILE_REFUSED",
+                "message": "That path isn't a file inside the skill's own folder, so RAVIS doesn't serve it.",
+                "retryable": false,
+                "details": {
+                  "reason": "outside_skill"
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a hidden file",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/skills/models/read",
+            "query": {
+              "skill": "nervis/nervis-notes",
+              "file": ".env"
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "SKILL_FILE_REFUSED",
+                "message": "That is a hidden file, so RAVIS doesn't serve it.",
+                "retryable": false,
+                "details": {
+                  "reason": "hidden"
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a file over the cap",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/skills/models/read",
+            "query": {
+              "skill": "nervis/nervis-notes",
+              "file": "references/all-notes.md"
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "SKILL_FILE_REFUSED",
+                "message": "That file is larger than 64 KB, so RAVIS doesn't serve it.",
+                "retryable": false,
+                "details": {
+                  "reason": "too_large"
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "a file that isn't text",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/skills/models/read",
+            "query": {
+              "skill": "nervis/nervis-notes",
+              "file": "assets/diagram.png"
+            }
+          },
+          "response": {
+            "status": 422,
+            "body": {
+              "error": {
+                "code": "SKILL_FILE_REFUSED",
+                "message": "That file isn't UTF-8 text, so RAVIS doesn't serve it.",
+                "retryable": false,
+                "details": {
+                  "reason": "not_text"
+                },
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        },
+        {
+          "name": "no such file",
+          "request": {
+            "caller": "client.clarvis",
+            "method": "GET",
+            "path": "/api/v1/skills/models/read",
+            "query": {
+              "skill": "nervis/nervis-notes",
+              "file": "references/missing.md"
+            }
+          },
+          "response": {
+            "status": 404,
+            "body": {
+              "error": {
+                "code": "SKILL_FILE_NOT_FOUND",
+                "message": "The skill has no file RAVIS may read at that path.",
+                "retryable": false,
+                "details": {},
+                "request_id": "fixture-request-id",
+                "trace_id": "fixture-trace-id"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "nervis_control_routes": {
+    "rule": "checks NERVIS's control token (header x-nervis-control), then calls RAVIS with NERVIS's RAVIS admin credential (admin.launcher)",
+    "routes": [
+      {
+        "nervis": "POST /api/v1/ravis/skills",
+        "ravis": "POST /api/v1/skills (NERVIS 0.32.0; forwards only path, engine and enabled)"
+      }
+    ],
+    "never": "no NERVIS route forwards to the other models' routes: NERVIS chat reads them itself with NERVIS's client credential, and the Skills page reads GET /api/v1/skills through the existing GET relay"
+  },
+  "audit": [
+    "ravis.skill_switched {name, source, engine, enabled}"
+  ]
+}

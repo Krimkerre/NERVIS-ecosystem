@@ -65,6 +65,61 @@ def skill_not_changed(name: str, reason: str) -> CodexRefusalError:
     )
 
 
+# ── Skills for every engine (`/api/v1/skills`, RAVIS 0.27.0; `skills.json`) ──
+
+
+def skills_board_reader_required() -> CodexRefusalError:
+    """The Skills page's list is for NERVIS's GET relay and the owner, never Clarvis's."""
+    return CodexRefusalError(
+        "FORBIDDEN", 403, "A NERVIS or admin credential is required to read the skills.",
+    )
+
+
+def models_skills_reader_required() -> CodexRefusalError:
+    """Skill text for the other models is for the programs calling them: Clarvis and NERVIS."""
+    return CodexRefusalError(
+        "FORBIDDEN", 403,
+        "A Clarvis or NERVIS client credential is required to read skills for other models.",
+    )
+
+
+def skill_not_listed_for(engine: str) -> CodexRefusalError:
+    """A switch naming a path RAVIS doesn't list for that engine just now: nothing is kept."""
+    return CodexRefusalError(
+        "SKILL_NOT_FOUND", 404,
+        "RAVIS doesn't list a skill at that path for that engine, so nothing was changed.",
+        engine=engine,
+    )
+
+
+def skill_not_served() -> CodexRefusalError:
+    """A read naming no skill switched on for other models: unknown, off and unreadable alike."""
+    return CodexRefusalError(
+        "SKILL_NOT_FOUND", 404, "No skill with that identifier is switched on for other models.",
+    )
+
+
+#: What `SKILL_FILE_REFUSED` says, by its `reason` (`agent/skill_catalog.py`).
+SKILL_FILE_REFUSALS = {
+    "outside_skill": "That path isn't a file inside the skill's own folder, so RAVIS doesn't "
+                     "serve it.",
+    "hidden": "That is a hidden file, so RAVIS doesn't serve it.",
+    "too_large": "That file is larger than 64 KB, so RAVIS doesn't serve it.",
+    "not_text": "That file isn't UTF-8 text, so RAVIS doesn't serve it.",
+}
+
+
+def skill_file_refused(reason: str) -> CodexRefusalError:
+    """A file of a switched-on skill RAVIS won't serve: outside it, hidden, too big or not text."""
+    return CodexRefusalError("SKILL_FILE_REFUSED", 422, SKILL_FILE_REFUSALS[reason], reason=reason)
+
+
+def skill_file_not_found() -> CodexRefusalError:
+    return CodexRefusalError(
+        "SKILL_FILE_NOT_FOUND", 404, "The skill has no file RAVIS may read at that path.",
+    )
+
+
 def reproof_not_allowed() -> CodexRefusalError:
     return CodexRefusalError(
         "REPROOF_NOT_ALLOWED",

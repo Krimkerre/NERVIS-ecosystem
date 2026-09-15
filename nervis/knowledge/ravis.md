@@ -373,6 +373,22 @@ engine can still write there when the owner has the workspace open, and a skill 
 Codex. Not yet checked with a real Codex task: that a switched-off skill is really left out of what
 Codex reads.
 
+**It lets the other models use skills too** (RAVIS 0.27.0, 15 September 2026). Clarvis's own engine
+and NERVIS chat can use skills as well now. Every skill has two switches: one for Codex, and one for
+"the other models" (Clarvis's own engine and NERVIS chat together), so a skill can be on for one and
+off for the other. RAVIS reads the skill folders itself for this, so it works even while Codex is
+off: NERVIS's skills folder, and the owner's personal skills in `~/.agents/skills`. Skills in
+NERVIS's folder start on for both; personal skills start off for both, a new one included; Codex's
+built-in skills are for Codex only. The other models get a short list of the skills switched on for
+them — each one's name and one-line description — and read a skill's full instructions only when
+it fits what was asked. RAVIS only ever hands out a skill that is switched on. It never hands out a
+skill with a broken header, a file bigger than 64 KB, a hidden file, or anything reached through a
+link leading out of the skill's folder, and it logs every read without what the file says. A switch
+for the other models counts from their next request. Every switch the owner had already made for
+Codex was kept. The Skills page reads and switches through `GET /api/v1/skills` and
+`POST /api/v1/skills`; the programs calling the other models read `GET /api/v1/skills/models` and
+`GET /api/v1/skills/models/read`; the older `GET /api/v1/codex/skills` still answers, for Codex alone.
+
 **It keeps one writer per project for both engines, and cleans up after Codex** (RAVIS 0.24.0).
 Clarvis's own coding runs take the project lock through `/api/v1/project-locks`. A window can take a
 project over from another window that is gone, unresponsive or waiting — never from a Codex task,

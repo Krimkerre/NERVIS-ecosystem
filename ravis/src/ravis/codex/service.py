@@ -54,7 +54,7 @@ from typing import Any
 
 from ravis.agent.calibration_dependent import network_profile_flags
 from ravis.agent.sessions import AgentSessions, AgentTimings
-from ravis.agent.skills import CodexSkills, Skill, SkillChoices, SkillsOutcome
+from ravis.agent.skills import CODEX, CodexSkills, Skill, SkillChoices, SkillsOutcome
 from ravis.codex import refusals
 from ravis.codex.acceptance import HandshakeTimings, VersionCheck, check_version
 from ravis.codex.account import Account, account_from_read, needs_account_id
@@ -291,7 +291,7 @@ class CodexService:
         # process, so the service is their Codex host; their records live in RAVIS's database.
         database = database if database is not None else prepare_database(":memory:")
         #: Codex's skills and the owner's choice for each, kept in the same database.
-        self.skills = CodexSkills(self.request, SkillChoices(database), settings,
+        self.skills = CodexSkills(self.request, SkillChoices(database, CODEX), settings,
                                   seconds=timings.skills_seconds)
         self.agents = AgentSessions(
             self,

@@ -81,14 +81,14 @@ def test_a_read_endpoint_does_not_accept_a_write() -> None:
 def test_every_write_this_surface_serves_is_one_it_declares() -> None:
     """The mutation surface, asserted rather than described.
 
-    RAVIS serves thirty-six writes: two on a provider credential, one on a provider's
+    RAVIS serves thirty-seven writes: two on a provider credential, one on a provider's
     enabled flag, one on its model filter, one on a pool's membership, one
     curating every pool, one lifting a tool-refusal suppression, ten for
     Codex (sign-in, its cancellation, sign-out, account confirmation, accepting
     and revoking a build, the file-rules re-test, adding and removing an
-    allowed site, and switching a skill), fourteen on Codex tasks
-    (the agent-session relay, the owner Stop among them), and five on the project
-    lock. Each is
+    allowed site, and switching a skill), one switching a skill for either engine,
+    fourteen on Codex tasks (the agent-session relay, the owner Stop among them),
+    and five on the project lock. Each is
     deliberate; what is not acceptable is another appearing without anybody
     noticing, which is exactly what happened to the fifth -- it shipped while
     the module said "Reads only. No endpoint here mutates", and without the
@@ -173,6 +173,10 @@ def test_every_write_this_surface_serves_is_one_it_declares() -> None:
         # on or off, NERVIS's Codex card's, through its control route. Admin only, only a skill
         # Codex lists, audited. Tested in `tests/test_codex_skills.py`.
         "POST /api/v1/codex/skills",
+        # Added deliberately, 15 September 2026 (RAVIS 0.27.0): switching a skill on or off for
+        # Codex or for the other models, NERVIS's Skills page's, through its control route. Admin
+        # only, only a path RAVIS lists for that engine, audited. `tests/test_skills_routes.py`.
+        "POST /api/v1/skills",
     }, "a write appeared or vanished on the management surface"
 
 

@@ -13,6 +13,7 @@
     "conventions.json": "this file: transport, callers, headers, the error catalogue and the shared rules",
     "codex-state.json": "GET /api/v1/codex: state, allowance and running tasks",
     "codex-admin.json": "sign-in, sign-out, account confirmation, version acceptance, the file-rules re-test, the allowed sites, NERVIS's control routes",
+    "skills.json": "skills for every engine: the Skills page's list and switches, and the reads of the models that aren't Codex (RAVIS 0.27.0)",
     "openai-refusal.json": "the 400 on /v1/chat/completions and /v1/embeddings, and the conditional /v1/models entry",
     "agent-sessions.json": "the relay's session routes and shapes",
     "event-stream.json": "the per-session SSE stream",
@@ -146,7 +147,7 @@
     "CODEX_RUNTIME_UNAVAILABLE": {
       "status": [503],
       "retryable": true,
-      "where": "session create, transcript, a sign-in whose start timed out, and since R4 every agent-session and project-lock route while RAVIS is still reconciling after a restart; since R5 the sites routes while Codex isn't running with its file rules or doesn't say which sites it allows, and a session create naming a model or an effort before Codex has listed its models; since RAVIS 0.26.0 the skills routes while Codex doesn't list its skills"
+      "where": "session create, transcript, a sign-in whose start timed out, and since R4 every agent-session and project-lock route while RAVIS is still reconciling after a restart; since R5 the sites routes while Codex isn't running with its file rules or doesn't say which sites it allows, and a session create naming a model or an effort before Codex has listed its models; since RAVIS 0.26.0 the skills routes while Codex doesn't list its skills; since RAVIS 0.27.0 POST /api/v1/skills with engine codex while Codex doesn't list its skills (GET /api/v1/skills answers without Codex's part instead)"
     },
     "CODEX_RUN_IN_PROGRESS": {
       "status": [409],
@@ -197,7 +198,7 @@
     "FORBIDDEN": {
       "status": [403],
       "retryable": false,
-      "where": "the Codex admin routes for a caller without an admin credential (RAVIS's existing code); since R5 GET /api/v1/codex/sites for a caller that is neither Clarvis, NERVIS nor an admin, and DELETE /api/v1/codex/sites/{host} for a caller without an admin credential"
+      "where": "the Codex admin routes for a caller without an admin credential (RAVIS's existing code); since R5 GET /api/v1/codex/sites for a caller that is neither Clarvis, NERVIS nor an admin, and DELETE /api/v1/codex/sites/{host} for a caller without an admin credential; since RAVIS 0.27.0 GET /api/v1/skills for a caller that is neither NERVIS nor an admin, POST /api/v1/skills for a caller without an admin credential, and GET /api/v1/skills/models and /read for a caller that isn't Clarvis's or NERVIS's client credential, admin credentials included"
     },
     "GIT_DIR_NOT_ALLOWED": {
       "status": [422],
@@ -222,7 +223,7 @@
     "INVALID_REQUEST_BODY": {
       "status": [422],
       "retryable": false,
-      "where": "a Codex admin route (sign-in, sign-out, account/confirm, accept-version, reprove), or since R3 an agent-session route and since R4 a project-lock route, whose body is not a JSON object, lacks a field the route needs, or names a value the route doesn't take (a mode, a turn kind, a settle next, a transfer's to, since R5 a create's effort that isn't text, or a sites body without 1 to 20 host names); and a lock heartbeat, release or transfer without X-Lock-Lease"
+      "where": "a Codex admin route (sign-in, sign-out, account/confirm, accept-version, reprove), or since R3 an agent-session route and since R4 a project-lock route, whose body is not a JSON object, lacks a field the route needs, or names a value the route doesn't take (a mode, a turn kind, a settle next, a transfer's to, since R5 a create's effort that isn't text, or a sites body without 1 to 20 host names); and a lock heartbeat, release or transfer without X-Lock-Lease; since RAVIS 0.27.0 a POST /api/v1/skills body without a path of 1 to 4096 characters, an engine of codex or models, and a boolean enabled"
     },
     "LEASE_REVOKED": {
       "status": [409],
@@ -325,15 +326,25 @@
       "retryable": false,
       "where": "DELETE /api/v1/codex/sites/{host} for one of RAVIS's default sites (reason default_site), or when Codex didn't take the write (overridden, not_written, codex_did_not_answer): details {host, reason}; the site stays allowed"
     },
+    "SKILL_FILE_NOT_FOUND": {
+      "status": [404],
+      "retryable": false,
+      "where": "GET /api/v1/skills/models/read naming a path inside a skill switched on for other models where there is no file RAVIS may read: nothing there, a folder, or a file it may not open (RAVIS 0.27.0)"
+    },
+    "SKILL_FILE_REFUSED": {
+      "status": [422],
+      "retryable": false,
+      "where": "GET /api/v1/skills/models/read naming a file of a skill switched on for other models that RAVIS won't serve (RAVIS 0.27.0): details {reason}, outside_skill (an absolute path, an empty, . or .. part, a backslash, a control character, or a link leading out of the skill's folder), hidden, too_large (over 64 KB) or not_text (not UTF-8)"
+    },
     "SKILL_NOT_CHANGED": {
       "status": [409],
       "retryable": false,
-      "where": "POST /api/v1/codex/skills when Codex didn't take the owner's switch (not_written, codex_did_not_answer, not_listed, still_different, folder_not_made) or the skills folder setting can't be used (folder_refused): details {skill, reason}; the previous choice is kept and applied again"
+      "where": "POST /api/v1/codex/skills when Codex didn't take the owner's switch (not_written, codex_did_not_answer, not_listed, still_different, folder_not_made) or the skills folder setting can't be used (folder_refused): details {skill, reason}; the previous choice is kept and applied again; since RAVIS 0.27.0 also POST /api/v1/skills with engine codex"
     },
     "SKILL_NOT_FOUND": {
       "status": [404],
       "retryable": false,
-      "where": "POST /api/v1/codex/skills naming a path that isn't a skill Codex lists just now, a project's own skill included; nothing is kept"
+      "where": "POST /api/v1/codex/skills naming a path that isn't a skill Codex lists just now, a project's own skill included; nothing is kept; since RAVIS 0.27.0 POST /api/v1/skills naming a path RAVIS doesn't list for that engine just now (details {engine}), and GET /api/v1/skills/models/read naming a skill that isn't switched on for other models, unknown and unreadable alike"
     },
     "SIGN_IN_METHOD_NOT_SUPPORTED": {
       "status": [422],

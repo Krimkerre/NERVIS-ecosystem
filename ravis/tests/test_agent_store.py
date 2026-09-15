@@ -2,6 +2,8 @@
 
 - **Migration 8** is backed up first (`ravis.db.v7.bak`) and can be rolled back to 7 from it, and
   so is **migration 10** (each task's effort, R5) to 9.
+- **Migration 13** carries every Codex skill switch over unchanged, keeps the other models' beside
+  them, and rolls back to 12 with the owner's switches still in the old table.
 - **Codex is told to stop at a blocked site** and say which it needs, rather than work around it.
 - **Retention** deletes sessions, turns and requests 30 days after they ended, process rows 24 hours
   after they were confirmed gone, and kept answers after 24 hours — and nothing live.
@@ -35,7 +37,7 @@ from ravis.agent.requests import PathContext, payload_and_decisions
 from ravis.agent.roots import related
 from ravis.agent.sites import DECISIONS as SITE_DECISIONS
 from ravis.agent.sites import blocked_hosts, plain_site, protocol_for, site_payload
-from ravis.agent.skills import SkillChoices
+from ravis.agent.skills import CODEX, MODELS, SkillChoices
 from ravis.agent.store import AgentStore
 from ravis.agent.translate import turn_error
 from ravis.codex.lock_file import iso
@@ -119,21 +121,62 @@ def test_migration_11_is_backed_up_first_and_keeps_the_owners_skill_switches(
     with monkeypatch.context() as patched:
         patched.setattr(storage, "MIGRATIONS", storage.MIGRATIONS[:10])
         assert prepare_database(str(path)).schema_version == 10
-    choices = SkillChoices(prepare_database(str(path)))
+    choices = SkillChoices(prepare_database(str(path)), CODEX)
     assert (tmp_path / "ravis.db.v10.bak").exists()
     graphify = "/Users/owner/.agents/skills/graphify/SKILL.md"
     assert choices.get(graphify) is None
     choices.choose(graphify, True)
     choices.choose("/Users/owner/.codex/skills/.system/imagegen/SKILL.md", False)
     choices.choose(graphify, False)
-    reopened = SkillChoices(prepare_database(str(path)))
+    reopened = SkillChoices(prepare_database(str(path)), CODEX)
     assert reopened.get(graphify) is False
     assert reopened.get("/Users/owner/.codex/skills/.system/imagegen/SKILL.md") is False
     reopened.forget(graphify)
-    assert SkillChoices(prepare_database(str(path))).get(graphify) is None
+    assert SkillChoices(prepare_database(str(path)), CODEX).get(graphify) is None
     assert restore_backup(path, 10) == 10
     assert "codex_skill_choice" not in {row[0] for row in sqlite3.connect(path).execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+
+def test_migration_13_keeps_every_codex_skill_switch_and_adds_the_other_models_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every switch the owner made for Codex before 0.27.0 comes through as Codex's, unchanged; the
+    other models' are kept beside them by the same path without touching Codex's; and rolled back
+    to 12, the old table is back with the owner's switches still in it."""
+    path = tmp_path / "ravis.db"
+    graphify = "/Users/owner/.agents/skills/graphify/SKILL.md"
+    imagegen = "/Users/owner/.local/share/ravis-codex/skills/.system/imagegen/SKILL.md"
+    with monkeypatch.context() as patched:
+        patched.setattr(storage, "MIGRATIONS", storage.MIGRATIONS[:12])
+        assert prepare_database(str(path)).schema_version == 12
+    before = sqlite3.connect(path)
+    with before:
+        before.executemany("INSERT INTO codex_skill_choice VALUES (?, ?, ?)", [
+            (graphify, 1, "2026-09-14T21:00:00Z"), (imagegen, 0, "2026-09-14T21:01:00Z")])
+    before.close()
+
+    migrated = prepare_database(str(path))
+
+    assert migrated.schema_version == storage.MIGRATIONS[-1][0] == 13
+    assert (tmp_path / "ravis.db.v12.bak").exists()
+    carried = sqlite3.connect(path).execute(
+        "SELECT path, engine, enabled, changed_at FROM skill_choice ORDER BY path").fetchall()
+    assert carried == [(graphify, "codex", 1, "2026-09-14T21:00:00Z"),
+                       (imagegen, "codex", 0, "2026-09-14T21:01:00Z")]
+    codex, models = SkillChoices(migrated, CODEX), SkillChoices(migrated, MODELS)
+    assert (codex.get(graphify), codex.get(imagegen), models.get(graphify)) == (True, False, None)
+    models.choose(graphify, False)
+    assert (codex.get(graphify), models.get(graphify)) == (True, False)
+    models.forget(graphify)
+    assert (codex.get(graphify), models.get(graphify)) == (True, None)
+    with pytest.raises(sqlite3.IntegrityError):
+        migrated.connection.execute("INSERT INTO skill_choice VALUES ('p', 'clarvis', 1, 'now')")
+    assert restore_backup(path, 12) == 12
+    old = sqlite3.connect(path)
+    assert "skill_choice" not in {row[0] for row in old.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert old.execute("SELECT COUNT(*) FROM codex_skill_choice").fetchone()[0] == 2
 
 
 def test_codex_is_told_to_stop_at_a_blocked_site_and_say_which_it_needs() -> None:

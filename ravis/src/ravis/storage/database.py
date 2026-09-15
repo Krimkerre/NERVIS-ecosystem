@@ -342,6 +342,29 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             agent_session.id);
         """,
     ),
+    (
+        13,
+        "The owner's skill choices per engine: Codex, and the other models (RAVIS 0.27.0)",
+        """
+        -- A skill the owner switched on or off on NERVIS's Skills page, for one engine: `codex`,
+        -- or `models` (Clarvis's own engine and NERVIS chat together). Codex's rows keep the path
+        -- Codex lists a skill's SKILL.md at, exactly as codex_skill_choice held them since
+        -- migration 11; the other models' rows hold the real path of the SKILL.md RAVIS read
+        -- (agent/skill_catalog.py). A skill with no row follows where it comes from: the NERVIS
+        -- skills folder's on for both engines, Codex's built-in ones on for Codex, and the owner's
+        -- personal skills off for both. Every Codex choice is carried over unchanged.
+        CREATE TABLE IF NOT EXISTS skill_choice (
+            path       TEXT NOT NULL,
+            engine     TEXT NOT NULL CHECK (engine IN ('codex', 'models')),
+            enabled    INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+            changed_at TEXT NOT NULL,
+            PRIMARY KEY (path, engine)
+        );
+        INSERT INTO skill_choice (path, engine, enabled, changed_at)
+            SELECT path, 'codex', enabled, changed_at FROM codex_skill_choice;
+        DROP TABLE codex_skill_choice;
+        """,
+    ),
 ]
 
 

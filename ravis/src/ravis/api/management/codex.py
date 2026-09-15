@@ -16,7 +16,7 @@ The shapes, codes and messages are the contract fixtures `codex-state.json` and 
 | `POST /sites` | Clarvis's client credential only (`require_agent_client`) |
 | `DELETE /sites/{host}` | admin: NERVIS's Codex card, through its control route |
 | `GET /skills` | NERVIS's client credential (its GET relay) or an admin credential; never Clarvis |
-| `POST /skills` | admin: NERVIS's Codex card, through its control route |
+| `POST /skills` | admin: NERVIS 0.30-0.31's Codex card, through its control route |
 
 **Admin here is UX and audit, not a boundary** against a program running as the owner (design §2.2
 fact 14): the credentials are 0600 files and NERVIS's control token is served in its page. What the
@@ -43,7 +43,9 @@ Codex's own configuration, read and written by `agent/sites.py`'s `SiteAllowlist
 lists every skill Codex has but a project's own, where it comes from, and a switch for each. RAVIS
 keeps the owner's choices and applies them (`agent/skills.py`); a switch names a skill by the path
 Codex listed it at, and RAVIS takes no other path. Audited as `ravis.codex.skill_switched {name,
-source, enabled}`.
+source, enabled}`. **Since RAVIS 0.27.0 these are the older form** of `/api/v1/skills`
+(`skills.py`, `skills.json`), which lists each skill's switch for Codex and for the other models;
+they answer exactly as before, for NERVIS 0.31, and a Codex switch through either is the same one.
 """
 
 from __future__ import annotations

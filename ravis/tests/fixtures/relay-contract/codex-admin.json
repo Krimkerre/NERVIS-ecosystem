@@ -1290,6 +1290,7 @@
       "needs": "NERVIS's client credential (its GET relay) or an admin credential; never Clarvis",
       "answer": "SkillsView {folder, problem, skills: [{path, name, description, source, enabled}]}",
       "rules": [
+        "since RAVIS 0.27.0 the older form of GET /api/v1/skills (skills.json), for Codex alone: it answers as before, for NERVIS 0.31",
         "folder is the NERVIS skills folder as a real path (settings.codex_skills_folder; the launcher names <NERVIS workspace>/clarvis/skills); RAVIS makes it, with a README.md, each time Codex starts, and no Codex task may work in it or in a folder that holds it",
         "skills lists every skill Codex's skills/list gives except a project's own (scope repo), each once, grouped nervis, personal, built_in, and by name within each. source is decided by real path, symlinks followed: a skill whose SKILL.md lies in the folder is nervis, scope system is built_in, and every other skill (user skills elsewhere, admin, or a scope RAVIS doesn't know) is personal",
         "enabled is Codex's own answer, read on every call and never kept; description is Codex's short description where it has one, else the description, on one line and at most 300 characters",
@@ -1359,6 +1360,7 @@
       "body": "{path, enabled}: a skill's path exactly as GET listed it, and true or false",
       "answer": "SkillsView, as Codex holds it after the change",
       "rules": [
+        "since RAVIS 0.27.0 the older form of POST /api/v1/skills with engine codex (skills.json): the same switch, answered as before, for NERVIS 0.31",
         "a body without a path of 1 to 4096 characters and a boolean enabled is 422 INVALID_REQUEST_BODY",
         "RAVIS lists Codex's skills again and takes only a path exactly as listed; any other path, a project's own skill's included, is 404 SKILL_NOT_FOUND and nothing is kept (503 CODEX_RUNTIME_UNAVAILABLE when Codex doesn't list them)",
         "otherwise RAVIS keeps the owner's choice and applies every choice again (skills/config/write by path, until skills/list agrees); switching a skill to what it already is changes nothing, so a retry is safe and no Idempotency-Key is needed",

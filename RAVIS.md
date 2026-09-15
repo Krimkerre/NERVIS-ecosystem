@@ -1481,7 +1481,8 @@ commands, file contents or diffs, except the relay stream and snapshot a session
 | `POST` and `GET /api/v1/codex/reprove` | `admin.owner_cli` to start; any named caller to read | The file-rules re-test, started from the menu bar; 403 `REPROOF_NOT_ALLOWED` for every other credential, NERVIS's included |
 | `POST` and `GET /api/v1/codex/calibration/runs`, `GET …/runs/{run_id}` | `admin.owner_cli` | Exist only while `RAVIS_CODEX_CALIBRATION=1`: start a calibration run on two throwaway git projects (with an `Idempotency-Key` and the owner's allowance go-ahead), and read its progress and result. `ravis codex calibrate`, run as `tools/run.py codex calibrate`, calls them |
 | `GET` and `POST /api/v1/codex/sites`; `DELETE /api/v1/codex/sites/{host}` | read: Clarvis, NERVIS or admin; add: Clarvis; remove: admin | The sites Codex's commands may reach: RAVIS's defaults and the sites the owner added. Adding checks every host first and writes nothing if one is refused; a default is never removed. A change reaches Codex threads started or reopened afterwards |
-| `GET` and `POST /api/v1/codex/skills` | read: NERVIS or admin; switch: admin | Codex's skills and where each comes from — the NERVIS skills folder, the owner's personal skills, or built into Codex — and whether it is on. A switch names a skill Codex lists, by its path; RAVIS keeps the choice and applies it at every Codex start. A change counts from a task's next start or reopen (since 0.26.0) |
+| `GET` and `POST /api/v1/codex/skills` | read: NERVIS or admin; switch: admin | Codex's skills and where each comes from — the NERVIS skills folder, the owner's personal skills, or built into Codex — and whether it is on. A switch names a skill Codex lists, by its path; RAVIS keeps the choice and applies it at every Codex start. A change counts from a task's next start or reopen (since 0.26.0). Since 0.27.0 the older form of `/api/v1/skills`, answering as before for NERVIS 0.31 |
+| `GET` and `POST /api/v1/skills`; `GET /api/v1/skills/models` and `GET /api/v1/skills/models/read` | list: NERVIS or admin; switch: admin; the other models' reads: Clarvis's or NERVIS's client credential, never admin | Every skill with a switch for Codex and one for the other models — Clarvis's own engine and NERVIS chat — read by RAVIS itself from the NERVIS skills folder and the owner's personal skills and lined up with Codex's list; and, for the programs calling those models, the skills switched on for them and one such skill's files. Answers while Codex is off (since 0.27.0; `skills.json`) |
 
 Admin here is UX and audit, not a boundary against local programs (runbook §2.2).
 
@@ -1553,6 +1554,44 @@ there; Clarvis's own engine, which RAVIS doesn't sandbox, still can while the ow
 open, and a skill written there is on. **Unmeasured:** that a skill switched off is left out of the
 model's instructions in a turn, and whether a change reaches a thread already loaded, so a change is
 taken to count from a task's next start or reopen.
+
+**Skills for every engine — the owner's decisions of 15 September 2026 (0.27.0).** Clarvis's own
+engine and NERVIS chat use skills too, and each skill has two switches: one for Codex, and one for
+**the other models** (those two together, engine `models`). The models behind RAVIS speak the
+chat-completions API, which knows nothing of skill folders, so **RAVIS reads the folders itself**
+(`agent/skill_catalog.py`), without Codex: the NERVIS skills folder, and the owner's personal skills
+(`skills_personal_folder`, `~/.agents/skills`). A skill is a folder at most four folders deep holding
+a `SKILL.md` with YAML front matter (`name`, `description`); hidden folders are skipped; **a link is
+followed only while its real path stays inside that folder's root**, and one leading out is listed
+with that problem and never read; a `SKILL.md`, and every file served, is at most 64 KB of UTF-8
+text; a malformed skill is listed with its problem in plain words and never served. A skill's
+identifier is `<source>/<its folder relative to the root>`. **RAVIS's reading and Codex's list line
+up by real path**: a skill Codex lists is the skill RAVIS read when the real path of Codex's path is
+the real path of RAVIS's `SKILL.md`, so whether Codex resolves links before listing doesn't matter;
+Codex's built-in skills, and any skill RAVIS doesn't read, exist only for Codex. **The switches**
+live in `skill_choice (path, engine)` — migration 13, which carries every Codex choice over
+unchanged: Codex's are keyed by the path Codex lists and applied to Codex exactly as in 0.26.0, the
+other models' by RAVIS's real path, read afresh on every request. The NERVIS folder's skills start
+on for both engines; personal skills, one added later included, start off for both.
+`GET /api/v1/skills` (NERVIS's GET relay or admin) answers `SkillsBoard {folders, codex, skills}`,
+each skill with `codex` and `models` `{available, enabled}`, and still answers while Codex can't run
+(`codex.listed: false`). `POST /api/v1/skills {path, engine, enabled}` (admin: NERVIS's Skills page)
+takes only a path RAVIS lists for that engine just now (404 `SKILL_NOT_FOUND {engine}` otherwise);
+a Codex switch is the one `POST /api/v1/codex/skills` makes, 503 while Codex can't list and 409
+`SKILL_NOT_CHANGED` when Codex doesn't take it; no retry needs an `Idempotency-Key`. Audited as
+`ravis.skill_switched {name, source, engine, enabled}`. **The other models' callers** — Clarvis's
+client credential and NERVIS's, never an admin credential — read `GET /api/v1/skills/models`
+(`{id, name, description}` for each skill switched on for them) and `GET /api/v1/skills/models/read`
+with `skill` and `file` (one file of a switched-on skill, its `SKILL.md` unless another is named):
+any skill not switched on, unknown or unreadable alike, is 404 `SKILL_NOT_FOUND`; a path leaving the
+skill's own folder, a hidden file, a file over 64 KB or one that isn't text is 422
+`SKILL_FILE_REFUSED {reason}`; no such file is 404 `SKILL_FILE_NOT_FOUND`. They use skills by
+progressive disclosure, as Codex does: a short list in the model's instructions, and a skill's full
+text only when it fits (`skills.json` → `for_models`). **A skill is trusted content the owner
+chose.** Its text becomes instructions to a model, so RAVIS serves only skills switched on, keeps the
+owner's personal skills off until the owner switches one on, logs each read by caller, skill, file
+and size and never by what it says, and tells callers that a skill never outranks their own safety
+rules. `/api/v1/codex/skills` stays as the older form, for NERVIS 0.31.
 
 **As built in M29's third increment (R3, 0.23.15, 13 September 2026)**, in `src/ravis/agent/`: every
 route above but the project lock's, against the fixtures. The approval settings are the ones

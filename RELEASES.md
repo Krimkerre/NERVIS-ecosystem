@@ -1294,7 +1294,38 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.26.3
+## RAVIS — 0.27.0
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Skills aren't only for Codex any more.** A skill is a folder of instructions for one kind of
+  task, with a `SKILL.md` file inside. The owner decided on 15 September that Clarvis's own engine
+  and NERVIS chat should be able to use them too.
+- **Each skill now has two switches:** one for Codex, and one for the other models (Clarvis's own
+  engine and NERVIS chat together). So a skill can be on for Codex and off for chat, or the other way
+  round.
+- **Where they start.** Skills in NERVIS's own skills folder start on for both. Your personal skills
+  (`~/.agents/skills`) start off for both, and so does any you add later. Codex's built-in skills are
+  for Codex only.
+- **Every switch you already made for Codex is kept**, exactly as it was, and Codex's skills are
+  still applied the same way.
+- **RAVIS reads the skill folders itself**, so the list and the other models' switches work even
+  while Codex isn't running. It matches its list to Codex's by where each skill really is on disk.
+- **Careful with what it hands out.** A skill's text becomes instructions to a model, so RAVIS only
+  ever hands out a skill that is switched on. It never reads through a shortcut leading out of a
+  skills folder, and never hands out a file over 64 KB, a hidden file, or anything that isn't text.
+  A skill with a broken header is listed with the problem in plain words, and never handed out. Each
+  read is logged with its name and size, never with what the file says.
+- **The README in NERVIS's skills folder** now points to the new Skills page, unless you had edited
+  it; an edited one is left alone.
+- **For operators:** database migration 13 (backed up first); a new setting, `skills_personal_folder`
+  (default `~/.agents/skills`); new routes `GET` and `POST /api/v1/skills`,
+  `GET /api/v1/skills/models` and `GET /api/v1/skills/models/read`, described in the new contract
+  fixture `skills.json`. `/api/v1/codex/skills` answers as before, for NERVIS 0.31. PyYAML is now a
+  declared dependency; it was already installed. Tested against the fake Codex only; NERVIS's Skills
+  page and NERVIS chat's use of skills come in NERVIS 0.32.0, and Clarvis's own engine later.
+
+### 0.26.3
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
