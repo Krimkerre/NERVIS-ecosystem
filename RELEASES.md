@@ -541,7 +541,30 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.33.0
+## NERVIS — 0.33.1
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+Fixes for what you found using Browse on 15 September.
+
+- **skills.sh no longer looks empty.** With **All sources** chosen, typing 2 letters or more also
+  searches skills.sh, once you stop typing or press Enter, and its results show in a group of their
+  own: "From skills.sh, uncurated, ranked by installs". With fewer letters the page says "skills.sh
+  needs a search of at least 2 letters." instead of showing nothing, and so it does with skills.sh
+  chosen on its own. When RAVIS or skills.sh refuses a search, the page says why in plain words.
+- **Skills that can't be installed here are hidden.** Entries such as VoltAgent's links to skills
+  kept outside GitHub no longer fill the list. One quiet line says how many are hidden, and **Show
+  them** brings them back; this browser remembers your choice.
+- **The filter finds skills on every page.** It filters as you type, across everything Browse has
+  loaded rather than only the skills showing, and the cursor stays in the box while the list changes.
+- **Gentle on skills.sh.** A search waits until you stop typing, a search overtaken by newer words is
+  cancelled, the same words aren't asked twice, and RAVIS 0.28.1 remembers each search for 5
+  minutes. After an install the search is asked again from that memory, so the installed badge shows.
+- **For operators:** RAVIS 0.28.1 adds the remembered searches and passes on skills.sh's refusals;
+  with RAVIS 0.28.0 the page works the same, but every search reaches skills.sh. The skill store gate
+  covers the new behaviour, and `page_context.js` can start a page with saved browser settings.
+
+### 0.33.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

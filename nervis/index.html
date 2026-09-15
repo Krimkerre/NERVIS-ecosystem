@@ -5448,7 +5448,15 @@ const SKILLS_PAGE={
 
  shown(){return state.app==='nervis'&&state.view==='Skills'},
 
- draw(){if(this.shown())$('#content').innerHTML=skillsPage(this.board,this.busy,this.note)},
+ /* A redraw keeps the field that had focus, and its caret: Browse's list follows the words box as
+    the owner types (0.33.1), and replacing the whole content would otherwise drop the cursor after
+    the first redraw, so the rest of a word would go nowhere. */
+ draw(){
+  if(!this.shown())return;
+  const was=captureInteraction();
+  $('#content').innerHTML=skillsPage(this.board,this.busy,this.note);
+  restoreFocus(was);
+ },
 
  /* One click switches one skill on or off for one engine, when the page offered that switch. */
  async toggle(path,engine){
@@ -5590,9 +5598,18 @@ function skillRefusal(status,said,name,engine,enabled){
    owner, lists and skills.sh uncurated), a filter by words, results with name, description, source,
    license and an installed badge, and **Review and install**, which sends RAVIS the entry's own
    `install` body. Stale sources are read again once per opening; the link-list entries shown are
-   looked up as they are shown, ten at a time and each once; skills.sh is searched only when asked.
-   The owner adds a GitHub repository, a link list or a website with an Agent Skills index, hides
-   RAVIS's own sources, and removes their own.
+   looked up as they are shown, ten at a time and each once. The owner adds a GitHub repository, a
+   link list or a website with an Agent Skills index, hides RAVIS's own sources, and removes their own.
+
+   **What the owner found using it (0.33.1, 15 September 2026).** The words filter follows the typing,
+   250 ms after the last key, across every loaded entry of the chosen sources rather than the page
+   shown, and a redraw keeps the box's focus and caret. skills.sh is searched with every source
+   chosen as well as on its own: 600 ms after typing stops, or at once on Enter, its results in a
+   group of their own under "From skills.sh, uncurated, ranked by installs". Under two letters it
+   isn't asked, which it would refuse, and the page says so. A question overtaken by newer words is
+   cancelled, an answer arriving after a newer question is dropped, and RAVIS keeps a query's results
+   five minutes. Entries that can't be installed here are hidden whatever their source, with one line
+   saying how many and a Show them switch this browser remembers (owner decision).
 
    **Every handler carries only an id or a name the page itself drew**; what is sent comes from the
    page's own state, so nothing RAVIS sent reaches a request body by way of the markup. Every call is
@@ -5604,6 +5621,15 @@ const SKILL_ZIP_BYTES=8*1024*1024;
 /* How many marketplace results show at once, and how many links one look-up asks RAVIS for. */
 const SKILL_BROWSE_PAGE=30;
 const SKILL_RESOLVE_AT_ONCE=10;
+/* skills.sh refuses a search shorter than this (HTTP 400, "Query must be at least 2 characters",
+   measured 15 September 2026), so the page never asks it one and says so instead (NERVIS 0.33.1). */
+const SKILL_SEARCH_LEAST=2;
+const SKILL_SEARCH_HINT='skills.sh needs a search of at least 2 letters.';
+/* How long after the last key Browse's list follows the words, and skills.sh is asked for them. */
+const SKILL_FILTER_WAIT_MS=250;
+const SKILL_SEARCH_WAIT_MS=600;
+/* Where this browser remembers whether Browse shows the entries that can't be installed here. */
+const SKILL_UNAVAILABLE_KEY='nervis.skills.showNotInstallable';
 const SKILL_SPEC_LINE='Checked against the Agent Skills specification at agentskills.io.';
 /* What each kind of file is, in the review's words (`Preview.files[].kind`). */
 const SKILL_FILE_KINDS={skill_md:'instructions',script:'script — Codex could run it',text:'text',binary:'binary'};
@@ -5618,6 +5644,10 @@ const SKILL_STORE={
  installing:false,updatingZip:null,removing:null,
  browsing:false,filter:'all',query:'',shown:SKILL_BROWSE_PAGE,results:null,asked:new Set(),
  refreshed:false,addKind:'github',removingSource:null,
+ /* skills.sh from Browse (0.33.1): the question on its way ({query, stop}), the two waits after the
+    last key, how many answers came (a result's button carries it), and whether the entries that
+    can't be installed here are shown, as this browser remembers. */
+ searching:null,filterTimer:null,searchTimer:null,answers:0,showUnavailable:skillUnavailableHeld(),
 
  draw(){SKILLS_PAGE.draw()},
 
@@ -5714,6 +5744,10 @@ const SKILL_STORE={
   [SKILLS_PAGE.board,this.installs]=await Promise.all([API.ravis.skills(),API.ravis.skillInstalls()]);
   if(this.browsing)this.market=await API.ravis.skillMarket();
   this.draw();
+  /* skills.sh's installed badges come with its answer: asked again for the same words, which RAVIS
+     keeps five minutes, so skills.sh itself isn't asked. */
+  const held=this.results;
+  if(this.browsing&&held&&held.answer&&held.query===this.query)await this.searchSkillsSh(true);
  },
 
  async toggleBrowse(){
@@ -5725,7 +5759,7 @@ const SKILL_STORE={
    this.refreshed=true;
    await this.marketCall('Reading the sources…',()=>skillStoreControl('market/refresh',{}));
   }
-  await this.resolveShown();
+  await Promise.all([this.resolveShown(),this.searchSkillsSh(false)]);
  },
 
  async refresh(){
@@ -5756,17 +5790,60 @@ const SKILL_STORE={
  },
 
  async filterBy(value){
-  this.filter=String(value);this.shown=SKILL_BROWSE_PAGE;this.results=null;this.query=skillInput('#skillQuery');
+  this.filter=String(value);this.shown=SKILL_BROWSE_PAGE;this.query=skillInput('#skillQuery');
   this.draw();
-  await this.resolveShown();
+  await Promise.all([this.resolveShown(),this.searchSkillsSh(false)]);
  },
 
+ /* A key in the words box. The words are kept at once, so no redraw in between takes back what was
+    typed; the list follows them 250 ms after the last key, and skills.sh is asked 600 ms after it,
+    so a word being typed isn't sent letter by letter. */
+ typed(){
+  this.query=skillInput('#skillQuery');
+  clearTimeout(this.filterTimer);clearTimeout(this.searchTimer);
+  this.filterTimer=setTimeout(()=>this.filtered(),SKILL_FILTER_WAIT_MS);
+  this.searchTimer=setTimeout(()=>this.searchSkillsSh(false),SKILL_SEARCH_WAIT_MS);
+ },
+
+ async filtered(){this.shown=SKILL_BROWSE_PAGE;this.draw();await this.resolveShown()},
+
+ /* Enter, or the button: the list and skills.sh at once, without the waits, and skills.sh asked
+    again even for words whose answer the page holds. */
  async search(){
+  clearTimeout(this.filterTimer);clearTimeout(this.searchTimer);
   this.query=skillInput('#skillQuery');this.shown=SKILL_BROWSE_PAGE;
-  if(this.filter!=='skills_sh'){this.draw();return this.resolveShown()}
-  if(!this.query){this.note='Type what you are looking for first.';return this.draw()}
-  const r=await this.act('Searching skills.sh…',()=>skillStoreControl('market/search',{query:this.query}));
-  if(r)this.results=r.body;
+  this.draw();
+  await Promise.all([this.resolveShown(),this.searchSkillsSh(true)]);
+ },
+
+ /* skills.sh, asked for the words in the box when it is searched here (`skillSearchWanted`). A
+    question still on its way for other words is cancelled first, and an answer that comes after a
+    newer question was asked is dropped, so an older answer never replaces a newer one. Never
+    `act`: a search while typing mustn't hide the page's buttons or block a review. */
+ async searchSkillsSh(again){
+  const query=this.query;
+  this.cancelOtherSearch(query);
+  if(!skillSearchWanted(this,query,again))return this.draw();
+  const searching={query,stop:new AbortController()};
+  this.searching=searching;this.draw();
+  const r=await skillStoreControl('market/search',{query},searching.stop.signal);
+  if(this.searching!==searching)return;
+  this.searching=null;
+  this.answers+=1;
+  this.results=skillSearchHeld(query,r,this.answers);
+  this.draw();
+ },
+
+ cancelOtherSearch(query){
+  if(!this.searching||this.searching.query===query)return;
+  this.searching.stop.abort();
+  this.searching=null;
+ },
+
+ /* Show or hide the entries that can't be installed here, remembered in this browser. */
+ toggleUnavailable(){
+  this.showUnavailable=!this.showUnavailable;
+  try{localStorage.setItem(SKILL_UNAVAILABLE_KEY,this.showUnavailable?'shown':'hidden')}catch(e){/* a private window: this visit only */}
   this.draw();
  },
 
@@ -5779,8 +5856,12 @@ const SKILL_STORE={
   await this.openReview(`Fetching and checking ${entry.name}…`,()=>skillStoreControl('previews',entry.install));
  },
 
- async reviewResult(index){
-  const results=this.results&&Array.isArray(this.results.results)?this.results.results:[];
+ /* A skills.sh result's Review and install: `answer` is the number of the answer its button was
+    drawn from, so a click that lands just as a newer answer arrives reviews nothing rather than
+    the skill now at that place. */
+ async reviewResult(index,answer){
+  const held=this.results;
+  const results=held&&held.answer&&held.seq===Number(answer)?held.answer.results:[];
   const found=results[Number(index)];
   if(!found||!found.install||typeof found.install!=='object')return;
   await this.openReview(`Fetching and checking ${found.name}…`,()=>skillStoreControl('previews',found.install));
@@ -5846,10 +5927,11 @@ function skillInstallNamed(name){
 }
 
 /* One call to one of NERVIS's skill store control routes. `route` is always the page's own
-   constant, never anything RAVIS or the owner typed. Never throws: no answer is status 0. */
-async function skillStoreControl(route,body){
+   constant, never anything RAVIS or the owner typed. Never throws: no answer is status 0, and so is
+   a call cancelled through `signal` (a skills.sh search overtaken by newer words). */
+async function skillStoreControl(route,body,signal){
  try{
-  const r=await fetch(BASE.nervis+'/api/v1/ravis/skills/'+route,{method:'POST',headers:control_headers(),cache:'no-store',body:JSON.stringify(body)});
+  const r=await fetch(BASE.nervis+'/api/v1/ravis/skills/'+route,{method:'POST',headers:control_headers(),cache:'no-store',body:JSON.stringify(body),signal});
   return{ok:r.ok,status:r.status,body:(await r.json().catch(()=>null))||{}};
  }catch(e){return{ok:false,status:0,body:{}}}
 }
@@ -6016,11 +6098,15 @@ function skillSourceLabel(source){
 }
 
 function skillBrowseControls(market){
- const s=SKILL_STORE,searching=s.filter==='skills_sh';
+ const s=SKILL_STORE,alone=s.filter==='skills_sh',also=s.filter==='all'&&skillSearchesHere(s);
  const options=[['all','All sources'],...market.sources.filter(x=>!x.hidden).map(x=>[x.id,skillSourceLabel(x)])]
   .map(([id,label])=>`<option value="${escapeHtml(id)}"${id===s.filter?' selected':''}>${escapeHtml(label)}</option>`).join('');
  const select=`<select id="skillFilter" onchange="SKILL_STORE.filterBy(this.value)" style="background:rgba(255,255,255,.04);color:inherit">${options}</select>`;
- const words=`<input class="mono" id="skillQuery" style="flex:1;min-width:200px" placeholder="${searching?'what to search skills.sh for':'filter by name or description'}" value="${escapeHtml(s.query)}"><button class="btn" onclick="SKILL_STORE.search()">${searching?'Search skills.sh':'Filter'}</button>`;
+ /* The words filter the list as they are typed; where skills.sh is searched too, it is asked when
+    typing stops, or at once on Enter or the button. */
+ const [placeholder,button]=alone?['what to search skills.sh for','Search skills.sh']
+  :also?['filter by name or description, and search skills.sh','Filter and search skills.sh']:['filter by name or description','Filter'];
+ const words=`<input class="mono" id="skillQuery" style="flex:1;min-width:200px" placeholder="${placeholder}" value="${escapeHtml(s.query)}" oninput="SKILL_STORE.typed()" onkeydown="if(event.key==='Enter')SKILL_STORE.search()"><button class="btn" onclick="SKILL_STORE.search()">${button}</button>`;
  const again=`<button class="btn" onclick="SKILL_STORE.refresh()">Read the sources again</button>`;
  return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0">${select}${words}${s.pending?'':again}</div><small class="dim" style="display:block">${escapeHtml(SKILL_SPEC_LINE)} Whatever you install from here arrives switched off, after its review.</small>`;
 }
@@ -6028,15 +6114,56 @@ function skillBrowseControls(market){
 function skillBrowseSource(market){
  const source=market.sources.find(x=>x.id===SKILL_STORE.filter);
  const shown=source?[source]:market.sources.filter(x=>!x.hidden&&x.problem);
- return shown.map(x=>(source&&x.note?skillLine('about',escapeHtml(x.note)):'')
+ /* skills.sh's note is its group's label (`skillSearchGroup`), so it isn't said twice. */
+ return shown.map(x=>(source&&x.note&&x.kind!=='search'?skillLine('about',escapeHtml(x.note)):'')
   +(x.problem?skillLine(String(x.label||x.id),`<span class="chip warn">problem</span> ${escapeHtml(x.problem)}`):'')
   +(source&&x.fetched_at?`<small class="dim" style="display:block">Read ${escapeHtml(String(x.fetched_at).slice(0,16).replace('T',' '))} UTC.</small>`:'')).join('');
 }
 
-function skillEntriesShown(market){
+/* The loaded entries of the chosen source (or of every source) that match the words: everything
+   RAVIS listed, not only the page shown, so a skill on a later page is found as the words are typed. */
+function skillEntriesMatching(market){
  const s=SKILL_STORE,words=s.query.toLowerCase();
  return market.entries.filter(e=>(s.filter==='all'||e.source===s.filter)
   &&(!words||[e.name,e.description,e.lives_in].join(' ').toLowerCase().includes(words)));
+}
+
+/* Those the list shows: without the ones that can't be installed here (a link kept outside GitHub,
+   a website's entry that broke its index), whatever their source, unless the owner chose to see
+   them (owner decision, 15 September 2026). */
+function skillEntriesShown(market){
+ const matching=skillEntriesMatching(market);
+ return SKILL_STORE.showUnavailable?matching:matching.filter(e=>e.state!=='not_installable');
+}
+
+/* Whether skills.sh is searched from what is chosen: skills.sh alone, or every source while
+   skills.sh isn't hidden. */
+function skillSearchesHere(s){
+ const market=s.market,found=market&&market.live?market.sources.find(x=>x.id==='skills_sh'):null;
+ return Boolean(found&&!found.hidden&&(s.filter==='all'||s.filter==='skills_sh'));
+}
+
+/* Whether skills.sh is asked for these words now: it is searched here, they are long enough, no
+   question for them is already on its way, and the page doesn't hold their answer, unless the
+   owner asked again. */
+function skillSearchWanted(s,query,again){
+ const held=Boolean(s.results&&s.results.query===query&&s.results.answer);
+ return skillSearchesHere(s)&&query.length>=SKILL_SEARCH_LEAST&&!s.searching&&(again||!held);
+}
+
+/* What the page keeps of a search: its words, the number of the answer, and RAVIS's answer, or why
+   there is none in plain words (RAVIS's own refusal first, through `skillStoreRefusal`). */
+function skillSearchHeld(query,r,seq){
+ const answer=r.ok&&r.body&&Array.isArray(r.body.results)?r.body:null;
+ const refusal=answer?'':!r.status?"RAVIS didn't answer the search. Check the stack is running, then try again."
+  :r.ok?'RAVIS answered the search, but not with results this page can show.':skillStoreRefusal(r);
+ return{query,seq,answer,refusal};
+}
+
+/* Whether this browser chose to see the entries that can't be installed here: hidden when it never
+   chose, or when `localStorage` can't be read, as in a private window. */
+function skillUnavailableHeld(){
+ try{return localStorage.getItem(SKILL_UNAVAILABLE_KEY)==='shown'}catch(e){return false}
 }
 
 function skillLinksToResolve(market,asked){
@@ -6046,13 +6173,34 @@ function skillLinksToResolve(market,asked){
  return{source,links:waiting.filter(e=>e.source===source).slice(0,SKILL_RESOLVE_AT_ONCE).map(e=>e.link)};
 }
 
+/* skills.sh alone is its group; every source is the loaded entries, then skills.sh's group when it
+   isn't hidden; any other source is its entries alone. */
 function skillBrowseResults(market){
  const s=SKILL_STORE;
- if(s.filter==='skills_sh')return skillSearchResults(s.results);
- const shown=skillEntriesShown(market);
- const rows=shown.slice(0,s.shown).map(skillEntryRow).join('')||'<div class="table-row"><span class="dim">No skills to show here yet.</span></div>';
+ if(s.filter==='skills_sh')return skillSearchGroup();
+ const listed=skillListedEntries(market);
+ return s.filter==='all'&&skillSearchesHere(s)?listed+skillSearchGroup():listed;
+}
+
+/* The loaded entries shown, a page at a time, under the one line on those that can't be installed
+   here. */
+function skillListedEntries(market){
+ const s=SKILL_STORE,shown=skillEntriesShown(market);
+ const unavailable=skillEntriesMatching(market).filter(e=>e.state==='not_installable').length;
+ const empty=s.query?'No listed skill matches those words.':'No skills to show here yet.';
+ const rows=shown.slice(0,s.shown).map(skillEntryRow).join('')||`<div class="table-row"><span class="dim">${empty}</span></div>`;
  const more=shown.length>s.shown?`<button class="btn" onclick="SKILL_STORE.more()">Show more (${shown.length-s.shown} more)</button>`:'';
- return rows+more;
+ return skillUnavailableLine(unavailable)+rows+more;
+}
+
+/* The one quiet line on the entries that can't be installed here: how many match the source and the
+   words, whether they are hidden or shown, and the switch. Nothing when none match. */
+function skillUnavailableLine(count){
+ if(!count)return '';
+ const one=count===1,shown=SKILL_STORE.showUnavailable;
+ const said=`${count} skill${one?'':'s'} that can't be installed here ${one?'is':'are'} ${shown?'shown':'hidden'}.`;
+ const toggle=`${shown?'Hide':'Show'} ${one?'it':'them'}`;
+ return `<small class="dim" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0">${said}<button class="btn" onclick="SKILL_STORE.toggleUnavailable()">${toggle}</button></small>`;
 }
 
 function skillEntryRow(entry){
@@ -6079,13 +6227,30 @@ function skillEntryAction(entry){
  return `<button class="btn" onclick="SKILL_STORE.reviewEntry('${jsAttr(entry.id)}')">Review and install</button>`;
 }
 
-function skillSearchResults(found){
- const s=SKILL_STORE,note=skillLine('about','Uncurated, ranked by installs.');
- if(!found||typeof found!=='object')return note+'<div class="table-row"><span class="dim">Type what you are looking for, then press Search skills.sh.</span></div>';
- if(found.problem)return note+skillLine('skills.sh',`<span class="chip warn">problem</span> ${escapeHtml(String(found.problem))}`);
- const results=Array.isArray(found.results)?found.results:[];
- const rows=results.map((r,i)=>`<div class="table-row" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start"><span><b class="mono">${escapeHtml(String(r.name||''))}</b> ${r.installed===true?'<span class="chip">installed</span>':''}<small class="dim" style="display:block">From skills.sh; kept in ${escapeHtml(String(r.repository||''))} · ${escapeHtml(String(Number(r.installs)||0))} installs</small><small class="dim" style="display:block">Its description and license show in its review.</small></span><span>${r.installed===true||s.pending?'':`<button class="btn" onclick="SKILL_STORE.reviewResult(${i})">Review and install</button>`}</span></div>`).join('');
- return note+(rows||'<div class="table-row"><span class="dim">skills.sh found nothing for that.</span></div>');
+/* skills.sh's results in a group of their own, under its label (0.33.1): the hint while the words
+   are too short, a line while it is asked, RAVIS's refusal or skills.sh's own problem in plain
+   words, and each result, most installed first. */
+function skillSearchGroup(){
+ const label='<div style="margin:12px 0 4px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)"><b>From skills.sh, uncurated, ranked by installs</b></div>';
+ return label+skillSearchBody(SKILL_STORE);
+}
+
+function skillSearchBody(s){
+ const line=text=>`<div class="table-row"><span class="dim">${escapeHtml(text)}</span></div>`;
+ if(s.query.length<SKILL_SEARCH_LEAST)return line(SKILL_SEARCH_HINT);
+ if(s.searching&&s.searching.query===s.query)return line(`Searching skills.sh for “${s.query}”…`);
+ const held=s.results&&s.results.query===s.query?s.results:null;
+ if(!held)return line('skills.sh is asked when you stop typing, or press Enter.');
+ const problem=held.refusal||String(held.answer.problem||'');
+ if(problem)return skillLine('skills.sh',`<span class="chip warn">problem</span> ${escapeHtml(problem)}`);
+ return skillSearchRows(held);
+}
+
+/* Each result, its button carrying the number of the answer it came in (`reviewResult`). */
+function skillSearchRows(held){
+ const pending=SKILL_STORE.pending;
+ const rows=held.answer.results.map((r,i)=>`<div class="table-row" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start"><span><b class="mono">${escapeHtml(String(r&&r.name||''))}</b> ${r&&r.installed===true?'<span class="chip">installed</span>':''}<small class="dim" style="display:block">From skills.sh; kept in ${escapeHtml(String(r&&r.repository||''))} · ${escapeHtml(String(Number(r&&r.installs)||0))} installs</small><small class="dim" style="display:block">Its description and license show in its review.</small></span><span>${r&&r.installed===true||pending?'':`<button class="btn" onclick="SKILL_STORE.reviewResult(${i},${Number(held.seq)})">Review and install</button>`}</span></div>`).join('');
+ return rows||'<div class="table-row"><span class="dim">skills.sh found nothing for that.</span></div>';
 }
 
 /* ── Sources ── */

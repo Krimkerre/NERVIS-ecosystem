@@ -111,8 +111,8 @@ function element(id = "") {
    would otherwise share `localStorage` and the page's own module state between
    them — and a test that passes only when it runs second is worse than one
    that fails. */
-function makeContext({ fetchImpl } = {}) {
-const store = new Map();
+function makeContext({ fetchImpl, storage } = {}) {
+const store = new Map(Object.entries(storage || {}));
 const session = new Map();
 const elements = new Map();
 const context = {
@@ -274,8 +274,10 @@ vm.createContext(context);
  * the script ran. A second evaluation in the same context sees those bindings,
  * which is the supported way to reach them.
  */
-function loadPage({ fetchImpl } = {}) {
-  const context = makeContext({ fetchImpl });
+/* `storage` seeds `localStorage` before the script runs, for a check that a choice the page
+   remembered in an earlier visit is read back when the page loads. */
+function loadPage({ fetchImpl, storage } = {}) {
+  const context = makeContext({ fetchImpl, storage });
   try {
     vm.runInContext(script, context, { filename: "index.html", timeout: 10000 });
   } catch (failure) {

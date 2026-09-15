@@ -629,7 +629,14 @@ ComposioHQ/awesome-claude-skills, the VoltAgent/awesome-agent-skills link list (
 skills in other people's repositories), and skills.sh's search (uncurated, ranked by installs), plus
 any source you add: a GitHub repository, a link list, or a website that publishes an Agent Skills
 index. Pick a source, filter by words, and press **Review and install** on a skill: it gets the same
-review and arrives switched off. Lists are kept for a day; a link list's links are looked up as you
+review and arrives switched off. The words filter the whole list as you type, not only the page you
+see. With **All sources** chosen, skills.sh is searched too once you stop typing, or when you press
+Enter, and its results show in a group of their own, "From skills.sh, uncurated, ranked by installs".
+skills.sh needs a search of at least 2 letters: with fewer, the page says so and doesn't ask it.
+Skills that can't be installed here, such as links to skills kept outside GitHub, are hidden: a line
+says how many, and **Show them** brings them back, which this browser remembers. A big collection
+lists at most 300 skills, the ones at the top of its repository first, and says how many it left
+out. Lists are kept for a day; a link list's links are looked up as you
 look at them, and when GitHub is limiting how often RAVIS may ask, the page says when to try again.
 RAVIS's own sources can be hidden; the ones you added can be removed.
 

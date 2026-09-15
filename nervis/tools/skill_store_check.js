@@ -1,4 +1,5 @@
-/* NERVIS → Skills: installing, updating, removing and browsing skills (NERVIS 0.33.0, RAVIS 0.28.0).
+/* NERVIS → Skills: installing, updating, removing and browsing skills (NERVIS 0.33.0 and 0.33.1,
+ * RAVIS 0.28.0 and 0.28.1).
  *
  * The owner's decisions of 15 September 2026: a skill installs from a GitHub link or a zip file, and
  * never before a review; it arrives switched off; an installed skill can be updated, after reviewing
@@ -20,7 +21,14 @@
  *   4. **Browse** reads the marketplace, reads stale sources once, marks openai deprecated by its
  *      owner and lists uncurated, shows license and an installed badge, looks the shown link-list
  *      entries up once each, never fetches a link kept outside GitHub, and **Review and install**
- *      sends the entry's own install body; skills.sh is searched only when asked.
+ *      sends the entry's own install body. **Since 0.33.1**, from what the owner found using it:
+ *      skills.sh is searched with every source chosen as well as alone, 600 ms after typing stops or
+ *      at once on Enter, never under two letters (the page says so), a question overtaken by newer
+ *      words cancelled and its answer dropped, its results in their own labelled group after the
+ *      listed entries, refusals in plain words, and asked again after an install for its badges;
+ *      entries that can't be installed here are hidden, from any source, with one line and a switch
+ *      this browser remembers; and the words filter every loaded entry as they are typed, after a
+ *      short wait, keeping the box's focus and caret across a redraw.
  *   5. **Sources**: adding a GitHub repository or a website sends only what the form holds; RAVIS's
  *      own sources can be hidden, not removed; removing the owner's own takes two clicks.
  *   6. **Every refusal is said plainly**, RAVIS's own words first.
@@ -111,7 +119,7 @@ const STORE_ROOT = "/api/v1/ravis/skills/";
 /* RAVIS behind NERVIS: the three relayed reads, and `control(route, body)` for every POST to the
    skill store's control routes. Every control call is kept in `sent`, every request in `requests`. */
 function world({ installs = () => answer(200, installsBody()), market = () => answer(200, marketBody()),
-                 control = () => answer(500, {}) } = {}) {
+                 control = () => answer(500, {}), storage } = {}) {
   const ravis = { boardReads: 0, installReads: 0, marketReads: 0 };
   const sent = [];
   const requests = [];
@@ -129,11 +137,11 @@ function world({ installs = () => answer(200, installsBody()), market = () => an
       const body = json ? JSON.parse(init.body) : init.body;
       const route = address.slice(at + STORE_ROOT.length);
       sent.push({ route, headers, body });
-      return control(route, body);
+      return control(route, body, init);
     }
     return failing();
   };
-  const loaded = loadPage({ fetchImpl });
+  const loaded = loadPage({ fetchImpl, storage });
   vm.runInContext("stopPolling()", loaded.context);
   loaded.context.confirm = () => {
     failures.push("the skill store called confirm(), which a browser can mute for good.");
@@ -143,11 +151,31 @@ function world({ installs = () => answer(200, installsBody()), market = () => an
 }
 
 /* A control answer per route, and 500 for anything a check didn't expect. */
-const routes = (table) => (route) => (route in table ? table[route]() : answer(500, {}));
+const routes = (table) => (route, body, init) => (route in table ? table[route](body, init) : answer(500, {}));
 
 const run = (page, code) => vm.runInContext(code, page.context);
 const settle = () => new Promise((done) => setTimeout(done, 30));
 const quiet = () => new Promise((done) => setTimeout(done, 250));
+const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+
+/* A control route answering after `ms`, or failing the way a browser does when the page cancels the
+   call; each cancelled body is kept in `cancelled`. */
+function slowly(ms, reply, cancelled = []) {
+  return (body, init = {}) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(reply(body)), ms);
+    if (!init.signal) return;
+    init.signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      cancelled.push(body);
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+    });
+  });
+}
+
+/* skills.sh's answer through RAVIS for whatever was asked: the contract's example, its one result
+   renamed after the words, so a check can tell which question an answer on the page belongs to. */
+const searchAnswer = (body) => answer(200, { ...copy(SEARCH), query: body.query,
+  results: [{ ...copy(SEARCH.results[0]), name: `${body.query}-result` }] });
 
 async function drawPage(options) {
   const page = world(options);
@@ -307,8 +335,9 @@ async function browseListsTheMarketplace() {
   words("Browse", html, ["Browse skills", "All sources", "openai/skills — deprecated by its owner",
     "VoltAgent/awesome-agent-skills — uncurated", "skills.sh — uncurated", "pdf", MARKET.entries[0].description,
     "License: Proprietary. LICENSE.txt has complete terms", "gh-fix", "curated", "installed", "code-review",
-    "From VoltAgent/awesome-agent-skills; kept in getsentry/skills", "Hosted elsewhere", "not installable here",
-    "Review and install", "Whatever you install from here arrives switched off, after its review."]);
+    "From VoltAgent/awesome-agent-skills; kept in getsentry/skills", "1 skill that can't be installed here is hidden.",
+    "Review and install", "Whatever you install from here arrives switched off, after its review.",
+    "From skills.sh, uncurated, ranked by installs", HINT], ["Hosted elsewhere", "not installable here"]);
   const buttons = (html.match(/SKILL_STORE\.reviewEntry\(/g) || []).length;
   if (buttons !== 2) failures.push(`Browse offered Review and install ${buttons} times, not for the two installable entries alone.`);
 
@@ -326,20 +355,173 @@ async function browseListsTheMarketplace() {
 
   type(page, "#skillQuery", "gh-fix");
   await run(page, "SKILL_STORE.search()");
+  await settle();
   words("filtered by words", contentOf(page), ["gh-fix"], ["code-review", "Hosted elsewhere"]);
+  same("Enter with every source chosen searches skills.sh too", sentTo(page, "market/search").map((call) => call.body), [{ query: "gh-fix" }]);
 
   await run(page, "SKILL_STORE.filterBy('skills_sh')");
-  words("skills.sh before a search", contentOf(page), ["Uncurated, ranked by installs.", "Search skills.sh"]);
-  if (sentTo(page, "market/search").length) failures.push("choosing skills.sh searched before being asked.");
+  await settle();
+  words("skills.sh alone", contentOf(page), [GROUP, "Search skills.sh"], ["Uncurated, ranked by installs."]);
+  if (sentTo(page, "market/search").length !== 1) failures.push("choosing skills.sh asked it again for words whose answer the page holds.");
   type(page, "#skillQuery", "pdf");
   await run(page, "SKILL_STORE.search()");
   await settle();
-  same("the search", sentTo(page, "market/search").map((call) => call.body), [{ query: "pdf" }]);
+  same("the search", sentTo(page, "market/search").map((call) => call.body).slice(-1), [{ query: "pdf" }]);
   words("skills.sh's results", contentOf(page), ["196349 installs", "From skills.sh; kept in anthropics/skills",
     "Its description and license show in its review."]);
-  await run(page, "SKILL_STORE.reviewResult(0)");
+  const answered = run(page, "SKILL_STORE.results.seq");
+  await run(page, `SKILL_STORE.reviewResult(0,${answered - 1})`);
+  await settle();
+  if (sentTo(page, "previews").length !== 1) failures.push("a result's button from an earlier answer reviewed the result now in its place.");
+  await run(page, `SKILL_STORE.reviewResult(0,${answered})`);
   await settle();
   same("a result's review", sentTo(page, "previews").map((call) => call.body).slice(-1), [SEARCH.results[0].install]);
+  const searches = sentTo(page, "market/search").length;
+  await run(page, `SKILL_STORE.confirm(${JSON.stringify(REVIEW.preview_id)})`);
+  await settle();
+  if (sentTo(page, "market/search").length !== searches + 1) failures.push("after Install, skills.sh's answer wasn't asked for again, so its installed badges stay old.");
+}
+
+const HINT = "skills.sh needs a search of at least 2 letters.";
+const GROUP = "From skills.sh, uncurated, ranked by installs";
+
+/* 4b — skills.sh as the owner types (NERVIS 0.33.1): the hint under two letters and nothing sent,
+   a search 600 ms after typing stops or at once on Enter, a question overtaken by newer words
+   cancelled and its answer never shown, the same words never asked twice, the results in their own
+   group after the listed entries, and every refusal in plain words. */
+async function skillsShIsSearchedAsTheOwnerTypes() {
+  const cancelled = [];
+  let reply = searchAnswer;
+  const page = await drawPage({ market: () => answer(200, marketBody({ stale: false })), control: routes({
+    "market/resolve": () => answer(200, { ...marketBody({ stale: false }), note: null }),
+    /* Every answer takes 800 ms and the one to be overtaken 3 s, so each check below has a few
+       hundred milliseconds either side of the page's own waits, even on a busy machine. */
+    "market/search": (body, init) => slowly(body.query === "cha" ? 3000 : 800, (asked) => reply(asked), cancelled)(body, init) }) });
+  await run(page, "SKILL_STORE.toggleBrowse()");
+  await settle();
+  const typing = async (value, ms) => { type(page, "#skillQuery", value); run(page, "SKILL_STORE.typed()"); await wait(ms); };
+  const asked = () => sentTo(page, "market/search").map((call) => call.body.query);
+
+  words("no words, every source", contentOf(page), [HINT, GROUP, "Filter and search skills.sh"]);
+  await typing("c", 700);
+  words("one letter", contentOf(page), [HINT]);
+  await run(page, "SKILL_STORE.search()");
+  await settle();
+  if (asked().length) failures.push(`skills.sh was asked for fewer than two letters: ${JSON.stringify(asked())}.`);
+
+  await typing("ch", 300);
+  await typing("cha", 400);
+  if (asked().length) failures.push("skills.sh was asked before typing had stopped for 600 ms.");
+  await wait(500);
+  same("asked once typing stopped", asked(), ["cha"]);
+  words("while asking", contentOf(page), ["Searching skills.sh for “cha”…"]);
+
+  await typing("chan", 900);
+  same("newer words asked", asked(), ["cha", "chan"]);
+  same("the question they overtook cancelled", cancelled.map((body) => body.query), ["cha"]);
+  words("the newer question on its way", contentOf(page), ["Searching skills.sh for “chan”…"], ["cha-result"]);
+  await wait(900);
+  words("the newer answer", contentOf(page), ["chan-result", GROUP], ["cha-result", "Searching skills.sh"]);
+
+  type(page, "#skillQuery", "pdf");
+  await run(page, "SKILL_STORE.search()");
+  await settle();
+  same("Enter asks at once", asked(), ["cha", "chan", "pdf"]);
+  const grouped = readable(contentOf(page));
+  const listedAt = grouped.indexOf(MARKET.entries[0].description), groupAt = grouped.indexOf(GROUP);
+  if (!(listedAt >= 0 && listedAt < groupAt && groupAt < grouped.indexOf("pdf-result"))) {
+    failures.push("skills.sh's results aren't in a group of their own after the listed entries.");
+  }
+  await typing("pdf", 700);
+  same("the same words not asked again", asked(), ["cha", "chan", "pdf"]);
+
+  reply = () => answer(200, { ...copy(SEARCH), results: [], problem: "skills.sh refused the search: Query must be at least 2 characters." });
+  await typing("docs", 1800);
+  words("skills.sh's own refusal", contentOf(page), ["skills.sh refused the search: Query must be at least 2 characters."]);
+  reply = () => answer(404, { error: { code: "MARKET_SOURCE_NOT_FOUND", message: "There is no source skills_sh in the list." } });
+  await typing("docx", 1800);
+  words("RAVIS's refusal", contentOf(page), ["There is no source skills_sh in the list."]);
+  reply = failing;
+  await typing("xlsx", 1800);
+  words("no answer", contentOf(page), ["RAVIS didn't answer the search. Check the stack is running, then try again."]);
+
+  await run(page, "SKILL_STORE.filterBy('skills_sh')");
+  await typing("x", 700);
+  const before = asked().length;
+  await run(page, "SKILL_STORE.search()");
+  await settle();
+  words("skills.sh alone, one letter", contentOf(page), [HINT, GROUP, "Search skills.sh"]);
+  if (asked().length !== before) failures.push("skills.sh chosen alone was asked for one letter.");
+}
+
+/* 4c — entries that can't be installed here, from any source: hidden, with one quiet line saying
+   how many, and a Show them switch this browser remembers for its next visit. */
+async function notInstallableEntriesAreHidden() {
+  const market = marketBody({ stale: false });
+  market.sources.push({ ...copy(market.sources[4]), id: "own-site", label: "example.com", kind: "website", site: "https://example.com" });
+  market.entries.push({ ...copy(market.entries[3]), id: "own-site:broken", source: "own-site", name: "Broken index entry",
+    description: "A website's skill whose index entry breaks the standard.", lives_in: "example.com",
+    link: "https://example.com/broken", problem: "Its digest doesn't match its index." });
+  const control = routes({ "market/resolve": () => answer(200, { ...market, note: null }) });
+  const page = await drawPage({ market: () => answer(200, market), control });
+  await run(page, "SKILL_STORE.toggleBrowse()");
+  await settle();
+  words("hidden at first", contentOf(page), ["2 skills that can't be installed here are hidden.", "Show them"],
+    ["Hosted elsewhere", "Broken index entry", "not installable here"]);
+  run(page, "SKILL_STORE.toggleUnavailable()");
+  words("Show them", contentOf(page), ["Hosted elsewhere", "Broken index entry", "not installable here",
+    "2 skills that can't be installed here are shown.", "Hide them"]);
+  const key = run(page, "SKILL_UNAVAILABLE_KEY");
+  if (run(page, `localStorage.getItem(${JSON.stringify(key)})`) !== "shown") failures.push("Show them wasn't remembered in this browser.");
+  await run(page, "SKILL_STORE.filterBy('own-site')");
+  words("one source's", contentOf(page), ["1 skill that can't be installed here is shown.", "Hide it", "Broken index entry"], ["Hosted elsewhere"]);
+  run(page, "SKILL_STORE.toggleUnavailable()");
+  words("Hide it", contentOf(page), ["1 skill that can't be installed here is hidden.", "Show it"], ["Broken index entry"]);
+  if (run(page, `localStorage.getItem(${JSON.stringify(key)})`) !== "hidden") failures.push("Hide them wasn't remembered in this browser.");
+
+  const later = await drawPage({ market: () => answer(200, market), control, storage: { [key]: "shown" } });
+  await run(later, "SKILL_STORE.toggleBrowse()");
+  await settle();
+  words("a later visit", contentOf(later), ["2 skills that can't be installed here are shown.", "Hosted elsewhere"]);
+}
+
+/* 4d — the words filter every loaded entry as they are typed, not only the page shown, after a
+   short wait; skills.sh hidden is neither asked nor mentioned; and a redraw keeps the words box's
+   focus and caret, or a word typed into it would stop at the first redraw. */
+async function theFilterFindsEntriesOnLaterPages() {
+  const market = marketBody({ stale: false });
+  const base = market.entries[0];
+  const filler = Array.from({ length: 45 }, (_, i) => ({ ...copy(base), id: `anthropics::anthropics/skills/skills/filler-${i}`,
+    name: `filler-${String(i).padStart(2, "0")}`, description: "Does one thing well.", license: null, installed: false }));
+  const wanted = { ...copy(base), id: "anthropics::anthropics/skills/skills/changelog-generator", name: "changelog-generator",
+    description: "Writes a changelog from commits.", license: null, installed: false };
+  market.entries = [...filler, wanted, ...market.entries];
+  market.sources[3] = { ...market.sources[3], hidden: true };
+  const page = await drawPage({ market: () => answer(200, market), control: routes({
+    "market/resolve": () => answer(200, { ...market, note: null }), "market/search": () => answer(200, SEARCH) }) });
+  await run(page, "SKILL_STORE.toggleBrowse()");
+  await settle();
+  words("the first page", contentOf(page), ["filler-00", "Show more (", "Filter"], ["changelog-generator", HINT, GROUP]);
+
+  type(page, "#skillQuery", "changelog");
+  run(page, "SKILL_STORE.typed()");
+  words("before the filter's wait", contentOf(page), ["filler-00"], ["changelog-generator"]);
+  await wait(550);
+  words("filtered as typed", contentOf(page), ["changelog-generator"], ["filler-00", "Show more ("]);
+  await wait(400);
+  if (sentTo(page, "market/search").length) failures.push("skills.sh was asked while it is hidden.");
+
+  const box = { id: "skillQuery", tagName: "INPUT", selectionStart: 4, selectionEnd: 9, focused: false, range: null,
+    focus() { this.focused = true; }, setSelectionRange(start, end) { this.range = [start, end]; } };
+  const document = page.context.document, byId = document.getElementById;
+  document.activeElement = box;
+  document.getElementById = (id) => (id === "skillQuery" ? box : byId(id));
+  run(page, "SKILLS_PAGE.draw()");
+  document.getElementById = byId;
+  document.activeElement = null;
+  if (!box.focused || JSON.stringify(box.range) !== "[4,9]") {
+    failures.push("a redraw of the Skills page dropped the words box's focus or caret, so the rest of a word typed into the filter would go nowhere.");
+  }
 }
 
 /* 5 — adding, hiding and removing sources. */
@@ -418,7 +600,9 @@ async function nothingRavisSendsInjects() {
   installs.installs[0] = { ...installs.installs[0], name: evil, source: { origin: "github", repository: evil, commit: evil } };
   const page = await drawPage({ installs: () => answer(200, installs), market: () => answer(200, market),
     control: routes({ previews: () => answer(200, review),
-      "market/search": () => answer(200, { ...copy(SEARCH), results: [{ ...copy(SEARCH.results[0]), name: evil, repository: evil }] }) }) });
+      "market/search": (body) => answer(200, body.query === "pdf"
+        ? { ...copy(SEARCH), results: [{ ...copy(SEARCH.results[0]), name: evil, repository: evil, installs: evil }] }
+        : { ...copy(SEARCH), results: [], problem: evil }) }) });
   type(page, "#skillLink", "https://github.com/o/r");
   await run(page, "SKILL_STORE.reviewLink()");
   await run(page, "SKILL_STORE.toggleBrowse()");
@@ -429,8 +613,13 @@ async function nothingRavisSendsInjects() {
   await run(page, "SKILL_STORE.search()");
   await settle();
   html += contentOf(page);
+  await run(page, "SKILL_STORE.filterBy('all')");
+  type(page, "#skillQuery", "docs");
+  await run(page, "SKILL_STORE.search()");
+  await settle();
+  html += contentOf(page);
   if (html.includes("<img")) failures.push("markup RAVIS sent reached the Skills page unescaped.");
-  for (const [, handler] of html.matchAll(/on(?:click|change)="([^"]*)"/g)) {
+  for (const [, handler] of html.matchAll(/on(?:click|change|input|keydown)="([^"]*)"/g)) {
     const code = readable(handler);
     try {
       new vm.Script(code);
@@ -447,6 +636,9 @@ async function main() {
   await aZipIsSentAsItsOwnBytes();
   await anInstalledSkillCanBeUpdatedOrRemoved();
   await browseListsTheMarketplace();
+  await skillsShIsSearchedAsTheOwnerTypes();
+  await notInstallableEntriesAreHidden();
+  await theFilterFindsEntriesOnLaterPages();
   await sourcesAreAddedHiddenAndRemoved();
   await everyRefusalIsSaidPlainly();
   await nothingRavisSendsInjects();
@@ -464,8 +656,11 @@ async function main() {
     "id; a zip over 8 MB is never sent; an installed skill shows where it came from with Update…, reviewed " +
     "first, and Remove…, two clicks to the Trash and never confirm(); Browse reads stale sources once, marks " +
     "openai deprecated and lists uncurated, looks shown links up once each and never one kept elsewhere, and " +
-    "sends each entry's own install body; skills.sh is searched only when asked; sources are added, hidden " +
-    "and removed as asked; refusals are said plainly; and nothing RAVIS sends injects"
+    "sends each entry's own install body; skills.sh is searched with every source or alone, 600 ms after " +
+    "typing stops or on Enter, never under two letters, a stale question cancelled and its answer dropped, in a " +
+    "labelled group of its own; entries that can't be installed here are hidden behind a remembered switch; the " +
+    "words filter every loaded entry as they are typed and a redraw keeps the box's focus; sources are added, " +
+    "hidden and removed as asked; refusals are said plainly; and nothing RAVIS sends injects"
   );
 }
 

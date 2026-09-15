@@ -652,8 +652,18 @@ name, description, source (and the repository a link-list entry is kept in), lic
 as *curated* or *experimental*, an *installed* badge, and **Review and install**, which sends the
 entry's own `install` body. The source filter marks openai/skills *deprecated by its owner* and link
 lists and skills.sh *uncurated*; a words filter narrows the list; the link-list entries shown are
-looked up as they are shown, ten at a time and each once; an entry kept outside GitHub is *not
-installable here*; skills.sh is searched only when asked, most installed first. The **Sources** card
+looked up as they are shown, ten at a time and each once. **Since 0.33.1**, from what the owner found
+using it on 15 September 2026: the words filter follows the typing (250 ms after the last key) across
+every loaded entry of the chosen sources rather than the page shown, and a redraw keeps the box's
+focus and caret. An entry that can't be installed here, such as one kept outside GitHub, is hidden
+whatever its source, under one line saying how many with a *Show them* switch this browser remembers
+in `localStorage` (owner decision, the same day). skills.sh is searched with *All sources* chosen as
+well as on its own: 600 ms after typing stops, or at once on Enter, never under 2 letters, which it
+refuses (the page says *skills.sh needs a search of at least 2 letters.*), its results most installed
+first in a group of their own under *From skills.sh, uncurated, ranked by installs*. A question
+overtaken by newer words is cancelled, an answer arriving after a newer question is dropped, RAVIS's
+refusal or skills.sh's own is said in plain words, and after an install the same words are asked
+again, which RAVIS answers from the five minutes it keeps them, for the installed badges. The **Sources** card
 lists every source with Hide or Show, a two-click Remove… for the owner's own alone, and a form adding
 a GitHub repository (optional folder, branch or tag), a link list, or a *Website with an Agent Skills
 index (agentskills.io standard)*. Every call is a POST to NERVIS's control routes under
