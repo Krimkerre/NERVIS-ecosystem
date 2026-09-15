@@ -3159,6 +3159,32 @@ const API={
    }catch(e){return{live:false,status:0,relayed:null,error:null}}
   },
 
+  /* GET /api/v1/skills/installs — the skills RAVIS installed into NERVIS's folder, each with where it
+     came from, when, and whether its folder is still as installed (RAVIS 0.28.0). Through the relay,
+     outside `live()`, like the list of skills; RAVIS fetches nothing for it. */
+  async skillInstalls(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/skills/installs',{signal:AbortSignal.timeout(SKILLS_READ_MS)});
+    const body=await r.json().catch(()=>null);
+    const installs=skillInstallsOf(body);
+    if(r.ok&&installs)return installs;
+    return{live:false,status:r.status,relayed:r.headers.get('x-nervis-relay'),error:(body&&body.error)||null};
+   }catch(e){return{live:false,status:0,relayed:null,error:null}}
+  },
+
+  /* GET /api/v1/skills/market — the marketplace's sources and what their last reading listed
+     (RAVIS 0.28.0). Answered from RAVIS's cache, never fetched on this read: reading the sources
+     again, looking links up and searching are the page's own POSTs. */
+  async skillMarket(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/skills/market',{signal:AbortSignal.timeout(SKILLS_READ_MS)});
+    const body=await r.json().catch(()=>null);
+    const market=skillMarketOf(body);
+    if(r.ok&&market)return market;
+    return{live:false,status:r.status,relayed:r.headers.get('x-nervis-relay'),error:(body&&body.error)||null};
+   }catch(e){return{live:false,status:0,relayed:null,error:null}}
+  },
+
   /* GET /api/v1/models — RAVIS's own view of the candidates, capability-evidenced
      per RAVIS.md §15.1. This is not a copy of SIRVIS's model list: it carries what
      RAVIS needs to decide eligibility, and for tools that means three fields
@@ -5413,7 +5439,7 @@ function skillsBoard(body){
 async function skillsView(){
  heading('Skills',"Which skills Codex, and the other models — Clarvis's own engine and NERVIS chat — may use.");
  SKILLS_PAGE.note='';
- SKILLS_PAGE.board=await API.ravis.skills();
+ [SKILLS_PAGE.board,SKILL_STORE.installs]=await Promise.all([API.ravis.skills(),API.ravis.skillInstalls()]);
  SKILLS_PAGE.draw();
 }
 
@@ -5439,7 +5465,7 @@ const SKILLS_PAGE={
   this.draw();
  },
 
- async redraw(){this.board=await API.ravis.skills();this.draw()},
+ async redraw(){[this.board,SKILL_STORE.installs]=await Promise.all([API.ravis.skills(),API.ravis.skillInstalls()]);this.draw()},
 };
 
 /* The skill a click names, when the page offered that engine's switch for it; else null. */
@@ -5451,7 +5477,8 @@ function skillOffered(board,path,engine){
 
 function skillsPage(board,busy,note){
  if(!board||!board.live)return `<div class="card full${liveClass(Boolean(board&&board.live))}"><h3>Skills</h3>${cell(`<div class="trace-step"><b>status</b><span>${escapeHtml(skillsUnread(board||{}))}</span></div>`,'ravis')}</div>`;
- return skillsIntro(board,note)+SKILL_SOURCES.map(([source,title])=>skillsGroup(board,source,title,busy)).join('');
+ return skillsIntro(board,note)+skillReviewCard(SKILL_STORE.review)+skillInstallCard()+skillBrowseCard()
+  +SKILL_SOURCES.map(([source,title])=>skillsGroup(board,source,title,busy)).join('');
 }
 
 function skillsIntro(board,note){
@@ -5485,7 +5512,7 @@ function skillRow(board,skill,busy){
  const description=typeof skill.description==='string'&&skill.description?`<small class="dim" style="display:block">${escapeHtml(skill.description)}</small>`:'';
  const problem=typeof skill.problem==='string'&&skill.problem?`<small style="display:block"><span class="chip warn">not usable by other models</span> ${escapeHtml(skill.problem)}</small>`:'';
  const switches=SKILL_ENGINES.map(([engine,label])=>skillSwitch(board,skill,engine,label,busy)).join('');
- return `<div class="table-row skill" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:start"><span><span class="mono"><b>${escapeHtml(name)}</b></span>${description}<small class="mono dim" style="display:block">${escapeHtml(skill.path)}</small>${problem}</span><span>${switches}</span></div>`;
+ return `<div class="table-row skill" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:start"><span><span class="mono"><b>${escapeHtml(name)}</b></span>${description}<small class="mono dim" style="display:block">${escapeHtml(skill.path)}</small>${problem}${skill.source==='nervis'?skillInstalledLine(skill):''}</span><span>${switches}</span></div>`;
 }
 
 function skillSwitch(board,skill,engine,label,busy){
@@ -5539,6 +5566,554 @@ function skillRefusal(status,said,name,engine,enabled){
  if(error.code==='CODEX_RUNTIME_UNAVAILABLE')return `Codex isn't running, so ${stays}. Switch it again once Codex runs.`;
  if((status===404||status===405)&&!error.code)return "This NERVIS or RAVIS doesn't offer these switches yet: NERVIS 0.32.0 and RAVIS 0.27.0 do. Restart the stack on them.";
  return codexCardRefusal(status,said,'Look at the list again before switching it once more.');
+}
+
+/* ── NERVIS → Skills, 0.33.0: install, update, remove, and browse (RAVIS 0.28.0) ─────────────────
+
+   The owner's decisions of 15 September 2026, against RAVIS's skill store
+   (`ravis/tests/fixtures/skill-store/contract.json`):
+
+   **Install skill…** takes a GitHub link to a skill's folder or a zip file, and **nothing is
+   installed before its review**: RAVIS fetches or unpacks the skill, checks it against the Agent
+   Skills specification (agentskills.io) and its own rules, and the page shows the name, description,
+   license, the files with scripts flagged, and SKILL.md as text — escaped, never rendered. A plain
+   line says it arrives switched off; **Install** confirms. **An installed skill arrives switched off**
+   for Codex and for the other models, so the owner switches it on below once it is read; a skill
+   copied into the folder by hand still starts on, as before.
+
+   **Each installed skill** in NERVIS's folder says where it came from, the commit and when, with
+   **Update…** — the changes reviewed first, both switches going off when SKILL.md or a script
+   changed, as RAVIS says — and **Remove…**, two clicks and never confirm(), which moves its folder to
+   the Trash. A zip install updates from a new zip file.
+
+   **Browse** lists RAVIS's cached marketplace: a source filter (openai marked deprecated by its
+   owner, lists and skills.sh uncurated), a filter by words, results with name, description, source,
+   license and an installed badge, and **Review and install**, which sends RAVIS the entry's own
+   `install` body. Stale sources are read again once per opening; the link-list entries shown are
+   looked up as they are shown, ten at a time and each once; skills.sh is searched only when asked.
+   The owner adds a GitHub repository, a link list or a website with an Agent Skills index, hides
+   RAVIS's own sources, and removes their own.
+
+   **Every handler carries only an id or a name the page itself drew**; what is sent comes from the
+   page's own state, so nothing RAVIS sent reaches a request body by way of the markup. Every call is
+   one POST to NERVIS's control routes, `/api/v1/ravis/skills/…`; RAVIS's refusals are its own words,
+   which it writes for the owner. */
+
+/* The largest zip file RAVIS installs from (`contract.json` → `limits.archive_bytes`). */
+const SKILL_ZIP_BYTES=8*1024*1024;
+/* How many marketplace results show at once, and how many links one look-up asks RAVIS for. */
+const SKILL_BROWSE_PAGE=30;
+const SKILL_RESOLVE_AT_ONCE=10;
+const SKILL_SPEC_LINE='Checked against the Agent Skills specification at agentskills.io.';
+/* What each kind of file is, in the review's words (`Preview.files[].kind`). */
+const SKILL_FILE_KINDS={skill_md:'instructions',script:'script — Codex could run it',text:'text',binary:'binary'};
+/* The sources the owner can add, and every kind a source can be, in the page's words. */
+const SKILL_ADDABLE=[['github','GitHub repository'],['link_list','Link list (a Markdown file of links)'],
+ ['website','Website with an Agent Skills index (agentskills.io standard)']];
+const SKILL_SOURCE_KIND_WORDS={github:'GitHub repository',link_list:'Link list',search:'Search',
+ website:'Website with an Agent Skills index (agentskills.io standard)'};
+
+const SKILL_STORE={
+ installs:null,market:null,review:null,pending:'',note:'',
+ installing:false,updatingZip:null,removing:null,
+ browsing:false,filter:'all',query:'',shown:SKILL_BROWSE_PAGE,results:null,asked:new Set(),
+ refreshed:false,addKind:'github',removingSource:null,
+
+ draw(){SKILLS_PAGE.draw()},
+
+ /* One call, the page saying what it is doing until RAVIS answers; RAVIS's refusal in words. */
+ async act(doing,call){
+  if(this.pending)return null;
+  this.pending=doing;this.note='';this.draw();
+  const r=await call();
+  this.pending='';
+  if(!r.ok)this.note=skillStoreRefusal(r);
+  return r.ok?r:null;
+ },
+
+ openInstall(){this.installing=true;this.draw()},
+ closeInstall(){this.installing=false;this.updatingZip=null;this.draw()},
+
+ async reviewLink(){
+  const link=skillInput('#skillLink');
+  if(!link){this.note='Paste a GitHub link to a skill folder first.';return this.draw()}
+  await this.openReview('Fetching and checking the skill…',()=>skillStoreControl('previews',{origin:'github',url:link}));
+ },
+
+ async reviewZip(input){
+  const file=input&&input.files&&input.files[0];
+  if(!file||this.pending)return;
+  if(file.size>SKILL_ZIP_BYTES){this.note=`${file.name} is larger than 8 MB, more than RAVIS installs from.`;return this.draw()}
+  await this.openReview('Unpacking and checking the zip file…',()=>skillZipControl(file));
+ },
+
+ async openReview(doing,call){
+  const r=await this.act(doing,call);
+  if(r)this.showReview(r.body);
+  this.draw();
+ },
+
+ /* A review RAVIS made: shown, replacing any other (whose staging RAVIS is told to drop). A zip
+    chosen to update one skill must be that skill's update, or nothing is shown. */
+ showReview(body){
+  const expected=this.updatingZip,review=skillReviewOf(body);
+  this.updatingZip=null;
+  if(this.review)skillStoreControl('previews/discard',{preview_id:this.review.preview_id});
+  if(review&&expected&&(review.kind!=='update'||review.name!==expected)){
+   this.note=`That zip file holds ${review.name}, not an update of ${expected}, so nothing was changed.`;
+   this.review=null;
+   return skillStoreControl('previews/discard',{preview_id:review.preview_id});
+  }
+  this.review=review;
+  this.installing=false;
+  if(!review)this.note="RAVIS answered, but not with a review this page can show.";
+ },
+
+ async cancelReview(){
+  const review=this.review;
+  this.review=null;this.note='Nothing was installed.';this.draw();
+  if(review)await skillStoreControl('previews/discard',{preview_id:review.preview_id});
+ },
+
+ async confirm(previewId){
+  const review=this.review;
+  if(!review||review.preview_id!==String(previewId))return;
+  const doing=review.kind==='update'?`Updating ${review.name}…`:`Installing ${review.name}…`;
+  const r=await this.act(doing,()=>skillStoreControl('installs',{preview_id:review.preview_id}));
+  if(r){this.review=null;this.note=skillConfirmed(review,r.body)}
+  await this.reread();
+ },
+
+ async update(name){
+  const install=skillInstallNamed(name);
+  if(!install||this.pending)return;
+  if(install.source&&install.source.origin==='zip'){
+   this.updatingZip=install.name;this.installing=true;
+   this.note=`Choose the new zip file of ${install.name}: its review shows what changed.`;
+   return this.draw();
+  }
+  const r=await this.act(`Looking for an update of ${install.name}…`,()=>skillStoreControl('installs/update-preview',{name:install.name}));
+  if(r&&r.body.up_to_date===true)this.note=`${install.name} is up to date with where it came from.`;
+  else if(r)this.showReview(r.body);
+  this.draw();
+ },
+
+ askRemove(name){if(skillInstallNamed(name)){this.removing=String(name);this.draw()}},
+ keep(){this.removing=null;this.draw()},
+
+ async remove(name){
+  const install=skillInstallNamed(name);
+  if(!install||this.removing!==install.name)return;
+  this.removing=null;
+  const r=await this.act(`Moving ${install.name} to the Trash…`,()=>skillStoreControl('installs/remove',{name:install.name}));
+  if(r)this.note=skillRemoved(install.name,r.body);
+  await this.reread();
+ },
+
+ async reread(){
+  [SKILLS_PAGE.board,this.installs]=await Promise.all([API.ravis.skills(),API.ravis.skillInstalls()]);
+  if(this.browsing)this.market=await API.ravis.skillMarket();
+  this.draw();
+ },
+
+ async toggleBrowse(){
+  this.browsing=!this.browsing;this.draw();
+  if(!this.browsing)return;
+  this.market=await API.ravis.skillMarket();this.draw();
+  const market=this.market;
+  if(!this.refreshed&&market.live&&market.sources.some(s=>s.stale&&!s.hidden)){
+   this.refreshed=true;
+   await this.marketCall('Reading the sources…',()=>skillStoreControl('market/refresh',{}));
+  }
+  await this.resolveShown();
+ },
+
+ async refresh(){
+  await this.marketCall('Reading every source again…',()=>skillStoreControl('market/refresh',{force:true}));
+  await this.resolveShown();
+ },
+
+ /* A marketplace call whose answer is the marketplace: kept, and its note said. */
+ async marketCall(doing,call){
+  const r=await this.act(doing,call);
+  const market=r?skillMarketOf(r.body):null;
+  if(market)this.market=market;
+  if(r&&typeof r.body.note==='string'&&r.body.note)this.note=r.body.note;
+  this.draw();
+  return market;
+ },
+
+ /* The link-list entries shown and not yet looked up: asked for once each, ten at a time, stopping
+    when RAVIS says why it stopped. */
+ async resolveShown(){
+  const market=this.market;
+  if(!this.browsing||!market||!market.live||this.filter==='skills_sh'||this.pending)return;
+  const ask=skillLinksToResolve(market,this.asked);
+  if(!ask)return;
+  ask.links.forEach(link=>this.asked.add(link));
+  const resolved=await this.marketCall('Looking up the links shown…',()=>skillStoreControl('market/resolve',ask));
+  if(resolved&&!this.note)await this.resolveShown();
+ },
+
+ async filterBy(value){
+  this.filter=String(value);this.shown=SKILL_BROWSE_PAGE;this.results=null;this.query=skillInput('#skillQuery');
+  this.draw();
+  await this.resolveShown();
+ },
+
+ async search(){
+  this.query=skillInput('#skillQuery');this.shown=SKILL_BROWSE_PAGE;
+  if(this.filter!=='skills_sh'){this.draw();return this.resolveShown()}
+  if(!this.query){this.note='Type what you are looking for first.';return this.draw()}
+  const r=await this.act('Searching skills.sh…',()=>skillStoreControl('market/search',{query:this.query}));
+  if(r)this.results=r.body;
+  this.draw();
+ },
+
+ async more(){this.shown+=SKILL_BROWSE_PAGE;this.draw();await this.resolveShown()},
+
+ async reviewEntry(id){
+  const market=this.market;
+  const entry=market&&market.live?market.entries.find(e=>e.id===String(id)):null;
+  if(!entry||!entry.install||typeof entry.install!=='object')return;
+  await this.openReview(`Fetching and checking ${entry.name}…`,()=>skillStoreControl('previews',entry.install));
+ },
+
+ async reviewResult(index){
+  const results=this.results&&Array.isArray(this.results.results)?this.results.results:[];
+  const found=results[Number(index)];
+  if(!found||!found.install||typeof found.install!=='object')return;
+  await this.openReview(`Fetching and checking ${found.name}…`,()=>skillStoreControl('previews',found.install));
+ },
+
+ addKindIs(kind){if(SKILL_ADDABLE.some(([id])=>id===kind)){this.addKind=kind;this.draw()}},
+
+ async addSource(){
+  const body=skillSourceBody(this.addKind);
+  const market=await this.marketCall('Adding the source…',()=>skillStoreControl('market/sources',body));
+  if(!market)return;
+  await this.marketCall('Reading the new source…',()=>skillStoreControl('market/refresh',{}));
+  if(!this.note)this.note='Source added.';
+  this.draw();
+ },
+
+ async hideSource(id,hidden){
+  await this.marketCall(hidden?'Hiding the source…':'Showing the source…',()=>skillStoreControl('market/sources/hide',{source:String(id),hidden:hidden===true}));
+ },
+ askRemoveSource(id){this.removingSource=String(id);this.draw()},
+ keepSource(){this.removingSource=null;this.draw()},
+ async removeSource(id){
+  if(this.removingSource!==String(id))return;
+  this.removingSource=null;
+  await this.marketCall('Removing the source…',()=>skillStoreControl('market/sources/remove',{source:String(id)}));
+ },
+};
+
+function skillInput(selector){const field=$(selector);return field?String(field.value||'').trim():''}
+
+/* The body adding a source: a website's address, or a repository with its optional path and ref. */
+function skillSourceBody(kind){
+ if(kind==='website')return{kind,url:skillInput('#sourceUrl')};
+ const body={kind,repository:skillInput('#sourceRepository')};
+ if(skillInput('#sourcePath'))body.path=skillInput('#sourcePath');
+ if(skillInput('#sourceRef'))body.ref=skillInput('#sourceRef');
+ return body;
+}
+
+/* RAVIS's `Installs`, kept only when it is one. */
+function skillInstallsOf(body){
+ if(!body||typeof body!=='object'||!Array.isArray(body.installs))return null;
+ return{live:true,folder:String(body.folder||''),
+  installs:body.installs.filter(i=>i&&typeof i==='object'&&typeof i.name==='string'&&typeof i.path==='string')};
+}
+
+/* RAVIS's `Market`, kept only when it is one. */
+function skillMarketOf(body){
+ if(!body||typeof body!=='object'||!Array.isArray(body.sources)||!Array.isArray(body.entries))return null;
+ return{live:true,sources:body.sources.filter(s=>s&&typeof s==='object'&&typeof s.id==='string'),
+  entries:body.entries.filter(e=>e&&typeof e==='object'&&typeof e.id==='string')};
+}
+
+/* RAVIS's `Preview`, kept only when it is one. */
+function skillReviewOf(body){
+ if(!body||typeof body!=='object'||typeof body.preview_id!=='string'||typeof body.name!=='string'||!Array.isArray(body.files))return null;
+ return body;
+}
+
+function skillInstallNamed(name){
+ const installs=SKILL_STORE.installs;
+ return installs&&installs.live?installs.installs.find(i=>i.name===String(name))||null:null;
+}
+
+/* One call to one of NERVIS's skill store control routes. `route` is always the page's own
+   constant, never anything RAVIS or the owner typed. Never throws: no answer is status 0. */
+async function skillStoreControl(route,body){
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/ravis/skills/'+route,{method:'POST',headers:control_headers(),cache:'no-store',body:JSON.stringify(body)});
+  return{ok:r.ok,status:r.status,body:(await r.json().catch(()=>null))||{}};
+ }catch(e){return{ok:false,status:0,body:{}}}
+}
+
+/* A zip file's bytes, as the whole body, to NERVIS's zip route. Never throws. */
+async function skillZipControl(file){
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/ravis/skills/previews/zip',{method:'POST',headers:{...control_headers(),'content-type':'application/zip'},cache:'no-store',body:await file.arrayBuffer()});
+  return{ok:r.ok,status:r.status,body:(await r.json().catch(()=>null))||{}};
+ }catch(e){return{ok:false,status:0,body:{}}}
+}
+
+/* A refused skill store call, in plain words: the three cases the page can tell itself, then
+   `codexCardRefusal`, which gives RAVIS's own message — written for the owner — wherever it sent one. */
+function skillStoreRefusal(r){
+ const error=(r.body&&r.body.error)||{};
+ if(!r.status)return "RAVIS didn't answer, so nothing changed. Check the stack is running, then try again.";
+ if((r.status===404||r.status===405)&&!error.code)return "This NERVIS or RAVIS doesn't have the skill store yet: NERVIS 0.33.0 and RAVIS 0.28.0 do. Restart the stack on them.";
+ if(r.status===413)return 'The file is larger than 8 MB, more than RAVIS installs from.';
+ return codexCardRefusal(r.status,r.body||{},'Try again.');
+}
+
+function skillConfirmed(review,body){
+ if(review.kind!=='update')return `${review.name} is installed, switched off for Codex and for the other models. Switch it on below when you're ready.`;
+ const reset=body.switches_reset===true?' Both switches are off again, because SKILL.md or a script changed: switch it on when you\'re ready.':' Its switches are as they were.';
+ const earlier=body.earlier_version&&body.earlier_version.trash?' The earlier version is in the Trash.':'';
+ return `${review.name} is updated.${reset}${earlier}`;
+}
+
+function skillRemoved(name,body){
+ if(typeof body.trash!=='string')return `${name}'s folder was already gone, so RAVIS forgot it and its switches.`;
+ return `${name} is in the Trash, as “${body.trash.split('/').pop()}”. Its switches went with it.`;
+}
+
+/* Where a skill came from, in words (`source` of a review or an install). */
+function skillSourceWords(source){
+ const s=source&&typeof source==='object'?source:{};
+ if(s.origin==='github'){
+  const folder=s.folder?`/${s.folder}`:'',ref=s.ref?` (${s.ref})`:'',commit=typeof s.commit==='string'?` at ${s.commit.slice(0,7)}`:'';
+  return `GitHub ${s.repository||''}${folder}${ref}${commit}`;
+ }
+ if(s.origin==='website')return `the website ${s.site||''}`;
+ return s.origin==='zip'?'a zip file':'somewhere RAVIS did not say';
+}
+
+function skillBytes(count){
+ const n=Number(count)||0;
+ return n>=1048576?`${(n/1048576).toFixed(1)} MB`:n>=1024?`${Math.round(n/1024)} KB`:`${n} bytes`;
+}
+
+const skillLine=(label,html)=>`<div class="trace-step"><b>${escapeHtml(label)}</b><span>${html}</span></div>`;
+
+/* ── The Install card ── */
+
+function skillInstallCard(){
+ const s=SKILL_STORE;
+ const said=(s.note?skillLine('note',escapeHtml(s.note)):'')+(s.pending?skillLine('working',escapeHtml(s.pending)):'');
+ const rules=`<small class="dim" style="display:block;margin:4px 0">${escapeHtml(SKILL_SPEC_LINE)} A skill you install arrives switched off for Codex and for the other models: switch it on below once you have read it.</small>`;
+ const open=s.installing?skillInstallForm(s.updatingZip):'';
+ const buttons=s.installing?'':`<button class="btn" onclick="SKILL_STORE.openInstall()">Install skill…</button> `;
+ const browse=`<button class="btn" onclick="SKILL_STORE.toggleBrowse()">${s.browsing?'Close Browse':'Browse'}</button>`;
+ return `<div class="card full${liveClass(Boolean(s.installs&&s.installs.live))}"><h3>Install and browse</h3>${cell(said+rules+open+buttons+browse+skillGoneInstalls(),'ravis')}</div>`;
+}
+
+function skillInstallForm(updating){
+ const link=updating?'':`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0"><input class="mono" id="skillLink" style="flex:1;min-width:260px" placeholder="https://github.com/owner/repository/tree/main/skills/name"><button class="btn" onclick="SKILL_STORE.reviewLink()">Review</button></div>`;
+ const zip=updating?`Choose the new zip file of ${escapeHtml(updating)}…`:'Or choose a zip file…';
+ return link+`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0"><label class="btn">${zip}<input id="skillZip" type="file" accept=".zip,application/zip" hidden onchange="SKILL_STORE.reviewZip(this)"></label><button class="btn" onclick="SKILL_STORE.closeInstall()">Close</button></div>`;
+}
+
+/* A skill RAVIS installed whose folder has gone: it isn't listed below, so Remove… lives here. */
+function skillGoneInstalls(){
+ const installs=SKILL_STORE.installs;
+ const gone=installs&&installs.live?installs.installs.filter(i=>i.present===false):[];
+ return gone.map(i=>skillLine('gone',`RAVIS installed <b class="mono">${escapeHtml(i.name)}</b>, but its folder isn't in NERVIS's skills folder any more.${skillInstalledButtons(i.name,false)}`)).join('');
+}
+
+/* ── The review ── */
+
+function skillReviewCard(review){
+ if(!review)return '';
+ const update=review.kind==='update'&&review.update&&typeof review.update==='object'?review.update:null;
+ const title=update?`Review the update of ${review.name}`:`Review ${review.name} before installing it`;
+ const switches=update?String(update.why||''):'It will arrive switched off for Codex and for the other models.';
+ const body=skillReviewFacts(review)+skillReviewWarnings(review.warnings)+(update?skillReviewChanges(update.changes):'')
+  +skillReviewFiles(review.files)+skillReviewText(review.skill_md)+skillLine('switches',escapeHtml(switches))+skillLine('checked',escapeHtml(SKILL_SPEC_LINE));
+ const act=SKILL_STORE.pending?'':`<button class="btn" onclick="SKILL_STORE.confirm('${jsAttr(review.preview_id)}')">${update?'Update':'Install'}</button> <button class="btn" onclick="SKILL_STORE.cancelReview()">Cancel</button>`;
+ return `<div class="card full${liveClass(Boolean(review.preview_id))}"><h3>${escapeHtml(title)}</h3>${cell(body+act,'ravis')}</div>`;
+}
+
+function skillReviewFacts(review){
+ const license=review.license&&typeof review.license==='object'&&review.license.text?String(review.license.text):'No license stated';
+ const compatibility=typeof review.compatibility==='string'&&review.compatibility?skillLine('needs',escapeHtml(review.compatibility)):'';
+ return skillLine('name',`<b class="mono">${escapeHtml(review.name)}</b>`)+skillLine('does',escapeHtml(String(review.description||'')))
+  +skillLine('license',escapeHtml(license))+compatibility+skillLine('from',escapeHtml(skillSourceWords(review.source)));
+}
+
+function skillReviewWarnings(warnings){
+ return (Array.isArray(warnings)?warnings:[]).map(w=>skillLine('warning',`<span class="chip warn">${escapeHtml(String(w&&w.code||'').replace(/_/g,' '))}</span> ${escapeHtml(String(w&&w.message||''))}`)).join('');
+}
+
+function skillReviewChanges(changes){
+ const c=changes&&typeof changes==='object'?changes:{};
+ const names=list=>(Array.isArray(list)?list:[]).map(f=>typeof f==='string'?f:String(f&&f.path||'')).join(', ')||'none';
+ const diff=typeof c.skill_md_diff==='string'&&c.skill_md_diff?`<pre class="editor" style="max-height:260px;overflow:auto;white-space:pre-wrap">${escapeHtml(c.skill_md_diff)}</pre>`:'<small class="dim">SKILL.md is unchanged.</small>';
+ return skillLine('added',escapeHtml(names(c.added)))+skillLine('changed',escapeHtml(names(c.changed)))+skillLine('removed',escapeHtml(names(c.removed)))+diff;
+}
+
+function skillReviewFiles(files){
+ const list=Array.isArray(files)?files:[];
+ const rows=list.map(f=>{
+  const file=f&&typeof f==='object'?f:{};
+  const chip=file.kind==='script'?'chip warn':'chip dim';
+  return `<div class="table-row" style="grid-template-columns:minmax(0,1fr) auto auto"><span class="mono">${escapeHtml(String(file.path||''))}</span><span class="${chip}">${escapeHtml(codexLookup(SKILL_FILE_KINDS,file.kind)||'file')}</span><span class="mono dim">${escapeHtml(skillBytes(file.bytes))}</span></div>`;
+ }).join('');
+ return skillLine('files',`${list.length} file${list.length===1?'':'s'}`)+rows;
+}
+
+function skillReviewText(text){
+ return skillLine('SKILL.md','What the model is told, exactly as the skill has it:')
+  +`<pre class="editor" style="max-height:340px;overflow:auto;white-space:pre-wrap">${escapeHtml(String(text||''))}</pre>`;
+}
+
+/* ── An installed skill's line on its row ── */
+
+function skillInstalledLine(skill){
+ const installs=SKILL_STORE.installs;
+ const install=installs&&installs.live?installs.installs.find(i=>i.path===skill.path):null;
+ if(!install)return '';
+ const when=typeof install.installed_at==='string'?install.installed_at.slice(0,10):'';
+ const updated=typeof install.updated_at==='string'?`, updated ${escapeHtml(install.updated_at.slice(0,10))}`:'';
+ const changed=install.changed_on_this_mac===true?' <span class="chip warn">changed on this Mac</span>':'';
+ return `<small style="display:block">Installed from ${escapeHtml(skillSourceWords(install.source))} on ${escapeHtml(when)}${updated}${changed}</small>${skillInstalledButtons(install.name,true)}`;
+}
+
+function skillInstalledButtons(name,present){
+ const s=SKILL_STORE;
+ if(s.pending)return '';
+ if(s.removing===name)return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0"><small>Move ${escapeHtml(name)} to the Trash? Its switches and RAVIS's record of it go too.</small><button class="btn" onclick="SKILL_STORE.remove('${jsAttr(name)}')">Move to the Trash</button><button class="btn" onclick="SKILL_STORE.keep()">Keep it</button></div>`;
+ const update=present?`<button class="btn" onclick="SKILL_STORE.update('${jsAttr(name)}')">Update…</button>`:'';
+ return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0">${update}<button class="btn" onclick="SKILL_STORE.askRemove('${jsAttr(name)}')">Remove…</button></div>`;
+}
+
+/* ── Browse ── */
+
+function skillBrowseCard(){
+ const s=SKILL_STORE,market=s.market;
+ if(!s.browsing)return '';
+ const live=liveClass(Boolean(market&&market.live));
+ if(!market)return `<div class="card full${live}"><h3>Browse skills</h3>${cell('<span class="dim">Reading the marketplace…</span>','ravis')}</div>`;
+ if(!market.live)return `<div class="card full${live}"><h3>Browse skills</h3>${cell(`<span>${escapeHtml(skillMarketUnread(market))}</span>`,'ravis')}</div>`;
+ return `<div class="card full${live}"><h3>Browse skills</h3>${cell(skillBrowseControls(market)+skillBrowseSource(market)+skillBrowseResults(market),'ravis')}</div>`+skillSourcesCard(market);
+}
+
+function skillMarketUnread(market){
+ if(market.relayed||!market.status)return "RAVIS didn't answer the read of the marketplace. Check the stack is running, then open Browse again.";
+ if(market.status===404||market.status===405)return "This RAVIS doesn't have the marketplace yet; RAVIS 0.28.0 does. Restart the stack on it.";
+ return (market.error||{}).message||`RAVIS answered HTTP ${market.status} to the read of the marketplace.`;
+}
+
+function skillSourceLabel(source){
+ const said=source.deprecated?' — deprecated by its owner':source.uncurated?' — uncurated':'';
+ return String(source.label||source.id)+said;
+}
+
+function skillBrowseControls(market){
+ const s=SKILL_STORE,searching=s.filter==='skills_sh';
+ const options=[['all','All sources'],...market.sources.filter(x=>!x.hidden).map(x=>[x.id,skillSourceLabel(x)])]
+  .map(([id,label])=>`<option value="${escapeHtml(id)}"${id===s.filter?' selected':''}>${escapeHtml(label)}</option>`).join('');
+ const select=`<select id="skillFilter" onchange="SKILL_STORE.filterBy(this.value)" style="background:rgba(255,255,255,.04);color:inherit">${options}</select>`;
+ const words=`<input class="mono" id="skillQuery" style="flex:1;min-width:200px" placeholder="${searching?'what to search skills.sh for':'filter by name or description'}" value="${escapeHtml(s.query)}"><button class="btn" onclick="SKILL_STORE.search()">${searching?'Search skills.sh':'Filter'}</button>`;
+ const again=`<button class="btn" onclick="SKILL_STORE.refresh()">Read the sources again</button>`;
+ return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0">${select}${words}${s.pending?'':again}</div><small class="dim" style="display:block">${escapeHtml(SKILL_SPEC_LINE)} Whatever you install from here arrives switched off, after its review.</small>`;
+}
+
+function skillBrowseSource(market){
+ const source=market.sources.find(x=>x.id===SKILL_STORE.filter);
+ const shown=source?[source]:market.sources.filter(x=>!x.hidden&&x.problem);
+ return shown.map(x=>(source&&x.note?skillLine('about',escapeHtml(x.note)):'')
+  +(x.problem?skillLine(String(x.label||x.id),`<span class="chip warn">problem</span> ${escapeHtml(x.problem)}`):'')
+  +(source&&x.fetched_at?`<small class="dim" style="display:block">Read ${escapeHtml(String(x.fetched_at).slice(0,16).replace('T',' '))} UTC.</small>`:'')).join('');
+}
+
+function skillEntriesShown(market){
+ const s=SKILL_STORE,words=s.query.toLowerCase();
+ return market.entries.filter(e=>(s.filter==='all'||e.source===s.filter)
+  &&(!words||[e.name,e.description,e.lives_in].join(' ').toLowerCase().includes(words)));
+}
+
+function skillLinksToResolve(market,asked){
+ const waiting=skillEntriesShown(market).slice(0,SKILL_STORE.shown).filter(e=>e.state==='unresolved'&&typeof e.link==='string'&&!asked.has(e.link));
+ if(!waiting.length)return null;
+ const source=waiting[0].source;
+ return{source,links:waiting.filter(e=>e.source===source).slice(0,SKILL_RESOLVE_AT_ONCE).map(e=>e.link)};
+}
+
+function skillBrowseResults(market){
+ const s=SKILL_STORE;
+ if(s.filter==='skills_sh')return skillSearchResults(s.results);
+ const shown=skillEntriesShown(market);
+ const rows=shown.slice(0,s.shown).map(skillEntryRow).join('')||'<div class="table-row"><span class="dim">No skills to show here yet.</span></div>';
+ const more=shown.length>s.shown?`<button class="btn" onclick="SKILL_STORE.more()">Show more (${shown.length-s.shown} more)</button>`:'';
+ return rows+more;
+}
+
+function skillEntryRow(entry){
+ const license=entry.license?`<small class="dim" style="display:block">License: ${escapeHtml(String(entry.license))}</small>`:'';
+ const problem=entry.problem?`<small style="display:block">${escapeHtml(String(entry.problem))}</small>`:'';
+ return `<div class="table-row skill-entry" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start"><span><b class="mono">${escapeHtml(String(entry.name||''))}</b> ${skillEntryChips(entry)}<small class="dim" style="display:block">${escapeHtml(String(entry.description||''))}</small><small class="dim" style="display:block">${escapeHtml(skillEntrySource(entry))}</small>${license}${problem}</span><span>${skillEntryAction(entry)}</span></div>`;
+}
+
+function skillEntrySource(entry){
+ const source=(SKILL_STORE.market.sources||[]).find(x=>x.id===entry.source);
+ const label=source?String(source.label||source.id):String(entry.source||'');
+ return entry.lives_in&&entry.lives_in!==label?`From ${label}; kept in ${entry.lives_in}`:`From ${label}`;
+}
+
+function skillEntryChips(entry){
+ const chips=[entry.installed===true?['installed','chip']:null,entry.label?[String(entry.label),'chip dim']:null,
+  entry.state==='not_installable'?['not installable here','chip warn']:null,entry.state==='unresolved'?['not looked up yet','chip dim']:null];
+ return chips.filter(Boolean).map(([word,kind])=>`<span class="${kind}">${escapeHtml(word)}</span>`).join(' ');
+}
+
+function skillEntryAction(entry){
+ if(entry.installed===true)return '<small class="dim">Installed</small>';
+ if(!entry.install||typeof entry.install!=='object'||SKILL_STORE.pending)return '';
+ return `<button class="btn" onclick="SKILL_STORE.reviewEntry('${jsAttr(entry.id)}')">Review and install</button>`;
+}
+
+function skillSearchResults(found){
+ const s=SKILL_STORE,note=skillLine('about','Uncurated, ranked by installs.');
+ if(!found||typeof found!=='object')return note+'<div class="table-row"><span class="dim">Type what you are looking for, then press Search skills.sh.</span></div>';
+ if(found.problem)return note+skillLine('skills.sh',`<span class="chip warn">problem</span> ${escapeHtml(String(found.problem))}`);
+ const results=Array.isArray(found.results)?found.results:[];
+ const rows=results.map((r,i)=>`<div class="table-row" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);align-items:start"><span><b class="mono">${escapeHtml(String(r.name||''))}</b> ${r.installed===true?'<span class="chip">installed</span>':''}<small class="dim" style="display:block">From skills.sh; kept in ${escapeHtml(String(r.repository||''))} · ${escapeHtml(String(Number(r.installs)||0))} installs</small><small class="dim" style="display:block">Its description and license show in its review.</small></span><span>${r.installed===true||s.pending?'':`<button class="btn" onclick="SKILL_STORE.reviewResult(${i})">Review and install</button>`}</span></div>`).join('');
+ return note+(rows||'<div class="table-row"><span class="dim">skills.sh found nothing for that.</span></div>');
+}
+
+/* ── Sources ── */
+
+function skillSourcesCard(market){
+ return `<div class="card full${liveClass(market.live)}"><h3>Sources</h3>${cell(market.sources.map(skillSourceRow).join('')+skillAddSourceForm(),'ravis')}</div>`;
+}
+
+function skillSourceRow(source){
+ const s=SKILL_STORE;
+ const marks=[source.deprecated?'deprecated by its owner':'',source.uncurated?'uncurated':'',source.hidden?'hidden':'']
+  .filter(Boolean).map(word=>`<span class="chip dim">${escapeHtml(word)}</span>`).join(' ');
+ const kind=codexLookup(SKILL_SOURCE_KIND_WORDS,source.kind)||'source';
+ const hide=`<button class="btn" onclick="SKILL_STORE.hideSource('${jsAttr(source.id)}',${source.hidden?'false':'true'})">${source.hidden?'Show':'Hide'}</button>`;
+ const remove=source.default?'':s.removingSource===source.id
+  ?`<small>Remove this source?</small><button class="btn" onclick="SKILL_STORE.removeSource('${jsAttr(source.id)}')">Remove it</button><button class="btn" onclick="SKILL_STORE.keepSource()">Keep it</button>`
+  :`<button class="btn" onclick="SKILL_STORE.askRemoveSource('${jsAttr(source.id)}')">Remove…</button>`;
+ return `<div class="table-row" style="grid-template-columns:minmax(0,1.6fr) auto;align-items:start"><span><b>${escapeHtml(String(source.label||source.id))}</b> ${marks}<small class="dim" style="display:block">${escapeHtml(kind)} · ${source.default?'comes with RAVIS':'added by you'}</small></span><span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${s.pending?'':hide+remove}</span></div>`;
+}
+
+function skillAddSourceForm(){
+ const s=SKILL_STORE;
+ const kinds=SKILL_ADDABLE.map(([id,label])=>`<option value="${id}"${id===s.addKind?' selected':''}>${escapeHtml(label)}</option>`).join('');
+ const fields=s.addKind==='website'
+  ?'<input class="mono" id="sourceUrl" style="flex:1;min-width:240px" placeholder="https://example.com/docs">'
+  :`<input class="mono" id="sourceRepository" style="min-width:180px" placeholder="owner/repository"><input class="mono" id="sourcePath" style="min-width:150px" placeholder="${s.addKind==='link_list'?'the list’s file (README.md)':'a folder (optional)'}"><input class="mono" id="sourceRef" style="width:150px" placeholder="branch or tag (optional)">`;
+ return skillLine('add','A source of your own. Whatever you install from it still gets a review and arrives switched off.')
+  +`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0"><select id="sourceKind" onchange="SKILL_STORE.addKindIs(this.value)" style="background:rgba(255,255,255,.04);color:inherit">${kinds}</select>${fields}${s.pending?'':'<button class="btn" onclick="SKILL_STORE.addSource()">Add source</button>'}</div>`;
 }
 
 const NERVIS_VIEWS={'Chat':chatView,'Files':filesView,'Skills':skillsView,'Events':eventsView,'Notifications':notificationsView,

@@ -193,6 +193,45 @@ async def configure(
             "configure() presents NERVIS's admin credential itself; its headers may not "
             "carry authorization"
         )
+    refused = _cannot_configure(entry, credential)
+    if refused is not None:
+        return refused
+    assert entry is not None
+    return await _credential_call(
+        client, method, f"{entry.declaration.base_url}{path}", credential, body,
+        timeout=timeout, headers=headers,
+    )
+
+
+async def configure_bytes(
+    client: httpx.AsyncClient,
+    entry: RegistryEntry | None,
+    path: str,
+    credential: str,
+    data: bytes,
+    *,
+    timeout: float,
+) -> tuple[int, dict[str, Any]]:
+    """`configure` for a file rather than JSON: the Skills page's zip file (NERVIS 0.33.0).
+
+    A POST of the file's bytes, as `content-type: application/zip`, to RAVIS's
+    `POST /api/v1/skills/previews/zip`, with NERVIS's admin credential presented exactly as
+    `configure` presents it, and refused the same two ways before anything is sent.
+    """
+    refused = _cannot_configure(entry, credential)
+    if refused is not None:
+        return refused
+    assert entry is not None
+    return await _credential_call(
+        client, "POST", f"{entry.declaration.base_url}{path}", credential, None,
+        timeout=timeout, content=data,
+    )
+
+
+def _cannot_configure(entry: RegistryEntry | None, credential: str
+                      ) -> tuple[int, dict[str, Any]] | None:
+    """Why NERVIS can't write RAVIS's configuration at all — RAVIS isn't registered, or NERVIS holds
+    no admin credential for it — or None when it can. Shared, so the two writes refuse alike."""
     if entry is None or not entry.declaration.base_url:
         return 503, {"message": "RAVIS is not registered"}
     if not credential:
@@ -203,10 +242,12 @@ async def configure(
                 "another way, set NERVIS_RAVIS_ADMIN_CREDENTIAL."
             )
         }
-    return await _credential_call(
-        client, method, f"{entry.declaration.base_url}{path}", credential, body,
-        timeout=timeout, headers=headers,
-    )
+    return None
+
+
+def _zip_header(content: bytes | None) -> dict[str, str]:
+    """The content type a file's bytes travel with; nothing for a JSON body, which httpx types."""
+    return {"content-type": "application/zip"} if content is not None else {}
 
 
 async def _credential_call(
@@ -218,6 +259,7 @@ async def _credential_call(
     *,
     timeout: float = 10.0,
     headers: Mapping[str, str] | None = None,
+    content: bytes | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """One authorised call to RAVIS's credential surface.
 
@@ -230,8 +272,10 @@ async def _credential_call(
     try:
         answered = await client.request(
             method, url,
-            headers={**(headers or {}), "authorization": f"Bearer {credential}"},
-            json=body,
+            headers={**(headers or {}), **_zip_header(content),
+                     "authorization": f"Bearer {credential}"},
+            json=body if content is None else None,
+            content=content,
             timeout=timeout,
         )
     except httpx.HTTPError as failure:

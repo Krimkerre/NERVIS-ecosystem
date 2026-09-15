@@ -157,7 +157,10 @@ def test_nervis_serves_exactly_the_skills_control_route_ravis_lists(nervis: Test
     listed = {tuple(entry["nervis"].split(" ", 1))
               for entry in SKILLS["nervis_control_routes"]["routes"]}
     served = {route for route in served_routes(nervis)
-              if route[1].startswith("/api/v1/ravis") and "skills" in route[1]}
+              if route[1].startswith("/api/v1/ravis") and "skills" in route[1]
+              # The skill store's routes (NERVIS 0.33.0) are its own contract's, held in
+              # `test_skill_store_routes.py`; this one is `skills.json`'s alone.
+              and not route[1].startswith("/api/v1/ravis/skills/")}
 
     assert served == listed == {("POST", SWITCH)}
 

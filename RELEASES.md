@@ -529,7 +529,32 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.32.0
+## NERVIS — 0.33.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Install skills from the Skills page.** **Install skill…** takes a GitHub link to a skill's folder
+  or a zip file of up to 8 MB. You see a review first: the name, what it does, its license, where it
+  came from, every file with scripts marked, and the whole SKILL.md. **Install** puts it in NERVIS's
+  skills folder, switched off for Codex and for the other models until you switch it on.
+- **Update… and Remove… on every skill you installed.** Each says where it came from, the commit and
+  the date. Update… shows what changed, with SKILL.md compared line by line, and says whether the
+  switches go off again (they do when SKILL.md or a script changed). Remove… asks once more, never
+  with a browser pop-up, then moves the skill's folder to the Trash.
+- **Browse** the marketplace: anthropics/skills, openai/skills (marked deprecated by its owner),
+  ComposioHQ/awesome-claude-skills, the VoltAgent/awesome-agent-skills link list and skills.sh's
+  search (both marked uncurated), with a source filter, a words filter, each skill's license, an
+  installed badge and **Review and install**. Add your own GitHub repositories, link lists or websites
+  with an Agent Skills index; hide the sources NERVIS comes with; remove your own.
+- **Plain words when something goes wrong**, RAVIS's own first — such as "GitHub is rate-limiting
+  RAVIS; try again at 22:30" — or that a RAVIS older than 0.28.0 doesn't have the skill store yet.
+- **For operators:** twelve new control routes under `/api/v1/ravis/skills/` forward to RAVIS
+  0.28.0's skill store with NERVIS's RAVIS admin credential, each carrying only its own fields; a zip
+  file is forwarded as its bytes and refused over 8 MB before RAVIS is asked. A new dashboard gate,
+  `skill_store_check.js`. The rest of NERVIS works with an older RAVIS, and the page says the store
+  needs 0.28.0. Tested against RAVIS's contract fixtures only.
+
+### 0.32.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

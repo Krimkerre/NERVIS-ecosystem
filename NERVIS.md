@@ -632,6 +632,39 @@ read again. That route is registered before the peers' negotiated reads, whose `
 would otherwise answer it. It replaced the card's `POST /api/v1/ravis/codex/skills`.
 `skills_check.js` holds the page and `codex_check.js` the card's line.
 
+**Installing, updating, removing and browsing skills (0.33.0, with RAVIS 0.28.0), the owner's
+decisions of 15 September 2026.** The Skills page gains an **Install and browse** card. **Install
+skill…** takes a GitHub link to a skill's folder or a zip file (at most 8 MB, checked in the page
+before anything is sent) and shows RAVIS's review before anything is installed: the name,
+description, license, where it came from (the repository, folder, ref and commit reviewed, a
+website, or a zip file), RAVIS's warnings, each file with its kind — a script flagged *script —
+Codex could run it* — and `SKILL.md` as escaped text, with a plain line that the skill will arrive
+switched off for Codex and for the other models and that it was checked against the Agent Skills
+specification at agentskills.io. **Install** sends only the review's id; **Cancel** tells RAVIS to
+drop it. Each skill RAVIS installed in NERVIS's folder says, on its row, where it came from, the
+commit and the date (and when it changed on this Mac), with **Update…** — RAVIS fetches from where
+it came from; nothing newer is said so, and otherwise the review shows the files added, changed and
+removed, the `SKILL.md` diff and RAVIS's sentence on the switches, both off again when `SKILL.md` or
+a script changed; a zip install updates from a zip of the same skill — and **Remove…**, two clicks
+and never `confirm()`, which moves the folder to the Trash. **Browse** reads RAVIS's cached
+marketplace through the relay, reads stale sources once per opening, and lists each entry with its
+name, description, source (and the repository a link-list entry is kept in), license, a label such
+as *curated* or *experimental*, an *installed* badge, and **Review and install**, which sends the
+entry's own `install` body. The source filter marks openai/skills *deprecated by its owner* and link
+lists and skills.sh *uncurated*; a words filter narrows the list; the link-list entries shown are
+looked up as they are shown, ten at a time and each once; an entry kept outside GitHub is *not
+installable here*; skills.sh is searched only when asked, most installed first. The **Sources** card
+lists every source with Hide or Show, a two-click Remove… for the owner's own alone, and a form adding
+a GitHub repository (optional folder, branch or tag), a link list, or a *Website with an Agent Skills
+index (agentskills.io standard)*. Every call is a POST to NERVIS's control routes under
+`/api/v1/ravis/skills/` (`ravis/tests/fixtures/skill-store/contract.json` → `nervis_control_routes`):
+each checks the control token and forwards to its one fixed RAVIS path, with NERVIS's RAVIS admin
+credential, only the fields that route carries and only those the page sent, waiting up to 180
+seconds since a review or a refresh fetches from GitHub; the zip route forwards the file's bytes and
+refuses past 8 MB with 413 before RAVIS is asked. RAVIS's refusals are shown in its own words, which
+it writes for the owner, and every handler carries only an id or a name the page drew itself.
+`skill_store_check.js` holds the page and `test_skill_store_routes.py` the routes.
+
 The RAVIS diagnostics view exposes virtual pool, actual model, execution path, **transparent vs
 translated**, route reason, fallback, latency, cost and SIRVIS evidence.
 

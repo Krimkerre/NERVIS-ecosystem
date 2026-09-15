@@ -604,6 +604,35 @@ reopen; for the other models from their next request, which for chat is the next
 Codex isn't running its switches wait, and the other models' still work. The RAVIS Dashboard's Codex
 card no longer lists skills; it has a line that opens this page.
 
+**Installing a skill** (NERVIS 0.33.0 with RAVIS 0.28.0, 15 September 2026). The Skills page's
+**Install skill…** takes a GitHub link to a skill's folder — for example
+`https://github.com/anthropics/skills/tree/main/skills/pdf` — or a zip file of up to 8 MB. Nothing is
+installed straight away: RAVIS first fetches or unpacks the skill somewhere private, checks it against
+the Agent Skills specification (agentskills.io) and its own safety rules, and the page shows a review:
+the skill's name, what it does, its license, where it came from, every file with scripts marked, and
+the whole SKILL.md. **Install** puts it in NERVIS's skills folder. **An installed skill arrives
+switched off, for Codex and for the other models**, because its instructions and scripts come from
+someone else: read the review, then switch it on for the engines you want. A skill you copy into the
+folder yourself still starts on, as before.
+
+**Updating and removing a skill.** Each installed skill says where it came from, which version (the
+commit) and when. **Update…** checks where it came from: if nothing is newer the page says so;
+otherwise it shows what changed, with SKILL.md compared line by line. If SKILL.md or a script changed,
+both switches go off again until you switch it back on; smaller changes keep them. A skill installed
+from a zip file is updated by choosing its new zip file. **Remove…** asks once more, then moves the
+skill's folder to the Trash — drag it back into the skills folder to undo. Only skills installed this
+way can be removed from the page; any other is yours to move in Finder.
+
+**Browsing for skills.** **Browse** lists skills from anthropics/skills, openai/skills (marked
+deprecated by its owner, who now points people to OpenAI's plugins repository),
+ComposioHQ/awesome-claude-skills, the VoltAgent/awesome-agent-skills link list (uncurated: links to
+skills in other people's repositories), and skills.sh's search (uncurated, ranked by installs), plus
+any source you add: a GitHub repository, a link list, or a website that publishes an Agent Skills
+index. Pick a source, filter by words, and press **Review and install** on a skill: it gets the same
+review and arrives switched off. Lists are kept for a day; a link list's links are looked up as you
+look at them, and when GitHub is limiting how often RAVIS may ask, the page says when to try again.
+RAVIS's own sources can be hidden; the ones you added can be removed.
+
 **How chat uses skills.** Chat has no tools and asks the model exactly once per answer, so NERVIS
 does the choosing itself, the way it picks notes like these: before asking, it reads RAVIS's list of
 skills switched on for the other models, matches the question against each skill's name and what it

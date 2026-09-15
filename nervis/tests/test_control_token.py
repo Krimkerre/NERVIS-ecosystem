@@ -71,6 +71,20 @@ MUTATIONS = (
     # A skill's switch on NERVIS → Skills, for Codex or for the other models (NERVIS 0.32.0; the
     # Codex card's own switch before), forwarded with the admin credential.
     ("POST", "/api/v1/ravis/skills", {"path": "/x/SKILL.md", "engine": "models", "enabled": True}),
+    # The skill store on NERVIS → Skills (NERVIS 0.33.0, RAVIS 0.28.0): reviews, installs, updates,
+    # removals and the marketplace, each forwarded with the admin credential.
+    ("POST", "/api/v1/ravis/skills/previews", {"origin": "github", "url": "https://github.com/o/r"}),
+    ("POST", "/api/v1/ravis/skills/previews/zip", {}),
+    ("POST", "/api/v1/ravis/skills/previews/discard", {"preview_id": "sp_review"}),
+    ("POST", "/api/v1/ravis/skills/installs", {"preview_id": "sp_review"}),
+    ("POST", "/api/v1/ravis/skills/installs/update-preview", {"name": "pdf"}),
+    ("POST", "/api/v1/ravis/skills/installs/remove", {"name": "pdf"}),
+    ("POST", "/api/v1/ravis/skills/market/refresh", {}),
+    ("POST", "/api/v1/ravis/skills/market/resolve", {"source": "voltagent", "links": []}),
+    ("POST", "/api/v1/ravis/skills/market/search", {"query": "pdf"}),
+    ("POST", "/api/v1/ravis/skills/market/sources", {"kind": "github", "repository": "o/r"}),
+    ("POST", "/api/v1/ravis/skills/market/sources/hide", {"source": "openai", "hidden": True}),
+    ("POST", "/api/v1/ravis/skills/market/sources/remove", {"source": "own-source"}),
 )
 
 

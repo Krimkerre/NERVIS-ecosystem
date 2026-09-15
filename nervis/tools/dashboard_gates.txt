@@ -33,4 +33,5 @@ export
 ravis_diagnostics
 codex
 skills
+skill_store
 flood

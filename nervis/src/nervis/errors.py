@@ -107,6 +107,17 @@ class CrossOriginMutationRefusedError(NervisError):
     status = 403
 
 
+class TooLargeError(NervisError):
+    """A body larger than its route takes, refused before it is read whole or sent on.
+
+    The Skills page's zip file is the first (NERVIS 0.33.0): RAVIS takes at most 8 MB for a skill,
+    so NERVIS stops reading there rather than carrying more to be refused.
+    """
+
+    code = "TOO_LARGE"
+    status = 413
+
+
 class RefusedError(NervisError):
     """A well-formed request that breaks a rule NERVIS enforces.
 

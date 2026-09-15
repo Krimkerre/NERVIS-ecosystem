@@ -29,7 +29,7 @@ from fastapi.responses import JSONResponse, Response
 
 from nervis import documents, workspace
 from nervis.api.control import require_control
-from nervis.errors import InvalidConfigurationError, NotFoundError
+from nervis.errors import InvalidConfigurationError, NotFoundError, TooLargeError
 from nervis.negotiation import Operation, negotiate
 from nervis.operations import OPERATIONS
 from nervis.peers import ravis as ravis_peer
@@ -329,6 +329,105 @@ async def switch_skill(request: Request) -> Any:
         request.app.state.settings.ravis_admin_credential,
         {"path": page.get("path"), "engine": page.get("engine"), "enabled": page.get("enabled")},
     )
+
+
+# ── The skill store (NERVIS 0.33.0 with RAVIS 0.28.0) ─────────────────────────
+#
+# NERVIS → Skills installs, updates and removes skills, and browses the marketplace, through
+# RAVIS's skill store (`ravis/tests/fixtures/skill-store/contract.json` →
+# `nervis_control_routes`). Kept here, beside the page's switch and above the peers' negotiated
+# reads: none of these paths is one segment, so `/ravis/{surface}` can't answer them, but every
+# Skills route stays under that one rule.
+
+#: How long NERVIS waits for the skill store. A review, a refresh or a look-up fetches from GitHub
+#: or a website, RAVIS gives each fetch up to 60 seconds, and a refresh reads several in turn.
+SKILL_STORE_TIMEOUT_SECONDS = 180.0
+#: The largest zip file the page may send on: RAVIS's own cap (`contract.json` → `limits`).
+SKILL_ZIP_BYTES = 8 * 1024 * 1024
+
+#: Each JSON control route of the skill store: NERVIS's path, RAVIS's, and the fields that travel.
+SKILL_STORE_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("/ravis/skills/previews", "/api/v1/skills/previews",
+     ("origin", "url", "repository", "folder", "ref", "skill", "via", "source", "name")),
+    ("/ravis/skills/previews/discard", "/api/v1/skills/previews/discard", ("preview_id",)),
+    ("/ravis/skills/installs", "/api/v1/skills/installs", ("preview_id",)),
+    ("/ravis/skills/installs/update-preview", "/api/v1/skills/installs/update-preview", ("name",)),
+    ("/ravis/skills/installs/remove", "/api/v1/skills/installs/remove", ("name",)),
+    ("/ravis/skills/market/refresh", "/api/v1/skills/market/refresh", ("source", "force")),
+    ("/ravis/skills/market/resolve", "/api/v1/skills/market/resolve", ("source", "links")),
+    ("/ravis/skills/market/search", "/api/v1/skills/market/search", ("query",)),
+    ("/ravis/skills/market/sources", "/api/v1/skills/market/sources",
+     ("kind", "repository", "path", "ref", "url")),
+    ("/ravis/skills/market/sources/hide", "/api/v1/skills/market/sources/hide",
+     ("source", "hidden")),
+    ("/ravis/skills/market/sources/remove", "/api/v1/skills/market/sources/remove", ("source",)),
+)
+
+
+def _skill_store_route(nervis_path: str, ravis_path: str, fields: tuple[str, ...]) -> None:
+    """Register one of the skill store's JSON control routes.
+
+    Each checks the page's control token and forwards to its one fixed RAVIS path, with NERVIS's
+    RAVIS admin credential, **only the fields that route carries, and only the ones the page sent**:
+    a field left out stays out, since RAVIS reads a missing `force` as false and a `null` one as a
+    body it won't take. A skill's name, a review's id and a link travel in the body, never in the
+    address, so nothing the page sends changes where the call goes. RAVIS's status and body come
+    back as RAVIS gave them, uncached, so the page words every refusal RAVIS words (§11.5).
+
+    One factory rather than eleven copies: a copy is how one of them ends up forwarding a field it
+    shouldn't. `test_control_token` still sees each handler read the credential.
+    """
+
+    async def forward(request: Request) -> Any:
+        page = await _json_body(request)
+        return await _codex_control(
+            request, "POST", ravis_path,
+            request.app.state.settings.ravis_admin_credential,
+            {field: page[field] for field in fields if field in page},
+            timeout=SKILL_STORE_TIMEOUT_SECONDS,
+        )
+
+    tail = nervis_path.removeprefix("/ravis/skills/").replace("/", "_").replace("-", "_")
+    forward.__name__ = f"skill_store_{tail}"
+    router.post(nervis_path, dependencies=[Depends(require_control)])(forward)
+
+
+for _nervis_path, _ravis_path, _fields in SKILL_STORE_ROUTES:
+    _skill_store_route(_nervis_path, _ravis_path, _fields)
+
+
+@router.post("/ravis/skills/previews/zip", dependencies=[Depends(require_control)])
+async def preview_skill_zip(request: Request) -> Any:
+    """Send a zip file on to RAVIS's review, `POST /api/v1/skills/previews/zip` (NERVIS 0.33.0).
+
+    The page sends the file's bytes as the whole body, as the workspace upload does, so no multipart
+    parser joins the dependencies. NERVIS stops reading past RAVIS's own cap of 8 MB and refuses
+    there with 413, before anything reaches RAVIS; RAVIS checks everything else about the file.
+    """
+    data = await _body_at_most(request, SKILL_ZIP_BYTES)
+    status, answered = await ravis_peer.configure_bytes(
+        request.app.state.probe_client, request.app.state.registry.get("ravis"),
+        "/api/v1/skills/previews/zip", request.app.state.settings.ravis_admin_credential, data,
+        timeout=SKILL_STORE_TIMEOUT_SECONDS,
+    )
+    return JSONResponse(answered, status_code=status, headers={"cache-control": "no-store"})
+
+
+async def _body_at_most(request: Request, most: int) -> bytes:
+    """The request's body, refused as soon as it passes `most` bytes, whatever it says it holds."""
+    megabytes = most // (1024 * 1024)
+    too_large = f"The file is larger than {megabytes} MB, more than RAVIS installs from."
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > most:
+        raise TooLargeError(too_large)
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > most:
+            raise TooLargeError(too_large)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 # **Registered per peer rather than as `/{service}`.** A wildcard segment at
