@@ -26,7 +26,7 @@ import json
 import re
 import time
 import uuid
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -34,7 +34,7 @@ from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from nervis import chat as store
 from nervis import (
@@ -103,7 +103,7 @@ from nervis.api.chat_titles import (
     _title_later,
     opening_title,
 )
-from nervis.errors import InvalidConfigurationError, NotFoundError
+from nervis.errors import InvalidConfigurationError, NotFoundError, RefusedError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
 
@@ -179,6 +179,30 @@ async def delete_conversation(conversation_id: str, request: Request) -> dict[st
     return {"conversation_id": conversation_id, "deleted": True}
 
 
+@router.get("/skills")
+async def switched_on_skills(request: Request) -> JSONResponse:
+    """The skills switched on for Other models, for chat's slash commands (NERVIS 0.34.0).
+
+    The chat page lists them in the pop-up that opens when `/` is typed and in `/help`, and works
+    out from them which skill `/skill-name` means. Each has its id, name and one-line description,
+    as RAVIS's `GET /api/v1/skills/models` gave them with NERVIS's client credential; `read` is
+    false when RAVIS gave no list, which is a different answer from an empty one. Uncached: the
+    page asks when the chat panel opens and at most once a minute while `/` is typed, and the send
+    checks the skill against RAVIS again anyway, because this answer can be stale by then.
+    """
+    entry: RegistryEntry | None = request.app.state.registry.get("ravis")
+    base_url = (entry.declaration.base_url if entry is not None
+                else request.app.state.settings.ravis_base_url)
+    listed = await skills.switched_on(
+        request.app.state.probe_client, base_url,
+        request.app.state.settings.ravis_client_credential,
+    )
+    return JSONResponse(
+        {"read": listed is not None, "skills": [asdict(skill) for skill in listed or []]},
+        headers={"cache-control": "no-store"},
+    )
+
+
 def _workspace_root(request: Request) -> str:
     """Where attachments are, which is the import room rather than the workspace.
 
@@ -236,8 +260,16 @@ async def send(request: Request) -> Any:
             availability=verdict.availability.value,
         )
 
+    # **A skill asked for by name** (NERVIS 0.34.0): `/skill-name request` on the page arrives
+    # with the skill's id in `skill`. Checked against RAVIS and read here, before anything is
+    # stored, so a skill switched off since the page read its list is refused with one plain line
+    # and no model is asked. The conversation keeps the message as typed; everything read for the
+    # answer, and the model, gets the request without the `/name` in front.
+    invoked = await _invoked_skill(request, entry, body, content, greeting=greeting, nudge=nudge)
+    typed, content = content, (invoked.question if invoked else content)
+
     conversation_id, prior, keep = _placement(
-        database, body, profile, content, greeting, nudge > 0
+        database, body, profile, typed, greeting, nudge > 0
     )
     # **Reconciled here, before anything downstream reads either id.** The
     # browser mints its own id and files an attachment under it from the very
@@ -396,10 +428,11 @@ async def send(request: Request) -> Any:
     # sees anything, the way the notes above are picked, because chat has no tools. Only for a real
     # question to a model that gets the per-turn readings at all (`_turn_context`'s `wanted`), so a
     # plain client, a greeting and a nudge cost RAVIS no read. The system message is settled here
-    # to know that; nothing assembled below changes it.
+    # to know that; nothing assembled below changes it. A skill asked for by name was read above
+    # and takes the place of the one that fits.
     system = _house_system(body, database, greeting, conversation_id, nudge > 0)
     awareness = "\n\n".join(part for part in (awareness, await _skills_reading(
-        request, entry, content, system=system, greeting=greeting, nudge=nudge,
+        request, entry, content, system=system, greeting=greeting, nudge=nudge, invoked=invoked,
     )) if part)
 
     # Where a picture was asked for and this turn cannot make one, the way to
@@ -440,6 +473,8 @@ async def send(request: Request) -> Any:
         # whole assembly and a test can hold it still. See `app.state.chat_clock`.
         now=request.app.state.chat_clock(),
         situation=awareness,
+        # The skill the person asked for by name rides even where `wanted` is false.
+        asked=invoked.reading if invoked else "",
     )
     if greeting:
         asked = GREETING_OPENER
@@ -570,16 +605,46 @@ def _house_system(
     return "\n\n".join(part for part in parts if part)
 
 
+async def _invoked_skill(
+    request: Request, entry: RegistryEntry, body: dict[str, Any], content: str, *,
+    greeting: bool, nudge: int,
+) -> skills.Invoked | None:
+    """The skill this message asked for by name, checked against RAVIS now, or None (NERVIS 0.34.0).
+
+    `skill` is optional on `POST /api/v1/chat`: the id of a skill switched on for Other models, as
+    `GET /api/v1/chat/skills` listed it. A greeting and a nudge ignore it, since nobody typed them.
+    An id that isn't a string is refused as a malformed request (422). Anything `skills.invoke`
+    turns down — nothing to ask, RAVIS giving no list, the skill not switched on, its text unread —
+    is refused with its own plain line (409), before the turn is stored or a model is asked.
+    """
+    wanted = body.get("skill")
+    if wanted is None or greeting or nudge > 0:
+        return None
+    if not isinstance(wanted, str) or not wanted.strip():
+        raise InvalidConfigurationError(
+            "skill must be the id of a skill switched on for Other models")
+    found = await skills.invoke(
+        wanted.strip(), content, request.app.state.probe_client, entry.declaration.base_url,
+        request.app.state.settings.ravis_client_credential,
+    )
+    if isinstance(found, str):
+        raise RefusedError(found)
+    return found
+
+
 async def _skills_reading(
     request: Request, entry: RegistryEntry, content: str, *, system: str, greeting: bool,
-    nudge: int,
+    nudge: int, invoked: skills.Invoked | None = None,
 ) -> str:
     """The skills this question gets (`nervis/skills.py`), or nothing.
 
     Only for a real question to a model that gets the per-turn readings at all — the condition
     `_turn_context`'s `wanted` puts them under — so a plain client, a greeting and a nudge cost
-    RAVIS no read and carry no skill.
+    RAVIS no read and carry no skill. A skill asked for by name was already read at send time
+    (`_invoked_skill`) and is what this question gets, with or without a persona.
     """
+    if invoked is not None:
+        return invoked.reading
     if not (system and content) or greeting or nudge > 0:
         return ""
     return await skills.reading(
@@ -595,6 +660,7 @@ def _turn_context(
     wanted: bool,
     now: datetime | None = None,
     situation: str = "",
+    asked: str = "",
 ) -> str:
     """Everything true of *this turn* rather than of the assistant.
 
@@ -629,6 +695,12 @@ def _turn_context(
     message at all, and must not suddenly acquire ecosystem awareness through
     the back door. §7 makes NERVIS a plain client of RAVIS's published API, and
     a gateway that silently prepends a paragraph to every request is not one.
+
+    **`asked` is the one exception, and it is not a back door** (NERVIS 0.34.0).
+    It is the skill somebody asked for by name with `/skill-name`: the request
+    itself says to use it, so it rides even where `wanted` is false. Alone, then:
+    no clock and no readings join it. Where `wanted` is true it is already inside
+    `situation`, in the place the fitting skill would have had.
     """
     parts: list[str] = []
     if wanted:
@@ -639,6 +711,8 @@ def _turn_context(
         # quote *them*, so a turn that carries none has nothing to apply it to.
         if situation:
             parts.append(AUDIENCE_DIRECTIVE)
+    elif asked:
+        parts.append(asked)
     return "\n\n".join(part for part in parts if part)
 
 

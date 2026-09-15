@@ -126,6 +126,19 @@ Through the dashboard: which editor windows are registered, what each reports
 about itself, and its events. Clarvis answers about itself; it is not a surface
 NERVIS queries for workspace contents.
 
+## Slash commands for skills in its chat
+
+Since Clarvis 0.17.7 (15 September 2026), Clarvis's chat has slash commands for
+skills. `/skill-name` and a request uses a switched-on skill, and `/skill` with a
+name or id and a request always reaches one. A built-in command wins over a skill
+of the same name, and two skills sharing a name are reached by their full id.
+Typing `/` opens a pop-up of matching commands and skills, and `/help` lists the
+commands and the switched-on skills. With Clarvis's own engine the skill's
+instructions are read before it starts; with Codex the request goes to Codex as
+`$name`, which Codex uses only if the skill is switched on for Codex. An unknown
+command, a skill with no request, or a skill typed while planning, during a run or
+while a question waits gets one line, and nothing runs.
+
 ## Current state, as of this writing
 
 **Version 0.15.4**, 29 commands, 23 settings, VS Code ^1.93.

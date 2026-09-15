@@ -498,6 +498,31 @@ owner switches them on NERVIS's Skills page.
   background calls. Codex gets its skills from RAVIS directly (§5.5). Clarvis keeps no skill text
   past the run, and nothing about skills reaches the Bridge.
 
+**Skills as slash commands (Clarvis 0.17.7).** Decided by the owner on 15 September 2026.
+
+- **Naming a skill.** In Clarvis's chat, `/skill-name <request>` uses a switched-on skill, and
+  `/skill <name or id> <request>` always reaches one. Built-in commands win over a skill of the same
+  name, their aliases included; two skills sharing a name are reached by their full id.
+- **Checked at send time** against `GET /api/v1/skills/models`, with Clarvis's client credential.
+- **Refusals.** An unknown command, a skill with no request, a skills list RAVIS can't give, or a skill
+  typed while planning, during a run or while a question waits gets one line, and nothing runs.
+- **Clarvis's own engine** reads the skill's `SKILL.md` with `GET /api/v1/skills/models/read` before
+  the run or answer starts. It is placed after Clarvis's own rules, at most 6,000 characters, framed
+  as the skill's instructions, with the rest readable through `readSkill`; a failed read runs nothing.
+- **Codex** receives `$name <request>`, Codex's own way of naming a skill, and applies the skill only
+  if it is switched on for Codex, which Clarvis can't see and says so. Codex notices a `$name` mention
+  anywhere in a task's text, not only at the start (Codex 0.154.0, `extract_tool_mentions`): a task or
+  queued feedback that contains `$word` matching a skill switched on for Codex, such as a shell
+  snippet with `$deploy`, makes Codex use that skill uninvited. Names Codex can't mention (characters
+  outside letters, digits, `_`, `-`, `:`, or a common environment-variable name such as PATH or HOME)
+  are refused by Clarvis with one line instead of being sent.
+- **`/help` and `/manual`.** `/help` lists the commands and the switched-on skills, and `/manual`
+  stays a built-in.
+- **The pop-up.** Typing `/` shows matching commands and skills. Its list is read again when the
+  panel opens, when the window gets focus, when a setting changes, and at most once a minute while
+  typing.
+- **No new RAVIS or NERVIS route.**
+
 ---
 
 # 6. The optional Clarvis Bridge

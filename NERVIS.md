@@ -476,6 +476,46 @@ said plainly, so the model neither follows the skill nor claims to. Only for a r
 persona, like the readings; nothing is added when no skill is on. `nervis/skills.py` records why it
 isn't a tool call: one model call per answer, and no model output choosing what NERVIS reads.
 
+**Slash commands, and a skill asked for by name** (0.34.0, the owner's decisions of 15 September
+2026). A message that opens with `/` is looked at on the page before anything is sent, and only its
+first word counts: "what does /help do?" is a question, and so is a message opening with a path.
+
+- **Three built-ins, answered on the page and never by a model.** `/help` lists them and every
+  switched-on skill as it is typed, with its description. `/clear` starts a new conversation through
+  New chat's own path; nothing is deleted, and the old one stays under History. `/model` says which
+  model answers and opens the picker; `/model <pool or model id>` sets it through the picker's own
+  path for this conversation only, and only to a choice the picker offers, never a guess. A built-in
+  counts only as the whole message; `/model <id>` is the one that takes an argument.
+- **A skill by its own name.** `/skill-name request` asks for a skill switched on for Other models;
+  `/skill <name or id> request` always reaches one. The built-in wins a name it shares with a skill,
+  which `/skill <name>` still reaches, and two skills sharing a name are reached by full id, the short
+  form answering one line naming both. A switched-off skill stays off, even typed.
+- **Checked at send time.** The page reads the list from `GET /api/v1/chat/skills` (id, name,
+  description; `read` false when RAVIS gave none) when the chat panel opens and at most once a minute
+  while `/` is typed, and sends the skill's id as the optional `skill` on `POST /api/v1/chat`. Its copy
+  can be stale, so NERVIS checks the id against RAVIS's list and reads the skill's `SKILL.md` then.
+  A skill it can't use (switched off since, unknown, RAVIS not answering, a refused read) is refused
+  with one plain line (409) before the turn is stored or a model is asked.
+- **Used in place of the fitting skill**, through the same read, `block`, framing and 6,000-character
+  cap. The model is asked the request without the `/name`, in its typed case; the conversation keeps
+  the message as typed. **It rides even without a persona**: `_turn_context`'s `wanted` still keeps
+  the clock and the readings from a plain client, and the skill asked for is added alone, because the
+  request itself asked for it. Greetings and nudges ignore the field.
+- **Local lines.** A first word nothing is called, a skill with nothing to do, two skills sharing a
+  name, or an unread list get one line on the page. Local lines are drawn in the conversation only:
+  never sent, read aloud, counted as turns, or kept in the browser's saved copy.
+- **While a reply streams or an offer waits.** Typed text has never answered an offer here, since only
+  its buttons do. A skill asked for while the latest reply's offer or plan waits is refused on the
+  page ("Answer the question first; the skill can wait."), so it can't carry the conversation past
+  the offer; one typed while a reply streams stays in the box, like any message then. `/help` and
+  `/model` on its own still answer; `/clear` and `/model <id>` ask to finish or stop, or to answer the
+  offer, first. Enter doesn't send while an input method is composing.
+- **The pop-up** opens when `/` starts the chat box and the cursor is in the first word: matching
+  built-ins and skills, a clashing skill shown as `/skill <name>` and duplicates by full id, filtered
+  by plain string comparison. Arrows move, Enter or Tab completes with a trailing space, Escape
+  closes, a click works; it is a listbox the chat box points into with `aria-activedescendant`, drawn
+  with `textContent` only. Gate: `nervis/tools/slash_check.js`.
+
 **Offers, not actions.** NERVIS may carry out an enumerated set of operations named in the
 person's own words — today: queue a benchmark, cancel one, change this conversation's pool. A
 fourth exists in the set and is deliberately unreachable from a sentence: **deleting a benchmark

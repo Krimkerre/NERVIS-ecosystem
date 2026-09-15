@@ -25,7 +25,25 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.6
+## Clarvis — 0.17.7
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Skills as slash commands.** In Clarvis's chat, `/skill-name <request>` uses a switched-on skill,
+  and `/skill <name or id> <request>` always reaches one. Built-in commands win over a skill of the
+  same name. Two skills sharing a name are reached by their full id. The request keeps the capitals
+  you typed.
+- **Clarvis's own engine loads the skill's instructions before it starts**, capped at 6,000
+  characters, with the rest readable through `readSkill`. About 1,600 tokens per step at the cap,
+  recorded in the log. With Codex, the job goes to Codex as `$name <request>`, Codex's own way of
+  naming a skill. Codex uses it only if the skill is switched on for Codex on the Skills page.
+- **A pop-up when you type `/`** shows matching commands and skills, with arrow keys, Enter or Tab,
+  and Escape. `/help` lists the commands and your switched-on skills.
+- **Nothing runs by mistake.** An unknown command, a skill with no request, a skills list RAVIS
+  can't give, or a skill typed while planning, during a run or while a question waits gets one line,
+  and nothing runs. Enter no longer sends while an input method is composing.
+
+### 0.17.6
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -541,7 +559,38 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.33.1
+## NERVIS — 0.34.0
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+Slash commands in NERVIS chat, as you decided on 15 September.
+
+- **Ask for a skill by its name.** Type `/changelog-generator write a short changelog for this week`
+  and chat uses that skill for the answer, whatever the question's words would have picked.
+  `/skill <name or id> <request>` always reaches a skill: use it for a skill with the same name as a
+  command, or give the full id, such as `nervis/pdf`, when two switched-on skills share a name. Your
+  request keeps the capitals you typed, and the conversation shows the message as you typed it.
+- **Only skills switched on for Other models count.** A switched-off skill stays off, even typed.
+  NERVIS checks the skill with RAVIS when you send. If it was switched off meanwhile, RAVIS doesn't
+  answer, or its instructions can't be read, chat says so in one line and doesn't ask a model.
+- **Three commands of its own.** `/help` lists the commands and your switched-on skills. `/clear`
+  starts a new conversation, like New chat, and the old one stays under History. `/model` says which
+  model answers and opens the model picker; `/model <pool or model id>` sets it for this conversation
+  only, and only to something the picker offers.
+- **A pop-up when you type `/`** at the start of the chat box shows matching commands and skills,
+  each with a line saying what it does, filtered as you type. Arrow keys move, Enter or Tab fills it
+  in, Escape closes it, and a click works too.
+- **Nothing is sent by mistake.** A name nothing has, a skill with nothing to do, or a skills list
+  NERVIS couldn't read gets one line in the conversation. The page answers it, doesn't read it aloud,
+  and doesn't keep it after a reload. A skill typed while a reply's offer, such as Save / No thanks,
+  is still waiting gets "Answer the question first; the skill can wait." `/clear` and `/model <id>`
+  wait until a reply finishes or its offer is answered. Enter no longer sends while an input method
+  is still composing characters.
+- **For operators:** a new read route, `GET /api/v1/chat/skills`, lists the switched-on skills for
+  the page, and `POST /api/v1/chat` takes an optional `skill` id, checked with RAVIS at send time. No
+  RAVIS change. A new dashboard gate, `slash_check.js`, covers the commands and the pop-up.
+
+### 0.33.1
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

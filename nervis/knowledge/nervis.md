@@ -281,6 +281,14 @@ change a routing preference, write a document — and a person presses a button 
 confirm it. There is no free-form command path, and the model cannot name an
 operation that is not in the set.
 
+**Slash commands** (NERVIS 0.34.0). Typing `/` at the start of the chat box opens
+a pop-up of commands and switched-on skills. `/help` lists them, `/clear` starts a
+new conversation (the old one stays under History), and `/model` says which model
+answers and opens the model picker; `/model` followed by a pool or model id sets
+it for this conversation. The page answers these three itself; no model does. A
+skill is asked for by name with `/skill-name` and a request: see *Skills, and how
+chat uses them*.
+
 **Numbers are printed, not spoken by the model.** A model asked to quote a
 measurement paraphrases it: one local build turned "4 of 6 services reachable"
 into "efficiently manages four key services", which is not a number anybody
@@ -292,6 +300,11 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 (which chat never reads) — this section exists so a question like "what have
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
+
+As of 16 September 2026 (NERVIS 0.34.0): NERVIS chat has **slash commands**. Type `/` at the start
+of the chat box for a pop-up of commands and switched-on skills. `/help`, `/clear` and `/model` are
+answered by the page, and `/skill-name` with a request asks for a skill by its name (see *Skills,
+and how chat uses them*). Clarvis 0.17.7 has slash commands for skills in its own chat too.
 
 As of 15 September 2026 (NERVIS 0.31.0): the event hub has a **flood guard**. On 14 September a
 RAVIS loop (a bug fixed in RAVIS 0.26.1) sent about a hundred events a second for eight minutes.
@@ -651,7 +664,25 @@ characters, both marked as the owner's skill files and after a sentence saying N
 come first: a skill can't change what chat may say or do, approve or press anything, or override
 NERVIS's instructions. If RAVIS won't hand a skill over — it was switched off a moment ago, or its
 file can't be served — chat is told it couldn't read it, and answers anyway. Nothing is added when
-no skill is on, or for a request without a persona.
+no skill is on, or for a request without a persona, unless a skill was asked for by name.
+
+**Asking for a skill by name** (NERVIS 0.34.0, 16 September 2026). `/changelog-generator write a
+short changelog` makes chat use that skill for the answer, instead of the one the question's words
+would pick, and `/skill <name or id>` followed by a request always reaches one. Use `/skill <name>`
+for a skill named like a command (`/help`, `/clear` or `/model`, which win the short form), and
+`/skill <full id>`, such as `/skill nervis/pdf`, when two switched-on skills share a name; the short
+name then answers with one line naming both. Only skills switched on for Other models count. NERVIS
+checks the skill with RAVIS when the message is sent: if it was switched off meanwhile, RAVIS doesn't
+answer, or its instructions can't be read, chat says so in one line and asks no model. The model
+gets the request without the `/name` in front, with the capitals you typed, and the conversation
+keeps the message as you typed it. A skill asked for by name is used even without a persona.
+
+The pop-up that opens when `/` is typed lists the switched-on skills with what each is for; it reads
+them when the chat panel opens and at most once a minute while typing. Arrow keys move, Enter or Tab
+fills the name in, Escape closes it. A line the page answers itself — an unknown name, a skill with
+nothing to do — is shown in that tab only: it isn't sent, read aloud, or kept after a reload. While a
+reply's offer, such as Save / No thanks, is still waiting, a skill typed then gets "Answer the
+question first; the skill can wait.", and `/clear` waits too.
 
 ## How a question is assembled, and why the order costs money
 

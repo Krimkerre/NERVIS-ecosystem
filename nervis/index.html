@@ -850,6 +850,24 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
    belongs to this panel, and a fixed one would sit over the navigation and the
    page heading, which it has nothing to do with. */
 .chat{position:relative}
+/* Chat's slash-command pop-up (NERVIS 0.34.0): inside the chat card, just above
+   the chat box, where `slashPlace` measures it to. The keyboard focus stays in
+   the chat box while the arrows move the highlight, so the highlighted entry
+   carries an outline as well as a colour. */
+.slash-menu{position:absolute;left:14px;right:14px;bottom:64px;z-index:6;max-height:min(260px,45%);
+ overflow-y:auto;padding:4px;background:#0b1118;border:1px solid #2a3642;border-radius:7px;
+ box-shadow:0 10px 28px rgba(0,0,0,.5)}
+.slash-row{display:flex;gap:12px;align-items:baseline;min-width:0;padding:6px 9px;border-radius:5px;
+ border:1px solid transparent;cursor:pointer}
+.slash-row b{font:600 12px/1.5 "SFMono-Regular",monospace;white-space:nowrap;color:#d9e3ed}
+.slash-row span{min-width:0;font-size:12px;opacity:.72;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slash-row:hover{background:rgba(255,255,255,.05)}
+.slash-row[aria-selected="true"]{background:rgba(var(--rgb),.16);border-color:rgba(var(--rgb),.75);
+ outline:2px solid var(--hud);outline-offset:-2px}
+/* A line a command answered on the page: dashed, so it doesn't read as a model's reply. */
+.bubble.local{border-style:dashed}
+.bubble.local .local-note{margin-left:8px;font-size:10px;letter-spacing:.04em}
+.bubble.local .local-text{margin-top:5px;white-space:pre-wrap;overflow-wrap:anywhere}
 .thinking{margin:6px 0 8px;border-left:2px solid #2b3a49;padding-left:9px}
 .thinking>summary{cursor:pointer;color:#7f93a6;font:11px/1.6 "SFMono-Regular",monospace;
  letter-spacing:.05em;text-transform:lowercase;list-style:none;user-select:none}
@@ -3924,6 +3942,19 @@ const API={
     const body=await r.json();
     return{items:Array.isArray(body.items)?body.items:[]};
    }catch(e){return{status:0}}
+  },
+
+  /* GET /api/v1/chat/skills — the skills switched on for Other models, for
+     chat's slash commands (NERVIS 0.34.0). `read:false` when NERVIS or RAVIS
+     didn't answer, which is a different answer from none switched on; no mock,
+     because a made-up skill would be one somebody could try to ask for. */
+  async chatSkills(){
+   try{
+    const r=await fetch(BASE.nervis+'/api/v1/chat/skills',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(!r.ok)return{read:false,skills:[]};
+    const body=await r.json();
+    return{read:body.read===true,skills:asList(body.skills).map(slashSkillOf).filter(Boolean)};
+   }catch(e){return{read:false,skills:[]}}
   },
 
   /* GET /ecosystem/events — SSE. Frames are MEP envelopes exactly as the runbook
@@ -7172,6 +7203,9 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
     one place to read it back. */
  if(!usable('ravis')){$('#content').innerHTML=`<div class="card full">`+banner('Chat unavailable',
   `RAVIS is ${escapeHtml(SERVICES.ravis.state)} — ${REASON[SERVICES.ravis.state]}. Routing is unavailable, so NERVIS has no model to talk to. SIRVIS, Clarvis and the rest of this dashboard are unaffected.`)+`</div>`;return}
+ /* Whether the chat panel is opening rather than repainting: before this paint
+    its chat box isn't on the page. The slash-command list is read again then. */
+ const opening=!document.getElementById('chatInput');
  const conv=await API.nervis.conversation();
  const ids=[...new Set(conv.messages.map(m=>m.route_decision_id).filter(Boolean))];
  const rd=Object.fromEntries(await Promise.all(ids.map(async id=>[id,await chatDecision(id)])));
@@ -7200,11 +7234,14 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
      ?attachmentCard(m)
      :m.role==='user'
      ?`<div class="bubble user">${escapeHtml(m.text)}${stampOf(m)}</div>`
+     :m.kind==='local'
+     ?localBubble(m)
      :`<div class="bubble"${m.pending?' id="streaming"':''}>${escapeHtml(m.pending?'':'')}${m.route_decision_id&&rd[m.route_decision_id]
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
         : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${thinkingRow(m.thinking)}${renderMarkdown(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${recalledRow(m.recalled)}${offerRow(m.offer,mi)}${planRow(m.plan,mi)}</div>`).join('')}
   </div>
-  <div class="composer"><label id="uploadLabel" class="upload" title="Attach a file to this conversation for chat to read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything…"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
+  <div id="slashMenu" class="slash-menu" role="listbox" aria-label="Commands and skills" hidden></div>
+  <div class="composer"><label id="uploadLabel" class="upload" title="Attach a file to this conversation for chat to read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything, or type / for commands and skills" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="slashMenu" aria-expanded="false"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
  </div>`;
  /* §7 requires stop/cancel. One button: send when idle, stop while a reply is
     streaming — aborting the fetch closes the connection, NERVIS sees the
@@ -7214,7 +7251,17 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
    :CHAT_SESSION.drawer==='params'?$('#chatParamsBtn'):null;
  if(opener)opener.dataset.on='';
  $('#sendChat').onclick=()=>CHAT_SESSION.busy?stopChat():sendChat();
- $('#chatInput').onkeydown=e=>{if(e.key==='Enter')sendChat()}
+ /* The chat box. Enter sends, unless an input method is composing or the
+    slash-command pop-up is open and takes the key (`composerKey`). The pop-up
+    follows the typing and the cursor, and this paint closed it (`SLASH.painted`). */
+ const composer=$('#chatInput');
+ composer.onkeydown=composerKey;
+ composer.oninput=()=>SLASH.typed();
+ /* The cursor also moves without an input event: arrows, Home, End, a click. */
+ composer.onkeyup=e=>{if(!SLASH_KEYS[e.key])SLASH.typed()};
+ composer.onclick=()=>SLASH.typed();
+ composer.onblur=()=>setTimeout(()=>SLASH.blurred(),150);
+ SLASH.painted(opening);
  /* **The person putting a file there, not the model asking for one.** Every
     other write on this screen is a model proposing and somebody agreeing; this
     is somebody acting, so it needs no confirm button. What it does not get is a
@@ -13044,7 +13091,10 @@ const CHAT_STORE={
   catch(e){return false}
  },
  save(session){
-  if(!session.messages.length)return;
+  /* Lines a slash command answered on the page are left out: they belong to
+     this tab alone (see "Slash commands in the chat box"). */
+  const kept=session.messages.filter(m=>m.kind!=='local');
+  if(!kept.length)return;
   const list=this.read().filter(c=>c.conversation_id!==session.id);
   list.unshift({
    conversation_id:session.id,
@@ -13063,7 +13113,7 @@ const CHAT_STORE={
    /* And `stored:false`, only where it is set. Dropped, a message NERVIS turned
       away would come back from a reopen unmarked, and count against an export
       as a turn NERVIS lost. */
-   messages:session.messages.map(m=>({role:m.role,text:m.text,
+   messages:kept.map(m=>({role:m.role,text:m.text,
      served:m.served||null,route_decision_id:m.route_decision_id||null,
      ...(m.stored===false?{stored:false}:{})})),
    params:{system:session.system,temperature:session.temperature,
@@ -13372,10 +13422,16 @@ const PROFILE_STORE={
  write(id){try{localStorage.setItem(this.KEY,id)}catch(e){}}
 };
 
-function rememberProfile(id){
+/* A pool, or one provider's model pinned, for this conversation. */
+function useProfile(id){
  CHAT_SESSION.profile=id;
- PROFILE_STORE.write(id);
  notify('Routing on '+id);
+}
+
+/* The same, and remembered for new conversations and reloads: the picker's choice. */
+function rememberProfile(id){
+ useProfile(id);
+ PROFILE_STORE.write(id);
 }
 
 const CHAT_SESSION={
@@ -13671,8 +13727,15 @@ const MODELPICK={
  state:null,
 
  async load(){
-  const node=()=>document.getElementById('modelPickList');
-  if(!node())return;
+  if(!document.getElementById('modelPickList'))return;
+  this.state={groups:await this.groups(),q:''};
+  this.render();
+ },
+
+ /* Every choice the picker offers: RAVIS's pools, then each usable provider's
+    models. `/model <id>` in the chat box checks an id against exactly this, so
+    the box and the picker can't disagree about what can be chosen. */
+ async groups(){
   const groups=[];
   let profiles={items:[]};
   try{profiles=await API.ravis.profiles()}catch(e){}
@@ -13702,8 +13765,7 @@ const MODELPICK={
    if(!found.ids.length)continue;
    groups.push(providerGroup(provider,found));
   }
-  this.state={groups,q:''};
-  this.render();
+  return groups;
  },
 
  /* One provider's *selected* models — what its filter lets through, which is
@@ -13768,8 +13830,10 @@ const MODELPICK={
   this.render();
  },
 
- pick(id){
-  rememberProfile(id);
+ /* `onlyHere` is `/model <id>` typed in the chat box: this conversation only,
+    so the choice the picker remembers for new conversations stays as it was. */
+ pick(id,onlyHere){
+  (onlyHere?useProfile:rememberProfile)(id);
   CHAT_SESSION.drawer=null;
   /* Not saved to the stored conversation. The profile travels with each request
      and NERVIS records it per turn, so a conversation that switched models
@@ -14999,8 +15063,15 @@ async function attachRouteDecision({requestId,failed}){
 async function sendChat(){
  const box=document.getElementById('chatInput');
  const text=(box&&box.value||'').trim();
- if(!text||CHAT_SESSION.busy)return;
- box.value='';
+ if(!text)return;
+ /* A message that opens with a command or a skill's name is looked at first
+    (see "Slash commands in the chat box" below). Most are answered on the page;
+    only a skill asked for by name goes on to be sent, with the skill's id.
+    Before the busy check, so /help still answers while a reply streams. */
+ const asked=slashParse(text,SLASH.skills);
+ if(asked.kind!=='message'&&!await slashCommand(asked,text))return;
+ if(CHAT_SESSION.busy)return;
+ slashClearBox();
  IDLE.spoke();
  const turn=stageTurn(text);
  /* Waiting on a model looks different from receiving one, and both look
@@ -15017,7 +15088,7 @@ async function sendChat(){
 
  const stop=new AbortController();
  CHAT_SESSION.abort=stop;
- const outcome=await streamReply(stop);
+ const outcome=await streamReply(stop,slashExtra(asked));
 
  CHAT_SESSION.busy=false;
  CHAT_SESSION.abort=null;
@@ -15184,6 +15255,435 @@ async function maybeGreet(){
    relay sees the disconnect, cancels RAVIS and stores the partial text — so
    stopping keeps what was said rather than discarding it. */
 function stopChat(){if(CHAT_SESSION.abort)CHAT_SESSION.abort.abort()}
+
+/* ── Slash commands in the chat box (NERVIS 0.34.0) ──────────────────────────
+
+   The owner's decisions of 15 September 2026, kept in step with Clarvis's:
+
+   - **Three built-ins, answered here and never sent to a model:** /help, /clear
+     and /model. A built-in counts only when the whole message is the command;
+     /model is the one that takes something after it.
+   - **A skill by its own name.** "/changelog-generator write a short changelog"
+     asks for that skill outright. "/skill <name or id> …" always reaches a
+     skill: it is how a skill named like a built-in is reached, since the
+     built-in wins the short form, and the full id is how two skills sharing a
+     name are told apart.
+   - **Only skills switched on for Other models count**, as NERVIS last read them
+     from RAVIS (GET /api/v1/chat/skills). A switched-off skill stays off, even
+     typed. This copy can be stale, so the send carries the skill's id and
+     NERVIS checks it against RAVIS again before anything is stored.
+   - **Only the first word counts.** "what does /help do?" is a question, and so
+     is a message opening with a path such as /usr/bin/python. A first word that
+     is neither a command nor a switched-on skill gets a line saying so.
+   - **Plain string comparison throughout.** Nothing typed becomes a pattern, so
+     "/?" or "/(" is simply a word nothing is called.
+
+   **Local lines.** What a command answers on the page is drawn in the
+   conversation as two lines: what was typed, and NERVIS's answer, marked as
+   answered here. They belong to this tab alone. They are never sent to NERVIS,
+   never read aloud, never counted as turns (`stored:false`, like a message
+   NERVIS turned away), and left out of the browser's saved copy, so a reload or
+   a reopen doesn't bring them back. What they say is about this moment — which
+   model answers now, which skills are on — and kept, it would come back later
+   as a statement that may no longer be true.
+
+   **While a reply streams, or the latest reply waits for a click.** Typed text
+   has never answered an offer here: only its buttons do, and a message typed
+   while one waits is sent as a new question and leaves the offer pressable.
+   While a reply streams, Enter sends nothing. Commands keep to both and add the
+   owner's rule: a skill asked for while the latest reply's offer waits is
+   refused with one line, so it can't carry the conversation past the offer; a
+   skill typed while a reply streams stays in the box like any message. /help and
+   /model on its own still answer. /clear and /model with an id ask to finish or
+   stop first, since both change the conversation the reply or offer belongs to. */
+const SLASH_BUILTINS=[
+ {name:'help',description:'List these commands, and the skills switched on for Other models.'},
+ {name:'clear',description:'Start a new conversation. This one stays under History.'},
+ {name:'model',description:'Say which model answers this conversation, and open the model picker. /model and a pool or model id sets it for this conversation.'},
+];
+/* How soon the list may be asked for again while "/" is being typed. */
+const SLASH_REFRESH_MS=60000;
+
+/* A line split at its first run of whitespace: the first word, and the rest
+   without its edges. The pattern is fixed; nothing typed ever becomes one. */
+function firstWord(text){
+ const at=text.search(/\s/);
+ return at<0?{word:text,rest:''}:{word:text.slice(0,at),rest:text.slice(at).trim()};
+}
+
+/* What a typed message is, before anything is sent: an ordinary message, a
+   built-in, a skill asked for by name, or something to answer with one line.
+   `skills` is the switched-on list, or null when NERVIS couldn't read it. */
+function slashParse(text,skills){
+ const {word,rest}=firstWord(String(text).trim());
+ if(!word.startsWith('/')||word.includes('/',1))return{kind:'message'};
+ const name=word.slice(1).toLowerCase();
+ if(SLASH_BUILTINS.some(b=>b.name===name))
+  return rest&&name!=='model'
+   ?{kind:'extra',name,clash:(skills||[]).some(s=>s.name.toLowerCase()===name)}
+   :{kind:'builtin',name,arg:rest};
+ if(name==='skill')return slashExplicit(rest,skills);
+ return slashFound(skills,s=>s.name.toLowerCase()===name,rest,word);
+}
+
+/* "/skill <name or id> …": an id first, because an id is exact, then a name. */
+function slashExplicit(rest,skills){
+ const {word,rest:request}=firstWord(rest);
+ if(!word)return{kind:'bare-skill'};
+ const key=word.toLowerCase();
+ const byId=(skills||[]).some(s=>s.id.toLowerCase()===key);
+ return slashFound(skills,byId?s=>s.id.toLowerCase()===key:s=>s.name.toLowerCase()===key,
+   request,'/skill '+word);
+}
+
+/* The switched-on skills a word names, and what that makes the message. */
+function slashFound(skills,matches,request,word){
+ if(!skills)return{kind:'unread',word};
+ const found=skills.filter(matches);
+ if(!found.length)return{kind:'unknown',word};
+ if(found.length>1)return{kind:'duplicate',word,skills:found};
+ return request?{kind:'skill',skill:found[0],request}:{kind:'no-request',word,skill:found[0]};
+}
+
+/* How a skill is typed: "/name"; "/skill name" when a built-in has that name;
+   "/skill <full id>" when another switched-on skill shares it. */
+function slashLabel(skill,skills){
+ const name=skill.name.toLowerCase();
+ if(skills.filter(s=>s.name.toLowerCase()===name).length>1)return '/skill '+skill.id;
+ return name==='skill'||SLASH_BUILTINS.some(b=>b.name===name)?'/skill '+skill.name:'/'+skill.name;
+}
+
+/* Everything the pop-up can offer: the built-ins, then each switched-on skill. */
+function slashEntries(skills){
+ const own=(skills||[]).map(s=>({label:slashLabel(s,skills),description:s.description,id:s.id}));
+ return [...SLASH_BUILTINS.map(b=>({label:'/'+b.name,description:b.description,id:''})),...own];
+}
+
+/* The entries a typed word matches, by plain string comparison: those whose
+   label starts with it first, then those with it anywhere in the label or id. */
+function slashMatches(typed,skills){
+ const word=typed.toLowerCase();
+ const entries=slashEntries(skills).map(e=>({...e,key:e.label.slice(1).toLowerCase()}));
+ const starts=entries.filter(e=>e.key.startsWith(word));
+ const inside=entries.filter(e=>!e.key.startsWith(word)&&(e.key+' '+e.id.toLowerCase()).includes(word));
+ return [...starts,...inside];
+}
+
+/* The first word being typed, without its slash, while the chat box opens with
+   "/" and the cursor is still inside that word; null otherwise. */
+function slashTyped(value,cursor){
+ const text=String(value);
+ if(!text.startsWith('/'))return null;
+ const {word}=firstWord(text);
+ return Number(cursor??text.length)<=word.length?word.slice(1):null;
+}
+
+/* One skill as NERVIS listed it, or null for an entry without an id and a name. */
+const slashSkillOf=s=>s&&typeof s.id==='string'&&typeof s.name==='string'&&s.id&&s.name
+ ?{id:s.id,name:s.name,description:typeof s.description==='string'?s.description:''}:null;
+
+/* The one line each case gets, in plain words, each saying nothing was sent. */
+const SLASH_LINES={
+ extra:a=>`/${a.name} takes nothing after it, so nothing was sent. Type /${a.name} on its own${a.clash?`, or /skill ${a.name} and your request for the skill called ${a.name}`:''}.`,
+ unknown:a=>a.word.startsWith('/skill ')
+  ?`There's no switched-on skill called ${a.word.slice(7)}. /help lists them.`
+  :`There's no command or switched-on skill called ${a.word}. /help lists them.`,
+ unread:a=>`NERVIS couldn't read the switched-on skills from RAVIS just now, so ${a.word} wasn't sent. Try again in a moment.`,
+ duplicate:a=>`${a.skills.length} switched-on skills are called ${a.skills[0].name}, so nothing was sent. Type ${a.skills.map(s=>'/skill '+s.id).join(' or ')} and your request instead.`,
+ 'no-request':a=>`What should ${a.skill.name} do? Type your request after ${a.word}. Nothing was sent.`,
+ 'bare-skill':()=>"/skill needs a skill's name or id and then your request, like /skill changelog-generator write a short changelog. Nothing was sent; /help lists the switched-on skills.",
+};
+
+/* /help: the built-ins, then the switched-on skills, each as it is typed. */
+function slashHelp(skills){
+ const lines=['Commands, answered here and never sent to a model:',
+  ...SLASH_BUILTINS.map(b=>`/${b.name} — ${b.description}`),''];
+ if(!skills)return [...lines,"NERVIS couldn't read the switched-on skills from RAVIS just now. Type /help again in a moment."].join('\n');
+ if(!skills.length)return [...lines,'No skill is switched on for Other models. Switch one on under NERVIS → Skills, then type / and its name.'].join('\n');
+ return [...lines,'Skills switched on for Other models. Type one, then your request:',
+  ...skills.map(s=>`${slashLabel(s,skills)} — ${s.description||'no description'}`),'',
+  '/skill and a name or id always reaches a switched-on skill: a skill named like a command is reached with /skill and its name, and two skills sharing a name with /skill and the full id.'].join('\n');
+}
+
+/* Whether the latest reply is still waiting for a click: an offer or a plan
+   nobody has answered. Only the latest, because an older offer nobody answered
+   stays pressable for good and must not hold commands up for good. */
+function offerWaiting(){
+ const reply=CHAT_SESSION.messages.findLast(m=>m.role==='assistant'&&!m.pending&&m.kind!=='local');
+ return Boolean(reply&&(offerOpen(reply.offer)||planOpen(reply.plan)));
+}
+const offerOpen=offer=>Boolean(offer&&!offer.done);
+const planOpen=plan=>Boolean(plan&&plan.ready&&!plan.declined&&!plan.finished
+ &&plan.running===undefined&&plan.stopped===undefined&&!plan.halted);
+
+/* Why a command that changes the conversation has to wait, or ''. */
+function slashBlocked(){
+ if(CHAT_SESSION.busy)return 'A reply is still coming. Let it finish, or stop it with ■,';
+ return offerWaiting()?'The reply above is waiting for your answer. Press one of its buttons or No thanks,':'';
+}
+
+/* Empty the chat box and close the pop-up. The box is also forgotten as typed
+   in, so a later repaint doesn't put the command back into it. */
+function slashClearBox(){
+ const box=document.getElementById('chatInput');
+ if(box)box.value='';
+ TOUCHED.delete('chatInput');
+ SLASH.close();
+}
+
+/* A local line: what was typed, and NERVIS's answer. While a reply streams they
+   go in above it, so its placeholder stays last, where the stream expects it.
+   False, because nothing goes on to be sent. */
+function slashSay(typed,answer){
+ slashClearBox();
+ IDLE.spoke();
+ const list=CHAT_SESSION.messages;
+ const at=list.length-(list.at(-1)?.pending?1:0);
+ const now=new Date().toISOString();
+ list.splice(at,0,{role:'user',kind:'local',text:typed,stored:false,at:now},
+  {role:'assistant',kind:'local',text:answer,at:now});
+ render();
+ return false;
+}
+
+/* NERVIS's half of a local line, as plain text: skill names and descriptions
+   come from RAVIS and from skill repositories, so no markdown is read in it. */
+function localBubble(m){
+ return `<div class="bubble local"><b>NERVIS</b>${stampOf(m)}<span class="mono dim local-note">answered here, not sent to a model</span><div class="local-text">${escapeHtml(m.text)}</div></div>`;
+}
+
+/* What a skill asked for by name adds to the request: its id, checked by NERVIS
+   against RAVIS again when it arrives. */
+function slashExtra(asked){return asked.kind==='skill'?{skill:asked.skill.id}:undefined}
+
+/* A typed command, carried out. True when the message goes on to be sent as a
+   turn, which only a skill asked for by name does. */
+async function slashCommand(asked,text){
+ if(asked.kind==='unread')SLASH.refresh(true);
+ const run=SLASH_RUN[asked.kind];
+ return run?run(asked,text):slashSay(text,SLASH_LINES[asked.kind](asked));
+}
+
+const SLASH_RUN={
+ builtin:(asked,text)=>SLASH_BUILTIN[asked.name](asked,text),
+ skill:slashSkill,
+};
+
+/* A skill asked for by name goes on to be sent, unless the latest reply is
+   waiting for a click. While a reply streams it goes on to `sendChat`'s busy
+   check and stays in the box, like any message typed then. */
+function slashSkill(asked,text){
+ if(!CHAT_SESSION.busy&&offerWaiting())return slashSay(text,'Answer the question first; the skill can wait.');
+ return true;
+}
+
+const SLASH_BUILTIN={
+ help:(asked,text)=>slashSay(text,slashHelp(SLASH.skills)),
+ clear:slashClear,
+ model:(asked,text)=>asked.arg?slashSetModel(asked.arg,text):slashShowModel(text),
+};
+
+/* /clear: a new conversation through New chat's own path. Nothing is deleted;
+   this one is saved first and stays under History. */
+function slashClear(asked,text){
+ const wait=slashBlocked();
+ if(wait)return slashSay(text,`${wait} then type /clear again. Nothing was cleared.`);
+ slashClearBox();
+ CHAT_SESSIONS.start();
+ return false;
+}
+
+/* /model on its own: which model answers, and the picker opened the way the
+   Model button opens it. */
+function slashShowModel(text){
+ const last=CHAT_SESSION.messages.findLast(m=>m.role==='assistant'&&m.served);
+ slashSay(text,`This conversation is answered through ${CHAT_SESSION.profile||'ravis/chat'}${last?`; the last reply came from ${last.served}`:''}. The model picker is open: choose a pool or pin a model there, or type /model and a pool or model id to set it for this conversation.`);
+ if(CHAT_SESSION.drawer!=='model')chatDrawer('model');
+ return false;
+}
+
+/* /model <id>: set through the picker's own path, for this conversation only,
+   and only to a pool or model the picker offers. Nothing is guessed: an id the
+   picker doesn't offer gets a line saying how to see the choices. */
+async function slashSetModel(id,text){
+ const wait=slashBlocked();
+ if(wait)return slashSay(text,`${wait} then type /model ${id} again. Nothing changed.`);
+ slashClearBox();
+ const groups=await MODELPICK.groups();
+ if(!groups.some(g=>g.items.some(i=>i.id===id)))
+  return slashSay(text,`The model picker offers no pool or model called ${id}, so nothing changed. Type /model on its own to open the picker and see the choices.`);
+ MODELPICK.pick(id,true);
+ return slashSay(text,`This conversation now routes through ${id}. New conversations still start with the model chosen in the picker.`);
+}
+
+/* The pop-up that opens when "/" starts the chat box, and the list behind it. */
+const SLASH={
+ /* The switched-on skills as NERVIS last read them, or null when it couldn't. */
+ skills:null,
+ /* When the list was last asked for, and the answer while it is on its way. */
+ askedAt:0,
+ pending:null,
+ /* What the pop-up shows, which entry is highlighted, and whether it is open. */
+ items:[],
+ index:0,
+ open:false,
+ /* The word Escape closed the pop-up on: it stays closed until the word changes. */
+ dismissed:null,
+
+ /* Ask for the list: forced when the chat panel opens, otherwise at most once
+    a minute. No answer, or a refusal, leaves it unread rather than empty. When
+    the answer lands the pop-up is redrawn from it, and that redraw never asks
+    for the list itself: if it did, only the minute's limit would stand between
+    one answer and the next request, forever. */
+ refresh(force){
+  if(this.pending||(!force&&Date.now()-this.askedAt<SLASH_REFRESH_MS))return this.pending;
+  this.askedAt=Date.now();
+  this.pending=API.nervis.chatSkills().then(said=>{this.skills=said.read?said.skills:null})
+   .finally(()=>{this.pending=null;this.show(this.word())});
+  return this.pending;
+ },
+
+ /* After every paint of the chat panel, which put a closed pop-up on the page. */
+ painted(opening){
+  this.close();
+  if(opening)this.refresh(true);
+ },
+
+ /* The chat box changed, or its cursor moved: the list is asked for if a
+    minute has passed, and the pop-up opens, filters or closes. */
+ typed(){
+  const word=this.word();
+  if(word!==null)this.refresh(false);
+  this.show(word);
+ },
+
+ /* The first word being typed in the chat box, without its slash, or null. */
+ word(){
+  const box=document.getElementById('chatInput');
+  return box?slashTyped(box.value,box.selectionStart):null;
+ },
+
+ /* Open, filter or close on that word, from the list already held. */
+ show(word){
+  if(word===null)this.dismissed=null;
+  if(word===null||word===this.dismissed)return this.close();
+  this.dismissed=null;
+  const was=(this.items[this.index]||{}).label;
+  this.items=slashMatches(word,this.skills);
+  this.index=Math.max(0,this.items.findIndex(e=>e.label===was));
+  this.open=this.items.length>0;
+  this.draw();
+ },
+
+ /* A key in the chat box: taken only while the pop-up is open, and only these. */
+ key(e){
+  const act=SLASH_KEYS[e.key];
+  if(!this.open||!act)return false;
+  e.preventDefault();
+  e.stopPropagation();
+  act(this);
+  return true;
+ },
+
+ move(step){
+  this.index=(this.index+step+this.items.length)%this.items.length;
+  this.draw();
+ },
+
+ /* Enter, Tab or a click: the entry takes the first word's place, with a space
+    after it, and whatever was typed after that word stays. */
+ pick(n){
+  const item=this.items[n];
+  const box=document.getElementById('chatInput');
+  if(!item||!box)return;
+  const {rest}=firstWord(box.value);
+  box.value=`${item.label} ${rest}`;
+  box.setSelectionRange?.(item.label.length+1,item.label.length+1);
+  TOUCHED.set('chatInput',box.value);
+  this.close();
+  box.focus();
+ },
+
+ dismiss(){
+  this.dismissed=this.word();
+  this.close();
+ },
+
+ close(){
+  this.open=false;
+  this.items=[];
+  this.index=0;
+  this.draw();
+ },
+
+ /* The chat box lost the focus, and it didn't come back: a click on an entry
+    keeps it there, so this doesn't close the pop-up under that click. */
+ blurred(){
+  if(document.activeElement!==document.getElementById('chatInput'))this.close();
+ },
+
+ /* Drawn with `textContent` only: names and descriptions come from RAVIS and
+    from skill repositories, and none of it may become markup. */
+ draw(){
+  const menu=document.getElementById('slashMenu');
+  const box=document.getElementById('chatInput');
+  if(!menu||!box)return;
+  const rows=this.items.map((item,n)=>slashRow(item,n,n===this.index));
+  menu.replaceChildren(...rows);
+  menu.hidden=!this.open;
+  box.setAttribute('aria-expanded',String(this.open));
+  if(this.open)box.setAttribute('aria-activedescendant','slashOption'+this.index);
+  else box.removeAttribute('aria-activedescendant');
+  slashPlace(menu);
+  rows[this.index]?.scrollIntoView?.({block:'nearest'});
+ },
+};
+
+/* One entry of the pop-up, an option of its listbox. */
+function slashRow(item,n,active){
+ const row=document.createElement('div');
+ row.id='slashOption'+n;
+ row.className='slash-row';
+ row.setAttribute('role','option');
+ row.setAttribute('aria-selected',String(active));
+ const label=document.createElement('b');
+ label.textContent=item.label;
+ const about=document.createElement('span');
+ about.textContent=item.description;
+ row.appendChild(label);
+ row.appendChild(about);
+ /* Pressing keeps the focus in the chat box, so its blur can't close the pop-up first. */
+ row.onmousedown=e=>e.preventDefault();
+ row.onclick=()=>SLASH.pick(n);
+ return row;
+}
+
+/* Just above the chat box, measured rather than guessed, as `sizeChat` does. */
+function slashPlace(menu){
+ const card=document.querySelector('.card.chat');
+ const bar=document.querySelector('.card.chat .composer');
+ if(!card||!bar)return;
+ menu.style.bottom=Math.round(card.getBoundingClientRect().bottom-bar.getBoundingClientRect().top+6)+'px';
+}
+
+/* The keys the pop-up takes while it is open. Every other key is the chat box's. */
+const SLASH_KEYS={
+ ArrowDown:slash=>slash.move(1),
+ ArrowUp:slash=>slash.move(-1),
+ Enter:slash=>slash.pick(slash.index),
+ Tab:slash=>slash.pick(slash.index),
+ Escape:slash=>slash.dismiss(),
+};
+
+/* A key in the chat box. **Nothing while an input method is composing**: Enter
+   then confirms the characters being composed (Japanese, Chinese, Korean and
+   more), and sending on it sent half a word. keyCode 229 is how some browsers
+   still say so. Then the pop-up's keys, then Enter to send. */
+function composerKey(e){
+ if(e.isComposing||e.keyCode===229)return;
+ if(SLASH.key(e))return;
+ if(e.key==='Enter')sendChat();
+}
 
 const CREDS={
  async save(name){

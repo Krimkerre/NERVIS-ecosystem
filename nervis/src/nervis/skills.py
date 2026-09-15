@@ -40,6 +40,17 @@ outside it.
 **A refused read is said plainly.** When RAVIS refuses the skill's text — switched off since
 the list was read, a file it won't serve, no such file — the model is told NERVIS couldn't read
 that skill, so it neither follows it nor claims to, and the answer still comes.
+
+**A skill asked for by name** (`invoke`, NERVIS 0.34.0, owner decisions of 15 September 2026). In
+chat, `/skill-name request` or `/skill <name or id> request` asks for one skill outright. The page
+works out which skill that is from its own copy of the list and sends the skill's id beside the
+message; that copy can be stale, so NERVIS checks the id against RAVIS's list **when the message is
+sent**, and reads the skill's `SKILL.md` then too. The skill replaces `fitting`'s pick and goes
+through the same `block`, with the same framing and the same 6,000-character cap. The model is asked
+the request without the `/name` in front (`question_of`), in the case it was typed. When the skill
+isn't switched on any more, RAVIS gave no list, or its text can't be read, `invoke` returns one
+plain line instead, and chat stores nothing and asks no model: the owner asked for that skill, and
+an answer written without it would look like one written with it.
 """
 
 from __future__ import annotations
@@ -71,6 +82,14 @@ FENCE_CHARACTERS = MOST_LISTED * (2 * NAME_CHARACTERS + DESCRIPTION_CHARACTERS +
     MOST_TEXT_CHARACTERS + 200)
 #: A word of a skill's name the question shares counts 2, a word of its description 1.
 MIN_SCORE = 3
+#: How many switched-on skills one read keeps, for chat's `/` list and for checking a skill asked
+#: for by name. Far more than anyone switches on; it is there so a runaway list can't grow a reply.
+MOST_SWITCHED_ON = 500
+#: The command that always reaches a skill, whatever its name: `/skill <name or id> request`.
+EXPLICIT = "/skill"
+#: What chat says, instead of asking a model, when a skill was asked for with nothing to do.
+NO_QUESTION = ("Say what the skill should do after its name, for example /skill-name write a short"
+               " changelog. Nothing was sent to a model.")
 #: Words any skill in this ecosystem could carry, which say nothing about which one fits. Put
 #: through `_terms`, so they are compared the way the question's words are: stemmed.
 _EVERYWHERE = frozenset(_terms("nervis ravis sirvis clarvis codex skill skills use using"))
@@ -103,6 +122,18 @@ class Offered:
     description: str
 
 
+@dataclass(frozen=True)
+class Invoked:
+    """A skill asked for by name, checked and read when the message was sent."""
+
+    #: The skill, as RAVIS listed it just now.
+    skill: Offered
+    #: What the model is asked: the message without `/name` or `/skill name`, in its typed case.
+    question: str
+    #: What the model is given about skills: `block`, with this skill's instructions in it.
+    reading: str
+
+
 async def reading(
     question: str, client: httpx.AsyncClient, ravis_base_url: str, credential: str = ""
 ) -> str:
@@ -118,16 +149,77 @@ async def reading(
 
 async def offered(client: httpx.AsyncClient, ravis_base_url: str, credential: str) -> list[Offered]:
     """The skills RAVIS lists as switched on for the other models, at most `MOST_LISTED`."""
+    return (await switched_on(client, ravis_base_url, credential) or [])[:MOST_LISTED]
+
+
+async def switched_on(
+    client: httpx.AsyncClient, ravis_base_url: str, credential: str
+) -> list[Offered] | None:
+    """Every skill RAVIS lists as switched on for the other models, or None when it gave no list.
+
+    None and an empty list are different answers, and both reach the person: "RAVIS didn't answer"
+    is not "no skill is switched on". A RAVIS older than 0.27.0 answers 404 and counts as no list.
+    """
     status, body = await _get(client, ravis_base_url + LIST_PATH, credential)
     skills = body.get("skills") if status == 200 and isinstance(body, dict) else None
-    found: list[Offered] = []
-    for entry in skills if isinstance(skills, list) else []:
-        skill = _offered(entry)
-        if skill is not None:
-            found.append(skill)
-        if len(found) == MOST_LISTED:
-            break
-    return found
+    if not isinstance(skills, list):
+        return None
+    found = (_offered(entry) for entry in skills[:MOST_SWITCHED_ON])
+    return [skill for skill in found if skill is not None]
+
+
+async def invoke(
+    skill_id: str, content: str, client: httpx.AsyncClient, ravis_base_url: str, credential: str
+) -> Invoked | str:
+    """The skill a message asked for by id, checked against RAVIS and read now, or why not.
+
+    The plain line comes back instead of an `Invoked` when there is nothing to ask the skill, RAVIS
+    gave no list, the id isn't switched on for the other models (switched off since the page read
+    its list, or never on), or RAVIS won't hand over the skill's text. Each line says nothing was
+    sent to a model, because chat then sends nothing.
+    """
+    question = question_of(content)
+    if not question:
+        return NO_QUESTION
+    shown = _one_line(skill_id, NAME_CHARACTERS)
+    listed = await switched_on(client, ravis_base_url, credential)
+    if listed is None:
+        return (f"RAVIS didn't answer, so NERVIS couldn't check that the skill {shown} is switched"
+                " on. Nothing was sent to a model.")
+    chosen = next((skill for skill in listed if skill.id == skill_id), None)
+    if chosen is None:
+        return (f"The skill {shown} isn't switched on for Other models, so nothing was sent to a"
+                " model. /help lists the skills that are.")
+    text, refused = await _read(client, ravis_base_url, credential, chosen)
+    if not text:
+        return (f"NERVIS couldn't read the skill {chosen.id}: {refused}. Nothing was sent to a"
+                " model.")
+    return Invoked(chosen, question, block(_listing(listed, chosen), chosen, text, ""))
+
+
+def question_of(content: str) -> str:
+    """What a skill asked for by name is asked to do: the message without `/name` or `/skill name`.
+
+    Only a message that opens with a slash loses its first word, so a client that sends the request
+    alone beside the skill's id keeps every word of it. What is left keeps the case it was typed in.
+    """
+    text = content.strip()
+    if not text.startswith("/"):
+        return text
+    command, rest = _first_word(text)
+    return _first_word(rest)[1] if command.casefold() == EXPLICIT else rest
+
+
+def _first_word(text: str) -> tuple[str, str]:
+    """A line split at its first run of whitespace: the word, and the rest without its edges."""
+    parts = text.split(maxsplit=1)
+    return (parts[0] if parts else ""), (parts[1].strip() if len(parts) == 2 else "")
+
+
+def _listing(listed: list[Offered], chosen: Offered) -> list[Offered]:
+    """The short list the model gets, holding the skill asked for even when it is past the bound."""
+    shown = listed[:MOST_LISTED]
+    return shown if chosen in shown else [*shown[:MOST_LISTED - 1], chosen]
 
 
 def _offered(entry: Any) -> Offered | None:
