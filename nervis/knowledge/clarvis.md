@@ -113,6 +113,24 @@ major is refused outright rather than accepted, since registering is the one
 moment NERVIS can answer synchronously. An older Bridge that sends no
 `protocol_version` at all is still accepted — silence isn't a claim.
 
+### What a Clarvis window reports as it works (Clarvis 0.17.11)
+
+Besides chat turns, coding runs and approval waits, a window with the Bridge on sends NERVIS:
+
+- **each model request as it finishes**: which model and provider, how long it took, how much came
+  back, and whether it answered, was stopped or failed, with the same request id RAVIS records for
+  it. Never what was asked or answered, and never why it failed.
+- **each tool call as it finishes**: the tool's name, whether it changes files, its number in the
+  run, how long it took, or that it was refused (an unknown tool, bad arguments, or the project
+  taken by another window). Never a path, a command or search text. A call that asked the owner
+  something shows as finished whichever way they answered.
+- **the editor's problem counts** (errors, warnings, information, hints, and how many files have
+  any) when they change, at most every 30 seconds. Never which files.
+
+The starts of model requests and tool calls stay in the editor, to keep a busy run within NERVIS's
+flood guard. **Clarvis sends no task events yet**, so NERVIS's list of a window's tasks is empty:
+what a "task" means for Clarvis hasn't been decided.
+
 ## Voice
 
 Off unless configured. A daily request cap, a chosen voice and engine, and a

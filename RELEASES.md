@@ -25,7 +25,41 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.10
+## Clarvis — 0.17.12
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+A Clarvis model request and RAVIS's record of it share one request id in NERVIS.
+
+- **The request id is on the event itself**, where RAVIS puts its own, so NERVIS stores Clarvis's
+  "model request finished" event and RAVIS's route decision under the same id. It used to sit only
+  inside the event's details.
+
+### 0.17.11
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+Clarvis tells NERVIS about its model requests, its tool use and the editor's problem counts.
+
+- **Model requests:** each one is reported when it is made and when it ends: chat, coding, titles
+  and the voice check alike. The report names the model, the provider, how long it took, how much
+  came back and whether it answered, was stopped or failed, and carries the same request id RAVIS
+  records. It never includes what was asked or answered, or why something failed. A stop counts as
+  stopped, not as a failure.
+- **Tool use:** each tool call is reported by the tool's name, whether it changes files, its number
+  in the run and how long it took, or why it was refused (an unknown tool, bad arguments, or another
+  window holding the project). File paths, commands and search text are never included. A call that
+  asked you something is reported as finished whichever way you answered, so NERVIS can't tell a
+  refusal from an approval.
+- **Problem counts:** errors, warnings, information and hints, plus how many files have any. No file
+  names are sent. They're sent once the editor settles, at most every 30 seconds, and only when they
+  change.
+- **Kept light for NERVIS:** only the end of each model request and tool call is sent on to NERVIS
+  (the start stays on Clarvis's own event stream), so one coding run stays inside the flood guard's
+  allowance.
+- **Not yet:** Clarvis's "task" events. What a task means for Clarvis hasn't been decided.
+
+### 0.17.10
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 

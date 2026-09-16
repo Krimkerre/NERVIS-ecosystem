@@ -672,6 +672,35 @@ Default payloads carry identifiers, categories, state, counts, timings and resul
 raw paths, secrets or approval details. A user-enabled diagnostic export may add content under
 explicit scope, preview, retention and revocation controls.
 
+**As built, 16 September 2026 (Clarvis 0.17.12): every family but `clarvis.task.*`.** Model, tool
+and diagnostic events joined the lifecycle, gate, chat, agent and capability ones in Clarvis 0.17.11.
+They are not transitions between §6.3's states, so they travel on a second `Activity` channel and
+are mapped field by field in `eventForNote` (`clarvis/src/bridge/publish.ts`):
+
+- `clarvis.model.requested/completed/failed` — role, provider id, model id, the request id the
+  request carried (also on the forwarded envelope since 0.17.12, where RAVIS puts its own), elapsed
+  and first-output time, text and tool-call counts, and a result class (`answered`, `cancelled` for
+  a stop, `closed`, `error`) with `retryable` on a failure. Watched where every stream leaves
+  `ModelService` (`src/model/callWatch.ts`), so every caller is covered. The trace and session are
+  the request's own, never the operation's in flight.
+- `clarvis.tool.started/completed/failed/refused` — the registry name (`unknown` for one a model
+  invented), whether it writes, its number in the run, elapsed time, and a refusal category.
+  **A call that asked the user ends as `completed` either way** (`asked_user: true`): `failed`
+  right after `clarvis.gate.resolved` would disclose the approval detail this section forbids.
+- `clarvis.diagnostic.changed` — error, warning, information and hint counts and the number of
+  files with any, paced to one update after the editor settles, at most every 30 seconds, only on
+  a change, and only while the Bridge runs.
+
+**Only the endings are forwarded to NERVIS.** `clarvis.model.requested` and `clarvis.tool.started`
+stay on the Bridge's own stream: the hub's flood guard allows a service 120 events at once and 12 a
+minute after, and a 25-call run with both ends of everything forwarded is about 130 events. An
+ending carries `elapsed_ms`, and a trace's Clarvis bar already spans the turn.
+
+**`clarvis.task.*` is not emitted**, and nothing yet says what a Clarvis task is: an agent run has
+`clarvis.agent.*`, a NERVIS handoff is a file (E-C8), and §6.3's "build and test outcome" suggests
+VS Code tasks. NERVIS's per-window task list (`nervis/src/nervis/clarvis.py`) stays empty until that
+is decided.
+
 ## 6.5 Tracing
 
 Propagate `trace_id`, `request_id`, `session_id` and `workspace_id` from Clarvis to RAVIS, and
@@ -690,7 +719,8 @@ reaches Anthropic, since RAVIS serves no `/v1/messages`). **`workspace_id` does 
 salted id reaches NERVIS with the Bridge registration instead. Since Clarvis 0.17.10 chat and agent
 events carry the trace **and the session** their model requests carry (`ModelService.sessionFor`),
 with millisecond timestamps; not a request id, since a turn can make several requests and its start
-event precedes them all. Model events are not emitted at all (E-C4). Until 12 September only the
+event precedes them all. Since Clarvis 0.17.11 each model request has its own event naming its request
+id (§6.4's as-built note). Until 12 September only the
 trace and the session travelled, and only through the OpenAI-compatible adapter.
 
 ## 6.6 Multiple simultaneous instances
@@ -998,9 +1028,8 @@ NERVIS's enrolment secret and is not assessed here. **A cross-service trace reso
 16 September 2026:** a Clarvis chat turn in code-server drew, under one trace id in NERVIS,
 `clarvis.chat.started` and `.completed`, RAVIS's `ravis.route.selected` (`ravis/clarvis-chat` to
 `claude-haiku-4-5`) and `ravis.request.completed` naming Anthropic, and RAVIS's log line of the
-provider call (`STATUS.md`, row 5 of "Next"). Still unmet: **§6.4's list is only partly emitted**: lifecycle, gate, chat, agent and
-capability events exist; `clarvis.tool.*`, `clarvis.diagnostic.changed`, `clarvis.task.*` and
-`clarvis.model.*` do not (`src/bridge/events.ts`).
+provider call (`STATUS.md`, row 5 of "Next"). Still unmet: **§6.4's list is emitted except `clarvis.task.*`** — model, tool and diagnostic events
+arrived in Clarvis 0.17.11 (§6.4's as-built note); what a Clarvis task is has not been decided.
 
 ### E-C5 LIVE VERIFIED — NERVIS visibility
 
