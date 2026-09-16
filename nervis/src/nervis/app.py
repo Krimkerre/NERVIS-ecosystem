@@ -38,7 +38,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from nervis import background, documents, logs, notifications, supervision, workspace
+from nervis import background, documents, logs, notifications, supervision, telemetry, workspace
+from nervis.alerts import Alerts, Reading
 from nervis.api import (
     background_router,
     chat_router,
@@ -85,7 +86,7 @@ from nervis.errors import (
     NervisError,
     to_response,
 )
-from nervis.events import Hub
+from nervis.events import GAP_EVENT, Hub
 from nervis.flood import limits_from
 from nervis.instances import Instances
 from nervis.probes import probe
@@ -426,6 +427,83 @@ def _install_clarvis(api: FastAPI) -> None:
         logger.info("%s", outcome)
 
 
+def _post_quietly(api: FastAPI, note: dict[str, Any]) -> None:
+    """File one of `alerts.py`'s notes; a note that could not be filed never stops a feed."""
+    database = getattr(api.state, "database", None)
+    if database is None:
+        return
+    try:
+        notifications.post(database, **note)
+    except Exception:  # noqa: BLE001 - a failed note is logged, never fatal
+        logger.exception("filing a %s notification failed", note.get("kind"))
+
+
+async def _feed_alerts(api: FastAPI) -> None:
+    """Every stored event, to `Alerts`, for as long as NERVIS runs.
+
+    A subscriber that fell behind is cut loose with a gap marker; this one then
+    subscribes again rather than waiting on a queue nothing writes to any more.
+    """
+    hub: Hub = api.state.hub
+    queue = hub.subscribe()
+    try:
+        while True:
+            event = await queue.get()
+            if event.get("event_type") == GAP_EVENT:
+                hub.unsubscribe(queue)
+                queue = hub.subscribe()
+                continue
+            try:
+                api.state.alerts.on_event(event, time.monotonic())
+            except Exception:  # noqa: BLE001 - one odd event must not end the feed
+                logger.exception("an alert trigger failed on %s", event.get("event_type"))
+    finally:
+        hub.unsubscribe(queue)
+
+
+async def _read_for_alerts(api: FastAPI) -> None:
+    """One probe tick's readings for `Alerts`: RAVIS's budget and memory, this Mac's swap.
+
+    RAVIS is read only while the registry holds it usable, and each read that fails
+    is simply absent this tick — a notice is never built from a guess.
+    """
+    budget, memory = await _ravis_readings(api)
+    pressure = memory.get("under_pressure")
+    _, swap_used = telemetry._swap()
+    labels = {one.instance_id: one.label for one in api.state.instances.live("clarvis")}
+    api.state.alerts.on_reading(Reading(
+        now=time.monotonic(),
+        budget=budget,
+        memory_under_pressure=pressure if isinstance(pressure, bool) else None,
+        memory_detail=str(memory.get("detail") or ""),
+        swap_used=swap_used,
+        window_labels=labels,
+    ))
+
+
+async def _ravis_readings(api: FastAPI) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """RAVIS's budget (or None) and its memory reading (or nothing), from its own reads."""
+    entry = api.state.registry.get("ravis")
+    if entry is None or not entry.is_usable:
+        return None, {}
+    base = entry.declaration.base_url
+    usage = await _json_or_empty(api, base + "/api/v1/usage")
+    health = await _json_or_empty(api, base + "/api/v1/health")
+    budget = usage.get("budget")
+    load = health.get("load")
+    memory = load.get("memory") if isinstance(load, dict) else None
+    return (budget if isinstance(budget, dict) else None,
+            memory if isinstance(memory, dict) else {})
+
+
+async def _json_or_empty(api: FastAPI, url: str) -> dict[str, Any]:
+    try:
+        found = (await api.state.probe_client.get(url, timeout=5)).json()
+    except (httpx.HTTPError, ValueError):
+        return {}
+    return found if isinstance(found, dict) else {}
+
+
 async def _settle_events_periodically(api: FastAPI) -> None:
     """Let the flood guard store final states and release, on a one-second tick.
 
@@ -479,12 +557,17 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     if getattr(api.state.settings, "clarvis_auto_install", False):
         asyncio.create_task(asyncio.to_thread(_install_clarvis, api))
     settling = asyncio.create_task(_settle_events_periodically(api))
+    # §18's other notices (`alerts.py`): fed by the hub as events are stored, and by
+    # the probe timer's readings below.
+    api.state.alerts = Alerts(lambda **note: _post_quietly(api, note))
+    alerting = asyncio.create_task(_feed_alerts(api))
     try:
         yield
     finally:
         api.state.stopping.set()
         task.cancel()
         settling.cancel()
+        alerting.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
         with contextlib.suppress(asyncio.CancelledError):
@@ -949,6 +1032,13 @@ async def _refresh_periodically(api: FastAPI) -> None:
         # copy only happens on the sweep that finds a log over the limit.
         with contextlib.suppress(Exception):
             _enforce_log_bounds(api)
+        # §18's readings-based notices: budget, memory, swap, a Clarvis gate left waiting.
+        try:
+            await _read_for_alerts(api)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a notice that could not be read must not stop probing
+            logger.exception("reading for notifications failed")
         await asyncio.sleep(_next_interval(api))
 
 

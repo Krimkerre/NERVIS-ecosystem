@@ -1009,6 +1009,11 @@ direct-provider fallback: nothing in `src/model/` moves a request to another pro
 fails. The one thing there named `fallback` (`ModelService.ts`, since 0.15.2) is the launcher's
 RAVIS credential used when no key is stored, not a provider fallback.
 
+**Decided by the owner, 16 September 2026: nothing more to build.** Clarvis already talks to a
+provider directly — Anthropic, OpenAI, OpenRouter, LM Studio or Ollama are each a choice in its
+settings beside RAVIS — and that choice is the explicit fallback. No automatic move away from
+RAVIS will be added.
+
 ### E-C3 LIVE VERIFIED — Bridge protocol
 
 Opt-in, extension-host-scoped metadata and status endpoints.

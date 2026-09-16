@@ -1361,6 +1361,17 @@ warning.** *Clarvis waiting for approval* is shown but never filed: the status l
 of every screen changes to "Waiting for you", naming the editor window and the kind of
 approval, and no note is written.
 
+**Since 16 September 2026 (NERVIS 0.34.12) every notice on the list is filed**
+(`nervis/src/nervis/alerts.py`). From events as the hub stores them: a benchmark that
+finished or failed (once per run); a route-failure spike (at least five failed or refused
+requests in five minutes that are at least half of what finished, then quiet for half an
+hour); and a Clarvis approval still open after two minutes (once per wait, naming the
+window). From the probe timer's readings: RAVIS's budget band rising (each rise, never a
+fall; §14's bands from `/api/v1/usage`), RAVIS's memory reading turning to under pressure
+(again only after it recovered), and this machine's swap growing by 2 GB within ten
+minutes (at most hourly). Each trigger files once per episode, which is how §18's "keep
+notification volume low" is kept; state is in memory, so a restart may file one again.
+
 ## 18.1 Voice and character
 
 **NERVIS has a character, and it is not Clarvis's.** The two must stay tellable apart, so

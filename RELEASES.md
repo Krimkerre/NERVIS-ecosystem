@@ -667,7 +667,25 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.11
+## NERVIS — 0.34.12
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+The Notifications tab now tells you about more than services going up and down.
+
+- **New notices:**
+  - a benchmark finished or failed;
+  - requests through RAVIS are failing;
+  - Clarvis has been waiting on your approval for over two minutes;
+  - the RAVIS budget moved up a level;
+  - this Mac is short of memory;
+  - it is swapping heavily.
+- **Kept quiet:** each notice is filed once when its condition starts, and not again until the
+  condition has ended or a quiet period has passed.
+- **Nothing new is asked of the services:** the notices come from events NERVIS already receives
+  and readings it already takes.
+
+### 0.34.11
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

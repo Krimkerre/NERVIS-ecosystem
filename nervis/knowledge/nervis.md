@@ -907,11 +907,25 @@ configured with an executable NERVIS may start. Those are different answers to
 
 ## The Notifications tab
 
-Where NERVIS keeps what it wanted to tell you. Two things file notes today: a
-service changing state, and unattended work when somebody has switched it on — a
-note when a service has stayed unreachable or degraded for a while, and a
-once-a-day digest of what the event hub recorded. **Nothing files a note when a
-task finishes**; that kind of note does not exist yet.
+Where NERVIS keeps what it wanted to tell you. These file notes: a service
+changing state; unattended work when somebody has switched it on (a note when a
+service has stayed unreachable or degraded for a while, and a once-a-day digest of
+what the event hub recorded); and, since NERVIS 0.34.12:
+
+- **a benchmark** that finished or failed on SIRVIS;
+- **requests through RAVIS failing**: at least five failed or refused in five
+  minutes, and at least half of all requests in that time (then quiet for half an hour);
+- **Clarvis waiting for you**: an approval in an editor window still open after two
+  minutes, naming the window (NERVIS can't answer it; the editor can);
+- **the RAVIS budget** moving up a level (70%, 90%, spent), only when a budget is
+  set in RAVIS;
+- **this Mac short of memory**, by RAVIS's memory reading;
+- **heavy swapping**: swap growing by 2 GB within ten minutes.
+
+Each files once when it starts and not again until it has ended or, for failing
+requests and swapping, until a quiet period has passed, so the list stays short.
+**Nothing files a note when a handed-over task finishes**; that is on the Clarvis
+diagnostics card instead.
 
 Since 13 September 2026 the digest gives the free pool room to answer: it used to
 allow 300 tokens, a free reasoning model spent them all thinking, and the digest
