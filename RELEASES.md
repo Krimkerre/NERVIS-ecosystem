@@ -585,7 +585,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.4
+## NERVIS — 0.34.5
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+The Diagnostics page no longer says "no packet" while showing one.
+
+- **Fixed: a banner that was always there.** "No diagnostic packet has been assembled" was shown every
+  time, even after **Analyze trace…** had built one and it was on screen as "What would be sent". The
+  banner now shows only while there is no packet, and says how to build one: from the trace you last
+  opened on the Traces screen, or from the most recent events. Nothing is sent until you press
+  **Send this to RAVIS**.
+- **For operators:** page only. A new dashboard gate, `diagnose_check.js`, covers the three states.
+
+### 0.34.4
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

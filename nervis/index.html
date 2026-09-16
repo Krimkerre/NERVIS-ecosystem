@@ -7091,11 +7091,26 @@ async function diagnosticsView(){
     returned `null`, so the table never rendered and the banner always did.
     With that reader gone the branch is gone too: an example of a payload is not
     the payload, and this screen is where a reader checks what would be sent. */
+ const packet=diagnosePanel();
  $('#content').innerHTML = `${diagSectionsRow()}`
-   + liveCard + diagnosePanel() + adapterCard
-   + banner('No diagnostic packet has been assembled',
-       'Nothing has asked for one yet. When a diagnostics run builds a packet this card '
-       + 'shows exactly what it would contain and what it would leave out.','info');
+   + liveCard + packet + adapterCard + noPacketBanner(packet);
+}
+
+/* **Said only while it is true.** This banner was drawn on every paint, so once
+   Analyze trace… had built a packet the screen showed "What would be sent" and,
+   below it, "No diagnostic packet has been assembled" — and the banner promised
+   the packet in "this card", which was never where it appeared (found by the
+   owner, 16 September 2026). It now stands in for the packet card while there is
+   none — `packet` is that card's markup, empty until a build was asked for — and
+   says how to get one and from what. Its own function because the screen above
+   sits at the complexity ceiling. */
+function noPacketBanner(packet){
+ if(packet)return '';
+ return banner('No diagnostic packet yet',
+   'Press Analyze trace… above to build one — from the trace you last opened on the '
+   + 'Traces screen, or from the most recent events if you have not opened one. It '
+   + 'appears here as "What would be sent", exactly as it would go, and nothing is '
+   + 'sent until you press Send this to RAVIS.','info');
 }
 
 /* Keep the newest message in view, without fighting the reader.

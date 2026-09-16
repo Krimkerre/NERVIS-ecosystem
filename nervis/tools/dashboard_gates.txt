@@ -36,3 +36,4 @@ skills
 skill_store
 flood
 slash
+diagnose
