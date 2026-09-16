@@ -684,7 +684,7 @@ Default payloads carry identifiers, categories, state, counts, timings and resul
 raw paths, secrets or approval details. A user-enabled diagnostic export may add content under
 explicit scope, preview, retention and revocation controls.
 
-**As built, 16 September 2026 (Clarvis 0.17.12): every family but `clarvis.task.*`.** Model, tool
+**As built, 16 September 2026: every family — model, tool and diagnostic events in Clarvis 0.17.11–0.17.12, task events in 0.17.14 (below).** Model, tool
 and diagnostic events joined the lifecycle, gate, chat, agent and capability ones in Clarvis 0.17.11.
 They are not transitions between §6.3's states, so they travel on a second `Activity` channel and
 are mapped field by field in `eventForNote` (`clarvis/src/bridge/publish.ts`):
@@ -1037,7 +1037,7 @@ trace resolves; normal Clarvis behaviour is unchanged; **tracing failure never b
 run**; an unauthenticated subscriber receives no events, and a process impersonating a Bridge on
 a free port cannot register with NERVIS.
 
-**Where it stands, 12 September 2026 — with two clauses unmet.** The suite covers Clarvis's side
+**Where it stands, 16 September 2026 — the two clauses unmet on 12 September are met** (a cross-service trace resolves, and §6.4's list is emitted in full); the impersonation clause is NERVIS's to show. The suite covers Clarvis's side
 of the exit: monotonic event ids, replay of only what a reconnecting client missed, a bounded
 buffer that drops the oldest and counts the overflow, primitive-only payloads that cannot carry a
 command, path or secret, a stream closed to an unauthenticated subscriber, emitting that never
