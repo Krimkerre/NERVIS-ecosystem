@@ -897,6 +897,14 @@ an instruction changes nothing, and a caller-supplied identity grants nothing.
 > `ai-router` (<https://github.com/alexander-keisse>, MIT), which states them as operating
 > rules for a gated action surface.
 
+**As built, 16 September 2026 — reviewed, not yet signed.** The dependency check exists
+(`tools/check_dependencies.py`; operator runbook, *Checking dependencies for known holes*). The
+first threat-model review and privilege matrix are in `design/security/review-2026-09-16.md`,
+with six findings awaiting the owner's decision (S1–S6): NERVIS's supervision routes and some of
+its other writes skip the control token, credentials are owner-readable files by design, SIRVIS's
+`admin` is total by design, there is no content-based secret scan, and remote access is not
+built. The note below is what stood before that day.
+
 **As built, 12 September 2026 — three parts of the security gate have nothing behind them.**
 No dependency check runs anywhere: the clean-clone gate installs Node packages with
 `npm ci --no-audit` (`tools/check_clean_clone.sh`), and no Python dependency audit exists in
