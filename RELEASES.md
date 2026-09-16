@@ -598,7 +598,25 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.6
+## NERVIS — 0.34.7
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+RAVIS → Diagnostics no longer reports problems it doesn't have.
+
+- **Fixed: "upstream not answering · models visible 0".** RAVIS's health reading covers only its first
+  provider (LM Studio here, switched off), not RAVIS as a whole. The rows now say "first provider",
+  name it, and point to Provider health for the rest.
+- **Fixed: "Verdict FAIL" for a check nobody ran.** The Clarvis conformance suite runs from the command
+  line and no result reaches the page, so the tiles now say "not run here". A real result would still
+  show PASS or FAIL. The out-of-date "seventeen checks" and "passes today" are gone too.
+- **Fixed: "null" breakers and 0% error rates.** A provider RAVIS hasn't called since it started now
+  shows "not probed" and no rate. The note underneath counts those providers and names any that aren't
+  answering, instead of claiming everything is healthy.
+- **For operators:** a new dashboard gate, `ravis_readings_check.js`, and `reachable` now travels with
+  each provider row the page reads (`shaping_golden.json` updated).
+
+### 0.34.6
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

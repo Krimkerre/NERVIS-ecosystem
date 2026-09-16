@@ -667,6 +667,14 @@ such rather than shown as zero. RAVIS doesn't read provider balances or SIRVIS's
 models slowing each other down yet. **None of this changes which model RAVIS picks**: they are
 readings, and routing on them is a decision the owner hasn't made.
 
+The **RAVIS health** card above it has two rows about RAVIS's **first provider only** (NERVIS 0.34.7):
+whether it answers and how many models it lists. With LM Studio first and switched off they read "not
+answering" and 0 while every other provider works; the Provider health table covers all of them. There,
+**"not probed"** means RAVIS hasn't sent that provider a request since it last started, so it has no
+breaker or error rate yet; it is not a fault. The **Conformance** tiles say "not run here" because the
+Clarvis conformance suite runs only from the command line (`ravis conformance clarvis`); it ran 24
+checks and passed on 16 September 2026.
+
 ## Where the prices come from, and why some are approximate
 
 RAVIS ships **no built-in price list**. Every hosted rate is written down by the

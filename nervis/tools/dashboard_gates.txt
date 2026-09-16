@@ -38,3 +38,4 @@ flood
 slash
 diagnose
 ravis_load
+ravis_readings

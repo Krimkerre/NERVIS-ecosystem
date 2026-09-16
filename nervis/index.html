@@ -3028,7 +3028,7 @@ const API={
        breaker:x.breaker, error_rate:x.error_rate,
        p50_ms:x.latency_ms==null?null:Math.round(x.latency_ms),
        enabled:x.enabled!==false, models:x.catalogue_size,
-       requests:x.requests||0,
+       requests:x.requests||0, reachable:x.reachable,
        note:x.catalogue_error?`catalogue: ${x.catalogue_error}`
          :x.reachable===false?(x.detail||'not answering')
          // A translated provider carries no catalogue_size, and the previous
@@ -15863,17 +15863,25 @@ async function liftRefusal(r){
   :(words||'RAVIS refused: HTTP '+r.status);
 }
 
-function ravisHealthCard(rhealth,rdiag){
+/* `upstream_reachable` and `models_known` on RAVIS's /api/v1/health describe its
+   **first declared provider** only (`api.state.adapter` and `model_registry` are the
+   primary's). With LM Studio first and switched off, this card read "upstream not
+   answering · models visible 0" while seven other providers answered and 645 models
+   were routable. So the rows are named for what they measure, with the provider's
+   name when the providers list gives it: transparent providers come first, in
+   declaration order, so the first transparent row is the one health probes. */
+function ravisHealthCard(rhealth,rdiag,first=''){
  if(!rhealth)return '';
  const identity=(rdiag&&rdiag.identity)||null;
+ const named=first?`<span class="mono">${escapeHtml(first)}</span> · `:'';
  return `<div class="card full live"><h3>RAVIS health <span class="chip">live</span></h3>${cell(`
    <div class="trace-step"><b>status</b><span>${healthChip(rdiag)}</span></div>
-   <div class="trace-step"><b>upstream</b><span>${upstreamRow(rhealth)}</span></div>
-   <div class="trace-step"><b>models visible</b><span class="mono">${escapeHtml(rhealth.models_known)}</span></div>
+   <div class="trace-step"><b>first provider</b><span>${named}${upstreamRow(rhealth)}</span></div>
+   <div class="trace-step"><b>its models</b><span><span class="mono">${escapeHtml(rhealth.models_known)}</span> <span class="dim">— RAVIS's health reading covers only its first provider; every provider is under Provider health below</span></span></div>
    ${identity?`<div class="trace-step"><b>build</b><span class="mono">${escapeHtml(dash(identity.build_version))} · protocol ${escapeHtml(dash(identity.protocol_version))}</span></div>`:''}
    ${((rdiag&&rdiag.unavailable)||[]).map(c=>`<div class="trace-step"><b>${escapeHtml(c.id)}</b><span style="opacity:.75">${escapeHtml(c.reason||'')}</span></div>`).join('')}
    <div id="ravis-suppressions">${suppressionRows(rhealth)}</div>
-   <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so the ten checks below are a sample of the suite's shape rather than a run of it — the suite itself runs <b>seventeen</b>, and this card said sixteen while listing ten. Run the command to see a real result — it is the §8.9 release gate and passes today.</small>`,'ravis')}</div>`;
+   <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so no result of it reaches this page. Run the command to see one, with its count of checks — it is the §8.9 release gate.</small>`,'ravis')}</div>`;
 }
 
 /* ── What RAVIS has running now (RAVIS M20, §12.3) ─────────────────────────
@@ -15951,21 +15959,40 @@ function ageWords(seconds){
    endpoint carrying its outcome. The chip beside the heading said "shape, not
    a run" while the ticks said otherwise, and a reader believes the ticks. The
    names stay — knowing what Clarvis depends on is worth reading without a
-   result. The ticks were the page marking its own homework. */
+   result. The ticks were the page marking its own homework.
+
+   **No count is written here either.** This said "N of the suite's seventeen checks"
+   under an empty list — "0 of seventeen" — while the suite ran twenty-four; a number
+   copied into prose goes stale the day a check is added, so the command gives it. */
 function conformanceCard(cf){
  return `<div class="card full"><h3>Clarvis conformance <span class="chip warn">not run from here</span></h3>${cell(`
-   <div class="route-lanes" style="grid-template-columns:repeat(2,1fr)">${cf.checks.map(([name])=>`
-    <div class="lane" style="cursor:default"><b>${escapeHtml(name)}</b></div>`).join('')}</div>
-   <small class="mono dim">${escapeHtml(cf.checks.length)} of the suite's seventeen checks, listed rather than run: <span class="mono">ravis conformance clarvis</span> is a CLI command, <b>/api/v1/route-tests</b> answers 404, and no pass or fail reaches anywhere a browser can read. Run the command for a verdict — it is the §8.9 release gate. These are not unit tests of RAVIS; they are the behaviours Clarvis depends on. Streaming that ends without <b>[DONE]</b>, tool arguments split across frames, or a <b>tool_call_id</b> that changes on the way through all produce an editor that fails in ways no RAVIS log would explain.</small>`,'ravis')}</div>`;
+   ${cf.checks.length?`<div class="route-lanes" style="grid-template-columns:repeat(2,1fr)">${cf.checks.map(([name])=>`
+    <div class="lane" style="cursor:default"><b>${escapeHtml(name)}</b></div>`).join('')}</div>`:''}
+   <small class="mono dim">${cf.checks.length?`${escapeHtml(cf.checks.length)} checks, listed rather than run`:'Nothing run or listed here'}: <span class="mono">ravis conformance clarvis</span> is a CLI command, <b>/api/v1/route-tests</b> answers 404, and no pass or fail reaches anywhere a browser can read. Run the command for a verdict and the suite's count of checks — it is the §8.9 release gate. The checks are not unit tests of RAVIS; they are the behaviours Clarvis depends on. Streaming that ends without <b>[DONE]</b>, tool arguments split across frames, or a <b>tool_call_id</b> that changes on the way through all produce an editor that fails in ways no RAVIS log would explain.</small>`,'ravis')}</div>`;
 }
 
+/* What the Provider health table adds up to. Said only from what RAVIS sent: this
+   claimed "every breaker closed and every enabled provider answering" while RAVIS
+   had called none of them since starting and LM Studio was not answering. */
+function providerHealthNote(pr,breakers){
+ if(breakers.length)
+  return `<b>${escapeHtml(breakers[0].label)}</b> is at ${escapeHtml(breakers[0].breaker)}: one probe at a time until it proves itself. Requests keep being served — from the local pool, at no cost — which is why the symptom of a cloud provider degrading is a bill going down, not an error page.`;
+ const unprobed=pr.items.filter(x=>x.breaker==null).length;
+ const silent=pr.items.filter(x=>x.enabled&&x.reachable===false).map(x=>escapeHtml(x.label));
+ return 'No breaker open.'
+  +(unprobed?` ${escapeHtml(unprobed)} of ${escapeHtml(pr.items.length)} not called since RAVIS started, so there is no verdict on them yet — a breaker and an error rate come from real requests.`:'')
+  +(silent.length?` Not answering now: <b>${silent.join(', ')}</b>.`:'');
+}
+
+const breakerChip=x=>x.breaker==null
+ ?'<span class="chip" style="opacity:.55" title="never called — not a verdict">not probed</span>'
+ :`<span class="chip${warnUnless(x.breaker==='CLOSED')}">${escapeHtml(x.breaker)}</span>`;
+
 function providerHealthCard(pr,breakers,live=false){
- const note=breakers.length
-  ? `<b>${escapeHtml(breakers[0].label)}</b> is at ${escapeHtml(breakers[0].breaker)}: one probe at a time until it proves itself. Requests keep being served — from the local pool, at no cost — which is why the symptom of a cloud provider degrading is a bill going down, not an error page.`
-  : 'Every breaker closed and every enabled provider answering.';
+ const note=providerHealthNote(pr,breakers);
  return `<div class="card wide${liveClass(live)}"><h3>Provider health</h3>${cell(`
    <div class="table-row head five"><span>Provider</span><span>Breaker</span><span>Error rate</span><span>p50</span><span>Enabled</span></div>
-   ${pr.items.map(x=>`<div class="table-row five"><span>${escapeHtml(x.label)}</span><span class="chip${warnUnless(x.breaker==='CLOSED')}">${escapeHtml(x.breaker)}</span><span>${escapeHtml(Math.round(x.error_rate*100))}%</span><span>${escapeHtml(x.p50_ms?x.p50_ms+' ms':'—')}</span><span class="chip${warnUnless(x.enabled)}">${escapeHtml(x.enabled?'yes':'no')}</span></div>`).join('')}
+   ${pr.items.map(x=>`<div class="table-row five"><span>${escapeHtml(x.label)}</span>${breakerChip(x)}<span>${escapeHtml(x.error_rate==null?'—':Math.round(x.error_rate*100)+'%')}</span><span>${escapeHtml(x.p50_ms?x.p50_ms+' ms':'—')}</span><span class="chip${warnUnless(x.enabled)}">${escapeHtml(x.enabled?'yes':'no')}</span></div>`).join('')}
    <small class="mono dim">${note}</small>`,'ravis')}</div>`;
 }
 
@@ -15975,6 +16002,18 @@ function unavailablePoolsCard(down,live=false){
     +`<small class="mono dim">a request to ${escapeHtml(down[0].pool_id)} returns NO_ROUTE. The pool endpoint publishes availability and membership, not a per-pool diagnosis — the reason a <b>particular</b> request found no route is on that request's route decision, with the excluded builds and why each was excluded. Nothing installed satisfies the invariant, so the fix is a build, not a retry.</small>`
   : `<div class="trace-step"><b>all pools</b><span>at least one member</span></div><small class="mono dim">every published pool can be served.</small>`;
  return `<div class="card narrow${liveClass(live)}"><h3>Unavailable pools</h3>${cell(body,'ravis')}</div>`;
+}
+
+/* No run read is not a failed run. `API.ravis.conformance()` answers
+   `{ran_at:null, pass:null}` because nothing a browser can reach carries a result, and
+   these tiles read that as "0 / 0 · suite  · null" and "FAIL". */
+function conformanceKpis(cf,passed){
+ if(cf.ran_at==null||cf.pass==null)return [
+  ['Conformance','not run here','run ravis conformance clarvis for a result','ravis',false],
+  ['Verdict','—','no result reaches this page — not a failure','ravis',false]];
+ return [
+  ['Conformance',`${passed} / ${cf.checks.length}`,`suite ${cf.suite} · ${cf.ran_at}`,'ravis',false],
+  ['Verdict',cf.pass?'PASS':'FAIL','all or nothing — there is no partial claim','ravis',false]];
 }
 
 async function ravisDiagnostics(){
@@ -15992,9 +16031,9 @@ async function ravisDiagnostics(){
  const unprobed=pr.items.filter(x=>x.breaker==null).length;
  const down=pl.items.filter(x=>!x.available);
 
- $('#content').innerHTML=ravisHealthCard(rhealth,rdiag)+ravisLoadCard(rhealth)+kpis([
-   ['Conformance',`${passed} / ${cf.checks.length}`,`suite ${cf.suite} · ${cf.ran_at}`,'ravis',false],
-   ['Verdict',cf.pass?'PASS':'FAIL','all or nothing — there is no partial claim','ravis',false],
+ const first=(pr.items.find(x=>x.protocol==='OPENAI_TRANSPARENT')||{}).label||'';
+ $('#content').innerHTML=ravisHealthCard(rhealth,rdiag,first)+ravisLoadCard(rhealth)+kpis([
+   ...conformanceKpis(cf,passed),
    ['Breakers',String(breakers.length),
      breakers.length?'open or recovering':unprobed?`none open · ${unprobed} never called`:'all closed','ravis'],
    ['Pools down',String(down.length),down.length?down[0].pool_id:'none','ravis']])

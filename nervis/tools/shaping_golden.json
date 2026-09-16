@@ -259,6 +259,7 @@
           "enabled": true,
           "models": 20,
           "requests": 4,
+          "reachable": true,
           "note": "20 model(s) listed"
         },
         {
@@ -274,6 +275,7 @@
           "enabled": true,
           "models": 417,
           "requests": 0,
+          "reachable": true,
           "note": "417 model(s) listed"
         },
         {
@@ -289,6 +291,7 @@
           "enabled": true,
           "models": null,
           "requests": 8,
+          "reachable": false,
           "note": "catalogue: HTTP 503"
         }
       ]
