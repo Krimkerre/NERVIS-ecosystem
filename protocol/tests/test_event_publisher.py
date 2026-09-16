@@ -344,3 +344,59 @@ def test_a_success_puts_the_interval_back() -> None:
     assert publisher.wait(every=2.0) > 2.0
     publisher.note_success()
     assert publisher.wait(every=2.0) == 2.0
+
+
+# ── The sender's secret (NERVIS 0.34.18; the security review's S7) ─────────
+
+
+class HeaderCollector(Collector):
+    """A NERVIS that also records the headers each batch arrived with."""
+
+    def __init__(self, *, status: int = 202) -> None:
+        super().__init__(status=status)
+        self.headers: list[dict[str, str]] = []
+
+    async def post(
+        self, url: str, *, json: Any, timeout: float, headers: dict[str, str] | None = None
+    ) -> Any:
+        self.headers.append(dict(headers or {}))
+        return await super().post(url, json=json, timeout=timeout)
+
+
+def test_the_secret_rides_on_every_batch_and_nothing_rides_without_one() -> None:
+    held = a_publisher(secret="the-ravis-events-secret")
+    held.emit("ravis.route.selected", trace_id="t1")
+    collector = HeaderCollector()
+    assert asyncio.run(held.flush(collector)) == 1
+    assert collector.headers == [{"Authorization": "Bearer the-ravis-events-secret"}]
+
+    bare = a_publisher()
+    bare.emit("ravis.route.selected", trace_id="t1")
+    plain = Collector()  # a client with no headers parameter still works
+    assert asyncio.run(bare.flush(plain)) == 1
+
+
+def test_a_refused_secret_is_logged_once_per_power_of_two_and_the_events_kept(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    publisher = a_publisher(secret="the-ravis-events-secret")
+    publisher.emit("ravis.route.selected", trace_id="t1")
+    refusing = HeaderCollector(status=401)
+    with caplog.at_level("WARNING", logger="ecosystem.publisher"):
+        for _ in range(4):
+            assert asyncio.run(publisher.flush(refusing)) == 0
+    lines = [r.getMessage() for r in caplog.records if "refused" in r.getMessage()]
+    assert len(lines) == 3, lines  # the 1st, 2nd and 4th refusal
+    assert "not the one the collector expects" in lines[0]
+    assert "the-ravis-events-secret" not in " ".join(lines)
+    assert publisher.snapshot()["queued"] == 1
+
+
+def test_a_refusal_without_a_secret_says_to_use_the_launcher(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    publisher = a_publisher()
+    publisher.emit("ravis.route.selected", trace_id="t1")
+    with caplog.at_level("WARNING", logger="ecosystem.publisher"):
+        asyncio.run(publisher.flush(Collector(status=401)))
+    assert any("start it with the ecosystem launcher" in r.getMessage() for r in caplog.records)

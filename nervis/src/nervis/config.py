@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     # launcher mints one and passes it, so an ordinary install has it.
     ravis_admin_credential: str = ""
 
+    # The secret each service presents with its events, by service type: `{"ravis": …, "sirvis":
+    # …}`. Since NERVIS 0.34.18 a batch of events must prove its sender — with one of these, or
+    # with a registered editor window's own token — and every event in it must name that sender
+    # (`design/security/review-2026-09-16.md`, S7). The launcher mints both. Empty refuses every
+    # service's events, which the event screen and each service's log then say.
+    event_producer_secrets: dict[str, str] = {}
+
     # The one directory chat may read from and write into.
     #
     # **A wall rather than a rule the model follows.** A document is retrieved

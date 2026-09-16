@@ -902,7 +902,7 @@ an instruction changes nothing, and a caller-supplied identity grants nothing.
 first threat-model review and privilege matrix are in `design/security/review-2026-09-16.md`,
 with seven findings (S1–S7): NERVIS's supervision routes and other writes skipped the control token (fixed in NERVIS
 0.34.15 and 0.34.17, which asks it of every write under `/api/v1/` except the services' own —
-event delivery, S7, is still open to any local program), credentials are owner-readable files by design, SIRVIS's
+and event delivery, S7, which needs a sender's credential since NERVIS 0.34.18), credentials are owner-readable files by design, SIRVIS's
 `admin` is total by design, there is no content-based secret scan, and remote access is not
 built. S5 was closed the same evening: `tools/check_secret_content.py` scans each commit's added
 lines (pre-commit hook) and every tracked line (clean-clone gate) for keys by shape and for this

@@ -78,7 +78,9 @@ class _Poster(Protocol):
     connection pool beside it.
     """
 
-    async def post(self, url: str, *, json: Any, timeout: float) -> Any: ...
+    async def post(
+        self, url: str, *, json: Any, timeout: float, headers: Mapping[str, str] = ...
+    ) -> Any: ...
 
 
 class EventPublisher:
@@ -94,12 +96,18 @@ class EventPublisher:
         base_url: str = "",
         buffer: int = DEFAULT_BUFFER,
         jitter: Callable[[], float] | None = None,
+        secret: str = "",
     ) -> None:
         self.service_type = service_type
         self.service_id = service_id
         self.instance_id = instance_id
         self.machine_id = machine_id
         self._base_url = base_url.rstrip("/")
+        # The secret this producer presents to the hub, since NERVIS 0.34.18 refuses a batch that
+        # proves no sender (`design/security/review-2026-09-16.md`, S7). The launcher mints one
+        # per service; empty sends no header, which a current NERVIS refuses.
+        self._secret = secret
+        self._refused = 0
         self._pending: deque[dict[str, Any]] = deque(maxlen=buffer)
         self._consecutive = 0
         # Injectable so a test can pin it. `random.random` is the default rather
@@ -170,10 +178,13 @@ class EventPublisher:
             return 0
         batch = [self._pending.popleft() for _ in range(min(BATCH, len(self._pending)))]
         try:
+            extra = {"headers": {"Authorization": f"Bearer {self._secret}"}} if self._secret else {}
             response = await client.post(
-                f"{self._base_url}/api/v1/events", json=batch, timeout=TIMEOUT_SECONDS
+                f"{self._base_url}/api/v1/events", json=batch, timeout=TIMEOUT_SECONDS, **extra
             )
             status = int(getattr(response, "status_code", 0))
+            if status in (401, 403):
+                self._report_refused(status)
             # The hub answers 202 for anything it could read as JSON, and says
             # per-event what it did. A 4xx or 5xx is the hub itself being
             # unhappy, and those are worth retrying; a rejected *envelope* is
@@ -303,6 +314,22 @@ class EventPublisher:
             "been unreachable long enough to overrun a %d-event buffer (%s)",
             self._dropped, self._base_url, self._pending.maxlen,
             self._last_error or "no detail",
+        )
+
+    def _report_refused(self, status: int) -> None:
+        """Say that the hub refused this producer's credential — once per power of two, like drops.
+
+        A refused batch is retried like any failure, so without this line a service started
+        without its secret would lose its events with nothing but a growing drop count to show.
+        """
+        self._refused += 1
+        if self._refused & (self._refused - 1):
+            return
+        LOG.warning(
+            "the event collector at %s refused this %s's events (HTTP %d, %d time(s)); %s",
+            self._base_url, self.service_type, status, self._refused,
+            "no secret is configured — start it with the ecosystem launcher"
+            if not self._secret else "the secret it holds is not the one the collector expects",
         )
 
     def snapshot(self) -> dict[str, Any]:

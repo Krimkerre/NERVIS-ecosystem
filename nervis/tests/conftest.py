@@ -15,6 +15,7 @@ file has to remember to ask for it.
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from pathlib import Path
@@ -23,6 +24,10 @@ from typing import Any, Iterator
 import pytest
 
 _original_handle_error = logging.Handler.handleError
+
+#: The events secret test clients present, and the services it proves (`page_control_token`).
+TEST_EVENTS_SECRET = "test-events-secret-not-a-real-one"
+TEST_EVENT_SERVICES = ("ravis", "sirvis", "nervis", "clarvis", "loop")
 
 
 def _ignore_closed_stream_errors(self: logging.Handler, record: logging.LogRecord) -> None:
@@ -86,7 +91,17 @@ def page_control_token(request: pytest.FixtureRequest, monkeypatch: Any) -> None
     client carries the token the way the page would; `test_control_token.py`, whose subject is
     the token, sets `SENDS_NO_CONTROL_TOKEN` and gets clients without it.
     """
-    if getattr(request.module, "SENDS_NO_CONTROL_TOKEN", False):
+    no_token = getattr(request.module, "SENDS_NO_CONTROL_TOKEN", False)
+    # The events half, likewise (NERVIS 0.34.18): one test secret that proves every service a
+    # test publishes as, sent by default. `test_event_senders.py` and the files that test a
+    # window's own token set `CHECKS_EVENT_SENDERS` and set up senders themselves.
+    events = not getattr(request.module, "CHECKS_EVENT_SENDERS", False)
+    if events:
+        monkeypatch.setenv(
+            "NERVIS_EVENT_PRODUCER_SECRETS",
+            json.dumps(dict.fromkeys(TEST_EVENT_SERVICES, TEST_EVENTS_SECRET)),
+        )
+    if no_token and not events:
         return
     from fastapi.testclient import TestClient
 
@@ -94,8 +109,12 @@ def page_control_token(request: pytest.FixtureRequest, monkeypatch: Any) -> None
 
     def with_token(self: TestClient, app: Any, *args: Any, **kwargs: Any) -> None:
         token = getattr(getattr(app, "state", None), "control_token", "")
-        if token:
-            kwargs["headers"] = {"x-nervis-control": token, **(kwargs.get("headers") or {})}
+        defaults: dict[str, str] = {}
+        if token and not no_token:
+            defaults["x-nervis-control"] = token
+        if token and events:
+            defaults["authorization"] = f"Bearer {TEST_EVENTS_SECRET}"
+        kwargs["headers"] = {**defaults, **(kwargs.get("headers") or {})}
         original(self, app, *args, **kwargs)
 
     monkeypatch.setattr(TestClient, "__init__", with_token)

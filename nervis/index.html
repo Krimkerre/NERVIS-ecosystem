@@ -6454,7 +6454,7 @@ async function nervis(){
    ${inst.items.map(c=>`<div class="table-row five"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${warnUnless(c.live)}">${escapeHtml(c.state)}</span><span class="mono">${escapeHtml(bridgeDoing(c))}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
    <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — <b>never merged</b>, because §6.6 says an instance describes the host serving it. Each registered itself with the enrollment secret only this user can read, and holds a lease it renews; a window that closes stops counting within ${escapeHtml(String(inst.lease||45))}s. <b>No workspace path, file or token is stored</b> — the registration has no field for one. <b>Doing</b> is a second read, of each Bridge's own <b>/v1/status</b>, presenting the token NERVIS issued it — one window, one answer, never merged; a row NERVIS could not read says <i>unknown</i> and why, because a blank cell reads as <i>idle</i>. NERVIS reads these and never acts on them: it cannot resolve a gate, run a tool, or widen a workspace root — and <b>waiting for you</b> is displayed, never answered.</small>`
    :banner('No Clarvis Bridge has registered',inst.live?'NERVIS is answering and no editor window has announced itself. Registration is per extension host, so this is the ordinary state with no editor open. Clarvis itself is unaffected.':'NERVIS is not reachable from this page, so whether a Bridge is running is unknown.','info')}</div>
-  <div class="card narrow${escapeHtml(liveClass(ev.live))}"><h3>Recent events</h3>${floodGuardNotes(ev.guard)}${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}${e._repeats>1?` <i style="font-style:normal;opacity:.6">×${escapeHtml(Number(e._repeats).toLocaleString('en-GB'))}</i>`:''}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
+  <div class="card narrow${escapeHtml(liveClass(ev.live))}"><h3>Recent events</h3>${floodGuardNotes(ev.guard)}${refusedSenderNotes(ev.refused_senders)}${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}${e._repeats>1?` <i style="font-style:normal;opacity:.6">×${escapeHtml(Number(e._repeats).toLocaleString('en-GB'))}</i>`:''}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
   ${overviewTraceCard(tr,bar)}
   <!-- **This card demonstrated the point it was making.** It set out to show
        that a service-reported fact, a NERVIS observation and an operator
@@ -6807,6 +6807,22 @@ function floodGuardNotes(guard){
  return lines.slice(0,4).join('');
 }
 
+/* Events NERVIS refused because they proved no sender (NERVIS 0.34.18), said wherever events
+   are listed. `refused_senders` names only RAVIS, SIRVIS and Clarvis, by what the refused events
+   claimed: a service started without the launcher's secret loses every event, and this is where
+   that shows instead of a trace with a lane missing. */
+function refusedSenderNotes(refused){
+ const known={ravis:'RAVIS',sirvis:'SIRVIS',clarvis:'Clarvis'};
+ return Object.entries(refused||{}).filter(([service])=>known[service]).map(([service,r])=>banner(
+  `NERVIS is refusing events that claim to come from ${escapeHtml(known[service])}`,
+  `<b>${floodGuardCount(r.batches)}</b> batch(es) since ${noteExact(r.since)}, the last at
+   ${noteExact(r.last)}, came without a valid sender's credential, so none of their events were
+   kept. ${service==='clarvis'
+    ?'An editor window sends its own registration token; reloading the window registers it again.'
+    :`${escapeHtml(known[service])} gets its credential from the ecosystem launcher, so it was
+      probably started some other way. Stop the stack and start it with the launcher.`}`)).join('');
+}
+
 /* A service as a person reads it: its name, and its id when it sent one. */
 function floodGuardWho(d){
  const known={nervis:'NERVIS',ravis:'RAVIS',sirvis:'SIRVIS',clarvis:'Clarvis'};
@@ -6884,7 +6900,7 @@ async function eventsView(){
 
  $('#content').innerHTML=`
   <div class="card full${liveClass(feedLive)}"><h3>Feed <span class="chip">${escapeHtml(feed.items.length)} shown · seq ${escapeHtml(feed.latest_sequence)}</span></h3>${cell(`
-   ${floodGuardNotes(feed.guard)}
+   ${floodGuardNotes(feed.guard)}${refusedSenderNotes(feed.refused_senders)}
    <div class="filter-row">
     ${['','nervis','ravis','sirvis'].map(v=>`<button class="mode-chip${escapeHtml(f.service===v?' on':'')}" onclick="setEventFilter('service','${jsAttr(v)}')">${v||'all services'}</button>`).join('')}
     ${['','info','warning','error'].map(v=>`<button class="mode-chip${escapeHtml(f.severity===v?' on':'')}" onclick="setEventFilter('severity','${jsAttr(v)}')">${v||'any severity'}</button>`).join('')}

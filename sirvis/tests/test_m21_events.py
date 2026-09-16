@@ -214,3 +214,21 @@ def test_the_capability_says_it_publishes() -> None:
 
     states = {c["id"]: c["state"] for c in body["capabilities"]}
     assert states["sirvis.events"] == "available"
+
+
+def test_the_events_secret_reaches_the_publisher() -> None:
+    """NERVIS 0.34.18 refuses a batch that proves no sender (the security review's S7); the
+    launcher hands SIRVIS its secret as `SIRVIS_NERVIS_EVENTS_SECRET`, for the service and the
+    benchmark command alike."""
+    from sirvis.app import create_app
+    from sirvis.cli import _publisher
+    from sirvis.config import Settings
+    from sirvis.storage import prepare_database
+
+    settings = Settings(  # type: ignore[call-arg]
+        database_path=":memory:", nervis_events_secret="sirvis-events-secret-for-this-test",
+        _env_file=None,
+    )
+    assert create_app(settings).state.events._secret == "sirvis-events-secret-for-this-test"
+    database = prepare_database(":memory:")
+    assert _publisher(settings, database)._secret == "sirvis-events-secret-for-this-test"

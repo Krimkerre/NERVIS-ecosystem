@@ -283,6 +283,7 @@ def _attach_shared_state(
         service_id=api.state.service_id,
         machine_id=api.state.machine_id,
         base_url=settings.nervis_base_url,
+        secret=settings.nervis_events_secret,
     )
     # Built once, holds no state about what is loaded: the runtime is the
     # authority on that (§7), and a cache would be wrong the first time anything

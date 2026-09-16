@@ -456,6 +456,11 @@ made before the last restart can no longer be looked up.
 
 ## Where provider credentials live
 
+(Not a provider key, but a credential RAVIS holds: since RAVIS 0.29.2 it sends NERVIS a secret
+with its events, given to it by the launcher as `RAVIS_NERVIS_EVENTS_SECRET`. NERVIS 0.34.18
+refuses events without one, so a RAVIS started without the launcher has its events refused, and
+NERVIS's Events screen says so.)
+
 Keys go to the **platform keyring** — macOS Keychain, or the Secret Service on
 Linux — written through the tool the platform already ships, with the secret on
 standard input so it never appears in the process list. Every write is read back

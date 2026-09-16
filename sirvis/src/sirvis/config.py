@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # Read here rather than probed: `inspect_configuration` contacts nothing by
     # design, and `doctor` has to be usable before anything is running.
     nervis_base_url: str = ""
+    # The secret SIRVIS presents with its events. NERVIS 0.34.18 refuses a batch that proves no
+    # sender (`design/security/review-2026-09-16.md`, S7); the launcher mints it and gives the same
+    # value to NERVIS.
+    nervis_events_secret: str = ""
 
     # Origins allowed to make browser requests. An empty allowlist fails closed;
     # an absent check fails open, which is why this is a list and not a flag.

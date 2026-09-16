@@ -1013,7 +1013,12 @@ needs the token the dashboard page carries, which changes whenever NERVIS
 restarts; a page opened before a restart says to reload it. Since NERVIS 0.34.17
 every change made through NERVIS needs it — chat, notifications, files,
 settings and the rest — except what the services and editor windows send
-themselves (events and registration).
+themselves (events and registration). Since NERVIS 0.34.18 those events must
+prove their sender too: RAVIS and SIRVIS send a secret the launcher gives them,
+and an editor window sends its registration token. Events without one are
+refused and not kept, and if RAVIS, SIRVIS or a window keeps being refused, the
+Events screen and the Overview say so — usually because that service was
+started without the launcher.
 
 There are exactly three things it can do — start, stop, restart — and asking for
 anything else gets "no such thing" rather than an error explaining what would

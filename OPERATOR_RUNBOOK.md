@@ -31,6 +31,12 @@ the dashboard reports their state rather than controlling it. "Nothing is routin
 runtime is running" look identical on the dashboard and have different fixes — check which one
 it actually is before touching anything.
 
+**Start SIRVIS, RAVIS and NERVIS with the launcher, not by hand** (since NERVIS 0.34.18). The
+launcher gives RAVIS and SIRVIS each a secret (`.run/ravis-events.token`,
+`.run/sirvis-events.token`) and gives NERVIS both, and NERVIS refuses events that don't carry one.
+A service started some other way still works, but its events are refused; the Events screen and
+the Overview then say that NERVIS is refusing events from it, and its own log says the same.
+
 **On a Mac, the menu bar app does the same with a click.** Build it with
 `nervis/packaging/macos/build_app.sh` and copy `nervis/packaging/macos/build/NERVIS.app` into
 Applications once; every later build refreshes that copy. It does not open at login unless it is

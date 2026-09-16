@@ -651,6 +651,7 @@ def test_every_marker_is_on_its_own_serve_command_and_on_nothing_else_that_could
     for minted in ("nervis_ravis_credential", "benchmark_token", "admin_token",
                    "ravis_admin_credential", "clarvis_ravis_credential"):
         monkeypatch.setattr(run, minted, lambda: "(credential)")
+    monkeypatch.setattr(run, "events_secret", lambda service: f"({service} events)")
     monkeypatch.setenv("RAVIS_UPSTREAMS", "[]")
     monkeypatch.setattr(run, "_default_upstreams", _refuse("read the credential store"))
     # Both optional programs present, so their markers are held to the same rule.
@@ -769,3 +770,17 @@ def test_a_quoted_windows_command_line_still_carries_its_marker(
 
     assert run._alive(4242, "ravis.exe serve") is True
     assert run._alive(4242, "sirvis.exe serve") is False
+
+
+def test_each_events_secret_is_minted_once_privately_and_differs_per_service(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """NERVIS 0.34.18: one secret per service, so one proves only its own events."""
+    import stat
+
+    run = _load()
+    _seal(monkeypatch, run, tmp_path)
+    ravis, sirvis = run.events_secret("ravis"), run.events_secret("sirvis")
+    assert len(ravis) >= 32 and ravis != sirvis
+    assert run.events_secret("ravis") == ravis, "minted once, then reused"
+    assert stat.S_IMODE((tmp_path / "ravis-events.token").stat().st_mode) == 0o600

@@ -332,3 +332,12 @@ def test_a_new_suppression_is_published_once() -> None:
     assert events[0]["severity"] == "warning"
     assert events[0]["trace_id"] == TRACE
     assert (events[0]["data"]["model"], events[0]["data"]["capability"]) == ("coder-a", "tools")
+
+
+def test_the_events_secret_reaches_the_publisher() -> None:
+    """NERVIS 0.34.18 refuses a batch that proves no sender (the security review's S7); the
+    launcher hands RAVIS its secret as `RAVIS_NERVIS_EVENTS_SECRET`, and the publisher presents
+    it."""
+    held = publisher(a_client(nervis_events_secret="ravis-events-secret-for-this-test"))
+    assert held._secret == "ravis-events-secret-for-this-test"
+    assert publisher(a_client())._secret == ""

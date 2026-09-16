@@ -582,6 +582,7 @@ def _publisher(settings: Settings, database: Database) -> EventPublisher:
         service_id=f"sirvis-{installation}",
         machine_id=machine_identity(database),
         base_url=settings.nervis_base_url,
+        secret=settings.nervis_events_secret,
     )
 
 

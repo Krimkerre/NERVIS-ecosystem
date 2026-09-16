@@ -838,6 +838,15 @@ Ingestion may be HTTP POST, SSE subscription or WebSocket. Prefer service-to-NER
 NERVIS subscriptions over polling. Retention is bounded and configurable — 7–30 days is a
 sensible default. **High-volume raw logs must not grow forever.**
 
+**A batch proves its sender — NERVIS 0.34.18.** HTTP ingestion refuses a batch (401, nothing
+kept) that presents neither a service's events secret nor a registered window's token, and
+rejects each event in an accepted batch that names a sender the credential did not prove
+(`unproven_source`). RAVIS and SIRVIS each hold their own secret, minted by the launcher
+(`tools/run.py`, `events_secret`), which NERVIS holds as `event_producer_secrets`; Bridges present
+the token registration issued them. Refused batches claiming RAVIS, SIRVIS or Clarvis are
+counted in memory, returned as `refused_senders` on the event read and said on the Events screen
+and the Overview (`design/security/review-2026-09-16.md`, S7).
+
 **No one source may fill the hub — the flood guard, NERVIS 0.31.0.** On 14 September 2026 a
 RAVIS loop published about a hundred events a second for eight minutes, the count bound filled,
 and every older event — 4 to 14 September — was pruned. The hub now meters each source

@@ -213,6 +213,7 @@ def _service_environments(
     for minted in ("nervis_ravis_credential", "benchmark_token", "admin_token",
                    "ravis_admin_credential", "clarvis_ravis_credential"):
         monkeypatch.setattr(run, minted, lambda minted=minted: f"({minted})")
+    monkeypatch.setattr(run, "events_secret", lambda service: f"({service} events)")
     monkeypatch.setenv("RAVIS_UPSTREAMS", "[]")
     for declared in ("RAVIS_CODEX_EXECUTABLE", *AGENT_SETTINGS):
         monkeypatch.delenv(declared, raising=False)
@@ -828,6 +829,12 @@ def test_the_owner_key_is_taught_to_ravis_on_stdin_and_enters_no_service_environ
         assert [key for key, value in environment.items() if minted in value] == [], name
     # NERVIS keeps the launcher's admin key for its dashboard controls, as before.
     assert environments["NERVIS"]["NERVIS_RAVIS_ADMIN_CREDENTIAL"] == "(ravis_admin_credential)"
+    # Each service's events secret, and NERVIS holding both halves (NERVIS 0.34.18).
+    assert environments["RAVIS"]["RAVIS_NERVIS_EVENTS_SECRET"] == "(ravis events)"
+    assert environments["SIRVIS"]["SIRVIS_NERVIS_EVENTS_SECRET"] == "(sirvis events)"
+    assert json.loads(environments["NERVIS"]["NERVIS_EVENT_PRODUCER_SECRETS"]) == {
+        "ravis": "(ravis events)", "sirvis": "(sirvis events)",
+    }
 
 
 def test_start_teaches_ravis_the_owner_key_before_it_looks_at_the_stack(

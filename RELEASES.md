@@ -681,7 +681,25 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.17
+## NERVIS — 0.34.18
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+Events have to prove who sent them (the security review's S7).
+
+- **Before:** any program on this Mac could send NERVIS events, which NERVIS stored, showed and
+  could turn into notifications.
+- **Now:** each batch of events must carry a pass — RAVIS's or SIRVIS's own secret from the
+  launcher, or an editor window's registration token — and every event in it must name that
+  sender. A batch without one is refused and nothing of it is kept. Editor windows already sent
+  their token, so Clarvis needs no update.
+- **Said on screen:** if RAVIS, SIRVIS or an editor window keeps being refused, the Events screen
+  and the Overview say so, with what to do. RAVIS or SIRVIS started without the launcher is the
+  likely cause.
+- **Needs RAVIS 0.29.2 and SIRVIS 0.19.4**, which send their secret. Older ones have their events
+  refused.
+
+### 0.34.17
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -1820,7 +1838,15 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.29.1
+## RAVIS — 0.29.2
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+- **Sends its events secret to NERVIS.** NERVIS 0.34.18 refuses events that don't prove their
+  sender; the launcher now gives RAVIS a secret for this (`RAVIS_NERVIS_EVENTS_SECRET`), and RAVIS
+  sends it with every batch. If NERVIS refuses it, RAVIS's log says so.
+
+### 0.29.1
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
@@ -2756,7 +2782,14 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.3
+## SIRVIS — 0.19.4
+
+**Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
+
+- **Sends its events secret to NERVIS**, from the service and from the benchmark command, as RAVIS
+  0.29.2 does (`SIRVIS_NERVIS_EVENTS_SECRET`, given by the launcher).
+
+### 0.19.3
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
 
@@ -2926,7 +2959,15 @@ ceiling.
 
 ---
 
-## ecosystem-protocol — 0.2.1
+## ecosystem-protocol — 0.2.2
+
+**Protocol:** MEP 1.0.0 · **Consumed by:** SIRVIS, RAVIS, NERVIS
+
+- **The event publisher can present a secret.** `EventPublisher(secret=…)` sends it as a bearer
+  token with every batch, and logs — once per power of two, never the secret — when the collector
+  refuses it (401 or 403), saying whether no secret was configured or the one held is wrong.
+
+### 0.2.1
 
 **Protocol:** MEP 1.0.0 · **Consumed by:** SIRVIS, RAVIS, NERVIS
 

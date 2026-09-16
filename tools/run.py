@@ -474,6 +474,11 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # grant it. NERVIS holds this so the Credentials screen can write
             # through it rather than the browser writing to RAVIS unauthorised.
             env["NERVIS_RAVIS_ADMIN_CREDENTIAL"] = ravis_admin_credential()
+            # The half of each service's events secret NERVIS checks (NERVIS 0.34.18). See
+            # events_secret.
+            env["NERVIS_EVENT_PRODUCER_SECRETS"] = json.dumps(
+                {name: events_secret(name) for name in EVENT_PRODUCERS}
+            )
         if prefix == "RAVIS":
             # Point RAVIS at SIRVIS. Without this RAVIS starts healthy with an
             # empty evidence store, its Evidence screen reads zero records, and
@@ -489,6 +494,7 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # all three and wires none of them together would leave the one
             # thing Stage 7 exists for switched off by default.
             env["RAVIS_NERVIS_BASE_URL"] = f"http://127.0.0.1:{NERVIS_PORT}"
+            env["RAVIS_NERVIS_EVENTS_SECRET"] = events_secret("ravis")
             # And at a runtime, when the operator has not named one. RAVIS with
             # no upstream refuses every completion with `upstream_not_configured`,
             # which reaches Clarvis as a 503 and reads there as "the model is
@@ -544,6 +550,7 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # what makes it appear inside somebody else's is the recommendation
             # endpoint, which is reached over HTTP and inherits the caller's.
             env["SIRVIS_NERVIS_BASE_URL"] = f"http://127.0.0.1:{NERVIS_PORT}"
+            env["SIRVIS_NERVIS_EVENTS_SECRET"] = events_secret("sirvis")
         if prefix == "NERVIS":
             # Where its peers are. Nothing is probed until M2, but `doctor`
             # prints these and getting them wrong here would make the first
@@ -1144,6 +1151,23 @@ def clarvis_ravis_credential() -> str:
     client `clarvis`.
     """
     return _cached_client_secret("clarvis-ravis.token")
+
+
+#: The services that publish events to NERVIS and so hold an events secret.
+EVENT_PRODUCERS = ("ravis", "sirvis")
+
+
+def events_secret(service: str) -> str:
+    """The secret `service` presents with its events, and NERVIS checks (NERVIS 0.34.18).
+
+    **Why one per service.** Since the security review's S7, NERVIS refuses a batch of events that
+    proves no sender, and each event must name the sender proved. SIRVIS and RAVIS never register,
+    so they hold no window token; NERVIS's enrollment secret would prove them, but it can also
+    register windows, which is more than reporting events needs. So each gets its own, which
+    proves only that service. Minted once at `0600` under `.run`, like the client credentials, and
+    handed to both halves on every start.
+    """
+    return _minted_secret(RUN / f"{service}-events.token")
 
 
 def _cached_client_secret(filename: str) -> str:

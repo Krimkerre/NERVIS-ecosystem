@@ -14,6 +14,9 @@
  *   4. **Nothing a service names can inject markup** into those lines.
  *   5. **With no guard in the answer, neither screen mentions one** — an older NERVIS, or a hub
  *      that has never needed it.
+ *   6. **Refused senders are said on both screens too** (NERVIS 0.34.18): a known service's
+ *      refused batches with their count and times and what to do, a stranger's never, and
+ *      nothing when none were refused.
  */
 
 const { loadPage } = require("./page_context.js");
@@ -178,8 +181,32 @@ async function noGuardSaysNothing() {
   }
 }
 
+async function refusedSendersAreSaid() {
+  const refused = eventsAnswer({ refused_senders: {
+    ravis: { batches: 1234, since: ENDED.since, last: ENDED.until },
+    clarvis: { batches: 2, since: ENDED.since, last: ENDED.since },
+    mallory: { batches: 9, since: ENDED.since, last: ENDED.since },
+    sirvis: { batches: HOSTILE, since: HOSTILE, last: HOSTILE },
+  } });
+  for (const [label, view, heading] of SCREENS) {
+    const html = await card(refused, view, heading);
+    const text = html == null ? null : readable(html);
+    expect(`${label}, refused senders`, text, [
+      "NERVIS is refusing events that claim to come from RAVIS", "<b>1,234</b> batch(es) since",
+      when(ENDED.since), when(ENDED.until), "start it with the launcher",
+      "claim to come from Clarvis", "reloading the window registers it again",
+      "claim to come from SIRVIS", "&lt;img",
+    ], ["mallory", "<img", "undefined"]);
+    const lines = text == null ? 0 : text.split("NERVIS is refusing events").length - 1;
+    if (lines !== 3) failures.push(`${label}: ${lines} refused-sender lines; RAVIS, SIRVIS and Clarvis only`);
+    expect(`${label}, nothing refused`, await card(eventsAnswer({ refused_senders: {} }), view, heading),
+           [], ["refusing events"]);
+  }
+}
+
 async function main() {
   await theGuardIsSaidOnBothScreens();
+  await refusedSendersAreSaid();
   await aRepeatedEventShowsItsCount();
   await nothingAServiceNamesInjects();
   await noGuardSaysNothing();
@@ -189,7 +216,8 @@ async function main() {
     process.exit(1);
   }
   console.log("the flood guard is said on the Events screen and the Overview, "
-    + "with counts, times and services, and nothing a service names injects markup");
+    + "with counts, times and services, and nothing a service names injects markup; "
+    + "refused senders are said the same way, a stranger never");
   process.exit(0);
 }
 

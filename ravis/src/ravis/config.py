@@ -251,6 +251,10 @@ class Settings(BaseSettings):
     # degraded one — Stage 7 requires a collector outage to leave every product
     # healthy, and "no collector at all" is the strongest form of that.
     nervis_base_url: str = ""
+    # The secret RAVIS presents with its events. NERVIS 0.34.18 refuses a batch that proves no
+    # sender (`design/security/review-2026-09-16.md`, S7); the launcher mints it and gives the same
+    # value to NERVIS.
+    nervis_events_secret: str = ""
 
     # ── SIRVIS evidence (§13 — M13) ─────────────────────────────────────────
     # Where SIRVIS answers. Empty means RAVIS runs without it, which §13.4

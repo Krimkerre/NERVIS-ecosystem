@@ -94,6 +94,7 @@ def _ravis_environment(
         "nervis_ravis_credential", "benchmark_token", "admin_token", "ravis_admin_credential"
     ):
         monkeypatch.setattr(run, minted, lambda: "(not a credential)")
+    monkeypatch.setattr(run, "events_secret", lambda _service: "(not a credential)")
     monkeypatch.setattr(run, "_stored_credential_names", set)
     monkeypatch.setattr(run, "_ollama", list)
     monkeypatch.setattr(run, "_code_server", list)

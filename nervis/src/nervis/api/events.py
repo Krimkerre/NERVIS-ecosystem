@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -22,8 +23,8 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from nervis.enrollment import presented_secret
-from nervis.errors import InvalidConfigurationError
+from nervis.enrollment import matches, presented_secret
+from nervis.errors import InvalidConfigurationError, UnauthorizedError
 from nervis.events import Rejected, ends_stream, heartbeat, sse_frame
 from nervis.flood import GUARD_EVENT
 from nervis.instances import Instances
@@ -41,6 +42,13 @@ RESUME_LIMIT = 500
 
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
 
+LOG = logging.getLogger("nervis.events")
+
+#: The producers whose refused batches are worth saying out loud: the ones the launcher gives a
+#: secret, and the editor windows. A refused batch naming anything else is a stranger, and a
+#: stranger's claimed name is not repeated on screen.
+KNOWN_SENDERS = ("ravis", "sirvis", "clarvis")
+
 # §4.1: a comment heartbeat at least every 15 seconds. Twelve leaves room for a
 # slow hop without a proxy deciding the connection is idle.
 HEARTBEAT_SECONDS = 12.0
@@ -49,6 +57,73 @@ HEARTBEAT_SECONDS = 12.0
 # far short of the retained history — which is what an unbounded replay handed
 # to anyone who connected without a cursor.
 FRESH_TAIL = 25
+
+
+def _senders(
+    presented: str, secrets: Mapping[str, str], instances: Instances
+) -> set[tuple[str, str]]:
+    """Who a batch's credential proves it comes from, as (service type, instance id) pairs.
+
+    A service's own events secret proves that service, with any instance id (RAVIS and SIRVIS
+    each stamp one of their own); a registered editor window's token proves that one window. The
+    launcher gives each service a different secret, so a real credential proves one sender. Every
+    candidate is compared, so the time taken does not say which one matched.
+    """
+    proven: set[tuple[str, str]] = set()
+    if not presented:
+        return proven
+    for service, secret in secrets.items():
+        if matches(presented, secret):
+            proven.add((service, ""))
+    for instance in instances.all():
+        if matches(presented, instance.token):
+            proven.add((instance.service, instance.instance_id))
+    return proven
+
+
+def _not_from(payload: Any, senders: set[tuple[str, str]]) -> dict[str, str] | None:
+    """Refuse an event that names a sender its batch's credential did not prove (S7)."""
+    source = payload.get("source") if isinstance(payload, Mapping) else None
+    if not isinstance(source, Mapping):
+        return None  # the hub quarantines an envelope with no source itself
+    claimed_service = str(source.get("service_type") or "")
+    claimed_instance = str(source.get("instance_id") or "")
+    if any(
+        claimed_service == service and (not instance or claimed_instance == instance)
+        for service, instance in senders
+    ):
+        return None
+    return {
+        "reason": "unproven_source",
+        "detail": "an event must name the sender its batch's credential proves",
+    }
+
+
+def _note_refusal(state: Any, payloads: list[Any]) -> None:
+    """Remember that a known service's events were refused, so the events screen can say so.
+
+    **A service started without its secret loses every event, and would otherwise do it
+    quietly**: its own log says so, but nobody reads RAVIS's log to learn why a trace has one
+    lane. Kept in memory — a restart starts over, and a service still refused is counted again
+    within seconds. The claimed name is unproven, which is the point: it is only ever shown as
+    "events claiming to come from", and only for the services NERVIS knows.
+    """
+    refused: dict[str, dict[str, Any]] | None = getattr(state, "refused_senders", None)
+    if refused is None:
+        refused = state.refused_senders = {}
+    claimed = {
+        str(payload["source"].get("service_type") or "")
+        for payload in payloads
+        if isinstance(payload, Mapping) and isinstance(payload.get("source"), Mapping)
+    }
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    for service in sorted(claimed & set(KNOWN_SENDERS)):
+        entry = refused.setdefault(service, {"batches": 0, "since": now, "last": now})
+        entry["batches"] += 1
+        entry["last"] = now
+        if not entry["batches"] & (entry["batches"] - 1):
+            LOG.warning("refused %d batch(es) of events claiming to come from %s, without a "
+                        "valid sender's credential", entry["batches"], service)
 
 
 def _unproven_instance(
@@ -122,9 +197,24 @@ async def ingest(request: Request) -> dict[str, Any]:
 
     payloads = body if isinstance(body, list) else [body]
     presented = presented_secret(request.headers.get("authorization"))
+    # **A batch proves its sender, or is refused whole** (NERVIS 0.34.18; the security review's
+    # S7). Until then anything able to reach the port could post events, which NERVIS stores,
+    # shows and turns into notifications. 401 rather than a per-event rejection: this is not a
+    # producer's malformed envelope but a caller with no standing, and nothing of it is stored.
+    senders = _senders(
+        presented, request.app.state.settings.event_producer_secrets, request.app.state.instances
+    )
+    if not senders:
+        _note_refusal(request.app.state, payloads)
+        raise UnauthorizedError(
+            "events need a sender's credential: a service's events secret from the launcher, "
+            "or a registered editor window's own token"
+        )
     accepted, rejected = 0, []
     for payload in payloads:
-        unproven = _unproven_instance(payload, request.app.state.instances, presented)
+        unproven = _not_from(payload, senders) or _unproven_instance(
+            payload, request.app.state.instances, presented
+        )
         if unproven is not None:
             rejected.append(unproven)
             continue
@@ -164,6 +254,9 @@ async def read_events(request: Request) -> dict[str, Any]:
         "next_cursor": items[-1]["_sequence"] if items else _int(query.get("after"), 0),
         "latest_sequence": hub.latest_sequence(),
         "guard": _guard(hub),
+        # Batches refused for want of a sender's credential, by the known service they claimed
+        # (NERVIS 0.34.18). Empty while every producer proves itself.
+        "refused_senders": dict(getattr(request.app.state, "refused_senders", {})),
     }
 
 
