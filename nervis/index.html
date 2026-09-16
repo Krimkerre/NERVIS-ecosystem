@@ -15563,14 +15563,20 @@ const SLASH={
   return box?slashTyped(box.value,box.selectionStart):null;
  },
 
- /* Open, filter or close on that word, from the list already held. */
+ /* Open, filter or close on that word, from the list already held. A command
+    typed out in full takes the highlight, over the entry that had it and over
+    the order of the list: with a skill called `clearkey` listed above `/clear`,
+    typing `/clear` would otherwise leave that one highlighted and Enter would
+    fill it in instead of running what was typed (Clarvis's box had exactly that
+    pair). */
  show(word){
   if(word===null)this.dismissed=null;
   if(word===null||word===this.dismissed)return this.close();
   this.dismissed=null;
   const was=(this.items[this.index]||{}).label;
   this.items=slashMatches(word,this.skills);
-  this.index=Math.max(0,this.items.findIndex(e=>e.label===was));
+  const exact=this.items.findIndex(e=>e.label.toLowerCase()==='/'+word.toLowerCase());
+  this.index=exact>=0?exact:Math.max(0,this.items.findIndex(e=>e.label===was));
   this.open=this.items.length>0;
   this.draw();
  },

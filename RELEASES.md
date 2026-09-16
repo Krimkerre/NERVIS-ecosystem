@@ -25,7 +25,19 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.7
+## Clarvis — 0.17.8
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+The `/` pop-up highlights the command you actually typed.
+
+- **`/clear` no longer fills in `/clearkey`.** `/clearkey` is listed above `/clear` and starts with the
+  same letters, so typing `/clear` in full left that one highlighted and Enter filled it in — one more
+  Enter would have removed your stored Fish Audio key. A command typed out in full now takes the
+  highlight, wherever it sits in the list, and Enter runs it. A partly typed word still takes the first
+  row and completes as before.
+
+### 0.17.7
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -559,7 +571,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.1
+## NERVIS — 0.34.2
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+The `/` pop-up highlights the command you actually typed.
+
+- **A name typed out in full takes the highlight**, even when another name that starts with the same
+  letters is listed above it — `/pdf` with `/pdf-pages` above it, say. Enter then runs what you typed
+  instead of filling in the other one. A partly typed name still takes the first row, as before.
+- **Why it changed:** Clarvis's chat box had this for real with `/clearkey` listed above `/clear`, so
+  typing `/clear` and pressing Enter filled in `/clearkey`. Clarvis 0.17.8 fixes it there; this is the
+  same fix in NERVIS chat, before a skill name can cause it here.
+
+### 0.34.1
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

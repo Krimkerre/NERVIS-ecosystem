@@ -396,6 +396,23 @@ async function popUp() {
   same("Enter on a command already typed in full runs it, rather than adding a space to it",
        [w.input.value, w.menu.hidden, event.prevented, w.last().kind, w.sent.length],
        ["", true, false, "local", 0]);
+  /* A skill listed above one whose name it starts with: RAVIS lists the folders nearest its top first,
+     so the longer name can come first, and then the highlight has to follow what was typed instead of
+     the order. Clarvis's box had this pair for real, /clearkey above /clear. */
+  w.skills([
+    { id: "nervis/pdf-pages", name: "pdf-pages", description: "Pulls pages out of a PDF." },
+    { id: "personal/pdf", name: "pdf", description: "Reads PDFs, the owner's own copy." },
+  ]);
+  w.type("/pdf");
+  same("a name typed out in full is highlighted, even below one the letters also start",
+       [w.labels(), w.run("SLASH.index")], [["/pdf-pages", "/pdf"], 1]);
+  w.input.onkeydown(key("Enter"));
+  await settle();
+  check("... so Enter runs the one that was typed", w.last().text.startsWith("What should pdf do?"));
+  same("... and nothing was completed or sent", [w.input.value, w.sent.length], ["", 0]);
+  w.type("/pdf-");
+  same("a partly typed name still takes the first row", w.run("SLASH.index"), 0);
+  w.skills();
   w.type("/he");
   event = key("Escape");
   w.input.onkeydown(event);
