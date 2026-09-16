@@ -301,6 +301,14 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
+As of 16 September 2026: the ecosystem has a **dependency security check**,
+`python3 tools/check_dependencies.py`. It asks the public advisory databases about the Python
+packages SIRVIS, RAVIS and NERVIS run on, NERVIS's npm tooling and Clarvis. Its first run found
+nothing Clarvis ships; one hole in `setuptools` in the services' environment (it only matters when
+building a source package, which nothing here does); and eight in Clarvis's build and test tools,
+which run only on Clarvis's own code. None were upgraded yet — that is the owner's call. Details in
+the operator runbook, *Checking dependencies for known holes*.
+
 As of 16 September 2026 (NERVIS 0.34.0): NERVIS chat has **slash commands**. Type `/` at the start
 of the chat box for a pop-up of commands and switched-on skills. `/help`, `/clear` and `/model` are
 answered by the page, and `/skill-name` with a request asks for a skill by its name (see *Skills,

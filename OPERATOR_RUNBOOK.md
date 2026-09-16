@@ -167,6 +167,27 @@ standalone install: each version in `~/.local/lib/code-server-<version>`, with
    the version as checked rather than untested. A failure names the matrix cells a changed file
    touches; re-run only those. Other browsers and audio are never re-checked by it.
 
+### Checking dependencies for known holes
+
+The code the ecosystem is built from — Python packages, npm packages — can have published
+security holes. One command asks the public advisory databases about all of it (seconds; needs
+the network; reads only):
+
+```bash
+python3 tools/check_dependencies.py
+```
+
+It checks the Python environment the launcher starts all three services from (`ravis/.venv`),
+NERVIS's page-check tooling, what the Clarvis extension ships, and Clarvis's build and test tools.
+A hole in any of the first three fails it (exit 1); holes only in Clarvis's build and test tools
+are listed with their fix but do not fail, because those tools run only on Clarvis's own source.
+Exit 2 means something could not be checked — never read that as clean.
+
+`pip-audit` lives in its own environment, `tools/.venv`, so its dependencies never change the
+services'. On a fresh machine: `python3 -m venv tools/.venv && tools/.venv/bin/python -m pip
+install pip-audit`. Run it after upgrading anything, and now and then — new holes are published
+against versions that were clean yesterday.
+
 ---
 
 ## §10 failure playbook

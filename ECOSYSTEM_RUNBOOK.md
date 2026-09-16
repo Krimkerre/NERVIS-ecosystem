@@ -856,6 +856,11 @@ and stopped together, and what a trace looks like when it crosses a machine.
   `config.py`), whose message pointed at the retired "§16 item 2" until 12 September and now
   points here.
 - Authenticate service-control operations separately from read-only diagnostics.
+- Check what the ecosystem is built from for published holes. **As built, 16 September 2026:**
+  `tools/check_dependencies.py` covers the services' Python environment, NERVIS's npm tooling
+  and Clarvis (operator runbook, *Checking dependencies for known holes*). It is a step an
+  operator runs, not a gate: it needs the network, and a hole published tonight would fail
+  yesterday's commit.
 - Provider credentials stay in their owning secure store. NERVIS never receives raw
   provider keys.
 - Never log Authorization headers, secrets, full prompts, workspace contents, raw paths or
