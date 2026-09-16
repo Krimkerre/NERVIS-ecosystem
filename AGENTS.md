@@ -91,7 +91,8 @@ A commit that touches `nervis/index.html`, `nervis/tools/`, `nervis/knowledge/` 
 itself runs `nervis/tools/check.py`, every node gate named in `nervis/tools/dashboard_gates.txt`,
 the sandbox gate and the knowledge check — against exactly what is being committed — and stops
 the commit if one fails (`tools/githooks/pre-commit`, about thirty seconds). Switch it on once per
-clone with `git config core.hooksPath tools/githooks`; add a new gate by adding its name to that
+clone with `git config core.hooksPath tools/githooks` — `tools/run.py start` does this for you
+since NERVIS 0.34.14, unless the clone already names another hooks path; add a new gate by adding its name to that
 list, which the clean-clone gate reads too. These checks used to run only in the clean-clone gate,
 and five of them failed unnoticed for days. Do not skip the hook with `--no-verify` unless the
 owner says so.

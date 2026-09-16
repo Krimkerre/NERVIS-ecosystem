@@ -681,7 +681,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.13
+## NERVIS — 0.34.14
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **The launcher switches on the commit checks.** Git runs the dashboard's page checks before a
+  commit only in a copy of the repository where they have been switched on, and a fresh copy
+  never was. Starting the stack now switches them on (`git config core.hooksPath tools/githooks`)
+  and says so. A hooks setting you chose yourself is left alone.
+
+### 0.34.13
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

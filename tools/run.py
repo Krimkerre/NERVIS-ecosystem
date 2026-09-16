@@ -264,12 +264,51 @@ def venv_bin(name: str) -> Path:
     return VENV / "bin" / name
 
 
+HOOKS = "tools/githooks"
+
+
+def enable_commit_checks(git: str | None = None) -> str:
+    """Point this checkout's git at `tools/githooks`, unless it already points somewhere.
+
+    The pre-commit hook there runs the dashboard's page checks, and git only runs it in a clone
+    where `core.hooksPath` names it — a line in AGENTS.md that a fresh clone never read, so until
+    16 September 2026 the checks ran on this machine and nowhere else. The launcher is the one
+    thing every clone runs, so it switches them on. A hooks path somebody chose is theirs and is
+    left alone; so is a folder that is not a git checkout, or a machine without git.
+
+    Returns what it did, in words, for the caller and for tests.
+    """
+    git = git or shutil.which("git")
+    if not git or not (ROOT / ".git").exists():
+        return "not a git checkout"
+    asked = subprocess.run(
+        [git, "-C", str(ROOT), "config", "--local", "--get", "core.hooksPath"],
+        capture_output=True, text=True, check=False,
+    )
+    current = asked.stdout.strip()
+    if current == HOOKS:
+        return "already on"
+    if current:
+        print(f"  commit checks: git's hooks path is {current}, so {HOOKS} is not switched on")
+        return "left alone"
+    written = subprocess.run(
+        [git, "-C", str(ROOT), "config", "--local", "core.hooksPath", HOOKS],
+        capture_output=True, text=True, check=False,
+    )
+    if written.returncode != 0:
+        print(f"  commit checks: could not switch on — {written.stderr.strip()[:200]}")
+        return "failed"
+    print(f"  commit checks: switched on (git config core.hooksPath {HOOKS})")
+    return "switched on"
+
+
 def ensure_venv() -> None:
     """Create and populate the virtualenv if it is not already there.
 
     First run has to work without instructions — a launcher that opens a window
     saying "no module named ravis" has failed at the only job it has.
     """
+    enable_commit_checks()
     if venv_bin("python").exists():
         return
     print("First run: creating the virtual environment (a minute or so)…")
