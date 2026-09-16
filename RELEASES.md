@@ -571,7 +571,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.2
+## NERVIS — 0.34.3
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+What you type while a reply is coming in stays in the chat box.
+
+- **Fixed: your next message was wiped when a reply finished.** If you started typing while NERVIS
+  was still answering, the chat box went empty and lost the cursor the moment the reply was done.
+  Now the text, the cursor and any selection stay where they were. If you had clicked somewhere
+  else meanwhile, NERVIS doesn't pull the cursor back into the box. A message you've sent still
+  never comes back into it.
+- **For operators:** page only. `slash_check.js` now rebuilds the chat box on every paint, the way
+  a browser does, and types while a reply is read; `docs/PITFALLS.md` §6e has the rule.
+
+### 0.34.2
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

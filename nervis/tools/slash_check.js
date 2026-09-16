@@ -28,6 +28,8 @@
  *   6. **While the latest reply waits for a click, or a reply streams**, a skill asked for by name
  *      is refused with one line (waiting) or stays in the box unsent (streaming); /help and /model
  *      still answer; /clear and /model <id> ask to finish or stop first.
+ *   7. **What is typed while a reply streams is still there when it lands**, with its focus and
+ *      selection, and a message that was sent never comes back into the box.
  */
 
 const { loadPage } = require("./page_context.js");
@@ -571,10 +573,75 @@ async function waiting() {
   same("the reply's placeholder is still last, where the stream writes", s.last().pending, true);
 }
 
+/* The page as a browser has it: replacing the chat panel's markup rebuilds the box, empty and not
+   focused, and `typed` runs as the reply's first frame is read, as a person typing meanwhile would. */
+function typingWorld(w, typed) {
+  const doc = w.page.context.document;
+  const input = w.input;
+  doc.activeElement = null;
+  input.focus = () => { doc.activeElement = input; };
+  input.setSelectionRange = (start, end) => { input.selectionStart = start; input.selectionEnd = end; };
+  const content = doc.querySelector("#content");
+  let html = "";
+  Object.defineProperty(content, "innerHTML", {
+    configurable: true,
+    get: () => html,
+    set(value) {
+      html = String(value);
+      input.value = "";
+      input.selectionStart = input.selectionEnd = 0;
+      if (doc.activeElement === input) doc.activeElement = null;
+    },
+  });
+  const fetchFirst = w.page.context.fetch;
+  w.page.context.fetch = async (url, init = {}) => {
+    const answer = await fetchFirst(url, init);
+    if ((init.method || "GET").toUpperCase() !== "POST" || !String(url).endsWith("/api/v1/chat")) return answer;
+    const reader = answer.body.getReader();
+    let once = false;
+    answer.body = { getReader: () => ({ read: async () => {
+      if (!once) { once = true; typed(); }
+      return reader.read();
+    } }) };
+    return answer;
+  };
+  return { doc, input };
+}
+
+async function typingDuringReply() {
+  const w = await world();
+  w.skills();
+  const other = { id: "elsewhere" };
+  let focusHere = true;
+  const { doc, input } = typingWorld(w, () => {
+    input.value = "a draft typed meanwhile";
+    input.selectionStart = 2;
+    input.selectionEnd = 7;
+    doc.activeElement = focusHere ? input : other;
+  });
+
+  await w.send("hello there");
+  same("the reply landed", [w.sent.length, w.last().role, w.run("CHAT_SESSION.busy")], [1, "assistant", false]);
+  same("what was typed while it streamed is still in the box", input.value, "a draft typed meanwhile");
+  same("... still focused, with the same selection",
+       [doc.activeElement === input, input.selectionStart, input.selectionEnd], [true, 2, 7]);
+
+  focusHere = false;
+  await w.send("and again");
+  same("typing kept while the focus was elsewhere doesn't pull the focus back",
+       [input.value, doc.activeElement === other], ["a draft typed meanwhile", true]);
+
+  const quiet = await world();
+  quiet.skills();
+  typingWorld(quiet, () => {});
+  await quiet.send("nothing typed meanwhile");
+  same("a message that was sent never comes back into the box", [quiet.sent.length, quiet.input.value], [1, ""]);
+}
+
 /* Each part on its own: one that throws is a failure named after it, and the parts after it still
    run, so one broken behaviour can't hide what the rest would have said. */
 async function main() {
-  for (const part of [parsing, localLines, clearAndModel, popUp, refreshOnOpen, composing, waiting]) {
+  for (const part of [parsing, localLines, clearAndModel, popUp, refreshOnOpen, composing, waiting, typingDuringReply]) {
     try {
       await part();
     } catch (failure) {

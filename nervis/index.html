@@ -7188,6 +7188,28 @@ function chatEmptyHint(){
   </div>`;
 }
 
+/* **What is being typed in the chat box survives the chat panel's own paint**,
+   whoever asked for it. The panel is rebuilt as markup, and a rebuilt box is
+   empty and unfocused; `repaint()` puts typing back, but the end of a reply
+   (`sendChat`, stopped or not) and a slash command's local line (`slashSay`)
+   call `render()`, so a
+   message typed while a reply streamed was wiped the moment the reply landed,
+   caret and focus with it (found live on 16 September 2026). Read at the last
+   moment before the rebuild, so typing during this paint's own fetches counts. */
+function chatDraft(){
+ const box=document.getElementById('chatInput');
+ if(!box)return null;
+ return{value:box.value,focused:document.activeElement===box,start:box.selectionStart,end:box.selectionEnd};
+}
+function restoreChatDraft(draft){
+ const box=document.getElementById('chatInput');
+ if(!draft||!box)return;
+ box.value=draft.value;
+ if(!draft.focused)return;
+ box.focus();
+ try{box.setSelectionRange(draft.start,draft.end)}catch(e){/* not a text input */}
+}
+
 async function chatView(){heading('General chat','A plain RAVIS client. Not a workspace, not an agent.',
   '<button class="btn" onclick="CHAT_SESSIONS.start()">New chat</button>'+privateButton());
  /* NERVIS chat is a normal client of RAVIS's published OpenAI-compatible API. It must
@@ -7218,6 +7240,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
    <div class="table-row head"><span>Selected</span><span>Pool</span><span>Path</span><span>Excluded</span></div>
    <div class="table-row"><span class="mono">${escapeHtml(d.selected||'no route')}</span><span class="mono" style="opacity:.8">${escapeHtml(dash(d.pool))}</span><span class="mono">${escapeHtml(dash(d.execution_path))}</span><span>${escapeHtml((d.excluded||[]).length)} of ${escapeHtml((d.considered||[]).length)}</span></div>
    <small class="mono dim">${escapeHtml(d.reason||'')}${(d.excluded||[]).length?'<br>excluded — '+(d.excluded||[]).slice(0,3).map(n=>escapeHtml(n.model)+': '+escapeHtml((n.reasons||[])[0]||'')).join(' · ')+((d.excluded||[]).length>3?` · and ${escapeHtml((d.excluded||[]).length-3)} more`:''):''}<br>cost and time-to-first-token are not carried on a decision record — the cost engine is M15, and a zero here would read as measured.</small></div>`;
+ const draft=chatDraft();
  $('#content').innerHTML=`<div class="card full chat live">
   <div class="chat-tools">
    <button class="chat-tool" id="chatModelBtn" title="Which model answers — a RAVIS pool, or one provider's model pinned"
@@ -7243,6 +7266,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
   <div id="slashMenu" class="slash-menu" role="listbox" aria-label="Commands and skills" hidden></div>
   <div class="composer"><label id="uploadLabel" class="upload" title="Attach a file to this conversation for chat to read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything, or type / for commands and skills" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="slashMenu" aria-expanded="false"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
  </div>`;
+ restoreChatDraft(draft);
  /* §7 requires stop/cancel. One button: send when idle, stop while a reply is
     streaming — aborting the fetch closes the connection, NERVIS sees the
     disconnect, cancels RAVIS and keeps the partial text. */

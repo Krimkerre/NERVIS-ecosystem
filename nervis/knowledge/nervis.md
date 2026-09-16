@@ -682,7 +682,11 @@ them when the chat panel opens and at most once a minute while typing. Arrow key
 fills the name in, Escape closes it. A command already typed out in full is sent by that Enter rather
 than filled in again, so one Enter runs `/help`, as it does in Clarvis's chat box, and it is the one
 typed in full that is highlighted, even when a longer name starting with the same letters is listed
-above it. A line the page answers itself — an unknown name, a skill with
+above it.
+
+You can type your next message while a reply is still coming in: it stays in the box, with the
+cursor where you left it, when the reply finishes (fixed in NERVIS 0.34.3; before that the box was
+emptied the moment the reply landed). It is sent when you press Enter after the reply is done. A line the page answers itself — an unknown name, a skill with
 nothing to do — is shown in that tab only: it isn't sent, read aloud, or kept after a reload. While a
 reply's offer, such as Save / No thanks, is still waiting, a skill typed then gets "Answer the
 question first; the skill can wait.", and `/clear` waits too.
