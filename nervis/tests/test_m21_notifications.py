@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.conftest import real_default_addresses
 
 from nervis import app as app_module
 from nervis import notifications
@@ -353,12 +354,21 @@ def test_the_hub_still_records_what_the_centre_stays_quiet_about(client: TestCli
     assert client.get("/api/v1/notifications").json()["unread"] == 0
 
 
-def test_an_uninstalled_optional_peer_files_nothing(client: TestClient) -> None:
-    """Absent is not broken — the same rule the status bar and the voice use."""
+def test_an_uninstalled_optional_peer_files_nothing(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Absent is not broken — the same rule the status bar and the voice use.
+
+    LM Studio and Ollama are optional only while nobody named their address, so this app keeps
+    the real defaults — and is never started (no `with`), so it probes neither.
+    """
+    real_default_addresses(monkeypatch)
+    client = TestClient(create_app(Settings(  # type: ignore[call-arg]
+        database_path=str(tmp_path / "nervis.db"), workspace_path=str(tmp_path), _env_file=None,
+    )))
     api = client.app  # type: ignore[attr-defined]
     optional = [e for e in api.state.registry.all() if e.awaiting_first_contact]
-    if not optional:
-        pytest.skip("this installation declares no optional peer")
+    assert optional, "LM Studio and Ollama are declared optional by default"
     before = {e.key: e.state for e in api.state.registry.all()}
     for entry in optional:
         before[entry.key] = RegistryState.HEALTHY

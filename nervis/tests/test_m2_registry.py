@@ -21,6 +21,7 @@ from typing import Any, Callable
 import httpx
 import pytest
 from ecosystem_protocol import PROTOCOL_VERSION
+from tests.conftest import real_default_addresses
 
 from nervis import adapters
 from nervis.negotiation import Availability, Operation, negotiate
@@ -693,7 +694,9 @@ def an_api(**overrides: Any) -> Any:
     return TestClient(create_app(Settings(**fields)))
 
 
-def test_the_launcher_and_nervis_agree_on_code_servers_default_port() -> None:
+def test_the_launcher_and_nervis_agree_on_code_servers_default_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """One number for one thing, checked rather than remembered.
 
     The launcher writes a code-server config only for a machine that has none,
@@ -705,6 +708,7 @@ def test_the_launcher_and_nervis_agree_on_code_servers_default_port() -> None:
     produces a dashboard reporting everything as down; this is that sentence with
     a test behind it.
     """
+    real_default_addresses(monkeypatch)
     from nervis.config import Settings  # local, like the two other uses in this file
 
     launcher = (Path(__file__).parent.parent.parent / "tools" / "run.py").read_text()
@@ -828,7 +832,9 @@ def test_no_registry_entry_carries_a_credential() -> None:
 # ── Optional peers: absent is a fact, not an outage ─────────────────────────
 
 
-def test_an_unconfigured_runtime_is_optional_and_a_named_one_is_not() -> None:
+def test_an_unconfigured_runtime_is_optional_and_a_named_one_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """"Configured" means the operator supplied the address, not that it happens
     to equal the default.
 
@@ -836,6 +842,7 @@ def test_an_unconfigured_runtime_is_optional_and_a_named_one_is_not() -> None:
     `http://127.0.0.1:11434` unconfigured, which is the opposite of what they
     did. pydantic records which fields were actually supplied.
     """
+    real_default_addresses(monkeypatch)
     from nervis.config import Settings
     from nervis.registry import declared_services
 

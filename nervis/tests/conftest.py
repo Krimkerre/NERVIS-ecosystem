@@ -29,6 +29,24 @@ _original_handle_error = logging.Handler.handleError
 TEST_EVENTS_SECRET = "test-events-secret-not-a-real-one"
 TEST_EVENT_SERVICES = ("ravis", "sirvis", "nervis", "clarvis", "loop")
 
+#: The port a test NERVIS believes it serves on, so its probe of itself reaches nothing. And the
+#: ports the running stack listens on, which no test may connect to.
+TEST_PORT = 9
+LIVE_PORTS = frozenset({8721, 8731, 8790, 7071, 8080, 1234, 11434})
+DEAD_ADDRESSES = tuple(
+    f"NERVIS_{name}_BASE_URL"
+    for name in ("RAVIS", "SIRVIS", "CLARVIS", "CODE_SERVER", "LMSTUDIO", "OLLAMA")
+)
+
+
+def real_default_addresses(monkeypatch: Any) -> None:
+    """For a test about the defaults themselves: undo `isolated_config_home`'s dead addresses.
+
+    Only for a test that builds `Settings` and starts no app, so nothing probes them.
+    """
+    for variable in (*DEAD_ADDRESSES, "NERVIS_PORT"):
+        monkeypatch.delenv(variable, raising=False)
+
 
 def _ignore_closed_stream_errors(self: logging.Handler, record: logging.LogRecord) -> None:
     """Swallow one specific, benign teardown race; let every other logging
@@ -79,6 +97,15 @@ def isolated_config_home(tmp_path: Path, monkeypatch: Any) -> Iterator[Path]:
         "NERVIS_SERVED_HOSTS", '["127.0.0.1", "localhost", "::1", "testserver"]'
     )
     monkeypatch.setenv("APPDATA", str(home))
+    # **No test reaches the running stack.** Every peer address defaults to where the real
+    # service listens, so a test app's background probes hit the owner's SIRVIS, RAVIS, LM Studio,
+    # Ollama, code-server and NERVIS itself — about 1,850 connections a run on 17 September 2026,
+    # enough to spend RAVIS's anonymous allowance and fail a soak test's reads. Port 9 on
+    # loopback has nothing behind it, so a probe fails at once. A test that wants a peer names
+    # its own address, which wins over these. `no_live_service_ports` below enforces it.
+    for variable in DEAD_ADDRESSES:
+        monkeypatch.setenv(variable, "http://127.0.0.1:9")
+    monkeypatch.setenv("NERVIS_PORT", str(TEST_PORT))
     yield home
 
 
@@ -118,3 +145,43 @@ def page_control_token(request: pytest.FixtureRequest, monkeypatch: Any) -> None
         original(self, app, *args, **kwargs)
 
     monkeypatch.setattr(TestClient, "__init__", with_token)
+
+
+_LIVE_CONNECTIONS: list[tuple[str, int]] = []
+
+
+def _watch_connections(event: str, args: tuple[Any, ...]) -> None:
+    """An audit hook: note every connection to a port the running stack listens on."""
+    if event != "socket.connect" or len(args) < 2:
+        return
+    address = args[1]
+    if (isinstance(address, tuple) and len(address) >= 2
+            and address[0] in ("127.0.0.1", "::1", "localhost") and address[1] in LIVE_PORTS):
+        _LIVE_CONNECTIONS.append((str(address[0]), int(address[1])))
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _live_connection_watch() -> None:
+    # Once per run: an audit hook cannot be removed, so it only records, and
+    # `no_live_service_ports` decides per test.
+    sys.addaudithook(_watch_connections)
+
+
+@pytest.fixture(autouse=True)
+def no_live_service_ports(_live_connection_watch: None) -> Iterator[None]:
+    """Fail any test that connected to the running stack's ports (17 September 2026).
+
+    A test's background probe reaching the owner's RAVIS, SIRVIS, LM Studio, Ollama, code-server
+    or NERVIS is not isolation, whatever it asserts: it spent RAVIS's shared anonymous allowance
+    during a soak test and failed three of its reads. Connections made by a test's background
+    threads after it ends are caught by the next test, which is where they would show.
+    """
+    before = len(_LIVE_CONNECTIONS)
+    yield
+    reached = sorted({port for _, port in _LIVE_CONNECTIONS[before:]})
+    if reached:
+        pytest.fail(
+            f"this test connected to the running stack's port(s) {reached}; give the app a "
+            "dead address (see isolated_config_home) or a fake of its own",
+            pytrace=False,
+        )
