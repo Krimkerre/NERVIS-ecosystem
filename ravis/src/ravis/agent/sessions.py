@@ -307,6 +307,7 @@ class AgentSessions:
             self._sessions[session.id] = session
             await session.recover()
         self._reconciler.adopt(self._sessions, instances)
+        await self.end_orphaned()
         self.ready = True
         self._tick = asyncio.create_task(self._tick_loop())
         self._sampling = asyncio.create_task(self._sample_loop())
@@ -487,6 +488,32 @@ class AgentSessions:
     def _task_over(self, session: AgentSession) -> None:
         """A task is over for good: its temp folder goes, unless another task still needs it."""
         self._release_tmp(session.id)
+
+    async def end_orphaned(self) -> None:
+        """End every resting task whose project has been removed: at start, and hourly.
+
+        **Nothing else ever would.** Clarvis settles a finished Codex task to `idle`, kept for
+        follow-ups, and ends one only from the window that owns it — so a project deleted with its
+        window gone leaves a task RAVIS reloads at every start and no one can end, since the owner
+        has no way to (found 16 September 2026, when the live-test projects went to the Trash and
+        three idle tasks stayed). Ending is `AgentSession.end`, the same as a window's: Codex's
+        thread is archived and kept, the lock goes, `session.ended` is published, and the temp
+        folder is treated as gone with the project.
+
+        **Only a resting task, and only a project that is really gone.** A task with anything under
+        way is left to the window or the reconciler. A folder counts as removed when its parent
+        folder is still there and it is not — a project on a disk that isn't mounted right now has
+        lost its parent too, and is kept for when the disk comes back.
+        """
+        for session in list(self._sessions.values()):
+            if session.state not in RESTING or not _project_removed(session.root):
+                continue
+            async with session.action_lock:
+                if session.state not in RESTING:
+                    continue
+                logger.info("agent: ended task %s, whose project %s has been removed",
+                            session.id, session.root)
+                await session.end()
 
     def _sweep_task_folders(self) -> None:
         """At start: every resting task's folder, then what tasks that ended still owe.
@@ -676,6 +703,7 @@ class AgentSessions:
             self._reconciler.recheck(self._sessions)
         if now - self._last_retention >= self.timings.retention_seconds:
             self._last_retention = now
+            await self.end_orphaned()
             self.store.enforce_retention()
             await self.sweep_threads()
 
@@ -724,3 +752,8 @@ class AgentSessions:
                 logger.info("agent: Codex didn't delete an old thread: %s", refusal)
                 continue
             self.store.thread_deleted(row["thread_id"])
+
+
+def _project_removed(root: Path) -> bool:
+    """Whether a project folder is gone while the folder that held it is still there."""
+    return not root.exists() and root.parent.is_dir()

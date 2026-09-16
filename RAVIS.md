@@ -2035,6 +2035,15 @@ refuses the step (`503 CODEX_RUNTIME_UNAVAILABLE`) rather than run it without it
 task's folder and the parents it needs are kept while that task isn't resting or has an action under
 way. Each start removes every resting task's folder before what ended tasks still owe.
 
+**A resting task whose project is removed is ended (0.28.4, no migration).** Since Clarvis only ends a
+task from the window that owns it, a project deleted with its window gone left an `idle` task RAVIS
+reloaded at every start and nobody could end. At start, after recovery, and on the hourly retention
+pass, RAVIS ends every `idle` task whose project folder is gone while the folder that held it is still
+there — through `AgentSession.end`, as a window's `DELETE` would: the thread archived and kept, the lock
+released, `session.ended` published, the temp folder treated as gone with the project. A task with
+anything under way is left alone, and so is a project whose parent folder is missing too, which is
+what a disk that isn't mounted looks like.
+
 ---
 
 # 18. Repository structure

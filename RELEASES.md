@@ -1569,7 +1569,20 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.28.3
+## RAVIS — 0.28.4
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+Codex tasks whose project you deleted no longer hang around.
+
+- **A finished Codex task is closed once its project is gone.** Clarvis keeps a finished task open
+  for follow-up questions and only closes it from its own editor window. Delete the project, and the
+  task stayed open in RAVIS for good, with nothing able to close it. RAVIS now closes such a task
+  itself, when it starts and once an hour. Codex's record of the conversation is kept.
+- **Careful about what "gone" means.** A task that still has something running or waiting is left
+  alone, and so is a project on a disk that isn't plugged in right now.
+
+### 0.28.3
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
