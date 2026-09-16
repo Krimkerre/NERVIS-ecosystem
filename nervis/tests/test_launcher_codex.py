@@ -186,7 +186,7 @@ def _stack(monkeypatch: pytest.MonkeyPatch, run: ModuleType, *, ravis_answering:
     """SIRVIS, RAVIS and NERVIS, answering as the test needs, and nothing else of the machine
     read: no PID file, machine figures, notifications or Bridges."""
     monkeypatch.setattr(run, "_services", lambda: [
-        ("SIRVIS", [], "sirvis serve", {}, "http://127.0.0.1:8721/v1/status"),
+        ("SIRVIS", [], "sirvis serve", {}, "http://127.0.0.1:8721/ecosystem/health"),
         ("RAVIS", [], "ravis serve", {}, "http://127.0.0.1:8731/v1/models"),
         ("NERVIS", [], "nervis serve", {}, "http://127.0.0.1:8790/api/v1/health"),
     ])
@@ -895,7 +895,7 @@ def test_ravis_is_told_homebrews_codex_link_only_as_it_is_launched(
     monkeypatch.setattr(run.subprocess, "run", brew)
     health = "http://127.0.0.1:8731/v1/models"
     table = [
-        ("SIRVIS", ["sirvis", "serve"], "sirvis serve", {}, "http://127.0.0.1:8721/v1/status"),
+        ("SIRVIS", ["sirvis", "serve"], "sirvis serve", {}, "http://127.0.0.1:8721/ecosystem/health"),
         ("RAVIS", ["ravis", "serve"], "ravis serve", {}, health),
         ("NERVIS", ["nervis", "serve"], "nervis serve", {}, "http://127.0.0.1:8790/api/v1/health"),
     ]

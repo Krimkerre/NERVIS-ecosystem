@@ -47,7 +47,7 @@ Service = tuple[str, list[str], str, dict[str, str], str]
 VENV_BIN = "/eco/ravis/.venv/bin"
 SIRVIS: Service = (
     "SIRVIS", [f"{VENV_BIN}/sirvis", "serve"], "sirvis serve", {},
-    "http://127.0.0.1:8721/v1/status",
+    "http://127.0.0.1:8721/ecosystem/health",
 )
 RAVIS: Service = (
     "RAVIS", [f"{VENV_BIN}/ravis", "serve"], "ravis serve", {}, "http://127.0.0.1:8731/v1/models"
@@ -98,6 +98,8 @@ class FakeMachine:
         self.next_pid = 9000
         # How long a service launched during the test takes to answer, by name; 0 unless named.
         self.boot_seconds: dict[str, float] = {}
+        # The HTTP status a port answers with once it answers; 200 unless named.
+        self.statuses: dict[int, int] = {}
 
     def process(
         self, pid: int, command: str, port: int | None = None, *,
@@ -139,6 +141,12 @@ class FakeMachine:
     def responds(self, url: str, _timeout: float = 1.5) -> bool:
         pid = self.ports.get(urllib.parse.urlsplit(url).port or 0)
         return pid is not None and pid in self.table and self.now >= self.answers_at[pid]
+
+    def answer_status(self, url: str, _timeout: float = 1.5) -> int | None:
+        """`run.answer_status`: the port's status once `responds` says it answers, else None."""
+        if not self.responds(url):
+            return None
+        return self.statuses.get(urllib.parse.urlsplit(url).port or 0, 200)
 
     def spawn(self, command: list[str], _env: dict[str, str], _log: Path) -> int:
         """Launch a service: a new PID that holds the service's port from the moment it exists."""
@@ -226,6 +234,7 @@ def _launcher(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, machine: FakeMach
     _seal(monkeypatch, run, tmp_path)
     monkeypatch.setattr(run, "_services", lambda: machine.services)
     monkeypatch.setattr(run, "responds", machine.responds)
+    monkeypatch.setattr(run, "answer_status", machine.answer_status)
     monkeypatch.setattr(run, "_spawn_detached", machine.spawn)
     monkeypatch.setattr(run, "time", machine)
     monkeypatch.setattr(run.os, "kill", machine.kill)
@@ -567,6 +576,31 @@ def test_start_brings_services_up_in_the_runbooks_order_each_after_the_last_answ
     recorded = json.loads(run.PIDFILE.read_text(encoding="utf-8"))
     assert set(recorded) == set(names)
     assert code == 1
+
+
+def test_start_calls_a_service_ready_only_when_its_health_address_says_success(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Runbook §12.1: a false readiness is a STOP. Any reply used to count as ready.
+
+    SIRVIS's port answers 404 — a stranger holding it, or the wrong service — and RAVIS's
+    answers 401. Neither is ready; each is named with the status it gave, `start` waits its full
+    time for both and fails, and NERVIS, answering 200, is still ready.
+    """
+    machine = FakeMachine([SIRVIS, RAVIS, NERVIS])
+    machine.statuses = {8721: 404, 8731: 401}
+    run = _launcher(monkeypatch, tmp_path, machine)
+    opened = _quiet_start(monkeypatch, run)
+
+    code = run.start()
+
+    out = capsys.readouterr().out
+    assert f"  {'SIRVIS':<11} NOT ready — its health address answers HTTP 404" in out
+    assert f"  {'RAVIS':<11} NOT ready — its health address answers HTTP 401" in out
+    assert f"  {'NERVIS':<11} ready" in out
+    assert machine.now >= 2 * run.START_WAIT_SECONDS, "both were waited for"
+    assert code == 1
+    assert opened == []
 
 
 def test_stop_takes_services_down_in_the_runbooks_shutdown_order(

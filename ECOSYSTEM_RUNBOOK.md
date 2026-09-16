@@ -1030,8 +1030,11 @@ starts and stops the stack.
   then Ollama (`START_ORDER` and `STOP_ORDER`; `nervis/tests/test_launcher_lifecycle.py`). Until
   then `start` launched in table order without waiting — Ollama after NERVIS — and `stop` went
   alphabetically, code-server last and Ollama before RAVIS and SIRVIS.
-- **Still short of the steps above:** "answers" means any HTTP reply, a 404 included. `start`
-  does not wait for `live=true`, record readiness or capabilities, stop on an unsupported
+- **Readiness, since 16 September 2026 (NERVIS 0.34.16):** "answers" means the service's health
+  address answered 2xx (`ready`); another status is named. Until then any reply counted, a 404
+  included, which hid that SIRVIS was being asked at `/v1/status`, a route it doesn't have — it
+  is asked at `/ecosystem/health` now.
+- **Still short of the steps above:** `start` does not read `live=true` in the body, record readiness or capabilities, stop on an unsupported
   protocol major or a failed authentication, or run step 8's whole-ecosystem smoke; `stop` does
   not drain code-server sessions or RAVIS requests beyond each service's own shutdown.
 

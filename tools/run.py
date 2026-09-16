@@ -331,6 +331,35 @@ def ensure_venv() -> None:
         )
 
 
+def answer_status(url: str, timeout: float = 1.5) -> int | None:
+    """The HTTP status `url` answers with, or None when nothing answers.
+
+    `responds` and `ready` both ask this, and differ only in what they accept. Named to
+    RAVIS for the same reason as `responds`.
+    """
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(url, headers=_named_for(url)), timeout=timeout
+        ) as answer:
+            return int(answer.status)
+    except urllib.error.HTTPError as refused:
+        return int(refused.code)
+    except Exception:  # noqa: BLE001 - every other failure means "not answering"
+        return None
+
+
+def ready(url: str, timeout: float = 1.5) -> bool:
+    """Whether a service's health address answers with success, which `start` waits for.
+
+    Stricter than `responds` on purpose (runbook §12.1: *a false readiness … is a STOP*). Until
+    16 September 2026 `start` called a service ready on any reply, so a stranger holding the
+    port and answering 404, or the service itself answering 500 or refusing the launcher's
+    credential, all read as "ready". Only a 2xx does now.
+    """
+    status = answer_status(url, timeout)
+    return status is not None and 200 <= status < 300
+
+
 def responds(url: str, timeout: float = 1.5) -> bool:
     """Whether something answers, without caring what it says.
 
@@ -567,7 +596,9 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         # bypasses the gate.
         ("SIRVIS", [str(venv_bin("sirvis")), "serve"], _serve_marker(venv_bin("sirvis")),
          _with_results(env_for("SIRVIS", SIRVIS_PORT)),
-         f"http://127.0.0.1:{SIRVIS_PORT}/v1/status"),
+         # SIRVIS's health address. `/v1/status` stood here until 16 September 2026 and
+         # SIRVIS has no such route: it answered 404, which counted as up while any reply did.
+         f"http://127.0.0.1:{SIRVIS_PORT}/ecosystem/health"),
         ("RAVIS", [str(venv_bin("ravis")), "serve"], _serve_marker(venv_bin("ravis")),
          env_for("RAVIS", RAVIS_PORT), f"http://127.0.0.1:{RAVIS_PORT}/v1/models"),
         # NERVIS's own service since M0, replacing the `http.server` that stood
@@ -1609,10 +1640,17 @@ def _problem(
     return f"running as process {pid} but not answering"
 
 
-def _readiness(name: str, answering: bool, booting_pid: int) -> str:
-    """`start`'s verdict on one service once its wait is over, in words somebody can act on."""
+def _readiness(name: str, answering: bool, booting_pid: int, status: int | None = None) -> str:
+    """`start`'s verdict on one service once its wait is over, in words somebody can act on.
+
+    `answering` is `ready`'s verdict; `status` is what the health address said instead, when it
+    said something other than success.
+    """
     if answering:
         return "ready"
+    if status is not None:
+        return (f"NOT ready — its health address answers HTTP {status}, not success; see"
+                f" .run/{name.lower()}.log, and check nothing else holds its port")
     if booting_pid:
         # Not killed: it may be moments from answering, and a service killed mid-boot is
         # the half-written journal `_ask_then_force` exists to avoid. Not doubled either
@@ -1648,7 +1686,7 @@ def start() -> int:
           " (detached — closing this window will not stop them)…")
     recorded = _recorded()
     RUN.mkdir(parents=True, exist_ok=True)
-    ready = True
+    all_ready = True
     services = {service[0]: service for service in _services()}
     # **One at a time, in §12.1's order.** A service that stays silent through its wait is
     # named and the next one starts anyway: §12.1 lets independent services run degraded,
@@ -1661,11 +1699,12 @@ def start() -> int:
             json.dump(recorded, handle, indent=2, sort_keys=True)
         url = services[name][4]
         deadline = time.monotonic() + START_WAIT_SECONDS
-        while time.monotonic() < deadline and not responds(url):
+        while time.monotonic() < deadline and not ready(url):
             time.sleep(0.4)
-        answering = responds(url)
-        ready = ready and answering
-        print(f"  {name:<11} {_readiness(name, answering, booting)}")
+        healthy = ready(url)
+        all_ready = all_ready and healthy
+        said = None if healthy else answer_status(url)
+        print(f"  {name:<11} {_readiness(name, healthy, booting, said)}")
 
     # After RAVIS answers, because storing a credential is a request to it. Both
     # halves already hold the same string — this is the half RAVIS keeps.
@@ -1720,11 +1759,11 @@ def start() -> int:
         print("  Set RAVIS_UPSTREAMS to override.")
     print(f"\nDashboard: {DASHBOARD}")
     print("Stop them with the stop launcher next to this one.")
-    if ready:
+    if all_ready:
         # The fragment is never sent to a server. The page consumes it and
         # clears the address bar immediately.
         webbrowser.open(dashboard_url())
-    return 0 if ready else 1
+    return 0 if all_ready else 1
 
 
 #: Seconds `stop` waits between asking a service to stop and forcing it; six unless named.

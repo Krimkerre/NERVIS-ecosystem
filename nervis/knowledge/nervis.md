@@ -1020,7 +1020,9 @@ have worked. Every attempt is recorded, refusals included.
 NERVIS 0.34.13): it starts SIRVIS, Ollama, RAVIS, NERVIS and code-server in that
 order, each once the one before it answers or 30 seconds have passed, and stops
 them the other way round except that Ollama goes last: code-server, NERVIS,
-RAVIS, SIRVIS, Ollama. That is the order in runbook §12.1.
+RAVIS, SIRVIS, Ollama. That is the order in runbook §12.1. Since NERVIS 0.34.16 a
+service only counts as ready when its health address answers with success; one
+answering with an error is named with the code.
 Since NERVIS 0.34.14 starting the stack also switches on the repository's
 commit checks (git's hooks path set to `tools/githooks`) unless another hooks
 path was chosen, so a fresh copy runs the dashboard's checks before a commit.

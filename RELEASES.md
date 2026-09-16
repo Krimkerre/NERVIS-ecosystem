@@ -681,7 +681,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.15
+## NERVIS — 0.34.16
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **"Ready" means ready.** When the launcher starts the stack it now waits for each service's
+  health address to answer with success. Before, any answer counted, so a service answering
+  with an error, or a different program holding its port, showed as ready. One that answers
+  with an error is now named with the error code.
+- **SIRVIS's readiness was being checked at an address SIRVIS doesn't have.** It answered "not
+  found", which counted as ready under the old rule. The launcher now asks SIRVIS's real health
+  address.
+
+### 0.34.15
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
