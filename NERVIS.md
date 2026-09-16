@@ -1018,7 +1018,10 @@ down.
 
 **Two switches, and both must be on.** The family switch
 (`POST /api/v1/supervision/enable`, off by default per §12) and an adapter for
-the service in question. Neither alone is enough.
+the service in question. Neither alone is enough. **Since NERVIS 0.34.15 every supervision
+write — the switch, an adapter, a verb, clearing a circuit — also needs the dashboard's control
+token** (`nervis.api.control`), because the adapter names a program to run
+(`design/security/review-2026-09-16.md`, S1).
 
 **`nervis_managed` is earned, not declared.** A service configured as owned but
 with no adapter reports as `user_managed` — NERVIS has no way to start it, so

@@ -85,6 +85,16 @@ MUTATIONS = (
     ("POST", "/api/v1/ravis/skills/market/sources", {"kind": "github", "repository": "o/r"}),
     ("POST", "/api/v1/ravis/skills/market/sources/hide", {"source": "openai", "hidden": True}),
     ("POST", "/api/v1/ravis/skills/market/sources/remove", {"source": "own-source"}),
+    # NERVIS's own writes that name a program to run or store a provider key (NERVIS 0.34.15;
+    # design/security/review-2026-09-16.md, S1 and S2). Refused before the service or verb is
+    # looked at, so an unknown one is a 403 here, not a 404.
+    ("POST", "/api/v1/supervision/enable", {"enabled": True}),
+    ("POST", "/api/v1/supervision/adapter/sirvis",
+     {"executable": "/bin/bash", "args": ["-c", "echo pwned"], "cwd": ""}),
+    ("POST", "/api/v1/supervision/sirvis/stop", None),
+    ("POST", "/api/v1/supervision/sirvis/circuit/clear", None),
+    ("PUT", "/api/v1/voice/credential", {"secret": "not-a-real-key"}),
+    ("DELETE", "/api/v1/voice/credential", None),
 )
 
 
@@ -245,9 +255,10 @@ def test_no_route_that_reads_the_ravis_admin_credential_is_left_ungated() -> Non
     # If FastAPI's internals move again, this fails loudly rather than passing on
     # an empty list — the same "would pass vacuously" guard the milestone-state
     # check in test_m4_chat.py carries for the same reason.
-    assert len(ravis_routes) >= len(MUTATIONS), (
+    listed = sum(1 for _, path, _ in MUTATIONS if path.startswith("/api/v1/ravis"))
+    assert len(ravis_routes) >= listed, (
         f"found only {len(ravis_routes)} /api/v1/ravis routes; the real table has "
-        f"at least {len(MUTATIONS)} — route discovery is broken, not the gate"
+        f"at least {listed} — route discovery is broken, not the gate"
     )
 
     ungated = [
@@ -270,6 +281,8 @@ def test_no_route_that_reads_the_ravis_admin_credential_is_left_ungated() -> Non
 
     credentialed = [route for route in ravis_routes if touches_the_credential(route)]
     for method, literal_path, _ in MUTATIONS:
+        if not literal_path.startswith("/api/v1/ravis"):
+            continue  # NERVIS's own guarded writes, which hold no RAVIS credential
         landed = [
             route for route in credentialed
             if method in route.methods and compile_path(route.path)[0].match(literal_path)

@@ -145,6 +145,9 @@ def test_the_original_finding_is_actually_closed(client: Any) -> None:
         "/api/v1/supervision/enable", content=b'{"enabled": true}', headers=EVIL
     )
     assert enable.status_code == 403
+    # The origin guard's own refusal, not the control token's (NERVIS 0.34.15), so this
+    # still proves the middleware closes it.
+    assert enable.json()["error"]["code"] == "CROSS_ORIGIN_MUTATION_REFUSED"
 
     configure = client.post(
         "/api/v1/supervision/adapter/sirvis",
@@ -152,6 +155,7 @@ def test_the_original_finding_is_actually_closed(client: Any) -> None:
         headers=EVIL,
     )
     assert configure.status_code == 403
+    assert configure.json()["error"]["code"] == "CROSS_ORIGIN_MUTATION_REFUSED"
 
 
 def test_a_bare_post_with_no_body_is_refused_too(client: Any) -> None:
@@ -168,7 +172,10 @@ def test_the_dashboards_own_calls_still_work(client: Any) -> None:
     default calls carry neither `Sec-Fetch-Site` nor `Origin` — the same shape
     the dashboard's own same-origin `fetch()` calls have always had — and must
     keep succeeding exactly as before."""
-    answered = client.post("/api/v1/supervision/enable", json={"enabled": True})
+    answered = client.post(
+        "/api/v1/supervision/enable", json={"enabled": True},
+        headers={"x-nervis-control": client.app.state.control_token},
+    )
     assert answered.status_code == 200
     assert answered.json() == {"enabled": True}
 
@@ -179,7 +186,8 @@ def test_a_real_browsers_own_same_origin_call_still_works(client: Any) -> None:
     metadata attaches on its own and a page cannot override."""
     answered = client.post(
         "/api/v1/supervision/enable", json={"enabled": True},
-        headers={"Sec-Fetch-Site": "same-origin"},
+        headers={"Sec-Fetch-Site": "same-origin",
+                 "x-nervis-control": client.app.state.control_token},
     )
     assert answered.status_code == 200
 

@@ -681,7 +681,24 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.14
+## NERVIS — 0.34.15
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+Two fixes from the first security review (`design/security/review-2026-09-16.md`).
+
+- **Service control needs the dashboard's control token.** Switching service control on,
+  setting how a service is started, starting, stopping or restarting it, and clearing its
+  failure lock were only protected against other websites. The setting for how a service is
+  started names a program to run, so all four now also need the token the dashboard page
+  carries, like NERVIS's RAVIS settings already did.
+- **So does the Fish Audio key.** Storing or removing it now needs the same token, as RAVIS
+  already requires for provider keys.
+- **Refusals are said.** If NERVIS restarted since the page was opened, these controls now say
+  to reload the page instead of silently doing nothing, and removing the voice key no longer
+  reports success when it was refused.
+
+### 0.34.14
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

@@ -1008,6 +1008,10 @@ stranger that inherited its number.
 shut until somebody clears them by hand, so a service that keeps dying cannot be
 restarted in a loop.
 
+Since NERVIS 0.34.15 every one of these controls — the switch included — also
+needs the token the dashboard page carries, which changes whenever NERVIS
+restarts; a page opened before a restart says to reload it.
+
 There are exactly three things it can do — start, stop, restart — and asking for
 anything else gets "no such thing" rather than an error explaining what would
 have worked. Every attempt is recorded, refusals included.

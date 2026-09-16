@@ -49,7 +49,10 @@ def client(tmp_path: Any) -> Any:
         database_path=str(tmp_path / "n.db"), workspace_path=str(tmp_path),
         _env_file=None,
     )
-    with TestClient(create_app(settings)) as client:
+    app = create_app(settings)
+    # The page's control token on every call, as the dashboard sends it (NERVIS 0.34.15);
+    # `test_control_token` proves a call without it is refused.
+    with TestClient(app, headers={"x-nervis-control": app.state.control_token}) as client:
         yield client
 
 

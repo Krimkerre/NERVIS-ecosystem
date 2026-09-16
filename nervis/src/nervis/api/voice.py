@@ -27,11 +27,12 @@ import time
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from nervis import voice
+from nervis.api.control import require_control
 from nervis.ecosystem import advertise_voice
 from nervis.errors import InvalidConfigurationError, NotFoundError
 
@@ -136,7 +137,9 @@ async def read_voice(request: Request) -> dict[str, Any]:
     }
 
 
-@router.put("/credential")
+# The control token since NERVIS 0.34.15: this stores a provider key, which RAVIS guards with
+# an admin credential (design/security/review-2026-09-16.md, S2).
+@router.put("/credential", dependencies=[Depends(require_control)])
 async def set_credential(body: CredentialInput, request: Request) -> dict[str, Any]:
     """Store the Fish Audio key. Write-only: nothing reads it back out."""
     if not body.secret.strip():
@@ -148,7 +151,7 @@ async def set_credential(body: CredentialInput, request: Request) -> dict[str, A
     return {"configured": True, "source": credential.source()}
 
 
-@router.delete("/credential")
+@router.delete("/credential", dependencies=[Depends(require_control)])
 async def forget_credential(request: Request) -> dict[str, Any]:
     """Remove NERVIS's own copy.
 

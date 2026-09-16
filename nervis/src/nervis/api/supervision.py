@@ -9,15 +9,21 @@ Every refusal here is a rule holding rather than an error, which is why they all
 come back as `RefusedError`: switched off, not owned, not started by NERVIS, or a
 circuit an operator has to clear. A caller that could not tell those apart would
 report a boundary working as something going wrong.
+
+**Every write needs the dashboard's control token** (`nervis.api.control`), since NERVIS
+0.34.15. The adapter route names a program to run, and until then these four were the least
+guarded writes in NERVIS: past the origin check, nothing (`design/security/review-2026-09-16.md`,
+S1).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from nervis import supervision
+from nervis.api.control import require_control
 from nervis.ecosystem import advertise_supervision
 from nervis.errors import NotFoundError, RefusedError
 
@@ -60,7 +66,7 @@ async def read_supervision(request: Request) -> dict[str, Any]:
             "services": services, "history": supervision.history(database)}
 
 
-@router.post("/enable")
+@router.post("/enable", dependencies=[Depends(require_control)])
 async def set_enabled(request: Request) -> dict[str, Any]:
     """The family switch. §12: every switch defaults to off."""
     body = await request.json()
@@ -68,7 +74,7 @@ async def set_enabled(request: Request) -> dict[str, Any]:
     return {"enabled": supervision.enabled(request.app.state.database)}
 
 
-@router.post("/adapter/{service}")
+@router.post("/adapter/{service}", dependencies=[Depends(require_control)])
 async def set_adapter(service: str, request: Request) -> dict[str, Any]:
     """Declare how a service is started, which is what makes it supervisable."""
     body = await request.json()
@@ -96,7 +102,7 @@ def _readvertise(request: Request) -> None:
     ))
 
 
-@router.post("/{service}/{operation}")
+@router.post("/{service}/{operation}", dependencies=[Depends(require_control)])
 async def control(service: str, operation: str, request: Request) -> dict[str, Any]:
     """One of the three verbs, against one registered service.
 
@@ -132,7 +138,7 @@ async def control(service: str, operation: str, request: Request) -> dict[str, A
             "launched": record.as_dict()}
 
 
-@router.post("/{service}/circuit/clear")
+@router.post("/{service}/circuit/clear", dependencies=[Depends(require_control)])
 async def clear(service: str, request: Request) -> dict[str, Any]:
     """An operator clearing a supervision circuit.
 

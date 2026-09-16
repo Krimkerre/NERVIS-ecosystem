@@ -15,6 +15,8 @@
  *   3. **Acting is armed.** Stopping a service is not a thing a stray click does.
  *   4. **An open circuit offers clearing and nothing else**, which is §12's
  *      "a crash-loop cannot be re-entered by retry" made visible.
+ *   5. **Every write carries the page's control token** (NERVIS 0.34.15), and a refusal —
+ *      a NERVIS restarted since the page loaded — is said on screen, not swallowed.
  */
 
 const { loadPage } = require("./page_context.js");
@@ -22,6 +24,9 @@ const vm = require("node:vm");
 
 const failures = [];
 const calls = [];
+const untokened = [];
+let posts = 0;
+let refuseNext = false;
 
 const SERVICES = [
   { service: "ravis", label: "RAVIS", declared: "external", mode: "external",
@@ -53,6 +58,13 @@ function fetchImpl(url, options = {}) {
   if (u.includes("/api/v1/supervision")) {
     if (method === "POST") {
       calls.push(u.replace(/^.*\/api\/v1\/supervision/, ""));
+      posts += 1;
+      if (!("x-nervis-control" in (options.headers || {}))) untokened.push(u);
+      if (refuseNext) {
+        refuseNext = false;
+        return Promise.resolve({ ok: false, status: 403, json: async () => ({ error: {
+          code: "CONTROL_TOKEN_REQUIRED", message: "reload the dashboard and try again" } }) });
+      }
       if (u.endsWith("/enable")) state = { ...state, enabled: JSON.parse(options.body).enabled };
       return Promise.resolve({ ok: true, status: 200, json: async () => state });
     }
@@ -151,6 +163,21 @@ async function main() {
     failures.push(`a confirmed restart posted ${JSON.stringify(calls)}, not /sirvis/restart.`);
   }
 
+  /* ── Every write carries the token, and a refusal is said ──────────────── */
+
+  await vm.runInContext("clearCircuit('lmstudio')", context);
+  if (untokened.length) {
+    failures.push(`${untokened.length} supervision write(s) went without the control token, which NERVIS refuses: ${untokened.join(", ")}`);
+  }
+  if (posts < 3) failures.push("too few writes were sent for the token check to prove anything.");
+  vm.runInContext("globalThis.__notes = []; notify = (m) => globalThis.__notes.push(String(m))", context);
+  refuseNext = true;
+  await vm.runInContext("setSupervision(false)", context);
+  const said = vm.runInContext("globalThis.__notes.join(' | ')", context);
+  if (!said.includes("reload the dashboard")) {
+    failures.push(`a refused switch was not said on screen (said: ${JSON.stringify(said)}).`);
+  }
+
   /* ── A dark NERVIS is reported, not drawn as "off" ─────────────────────── */
 
   const { context: dark } = loadPage({
@@ -170,7 +197,8 @@ async function main() {
     "service control holds: off by default with every control dead, each " +
     "refusal named on screen, only a nervis-managed service pressable, an open " +
     "circuit offering nothing but clearing, three verbs and no fourth, acting " +
-    "armed, and a dark NERVIS reported rather than drawn as off"
+    "armed, every write carrying the control token with a refusal said on screen, " +
+    "and a dark NERVIS reported rather than drawn as off"
   );
 }
 

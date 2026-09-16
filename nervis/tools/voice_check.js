@@ -119,9 +119,47 @@ if (!/All services are up and well/.test(shapes[0])) {
   failures.push(`a healthy ecosystem did not read as one: "${shapes[0]}"`);
 }
 
-if (failures.length) {
-  for (const failure of failures) console.error("  • " + failure);
-  console.error(`${failures.length} spoken-status failure(s)`);
-  process.exit(1);
+/* 5 · The Fish Audio key is stored and removed with the page's control token (NERVIS 0.34.15),
+   which NERVIS requires because the key is a provider credential; a refused removal is said. */
+async function keyCarriesTheToken() {
+  const vm = require("node:vm");
+  const sent = [];
+  let refuse = false;
+  const page = loadPage({
+    fetchImpl: (url, options = {}) => {
+      if (String(url).includes("/api/v1/voice/credential")) {
+        sent.push({ method: options.method, headers: options.headers || {} });
+        if (refuse) {
+          return Promise.resolve({ ok: false, status: 403, json: async () => ({ error: {
+            code: "CONTROL_TOKEN_REQUIRED", message: "reload the dashboard and try again" } }) });
+        }
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+    },
+  });
+  vm.runInContext("stopPolling()", page.context);
+  vm.runInContext("globalThis.__notes = []; notify = (m) => globalThis.__notes.push(String(m)); render = () => {}",
+    page.context);
+  page.context.document.getElementById("voiceKey").value = "fish-key-value";
+  await vm.runInContext("VOICE.saveKey()", page.context);
+  await vm.runInContext("VOICE.forgetKey()", page.context);
+  if (sent.length !== 2 || sent.some(one => !("x-nervis-control" in one.headers))) {
+    failures.push(`storing or removing the voice key went without the control token: ${JSON.stringify(sent)}`);
+  }
+  refuse = true;
+  await vm.runInContext("VOICE.forgetKey()", page.context);
+  const said = vm.runInContext("globalThis.__notes.join(' | ')", page.context);
+  if (!said.includes("reload the dashboard") || /Key removed from NERVIS$/.test(said)) {
+    failures.push(`a refused key removal was not said, or was reported as done: ${JSON.stringify(said)}`);
+  }
 }
-console.log("the spoken status waits for a reading, names what is down, and counts nothing");
+
+keyCarriesTheToken().then(() => {
+  if (failures.length) {
+    for (const failure of failures) console.error("  • " + failure);
+    console.error(`${failures.length} voice failure(s)`);
+    process.exit(1);
+  }
+  console.log("the spoken status waits for a reading, names what is down, and counts nothing; "
+    + "the voice key is stored and removed with the control token, and a refusal is said");
+}).catch((error) => { console.error(error); process.exit(1); });

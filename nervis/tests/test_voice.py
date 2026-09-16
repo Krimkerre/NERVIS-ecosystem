@@ -68,7 +68,8 @@ def an_api(
         return httpx.Response(200, json={})
 
     app.state.probe_client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
-    return TestClient(app)
+    # The dashboard's control token, which the key's routes need (NERVIS 0.34.15).
+    return TestClient(app, headers={"x-nervis-control": app.state.control_token})
 
 
 def with_voice(client: TestClient, *, muted: bool = False) -> str:
@@ -506,7 +507,7 @@ def test_the_latency_mode_reaches_fish() -> None:
         return httpx.Response(200, json={})
 
     app.state.probe_client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
-    client = TestClient(app)
+    client = TestClient(app, headers={"x-nervis-control": app.state.control_token})
     with_voice(client)
     client.put("/api/v1/voice/settings", json={"latency": "normal"})
 

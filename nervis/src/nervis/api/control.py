@@ -1,4 +1,4 @@
-"""The page's own token, and the six routes that require it.
+"""The page's own token, and the routes that require it.
 
 **§16 item 4, one hop up.** RAVIS stopped treating a loopback bind as
 authorization: every management mutation there needs an admin credential, and an
@@ -48,6 +48,6 @@ def require_control(request: Request) -> None:
     offered = request.headers.get(HEADER, "")
     if not held or not offered or not secrets.compare_digest(held, offered):
         raise ControlTokenRequiredError(
-            "changing RAVIS's configuration through NERVIS needs the dashboard's "
-            "control token; reload the dashboard and try again"
+            "this change through NERVIS needs the dashboard's control token, which "
+            "changes whenever NERVIS restarts; reload the dashboard and try again"
         )

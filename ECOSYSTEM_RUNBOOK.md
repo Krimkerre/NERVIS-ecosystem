@@ -900,8 +900,8 @@ an instruction changes nothing, and a caller-supplied identity grants nothing.
 **As built, 16 September 2026 — reviewed, not yet signed.** The dependency check exists
 (`tools/check_dependencies.py`; operator runbook, *Checking dependencies for known holes*). The
 first threat-model review and privilege matrix are in `design/security/review-2026-09-16.md`,
-with six findings awaiting the owner's decision (S1–S6): NERVIS's supervision routes and some of
-its other writes skip the control token, credentials are owner-readable files by design, SIRVIS's
+with six findings (S1–S6): NERVIS's supervision routes skipped the control token (fixed in NERVIS
+0.34.15, with the Fish Audio key's routes) and some of its other writes still do, credentials are owner-readable files by design, SIRVIS's
 `admin` is total by design, there is no content-based secret scan, and remote access is not
 built. The note below is what stood before that day.
 

@@ -8007,14 +8007,16 @@ const VOICE={
   const secret=(box&&box.value||'').trim();
   if(!secret)return notify('Paste a key first');
   const r=await fetch(BASE.nervis+'/api/v1/voice/credential',{method:'PUT',
-    headers:{'content-type':'application/json'},body:JSON.stringify({secret})});
+    headers:control_headers(),body:JSON.stringify({secret})});
   this.note=r.ok?null:{head:'refused',body:await refusalMessage(r)};
   notify(r.ok?'Key stored':'Key not stored');
   render();
  },
 
  async forgetKey(){
-  await fetch(BASE.nervis+'/api/v1/voice/credential',{method:'DELETE'});
+  const r=await fetch(BASE.nervis+'/api/v1/voice/credential',{method:'DELETE',
+    headers:{'x-nervis-control':CONTROL_TOKEN}}).catch(()=>null);
+  if(!r||!r.ok){notify(r?await refusalMessage(r):'NERVIS is not reachable');return}
   this.catalogue=null;this.note=null;
   notify('Key removed from NERVIS');
   render();
@@ -8896,10 +8898,18 @@ function supervisionRow(s,on){
    <span>${verbs}</span></div>`;
 }
 
+/* Every supervision write carries the page's control token (NERVIS 0.34.15), and a refusal is
+   said rather than swallowed — a switch that silently stays put reads as a broken page. */
+async function supervisionWrite(path,init){
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/supervision'+path,
+   {method:'POST',...init,headers:control_headers()});
+  if(!r.ok)notify(await refusalMessage(r));
+ }catch(e){}
+}
+
 async function setSupervision(on){
- try{await fetch(BASE.nervis+'/api/v1/supervision/enable',{method:'POST',
-   headers:{'content-type':'application/json'},body:JSON.stringify({enabled:on}),
-   signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)})}catch(e){}
+ await supervisionWrite('/enable',{body:JSON.stringify({enabled:on}),signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
  render();
 }
 
@@ -8907,14 +8917,12 @@ async function setSupervision(on){
    changes something outside this page. */
 async function superviseNow(service,verb){
  if(!armed('supervise:'+service+':'+verb,`This will ${verb} ${service}`))return;
- try{await fetch(`${BASE.nervis}/api/v1/supervision/${encodeURIComponent(service)}/${verb}`,
-   {method:'POST',signal:AbortSignal.timeout(60000)})}catch(e){}
+ await supervisionWrite(`/${encodeURIComponent(service)}/${verb}`,{signal:AbortSignal.timeout(60000)});
  render();
 }
 
 async function clearCircuit(service){
- try{await fetch(`${BASE.nervis}/api/v1/supervision/${encodeURIComponent(service)}/circuit/clear`,
-   {method:'POST',signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)})}catch(e){}
+ await supervisionWrite(`/${encodeURIComponent(service)}/circuit/clear`,{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
  render();
 }
 
