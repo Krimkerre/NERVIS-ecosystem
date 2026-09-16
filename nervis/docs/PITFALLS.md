@@ -362,7 +362,9 @@ landed** (found live, 16 September 2026, NERVIS 0.34.2). `repaint()` captures wh
 the reader typed, focused and selected and puts it back; `render()` doesn't, and
 the end of `sendChat` and `slashSay` call `render()`. The chat panel is rebuilt as
 markup, so the box came back empty and unfocused. `TOUCHED` still held the text,
-which is why nothing looked wrong in the code that remembers typing. The fix sits
+which is why nothing looked wrong in the code that remembers typing — and why the
+wiped text came back on the next `repaint()` and went out glued to the front of the
+next message. The fix sits
 in `chatView` itself (`chatDraft` / `restoreChatDraft`), so every caller is
 covered, not just the one that was found. `slash_check.js` rebuilds the box on
 each paint the way a browser does, which the shim otherwise doesn't, and types
