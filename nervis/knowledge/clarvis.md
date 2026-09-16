@@ -191,7 +191,16 @@ It stands at 39 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 1 `NOT_TESTED`
 (Bridge teardown under code-server), but nearly all of those cells were run
 against Clarvis 0.0.1 at the end of August; only the multiple-window and rollback
 checks were run later, on 0.12.6. So the matrix describes that early version
-rather than today's. Managing code-server — starting it, serving it through
+rather than today's.
+
+**After a code-server upgrade** the matrix isn't re-run (the owner ruled out hours
+of testing per upgrade). `tools/code_server_upgrade_check.py` takes seconds: it
+checks that code-server's login, proxy and webview parts are unchanged from 4.135.0,
+the version the matrix tested, runs Clarvis's editor tests on the VS Code version
+the new code-server contains, and checks the running editor. A version that passes
+shows as **checked** on Diagnostics instead of untested; code-server 4.137.0 passed
+on 16 September 2026. Other browsers and audio aren't covered by it. The upgrade
+steps are in `OPERATOR_RUNBOOK.md`, "Upgrading code-server". Managing code-server — starting it, serving it through
 NERVIS's own proxy at `/code/`, and installing Clarvis into it — is NERVIS's own
 M14 (the Code tab), which NERVIS's plan also marks IMPLEMENTED; the proxy shipped
 on 9 September 2026.

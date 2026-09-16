@@ -30,8 +30,10 @@ absence.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 # What NERVIS says about a capability it derived rather than read. Written into
@@ -108,6 +110,25 @@ def lmstudio(catalogue: Any, openai_models: Any) -> dict[str, Any]:
 GRADED_CODE_SERVER = ("4.135.0",)
 GRADED_FLOOR = (4, 135, 0)
 
+# **Versions that passed the upgrade check** (`tools/code_server_upgrade_check.py`,
+# since 16 September 2026): code-server's login, proxy, origin, WebSocket and
+# webview-host files match the graded install byte for byte, and Clarvis's host
+# suite passes on the Code version it bundles. The owner ruled out a full re-grade
+# for every upgrade; a pass carries the graded cells over. Written by that tool's
+# `--record`, read once. A missing or unreadable file is no checks, never an error.
+CHECKED_RECORD = Path(__file__).with_name("code_server_checks.json")
+
+
+def _checked_code_server() -> dict[str, Any]:
+    try:
+        found = json.loads(CHECKED_RECORD.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return found if isinstance(found, dict) else {}
+
+
+CHECKED_CODE_SERVER = _checked_code_server()
+
 
 def _as_numbers(version: str) -> tuple[int, ...]:
     """The leading numeric run of a version, for comparison and nothing else.
@@ -144,6 +165,16 @@ def _workbench_state(version: str) -> tuple[str, str]:
     """
     if version in GRADED_CODE_SERVER:
         return "available", f"code-server {version} is the version Stage 9's matrix graded"
+    checked = CHECKED_CODE_SERVER.get(version)
+    if isinstance(checked, dict):
+        return (
+            "available",
+            f"code-server {version} passed the upgrade check on {checked.get('checked_on', '?')}: "
+            f"its login, proxy, origin, WebSocket and webview-host files match "
+            f"{checked.get('carried_from', GRADED_CODE_SERVER[0])}, which Stage 9's matrix graded, "
+            f"and Clarvis {checked.get('clarvis', '?')}'s host suite passes on Code "
+            f"{checked.get('code', '?')}; other browsers and audio were not re-checked",
+        )
     numbers = _as_numbers(version)
     if not numbers:
         return (

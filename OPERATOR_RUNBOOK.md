@@ -140,6 +140,33 @@ eyeballed, and came back intact: every provider-key ciphertext byte-for-byte ide
 pre-existing chat session preserved verbatim. Full detail in
 `clarvis/docs/code-server-matrix.md`'s rollback section, graded `PASS`.
 
+### Upgrading code-server
+
+Homebrew's `code-server` formula is deprecated and stops at 4.112.0, so code-server is the
+standalone install: each version in `~/.local/lib/code-server-<version>`, with
+`~/.local/bin/code-server` pointing at the one in use. To move to a new release:
+
+1. Download `code-server-<version>-macos-arm64.tar.gz` from the release on GitHub and compare its
+   SHA-256 with the digest GitHub shows for that file.
+2. Unpack it to `~/.local/lib/code-server-<version>` (rename the unpacked folder) and repoint the
+   link: `ln -sfn ~/.local/lib/code-server-<version>/bin/code-server ~/.local/bin/code-server`.
+   **Keep `code-server-4.135.0`**: it is the install Stage 9's matrix graded, and the check below
+   compares against it. Keep the previous version too, as the rollback — repoint the link back.
+3. Stop the running code-server (it keeps running detached otherwise) and restart the stack.
+   Clarvis stays installed; the editor asks for its password again.
+4. Run the upgrade check — seconds, not the matrix's hours:
+
+   ```bash
+   python3 tools/code_server_upgrade_check.py --record
+   ```
+
+   It compares code-server's login, proxy, origin, WebSocket and webview-host files with the
+   graded 4.135.0, runs Clarvis's host suite on the exact Code version code-server bundles, and
+   checks the live editor, Clarvis's installed copy and any open window. A pass is recorded in
+   `nervis/src/nervis/code_server_checks.json` (commit it, then restart NERVIS) and NERVIS shows
+   the version as checked rather than untested. A failure names the matrix cells a changed file
+   touches; re-run only those. Other browsers and audio are never re-checked by it.
+
 ---
 
 ## §10 failure playbook

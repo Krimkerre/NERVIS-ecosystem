@@ -667,7 +667,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.10
+## NERVIS — 0.34.11
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+A code-server upgrade is checked in seconds instead of hours.
+
+- **New: `tools/code_server_upgrade_check.py`.** It compares the parts of code-server the editor
+  tests depend on with the version they were run on, runs Clarvis's editor tests on the exact VS Code
+  version the new code-server contains, and checks the live editor and any open window. A file that
+  changed names the tests to re-run by hand.
+- **A checked version is no longer "untested":** a pass is recorded, and Diagnostics shows that
+  code-server version as checked, saying what was and wasn't re-checked. code-server 4.137.0 passed.
+- **For operators:** "Upgrading code-server" in `OPERATOR_RUNBOOK.md`.
+
+### 0.34.10
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

@@ -1343,3 +1343,36 @@ def test_a_peer_that_answered_badly_is_not_called_a_slow_start() -> None:
     seen = _still_starting(_api_at(1.0), _entry(), dict(refused))
 
     assert seen["state"] is RegistryState.UNAUTHORIZED
+
+
+def test_a_version_that_passed_the_upgrade_check_is_embedded_as_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The owner ruled out a full re-grade per upgrade (16 September 2026); a version
+    `tools/code_server_upgrade_check.py` passed carries the graded cells over, and says
+    what was and was not re-checked."""
+    monkeypatch.setattr(adapters, "CHECKED_CODE_SERVER", {"4.140.0": {
+        "checked_on": "2026-09-16", "carried_from": "4.135.0", "clarvis": "0.17.15",
+        "code": "1.140.0", "review": []}})
+    page = (
+        '<meta id="coder-options" data-settings="'
+        '{&quot;codeServerVersion&quot;:&quot;4.140.0&quot;}" />'
+    )
+    checked = adapters.codeserver({"status": "alive"}, {"name": "code-server"}, page)
+
+    assert checked["capabilities"]["codeserver.workbench"] == "available"
+    reason = checked["capability_reasons"]["codeserver.workbench"]
+    assert "passed the upgrade check on 2026-09-16" in reason
+    assert "match 4.135.0" in reason and "Code 1.140.0" in reason
+    assert "other browsers and audio were not re-checked" in reason
+
+    unchecked = page.replace("4.140.0", "4.141.0")
+    other = adapters.codeserver({"status": "alive"}, {"name": "code-server"}, unchecked)
+    assert other["capabilities"]["codeserver.workbench"] == "degraded"
+
+
+def test_the_shipped_record_names_only_real_passes() -> None:
+    """The record the tool writes is read as it ships, and every entry says what it rests on."""
+    for version, entry in adapters.CHECKED_CODE_SERVER.items():
+        assert adapters._as_numbers(version) >= adapters.GRADED_FLOOR, version
+        assert {"checked_on", "carried_from", "clarvis", "code"} <= set(entry), version
