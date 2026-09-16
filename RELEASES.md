@@ -681,7 +681,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.12
+## NERVIS — 0.34.13
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+The launcher (`tools/run.py`, used by the start and stop launchers and the menu bar app) now starts
+and stops the services in the runbook's order.
+
+- **Start:** SIRVIS, then Ollama, RAVIS, NERVIS and code-server, each launched only once the one
+  before it answers or its 30-second wait runs out. A service that never answers is named, and the
+  rest still start. Starting can take a few seconds longer, since services no longer boot at once.
+- **Stop:** code-server first, then NERVIS, RAVIS, SIRVIS, and Ollama last. It used to go
+  alphabetically, which stopped code-server last and Ollama before the services using it.
+
+### 0.34.12
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

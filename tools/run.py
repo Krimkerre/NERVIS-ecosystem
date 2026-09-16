@@ -59,7 +59,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -1452,11 +1452,33 @@ def mount_share(url: str) -> str:
     return "" if os.path.ismount(where) else f"{url} did not mount"
 
 
-def _launch(running: dict[str, bool], recorded: dict[str, dict[str, object]]) -> dict[str, int]:
-    """Launch each service not answering, unless its recorded process is still ours.
+#: The order `start` brings services up in, from runbook §12.1: SIRVIS, then the local
+#: runtimes it and RAVIS use, then RAVIS, NERVIS, and code-server behind NERVIS.
+START_ORDER = ("SIRVIS", "Ollama", "RAVIS", "NERVIS", "code-server")
+#: The order `stop` takes them down in, from §12.1's shutdown paragraph: code-server's sessions
+#: first, then NERVIS, RAVIS and SIRVIS, and the runtimes last, once nothing is using them.
+STOP_ORDER = ("code-server", "NERVIS", "RAVIS", "SIRVIS", "Ollama")
 
-    Adds each launch to `recorded`, and returns the services left to finish booting on
-    their own: name to the PID already recorded for it.
+
+def in_order(names: Iterable[str], order: tuple[str, ...]) -> list[str]:
+    """`names` in `order`; any name it does not list comes after, alphabetically.
+
+    Until 16 September 2026 `start` launched in table order without waiting and `stop` walked
+    the PID file alphabetically, so Ollama started after NERVIS and stopped before RAVIS and
+    SIRVIS, and code-server — drained first by the runbook — stopped last.
+    """
+    return sorted(names, key=lambda name: (order.index(name) if name in order else len(order), name))
+
+
+def _launch(
+    service: tuple[str, list[str], str, dict[str, str], str],
+    running: dict[str, bool],
+    recorded: dict[str, dict[str, object]],
+) -> int:
+    """Launch one service if it is not answering, unless its recorded process is still ours.
+
+    Adds a launch to `recorded`. Returns the PID of a recorded process left to finish booting
+    on its own, else 0.
 
     **Not answering is not the same as not running.** A service can be alive and still
     booting — started a moment earlier by another `start`, from the other launcher or the
@@ -1467,24 +1489,22 @@ def _launch(running: dict[str, bool], recorded: dict[str, dict[str, object]]) ->
     and still carries its service's marker is left to boot. It gets the same wait as a
     fresh launch, and its record stays.
     """
-    waiting: dict[str, int] = {}
-    for name, command, marker, env, _ in _services():
-        if running.get(name):
-            print(f"  {name} already running")
-            continue
-        pid = _still_ours(recorded.get(name), marker)
-        if pid:
-            waiting[name] = pid
-            print(f"  {name} already started (pid {pid}) and not answering yet; waiting for it")
-            continue
-        if name == "RAVIS":
-            # Where Homebrew keeps Codex, asked only now that RAVIS is really being launched
-            # (`_with_codex_executable`).
-            env = _with_codex_executable(env)
-        pid = _spawn_detached(command, env, RUN / f"{name.lower()}.log")
-        recorded[name] = {"pid": pid, "marker": marker}
-        print(f"  {name} started (pid {pid})")
-    return waiting
+    name, command, marker, env, _ = service
+    if running.get(name):
+        print(f"  {name} already running")
+        return 0
+    pid = _still_ours(recorded.get(name), marker)
+    if pid:
+        print(f"  {name} already started (pid {pid}) and not answering yet; waiting for it")
+        return pid
+    if name == "RAVIS":
+        # Where Homebrew keeps Codex, asked only now that RAVIS is really being launched
+        # (`_with_codex_executable`).
+        env = _with_codex_executable(env)
+    pid = _spawn_detached(command, env, RUN / f"{name.lower()}.log")
+    recorded[name] = {"pid": pid, "marker": marker}
+    print(f"  {name} started (pid {pid})")
+    return 0
 
 
 def _still_ours(record: object, current_marker: str) -> int:
@@ -1585,22 +1605,28 @@ def start() -> int:
         webbrowser.open(dashboard_url())
         return 0
 
-    print("Starting (detached — closing this window will not stop them)…")
+    print("Starting, each once the one before it answers"
+          " (detached — closing this window will not stop them)…")
     recorded = _recorded()
-    booting = _launch(running, recorded)
     RUN.mkdir(parents=True, exist_ok=True)
-    with PIDFILE.open("w", encoding="utf-8") as handle:
-        json.dump(recorded, handle, indent=2, sort_keys=True)
-
-    print("\nWaiting for them to answer…")
     ready = True
-    for name, _, _, _, url in _services():
+    services = {service[0]: service for service in _services()}
+    # **One at a time, in §12.1's order.** A service that stays silent through its wait is
+    # named and the next one starts anyway: §12.1 lets independent services run degraded,
+    # and every one of these already copes with a peer that is not there.
+    for name in in_order(services, START_ORDER):
+        booting = _launch(services[name], running, recorded)
+        # Written before the wait, so a second `start` arriving meanwhile sees this one
+        # booting instead of launching a copy over it (`_launch`).
+        with PIDFILE.open("w", encoding="utf-8") as handle:
+            json.dump(recorded, handle, indent=2, sort_keys=True)
+        url = services[name][4]
         deadline = time.monotonic() + START_WAIT_SECONDS
         while time.monotonic() < deadline and not responds(url):
             time.sleep(0.4)
         answering = responds(url)
         ready = ready and answering
-        print(f"  {name:<11} {_readiness(name, answering, booting.get(name, 0))}")
+        print(f"  {name:<11} {_readiness(name, answering, booting)}")
 
     # After RAVIS answers, because storing a credential is a request to it. Both
     # halves already hold the same string — this is the half RAVIS keeps.
@@ -1713,8 +1739,8 @@ def stop() -> int:
     # says why this stays.
     if responds(f"http://127.0.0.1:{SIRVIS_PORT}/ecosystem/health", 1.0):
         _release_menu_sessions()
-    for name, record in sorted(recorded.items()):
-        pid, marker = _pid_and_marker(record, markers.get(name))
+    for name in in_order(recorded, STOP_ORDER):
+        pid, marker = _pid_and_marker(recorded[name], markers.get(name))
         if not marker:
             print(f"  {name} is recorded without a marker, so it cannot be confirmed as ours;"
                   " left alone")

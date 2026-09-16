@@ -1012,6 +1012,12 @@ There are exactly three things it can do — start, stop, restart — and asking
 anything else gets "no such thing" rather than an error explaining what would
 have worked. Every attempt is recorded, refusals included.
 
+**The launcher's order** (the start and stop launchers and the menu bar app, since
+NERVIS 0.34.13): it starts SIRVIS, Ollama, RAVIS, NERVIS and code-server in that
+order, each once the one before it answers or 30 seconds have passed, and stops
+them the other way round except that Ollama goes last: code-server, NERVIS,
+RAVIS, SIRVIS, Ollama. That is the order in runbook §12.1.
+
 ## Watching Clarvis in the editor
 
 Clarvis is the coding assistant that lives inside a VS Code window. When one of

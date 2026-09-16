@@ -908,7 +908,12 @@ def test_ravis_is_told_homebrews_codex_link_only_as_it_is_launched(
 
     monkeypatch.setattr(run, "_spawn_detached", spawn)
 
-    run._launch({}, {})
+    def launch_all() -> None:
+        # `start` launches one service at a time; here every row, none of them answering.
+        for row in table:
+            run._launch(row, {}, {})
+
+    launch_all()
     assert launched["ravis"]["RAVIS_CODEX_EXECUTABLE"] == str(prefix / "bin" / "codex")
     assert "RAVIS_CODEX_EXECUTABLE" not in launched["sirvis"] | launched["nervis"]
     assert asked == [["/opt/homebrew/bin/brew", "--prefix"]]
@@ -916,7 +921,7 @@ def test_ravis_is_told_homebrews_codex_link_only_as_it_is_launched(
     asked.clear()
     table[1] = ("RAVIS", ["ravis", "serve"], "ravis serve",
                 {"RAVIS_CODEX_EXECUTABLE": "/elsewhere/codex"}, health)
-    run._launch({}, {})
+    launch_all()
     assert launched["ravis"]["RAVIS_CODEX_EXECUTABLE"] == "/elsewhere/codex"
     assert asked == []
 
@@ -927,10 +932,10 @@ def test_ravis_is_told_homebrews_codex_link_only_as_it_is_launched(
         run.subprocess, "run",
         lambda command, **_options: subprocess.CompletedProcess(command, 1, "", "Error: stuck"),
     )
-    run._launch({}, {})
+    launch_all()
     assert "RAVIS_CODEX_EXECUTABLE" not in launched["ravis"]
     monkeypatch.setattr(run.shutil, "which", lambda _program: None)
-    run._launch({}, {})
+    launch_all()
     assert "RAVIS_CODEX_EXECUTABLE" not in launched["ravis"]
 
 

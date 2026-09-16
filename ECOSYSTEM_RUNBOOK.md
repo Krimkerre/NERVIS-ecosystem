@@ -1012,22 +1012,20 @@ checks, reconcile in-flight SIRVIS jobs and RAVIS requests without replay, expir
 registry and Bridge leases, then follow the normal sequence. **Never resume an agent action
 or an approval automatically.**
 
-**As built, 12 September 2026 — the launcher does not follow this sequence.** `tools/run.py` is
-what starts and stops the stack today, and it does less than the steps above:
+**As built — the launcher follows the order, not yet every check.** `tools/run.py` is what
+starts and stops the stack.
 
-- `start` launches every service in one loop without waiting between them — SIRVIS, RAVIS,
-  NERVIS, then Ollama and code-server when each is installed — and afterwards checks only that
-  each one answers HTTP at all, a 404 included. It does not wait for `live=true`, record
-  readiness or capabilities, stop on an unsupported protocol major or a failed authentication,
-  or run step 8's whole-ecosystem smoke.
-- Ollama is a local runtime, which step 2 puts before RAVIS; the launcher starts it after
-  NERVIS.
-- `stop` walks the services in name order — NERVIS, Ollama, RAVIS, SIRVIS, code-server — so
-  code-server, which the shutdown order above drains first, stops last, and Ollama stops before
-  RAVIS and SIRVIS rather than after them.
-
-The sequence above is still the requirement; this records that the launcher does not yet meet
-it.
+- **The order, since 16 September 2026 (NERVIS 0.34.13):** `start` brings up SIRVIS, Ollama,
+  RAVIS, NERVIS and code-server in that order, each only once the one before it answers or its
+  30-second wait has run out; one that never answers is named and the rest still start, as
+  independent services may run degraded. `stop` takes down code-server, NERVIS, RAVIS, SIRVIS,
+  then Ollama (`START_ORDER` and `STOP_ORDER`; `nervis/tests/test_launcher_lifecycle.py`). Until
+  then `start` launched in table order without waiting — Ollama after NERVIS — and `stop` went
+  alphabetically, code-server last and Ollama before RAVIS and SIRVIS.
+- **Still short of the steps above:** "answers" means any HTTP reply, a 404 included. `start`
+  does not wait for `live=true`, record readiness or capabilities, stop on an unsupported
+  protocol major or a failed authentication, or run step 8's whole-ecosystem smoke; `stop` does
+  not drain code-server sessions or RAVIS requests beyond each service's own shutdown.
 
 ---
 

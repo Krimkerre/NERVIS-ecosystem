@@ -96,6 +96,8 @@ class FakeMachine:
         self.sent: list[tuple[int, int, float]] = []
         self.now = 0.0
         self.next_pid = 9000
+        # How long a service launched during the test takes to answer, by name; 0 unless named.
+        self.boot_seconds: dict[str, float] = {}
 
     def process(
         self, pid: int, command: str, port: int | None = None, *,
@@ -142,7 +144,8 @@ class FakeMachine:
         """Launch a service: a new PID that holds the service's port from the moment it exists."""
         name, _, _, _, url = next(service for service in self.services if service[1] == command)
         pid, self.next_pid = self.next_pid, self.next_pid + 1
-        self.process(pid, " ".join(command), urllib.parse.urlsplit(url).port)
+        self.process(pid, " ".join(command), urllib.parse.urlsplit(url).port,
+                     answers_at=self.now + self.boot_seconds.get(name, 0.0))
         self.log.append(f"spawn {name} {pid}")
         return pid
 
@@ -512,6 +515,84 @@ def test_start_names_a_recorded_service_that_never_answers_and_keeps_it_for_stop
 
     assert run.stop() == 0
     assert machine.signals() == [(700, TERM)]
+
+
+OLLAMA: Service = (
+    "Ollama", ["/opt/homebrew/bin/ollama", "serve"], "ollama serve", {},
+    "http://127.0.0.1:11434/",
+)
+
+
+def test_start_brings_services_up_in_the_runbooks_order_each_after_the_last_answers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Runbook §12.1: SIRVIS, the local runtimes, RAVIS, NERVIS, then code-server — in sequence.
+
+    The table lists them in another order on purpose, and each takes a few seconds to answer on
+    the fake clock, so a `start` that launched in table order, or launched everything before
+    waiting, would spawn at the wrong moments. One service never answers: it is named and the rest
+    still start, since §12.1 lets independent services run degraded.
+    """
+    machine = FakeMachine([CODE_SERVER, NERVIS, RAVIS, OLLAMA, SIRVIS])
+    machine.boot_seconds = {"SIRVIS": 3.0, "Ollama": float("inf"), "RAVIS": 2.0, "NERVIS": 1.0}
+    run = _launcher(monkeypatch, tmp_path, machine)
+    _quiet_start(monkeypatch, run)
+    launched_at: list[tuple[str, float]] = []
+    spawn = machine.spawn
+
+    def timed(command: list[str], env: dict[str, str], log: Path) -> int:
+        # Every earlier launch was on record before its wait began, for a second `start` to find.
+        on_record = json.loads(run.PIDFILE.read_text()) if run.PIDFILE.exists() else {}
+        assert set(on_record) == {name for name, _ in launched_at}
+        pid = spawn(command, env, log)
+        launched_at.append((machine.log[-1].split()[1], machine.now))
+        return pid
+
+    monkeypatch.setattr(run, "_spawn_detached", timed)
+
+    code = run.start()
+
+    names = [name for name, _ in launched_at]
+    assert names == ["SIRVIS", "Ollama", "RAVIS", "NERVIS", "code-server"]
+    when = dict(launched_at)
+    assert when["SIRVIS"] == 0.0
+    assert 3.0 <= when["Ollama"] < 3.5, "Ollama waited for SIRVIS to answer"
+    wait = run.START_WAIT_SECONDS
+    assert when["Ollama"] + wait <= when["RAVIS"] < when["Ollama"] + wait + 0.5, (
+        "RAVIS waited out Ollama's full wait, then started anyway"
+    )
+    assert when["NERVIS"] >= when["RAVIS"] + 2.0
+    assert when["code-server"] >= when["NERVIS"] + 1.0
+    assert "NOT ready — see .run/ollama.log" in capsys.readouterr().out
+    recorded = json.loads(run.PIDFILE.read_text(encoding="utf-8"))
+    assert set(recorded) == set(names)
+    assert code == 1
+
+
+def test_stop_takes_services_down_in_the_runbooks_shutdown_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Runbook §12.1's shutdown: code-server, NERVIS, RAVIS, SIRVIS, and the runtimes last.
+
+    The PID file lists them alphabetically, which is the order `stop` used to follow. A record for
+    a service the table no longer knows is still left alone, after the rest.
+    """
+    machine = FakeMachine([SIRVIS, OLLAMA, RAVIS, NERVIS, CODE_SERVER])
+    pids = {"SIRVIS": 901, "Ollama": 902, "RAVIS": 903, "NERVIS": 904, "code-server": 905}
+    for service in machine.services:
+        machine.process(pids[service[0]], _as_ps_shows(service), None)
+    run = _launcher(monkeypatch, tmp_path, machine)
+    records = {
+        name: {"pid": pids[name], "marker": marker} for name, _, marker, _, _ in machine.services
+    }
+    _record(run, dict(sorted(records.items())))
+
+    assert run.stop() == 0
+
+    assert [pid for pid, _ in machine.signals()] == [905, 904, 903, 901, 902]
+    assert run.in_order(["Zeta", "Ollama", "Alpha", "code-server"], run.STOP_ORDER) == [
+        "code-server", "Ollama", "Alpha", "Zeta"
+    ]
 
 
 def test_every_marker_is_on_its_own_serve_command_and_on_nothing_else_that_could_hold_its_pid(
