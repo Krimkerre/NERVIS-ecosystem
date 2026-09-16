@@ -681,11 +681,15 @@ attach them to model and agent events.
 authorizes a tool or a gate. Telemetry failure can never delay or fail editor work; buffering is
 bounded.
 
-**As built, 12 September 2026: two of the four identifiers travel.** An OpenAI-compatible model
-request carries `traceparent` — the trace id, in W3C form — and `x-session-id`, and nothing else
-from this list: no request id and no workspace id (`lineageHeaders` in `src/model/lineage.ts`,
-called only from `OpenAiCompatibleProvider.ts`, so a request through the Anthropic adapter carries
-neither). Chat and agent events carry the trace; model events are not emitted at all (E-C4).
+**As built, 16 September 2026 (Clarvis 0.17.9): three of the four identifiers travel, from both
+adapters.** Every model request carries `traceparent` — the trace id, in W3C form — `x-session-id`
+and a fresh `x-request-id`, which RAVIS uses as sent (`lineageHeaders` in `src/model/lineage.ts`,
+called from `OpenAiCompatibleProvider.ts` and `AnthropicProvider.ts`; the Anthropic adapter only
+reaches Anthropic, since RAVIS serves no `/v1/messages`). **`workspace_id` does not travel:** runbook
+§4.3 names no header for it and RAVIS reads none, so it would be a contract nobody agreed to; the
+salted id reaches NERVIS with the Bridge registration instead. Chat and agent events carry the trace
+but not the request or session id, and model events are not emitted at all (E-C4). Until 12
+September only the trace and the session travelled, and only through the OpenAI-compatible adapter.
 
 ## 6.6 Multiple simultaneous instances
 
@@ -988,10 +992,11 @@ buffer that drops the oldest and counts the overflow, primitive-only payloads th
 command, path or secret, a stream closed to an unauthenticated subscriber, emitting that never
 throws, and a refusing or absent hub reported rather than thrown (`src/bridge/events.test.ts`,
 `server.test.ts`, `publish.test.ts`, `eventForwarding.test.ts`). The impersonation clause rests on
-NERVIS's enrolment secret and is not assessed here. Unmet: **a cross-service trace has never been
-seen whole** — Clarvis to RAVIS to a provider needs an editor window publishing into it
-(`STATUS.md`, the scenario table under "The build order, unambiguously", and the 8 September
-Diagnostics entry). And **§6.4's list is only partly emitted**: lifecycle, gate, chat, agent and
+NERVIS's enrolment secret and is not assessed here. **A cross-service trace resolves, seen live on
+16 September 2026:** a Clarvis chat turn in code-server drew, under one trace id in NERVIS,
+`clarvis.chat.started` and `.completed`, RAVIS's `ravis.route.selected` (`ravis/clarvis-chat` to
+`claude-haiku-4-5`) and `ravis.request.completed` naming Anthropic, and RAVIS's log line of the
+provider call (`STATUS.md`, row 5 of "Next"). Still unmet: **§6.4's list is only partly emitted**: lifecycle, gate, chat, agent and
 capability events exist; `clarvis.tool.*`, `clarvis.diagnostic.changed`, `clarvis.task.*` and
 `clarvis.model.*` do not (`src/bridge/events.ts`).
 

@@ -184,7 +184,9 @@ def test_what_is_advertised_matches_what_is_built(settings: Settings) -> None:
         "nervis.raw_logs": "available",
         "nervis.conversation_memory": "available",
         "nervis.settings_backup": "available",
-        "nervis.diagnostics": "degraded",             # M12 ships Analyze; M17 unifies
+        # Available since a Clarvis → RAVIS → provider trace was seen whole in
+        # code-server on 16 September 2026, the one thing it waited for.
+        "nervis.diagnostics": "available",
         "nervis.supervision": "unavailable",          # M16, and only when owned
         # Built, with §13.3's ten-test gate passing; degraded until the browser
         # and host matrix is graded on the *proxied* path rather than on the

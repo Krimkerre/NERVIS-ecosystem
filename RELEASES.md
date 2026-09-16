@@ -25,7 +25,21 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.8
+## Clarvis — 0.17.9
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+Every question Clarvis sends a model now carries its own id.
+
+- **Each model request names itself** with a fresh `x-request-id`, next to the trace and conversation
+  ids it already sent. RAVIS keeps that id in its route decision, events and logs, so one request
+  can be followed from Clarvis to RAVIS to the provider. This made the first whole Clarvis → RAVIS →
+  provider trace visible in NERVIS.
+- **Anthropic requests carry the same ids.** They carried none before. They go straight to Anthropic,
+  so nothing in the ecosystem reads them yet.
+- **Not sent: a workspace id.** No header for it has been agreed and RAVIS doesn't read one.
+
+### 0.17.8
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -571,7 +585,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.3
+## NERVIS — 0.34.4
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+Diagnostics is fully available.
+
+- **A whole trace, Clarvis → RAVIS → provider, has been seen.** A question asked in Clarvis's chat in
+  code-server showed on the Traces screen as a Clarvis lane and a RAVIS lane under one trace, with
+  RAVIS's call to Anthropic among its log lines. That was the one thing Diagnostics was waiting for,
+  so it now reports itself available instead of degraded.
+- **For operators:** `nervis.diagnostics@1` is `available`. No route or page change.
+
+### 0.34.3
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

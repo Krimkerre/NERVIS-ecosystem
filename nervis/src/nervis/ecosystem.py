@@ -209,9 +209,15 @@ DECLARED: dict[str, Capability] = {
         "request and both event streams are marked unpublished rather than "
         "invented, and the only message content NERVIS can show is its own",
     ),
+    # **Available since 16 September 2026**, when the one thing it was waiting
+    # for was seen: a Clarvis chat turn in code-server drew a trace with a
+    # Clarvis lane and a RAVIS lane under one id, RAVIS's events naming the
+    # provider, and RAVIS's own log line of the provider call correlated to it
+    # (trace 7886440ed00d054668280d32321ca6e9; STATUS.md). It had been degraded
+    # for exactly that reason and no other.
     "nervis.diagnostics@1": Capability(
         version="1.0.0",
-        state=DEGRADED,
+        state=AVAILABLE,
         reason="11.5's Analyze is served: a bounded, redacted, fenced packet, "
         "previewable in full before it is sent and built by the one function "
         "both routes call, with a local-only option that is a pool RAVIS "
@@ -220,10 +226,9 @@ DECLARED: dict[str, Capability] = {
         "parser. The health overlay and log correlation are built too -- "
         "`unified.health_at` reconstructs health at the time from recorded "
         "transitions, and `unified.correlate_logs` keeps a line carrying the "
-        "trace id apart from one matched only by time. Degraded because the "
-        "cross-service trace has never been seen whole: a chat turn draws "
-        "nervis and ravis, and a Clarvis to RAVIS to provider trace needs an "
-        "editor window publishing into it",
+        "trace id apart from one matched only by time -- and a trace from a "
+        "Clarvis editor window through RAVIS to a provider has been seen whole. "
+        "A trace missing a service is still drawn, with the gap named",
     ),
     # §3.1 attaches a condition to this one rather than a milestone: it is
     # advertised *"only for explicitly configured owned services"*. So it stays

@@ -875,11 +875,13 @@ history.
 ## Known limits, as of this writing
 
 Several capabilities are honestly **degraded** rather than available, and each
-says why. **The analysis surface is built**: Diagnostics can gather a trace, show
-exactly what would be sent, and ask a model to explain it. It reads degraded only
-because a whole trace running Clarvis → RAVIS → provider has never been seen — a
-chat turn involves NERVIS and RAVIS, and the Clarvis leg needs an agent run in an
-editor window. The SIRVIS views read degraded because a benchmark run is checked
+says why. **The analysis surface is built and available**: Diagnostics can gather a
+trace, show exactly what would be sent, and ask a model to explain it. It read
+degraded until 16 September 2026, when a whole trace running Clarvis → RAVIS →
+provider was seen for the first time: a question asked in Clarvis's chat in
+code-server showed on the Traces screen as a Clarvis lane and a RAVIS lane under one
+trace, with RAVIS's call to Anthropic among its log lines. Every model request from
+Clarvis now also carries its own request id, which RAVIS keeps. The SIRVIS views read degraded because a benchmark run is checked
 on repeatedly rather than streamed while it happens. Others are **unavailable**
 outright, and each says why rather than merely being off. (Corrected 12 September
 2026; this paragraph used to say the analysis surface was not built.)
