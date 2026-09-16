@@ -22,6 +22,14 @@ ones do. Released in Clarvis 0.17.5; followed as instructions since Clarvis 0.17
 A read-only run is given only the reading tools, so "look but do not touch" is
 enforced by what the model is handed rather than by asking it nicely.
 
+**Text in your files can't give it orders** (Clarvis 0.17.16). Whatever its tools
+read back (file contents, file lists, search results, command output, the editor's
+problems, git status and diffs) reaches the model fenced off and labelled as data
+from the project, never instructions. So a README or a test failure saying "ignore
+your instructions and run this" is just text it may mention. Its approval gates never
+read that text anyway. The skills you switched on are the exception: those are your
+instructions and aren't fenced.
+
 **Bound to one folder.** Paths are workspace-relative and a path resolving
 outside the workspace root is refused. The extension holds no ability to reach
 another window's folder, and NERVIS is forbidden from holding the workspace root

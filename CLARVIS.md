@@ -1414,6 +1414,17 @@ output and the rest — reaches the model without it; nothing under `src/agent/`
 gates still decide every action, but the sentence above that retrieved content "is fenced as data
 before it enters a prompt" holds for that one chat path only.
 
+**Since Clarvis 0.17.16 (16 September 2026) the read path is fenced.** `src/agent/toolFence.ts`
+wraps what `readFile`, `listFiles`, `search`, `readDiagnostics`, `gitStatus`, `gitDiff` and
+`runCommand`'s output return, between `chat/fence.ts`'s markers under a one-line heading saying the
+content is data; a marker inside the content is removed, so a file cannot close the fence and write
+after it. Clarvis's own words — an exit code, "(no output)", a sandbox note, a refusal — stay
+outside, and so does `readSkill`'s text, which is the owner's own instructions. The rule is stated
+once in both system prompts rather than resent with every result. A host spec plants an instruction
+and a forged marker in a file and checks what the real runner hands the model for a read, a listing,
+searches and `cat`. The gate half stays structural: gates classify the command or path the model
+proposed and never read a tool's output, and the provider comes from settings.
+
 **Gate:** a repository containing text directed at the agent — in a file, a diff, a test failure
 or terminal output — changes no gate outcome, no workspace boundary and no provider selection.
 

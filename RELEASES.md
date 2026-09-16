@@ -25,7 +25,21 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.15
+## Clarvis — 0.17.16
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+Text inside your project can no longer pass itself off as instructions to Clarvis's agent.
+
+- **What the agent reads is marked as data:** file contents, file lists, search results, command
+  output, the editor's problems, and git status and diffs reach the model inside a fence that says it
+  is information from the project, not orders. A file that tries to fake the fence has the fake
+  removed.
+- **Clarvis's own messages stay outside the fence,** so its notes to the model (exit codes, "don't
+  retry this") still count. Skills you switched on also stay outside; they are your instructions.
+- **Approvals are unchanged:** they already never read what a tool returned.
+
+### 0.17.15
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
