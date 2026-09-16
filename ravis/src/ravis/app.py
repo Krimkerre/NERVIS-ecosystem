@@ -81,6 +81,7 @@ from ravis.providers_map import shared_provider_names
 from ravis.registry import ModelRegistry, refresh_periodically
 from ravis.reliability import HealthRegistry
 from ravis.reliability.attempts import RetryBudget
+from ravis.reliability.load import LoadTracker
 from ravis.routing import RoutingEngine
 from ravis.runtime.resources import MemoryReading, read_memory
 from ravis.sessions import SESSION_HEADER, SessionStore
@@ -293,6 +294,24 @@ async def _offered_models(api: FastAPI) -> set[str]:
     return offered
 
 
+def _provider_at(api: FastAPI, settings: Settings, host: str) -> str:
+    """Which configured provider an address belongs to, or "" for none.
+
+    By host and port, so two local runtimes on one machine stay apart. Transparent
+    upstreams first, in declaration order, as everywhere else a name collides; the two
+    translated providers by their configured addresses.
+    """
+    for name, built in getattr(api.state, "transparents", {}).items():
+        if httpx.URL(built.upstream.base_url).netloc.decode() == host:
+            return str(name)
+    translating = getattr(api.state, "translating", {})
+    for name, base_url in (("anthropic", settings.anthropic_base_url),
+                           ("google", settings.google_base_url)):
+        if name in translating and httpx.URL(base_url).netloc.decode() == host:
+            return name
+    return ""
+
+
 def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     """Build the things every request needs, once, at startup."""
     api.state.settings = settings
@@ -302,6 +321,11 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # client and running the refresher; it does not own creating them, which
     # keeps every attribute on `state` real from the moment the app exists.
     api.state.upstream_client = create_client(settings)
+    # §12.3's live figures (M20): what is running, and what providers say about their
+    # limits. The response hook is on the one client every provider call uses, so a
+    # translated provider's rate-limit headers are read too.
+    api.state.load = LoadTracker(lambda host: _provider_at(api, settings, host))
+    api.state.upstream_client.event_hooks["response"].append(api.state.load.observe)
     # Provider credentials (M10). Built here so every request sees the same
     # store, and so the file is resolved once rather than per lookup.
     api.state.credentials = CredentialStore(

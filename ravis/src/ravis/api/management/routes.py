@@ -68,6 +68,7 @@ from ravis.policy import ApplicationPolicies
 from ravis.provider_state import ProviderState
 from ravis.providers.base import describe
 from ravis.reliability import HealthRegistry, HealthScope
+from ravis.runtime.resources import MemoryReading
 from ravis.sessions import SessionStore
 from ravis.transparent import (
     merged_candidates,
@@ -162,6 +163,34 @@ async def read_health(request: Request) -> dict[str, Any]:
         # `targets` can be. A suppressed model still serves plain requests, so
         # this is not a list of broken models and must not be read as one.
         "capability_suppressions": registry.suppressions(),
+        # §12.3's live figures (M20). See `_load`.
+        "load": _load(request, registry),
+    }
+
+
+def _load(request: Request, registry: HealthRegistry) -> dict[str, Any]:
+    """What RAVIS has running now, memory, congestion and providers' stated limits.
+
+    Tracking only: nothing here reaches the router (`reliability/load.py`). The two
+    things §12.3 and M20 name that RAVIS does not read yet are listed rather than left
+    out, so a screen can say so instead of drawing their absence as a zero.
+    """
+    tracker = getattr(request.app.state, "load", None)
+    memory: MemoryReading = getattr(request.app.state, "memory", MemoryReading())
+    return {
+        **(tracker.snapshot() if tracker is not None else {}),
+        "memory": {
+            "available_bytes": memory.available_bytes,
+            "total_bytes": memory.total_bytes,
+            "free_fraction": memory.free_fraction,
+            "under_pressure": memory.under_pressure if memory.is_known else None,
+            "detail": memory.detail,
+        },
+        "congestion": registry.congestion(),
+        "not_read": [
+            "provider credits and spend limits: no provider's balance is asked for",
+            "SIRVIS's contention evidence (how co-loaded models slow each other): not read yet",
+        ],
     }
 
 

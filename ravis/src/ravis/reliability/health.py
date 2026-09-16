@@ -369,6 +369,10 @@ class HealthRegistry:
         # always fails is never timed, so without this the same failing model
         # would keep being drawn at every exploration and never stop.
         self._unexplorable: dict[str, tuple[str, float]] = {}
+        # provider → (the congestion class it last answered with, when). §12.3's
+        # "provider congestion", as the providers themselves have said it: a 429
+        # or an overload. The counts live on the provider's record already.
+        self._congested: dict[str, tuple[str, float]] = {}
         # Public, because it is the *only* clock anything in this layer may
         # read. An attempt's start and its end must be measured against one
         # clock or the elapsed time is meaningless, and the cheapest way to
@@ -411,6 +415,8 @@ class HealthRegistry:
         # released here even though only one is blamed. Skipping the other
         # leaves a half-open circuit latched forever.
         scope = failure_class.policy.scope
+        if failure_class in (FailureClass.RATE_LIMIT, FailureClass.OVERLOAD):
+            self._congested[provider] = (failure_class.value, self.clock())
         if scope is HealthScope.PROVIDER:
             self.of(HealthScope.PROVIDER, provider).failed(failure_class, started_at)
             self.of(HealthScope.MODEL, target).blamed_elsewhere(failure_class)
@@ -533,6 +539,26 @@ class HealthRegistry:
         """
         held = self._suppressions.pop((model, capability), None)
         return held is not None and held.active_at(self.clock())
+
+    def congestion(self) -> list[dict[str, Any]]:
+        """Every provider that has answered with a rate limit or an overload, and how lately.
+
+        Only providers that have: one that never has is not congested as far as RAVIS knows,
+        and a row of zeros for it would read as a measurement.
+        """
+        now = self.clock()
+        rows = []
+        for provider, (kind, at) in sorted(self._congested.items()):
+            record = self._targets.get((HealthScope.PROVIDER, provider))
+            counts = record.failures_by_class if record is not None else {}
+            rows.append({
+                "provider": provider,
+                "last": kind,
+                "seconds_ago": round(now - at, 1),
+                "rate_limit": counts.get(FailureClass.RATE_LIMIT.value, 0),
+                "provider_overload": counts.get(FailureClass.OVERLOAD.value, 0),
+            })
+        return rows
 
     def learn_refused(self, model: str, names: frozenset[str]) -> None:
         """Remember that `model` refused these settings, for the suppression window.

@@ -650,6 +650,23 @@ A route decision's attempts list `dropped_parameters` and `held_from_exploration
 
 **What a streamed reply used is counted for every provider (RAVIS 0.28.3, 16 September 2026).** OpenAI and LM Studio only say how many tokens a streamed reply used when the request asks, and neither chat nor Clarvis asked, so the first OpenAI calls RAVIS recorded had no counts and no cost, and the budget read them as free. RAVIS now asks (`stream_options.include_usage`) on any streamed request that didn't say either way. The stream then ends with one extra frame that carries the counts and no text, which chat already received from OpenRouter and skips. A provider that refuses the question is asked again without it. A dated build such as `gpt-4o-2024-08-06` now finds the rate written for `gpt-4o`. A model with no rate in `prices.json` still shows no cost, only its tokens; gpt-4.1 has none written down.
 
+## How busy RAVIS is (RAVIS 0.29.0, 16 September 2026)
+
+RAVIS → Diagnostics has a **RAVIS load now** card, read from `load` on RAVIS's `/api/v1/health`:
+
+- how many requests RAVIS has running now, and how many of those run on this machine;
+- each provider and model with its count, the number of attempts since RAVIS started, and the most
+  it has had at once;
+- memory free and whether it counts as under pressure;
+- each provider that answered "too many requests" or "overloaded", when it last did and how often;
+- the limits providers state on their answers (requests or tokens left, when they reset, a
+  "wait N seconds"), each with its age.
+
+RAVIS keeps no queue of its own, and LM Studio and Ollama don't report theirs, so those are said as
+such rather than shown as zero. RAVIS doesn't read provider balances or SIRVIS's measurements of
+models slowing each other down yet. **None of this changes which model RAVIS picks**: they are
+readings, and routing on them is a decision the owner hasn't made.
+
 ## Where the prices come from, and why some are approximate
 
 RAVIS ships **no built-in price list**. Every hosted rate is written down by the

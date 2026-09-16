@@ -27,6 +27,7 @@ client disconnect cannot be mistaken for one.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import random
@@ -79,6 +80,7 @@ from ravis.reliability import (
     error_body,
 )
 from ravis.reliability.failures import HealthScope
+from ravis.reliability.load import LoadTracker
 from ravis.reliability.parameters import DROPPABLE
 from ravis.routing.engine import DEFAULT_EXPLORATION_RATE, Exploration, RoutingEngine
 from ravis.routing.explain import RouteDecision
@@ -92,6 +94,7 @@ from ravis.transparent import (
     translated_candidates,
 )
 from ravis.upstream import Upstream, forwardable_headers
+from ravis.upstreams import is_local_address
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +297,7 @@ async def create_chat_completion(request: Request) -> Response:
     # So an exhausted chain can say "no upstream lists this" rather than relay
     # an upstream's description of its own state. See `_unlisted_body`.
     call.catalogue = frozenset(decision.considered)
+    call.load = getattr(request.app.state, "load", None)
 
     # §6's fork, and the only place it is decided. A provider whose upstream
     # does not speak the external protocol needs Path B; everything else is
@@ -514,7 +518,9 @@ async def _translated_completion(
     """
     started = call.chain.begin(model)
     try:
-        answer = await adapter.complete(request)
+        # A translated provider is a hosted one (see `_provider_entries`).
+        async with call.running(model, local=False):
+            answer = await adapter.complete(request)
     except TranslationError as refusal:
         # Not a chain exhaustion, and reporting it as one would bury the only
         # thing worth saying. Nothing was attempted upstream, the request itself
@@ -645,6 +651,9 @@ class _Call:
         # is unhappy". Set by the caller; empty means RAVIS has discovered
         # nothing yet, which is not evidence of absence.
         self.catalogue: frozenset[str] = frozenset()
+        # §12.3's count of what is running (M20). Set by the caller; None counts
+        # nothing, which is what every construction that predates it expects.
+        self.load: LoadTracker | None = None
         self.chain = chain
         self.recorded = recorded
         # §14's usage record, written once when a stream finishes. Injected
@@ -676,6 +685,12 @@ class _Call:
     def headers_for(self, model: str) -> dict[str, str]:
         """The headers for this attempt, carrying that upstream's credential."""
         return self._destination(model)[1]
+
+    def running(self, model: str, *, local: bool) -> contextlib.AbstractAsyncContextManager[None]:
+        """Count one attempt at `model` while it runs, stream included (§12.3)."""
+        if self.load is None:
+            return contextlib.nullcontext()
+        return self.load.running(model, self.chain.provider_for(model), local)
 
     def body_for(self, model: str) -> bytes:
         """The request body addressed to one particular model.
@@ -1705,11 +1720,12 @@ async def _forward_and_return(call: _Call) -> Response:
     while (model := call.chain.next_target()) is not None:
         started = call.chain.begin(model)
         try:
-            upstream_response = await call.client.post(
-                call.target_for(model),
-                headers=call.headers_for(model),
-                content=call.body_for(model),
-            )
+            async with call.running(model, local=is_local_address(call.target_for(model))):
+                upstream_response = await call.client.post(
+                    call.target_for(model),
+                    headers=call.headers_for(model),
+                    content=call.body_for(model),
+                )
         except httpx.HTTPError as failure:
             call.chain.failed(model, started, classify_exception(failure), str(failure))
             continue
@@ -1916,12 +1932,14 @@ async def _attempt_stream(call: _Call, model: str) -> AsyncGenerator[bytes, None
     # provider rather than a zero-token call.
     reported: Usage | None = None
     try:
-        async with call.client.stream(
-            "POST",
-            call.target_for(model),
-            headers=call.headers_for(model),
-            content=call.body_for(model),
-        ) as upstream:
+        # Counted for the stream's whole life: the block ends when the stream does.
+        async with call.running(model, local=is_local_address(call.target_for(model))), \
+                call.client.stream(
+                    "POST",
+                    call.target_for(model),
+                    headers=call.headers_for(model),
+                    content=call.body_for(model),
+                ) as upstream:
             if upstream.status_code >= 400:
                 # An error before the stream begins is a normal response, not a
                 # stream: read it whole, classify it, and either move on or pass
@@ -2274,7 +2292,8 @@ async def _translated_relay(
     """
     committed = False
     try:
-        async with aclosing(adapter.stream(request)) as events:
+        # Counted for the stream's whole life (§12.3); a translated provider is hosted.
+        async with call.running(model, local=False), aclosing(adapter.stream(request)) as events:
             # §14: recorded when the stream ends, and only from here, so a
             # translated call is counted exactly once like a transparent one.
             def _note(reported: Usage | None) -> None:

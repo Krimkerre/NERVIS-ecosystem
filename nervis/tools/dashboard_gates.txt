@@ -37,3 +37,4 @@ skill_store
 flood
 slash
 diagnose
+ravis_load

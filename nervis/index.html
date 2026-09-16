@@ -15876,6 +15876,74 @@ function ravisHealthCard(rhealth,rdiag){
    <small class="mono dim">read from <b>/api/v1/health</b> and <b>/ecosystem/capabilities</b>. <b>Conformance is not here because it cannot be</b>: <span class="mono">ravis conformance clarvis</span> is a CLI command with no HTTP surface, so the ten checks below are a sample of the suite's shape rather than a run of it — the suite itself runs <b>seventeen</b>, and this card said sixteen while listing ten. Run the command to see a real result — it is the §8.9 release gate and passes today.</small>`,'ravis')}</div>`;
 }
 
+/* ── What RAVIS has running now (RAVIS M20, §12.3) ─────────────────────────
+
+   Read from `load` on RAVIS's /api/v1/health, since RAVIS 0.29.0. **Nothing at all
+   for a RAVIS that sends no `load`**: an older build cannot say, and a card of
+   zeros would say it had nothing running.
+
+   Every part says what it is, and what RAVIS cannot know is said as such rather
+   than drawn empty: RAVIS keeps no queue of its own, the local runtimes publish
+   none, and a provider that sent no rate-limit header has stated no limit — which
+   is not the same as having none. And the card says once that these are readings:
+   RAVIS does not route on any of them. */
+function ravisLoadCard(rhealth){
+ const load=rhealth&&rhealth.load;
+ if(!load||typeof load!=='object')return '';
+ return `<div class="card full${liveClass(Boolean(load))}"><h3>RAVIS load now <span class="chip">live</span></h3>${cell(`
+   ${loadRunningRows(load)}
+   ${loadMemoryRow(load.memory)}
+   ${loadCongestionRows(load.congestion)}
+   ${loadLimitRows(load.limits)}
+   ${(Array.isArray(load.not_read)?load.not_read:[]).map(line=>
+     `<div class="trace-step"><b>not read</b><span style="opacity:.75">${escapeHtml(line)}</span></div>`).join('')}
+   <small class="mono dim">readings only: RAVIS counts and records these and routes on none of them. Read from <b>/api/v1/health</b>'s <span class="mono">load</span>.</small>`,'ravis')}</div>`;
+}
+
+/* A count as RAVIS sent it: zero is a reading and is shown, only a missing figure is a dash —
+   `dash()` blanks every falsy value, which here would turn "nothing running" into "not said". */
+function countOf(value){return typeof value==='number'&&isFinite(value)?String(value):'—'}
+
+function loadRunningRows(load){
+ const providers=Array.isArray(load.by_provider)?load.by_provider:[];
+ const since=typeof load.since==='number'?new Date(load.since*1000).toLocaleTimeString():'its start';
+ return `<div class="trace-step"><b>running now</b><span class="mono">${escapeHtml(countOf(load.active))} request(s) · ${escapeHtml(countOf(load.local_generations))} on this machine</span></div>
+   ${providers.map(p=>`<div class="trace-step"><b>${escapeHtml(p.provider)}${p.local?' · local':''}</b><span class="mono">${escapeHtml(countOf(p.active))} running · ${escapeHtml(Object.entries(p.models||{}).map(([m,n])=>`${m} ×${n}`).join(', '))}</span></div>`).join('')}
+   <div class="trace-step"><b>since ${escapeHtml(since)}</b><span class="mono">${escapeHtml(countOf(load.attempts_started))} attempt(s) · at most ${escapeHtml(countOf(load.peak))} at once</span></div>
+   <div class="trace-step"><b>queue</b><span style="opacity:.75">${escapeHtml((load.queue&&load.queue.reason)||'')}</span></div>
+   <div class="trace-step"><b>local runtimes' queues</b><span style="opacity:.75">${escapeHtml(dash(load.local_queues&&load.local_queues.state))} — ${escapeHtml((load.local_queues&&load.local_queues.reason)||'')}</span></div>`;
+}
+
+function loadMemoryRow(memory){
+ if(!memory||memory.free_fraction==null)
+  return `<div class="trace-step"><b>memory</b><span style="opacity:.75">not read${memory&&memory.detail?' — '+escapeHtml(memory.detail):''}</span></div>`;
+ const pressure=memory.under_pressure?'<span class="chip warn">under pressure</span>':'<span class="chip">room to load</span>';
+ return `<div class="trace-step"><b>memory</b><span class="mono">${escapeHtml(fileSize(memory.available_bytes))} free of ${escapeHtml(fileSize(memory.total_bytes))} (${escapeHtml(Math.round(memory.free_fraction*100))}%) ${pressure}</span></div>`;
+}
+
+function loadCongestionRows(congestion){
+ const rows=Array.isArray(congestion)?congestion:[];
+ if(!rows.length)return `<div class="trace-step"><b>congestion</b><span style="opacity:.75">no provider has answered with a rate limit or an overload since RAVIS started</span></div>`;
+ return rows.map(c=>`<div class="trace-step"><b>${escapeHtml(c.provider)}</b><span><span class="chip warn">${escapeHtml(String(c.last).replace('_',' '))}</span> <span class="mono">${escapeHtml(ageWords(c.seconds_ago))} · ${escapeHtml(countOf(c.rate_limit))} rate limit(s), ${escapeHtml(countOf(c.provider_overload))} overload(s) since start</span></span></div>`).join('');
+}
+
+function loadLimitRows(limits){
+ const rows=Array.isArray(limits)?limits:[];
+ if(!rows.length)return `<div class="trace-step"><b>provider limits</b><span style="opacity:.75">no provider has stated a limit on an answer yet — which is not the same as having none</span></div>`;
+ return rows.map(entry=>{
+  const kinds=Object.entries(entry).filter(([key,value])=>key!=='provider'&&key!=='retry_after'&&value&&typeof value==='object');
+  const parts=kinds.map(([kind,v])=>`${kind}: ${v.remaining!=null?v.remaining+' left':''}${v.limit!=null?' of '+v.limit:''}${v.reset?' · resets '+v.reset:''} (${ageWords(v.seconds_ago)})`);
+  if(entry.retry_after)parts.push(`asked to wait ${entry.retry_after.value}s (${ageWords(entry.retry_after.seconds_ago)})`);
+  return `<div class="trace-step"><b>${escapeHtml(entry.provider)} limits</b><span class="mono">${escapeHtml(parts.join(' · '))}</span></div>`;
+ }).join('');
+}
+
+/* "12 s ago", from a figure RAVIS computed on its own clock; nothing when it sent none. */
+function ageWords(seconds){
+ if(typeof seconds!=='number'||!isFinite(seconds))return 'when, not said';
+ return seconds<90?`${Math.round(seconds)} s ago`:`${Math.round(seconds/60)} min ago`;
+}
+
 /* The behaviours the suite covers — not a verdict on them. This card used to
    render a green `pass` chip and ten green ticks out of a constant in this
    file. Nothing had run, and no run's result is readable from a browser at
@@ -15924,7 +15992,7 @@ async function ravisDiagnostics(){
  const unprobed=pr.items.filter(x=>x.breaker==null).length;
  const down=pl.items.filter(x=>!x.available);
 
- $('#content').innerHTML=ravisHealthCard(rhealth,rdiag)+kpis([
+ $('#content').innerHTML=ravisHealthCard(rhealth,rdiag)+ravisLoadCard(rhealth)+kpis([
    ['Conformance',`${passed} / ${cf.checks.length}`,`suite ${cf.suite} · ${cf.ran_at}`,'ravis',false],
    ['Verdict',cf.pass?'PASS':'FAIL','all or nothing — there is no partial claim','ravis',false],
    ['Breakers',String(breakers.length),

@@ -598,7 +598,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.5
+## NERVIS — 0.34.6
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+RAVIS → Diagnostics shows how busy RAVIS is.
+
+- **A "RAVIS load now" card:** requests running (and how many on this machine), each provider and
+  model with its count, attempts and the most at once since RAVIS started, memory and whether it is
+  under pressure, providers that pushed back with a rate limit or overload, and the limits providers
+  stated with how old each reading is. What RAVIS can't know is said in words, and zero shows as 0.
+- **Shown only for a RAVIS that reports it** (0.29.0 and later). NERVIS now supports RAVIS up to
+  0.29.x.
+- **For operators:** a new dashboard gate, `ravis_load_check.js`.
+
+### 0.34.5
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -1569,7 +1583,28 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.28.4
+## RAVIS — 0.29.0
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+RAVIS now shows how busy it is.
+
+- **What's running right now:** how many requests RAVIS has in progress, per provider and model,
+  and how many of them run on this machine, plus the most it has had at once since it started.
+- **What providers say about their limits:** when OpenAI, Anthropic or another provider says how
+  many requests or tokens you have left, or asks RAVIS to wait, RAVIS keeps the latest figure and
+  how old it is.
+- **Which providers pushed back:** each provider that answered "too many requests" or "overloaded",
+  when it last did, and how often.
+- **Memory**, as RAVIS already measured it for routing.
+- **Said plainly:** RAVIS holds no queue of its own, the local model servers don't report theirs,
+  and RAVIS doesn't read provider balances or SIRVIS's measurements of models slowing each other
+  down yet.
+- **Nothing changes in how RAVIS picks a model.** These are readings; using them to steer requests is
+  a decision still to be made.
+- **For operators:** `/api/v1/health` has a new `load` section. No migration.
+
+### 0.28.4
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
