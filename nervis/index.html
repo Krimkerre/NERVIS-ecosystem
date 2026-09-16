@@ -16273,6 +16273,42 @@ function clarvisNoWindows(live){
    connection be clearly shown, and the failure mode is quiet: a window whose
    editor was closed keeps its last known state, and drawing that state without
    dating it is a dashboard reporting an editor that is not running. */
+/* What a window reports beside its state since Clarvis 0.17.15 (§6.3): problem
+   counts, the last build and test run, the last model request, the handed-over
+   task and the event cursor. Each row only when the window said it — a window
+   that has run no build has no build row, rather than a "passed" nobody saw. */
+function clarvisStatusRows(status){
+ return [
+  ['problems',clarvisProblems(status)],
+  ['build',clarvisCheck(status.build_result,status.build_finished_at)],
+  ['tests',clarvisCheck(status.test_result,status.test_finished_at)],
+  ['last request',clarvisLastRequest(status)],
+  ['task',status.task_id?`<span class="mono">${escapeHtml(status.task_id)}</span> · ${escapeHtml(HANDOVER_STAGE[status.task_stage]||'stage not said')}`:''],
+  ['events',status.event_cursor!=null?`${escapeHtml(status.event_cursor)} published`:''],
+ ];
+}
+
+function clarvisProblems(status){
+ if(status.diagnostics_errors==null)return '';
+ const n=(value)=>escapeHtml(value==null?'?':value);
+ return `${n(status.diagnostics_errors)} error(s), ${n(status.diagnostics_warnings)} warning(s), `
+  +`${n(status.diagnostics_information)} info, ${n(status.diagnostics_hints)} hint(s) in ${n(status.diagnostics_files)} file(s)`;
+}
+
+const CHECK_WORDS={passed:['passed',''],failed:['failed',' warn'],unknown:['ended without an exit code','']};
+
+function clarvisCheck(result,at){
+ const words=CHECK_WORDS[result];
+ if(!words)return '';
+ return `<span class="chip${words[1]}">${escapeHtml(words[0])}</span>${at?` <span class="mono dim">${noteExact(at)}</span>`:''}`;
+}
+
+function clarvisLastRequest(status){
+ if(!status.last_request_id)return '';
+ const parts=[status.last_request_model,status.last_request_provider,status.last_request_result||'in flight'].filter(Boolean);
+ return `${escapeHtml(parts.join(' · '))} <span class="mono dim">request ${escapeHtml(status.last_request_id)}</span>`;
+}
+
 function clarvisWindowCard(d,tabs){
  const status=d.status||{};
  const lease=d.expires_in>0
@@ -16284,6 +16320,7 @@ function clarvisWindowCard(d,tabs){
    ['awaiting',status.awaiting?escapeHtml(status.awaiting):''],
    ['activity',status.activity_id?`<span class="mono">${escapeHtml(status.activity_id)}</span>`:''],
    ['elapsed',status.elapsed_ms!=null?`${escapeHtml(Math.round(status.elapsed_ms/100)/10)}s`:''],
+   ...clarvisStatusRows(status),
  ].filter(([,value])=>value);
  return `<div class="card full${liveClass(d.expires_in>0)}"><h3>Window
    ${clarvisStateChip(status.state||'unknown')}</h3>${cell(tabs+`<dl class="kv">${

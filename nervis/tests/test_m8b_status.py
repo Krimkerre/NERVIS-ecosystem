@@ -23,7 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nervis.app import create_app
-from nervis.bridges import interpret
+from nervis.bridges import MAX_CONFIG_CHARS, interpret
 from nervis.config import Settings
 from nervis.instances import LEASE_SECONDS
 
@@ -486,3 +486,56 @@ def test_a_service_that_registers_no_instance_publishes_untouched(api: TestClien
     }])
 
     assert posted.json()["accepted"] == 1
+
+
+# ── What a status reports beside the state (Clarvis 0.17.15, §6.3) ─────────
+
+FULL_STATUS: dict[str, object] = {
+    "state": "agent_running",
+    "diagnostics_errors": 2, "diagnostics_warnings": 5, "diagnostics_information": 0,
+    "diagnostics_hints": 1, "diagnostics_files": 3,
+    "build_result": "failed", "build_finished_at": "2026-09-16T12:00:00Z",
+    "test_result": "unknown", "test_finished_at": "2026-09-16T12:01:00Z",
+    "last_request_id": "f" * 32, "last_request_model": "ravis/clarvis-agent",
+    "last_request_provider": "custom", "last_request_result": "answered",
+    "task_id": "nt_0123456789abcdef", "task_stage": "building",
+    "event_cursor": 42,
+}
+
+
+def test_a_full_status_is_repeated_field_by_field() -> None:
+    assert interpret(FULL_STATUS) == FULL_STATUS
+
+
+def test_each_new_field_is_dropped_when_it_is_not_its_own_shape() -> None:
+    odd = {
+        **FULL_STATUS,
+        "diagnostics_errors": -1, "diagnostics_files": "3", "event_cursor": True,
+        "build_result": "green", "test_finished_at": "yesterday",
+        "last_request_result": "<img>", "task_stage": "done",
+    }
+    shown = interpret(odd)
+    for name in ("diagnostics_errors", "diagnostics_files", "event_cursor", "build_result",
+                 "test_finished_at", "last_request_result", "task_stage"):
+        assert name not in shown, name
+    assert shown["diagnostics_warnings"] == 5
+
+
+def test_a_request_or_task_id_in_the_wrong_shape_takes_its_details_with_it() -> None:
+    shown = interpret({**FULL_STATUS, "last_request_id": "not-an-id",
+                               "task_id": "nt_ABC"})
+    for name in ("last_request_id", "last_request_model", "last_request_provider",
+                 "last_request_result", "task_id", "task_stage"):
+        assert name not in shown, name
+
+
+def test_long_names_are_clipped() -> None:
+    shown = interpret({**FULL_STATUS, "last_request_model": "m" * 500,
+                               "last_request_provider": "p" * 500})
+    assert len(shown["last_request_model"]) == MAX_CONFIG_CHARS
+    assert len(shown["last_request_provider"]) == 40
+
+
+def test_an_older_bridge_reports_only_what_it_did_before() -> None:
+    older = {"state": "idle", "steps_taken": 3}
+    assert interpret(older) == older

@@ -11,7 +11,10 @@
  *   2. **With no editor window open** the list still draws: a task outlives its window.
  *   3. **None, and NERVIS not answering**, said in words.
  *   4. **A window's own task rows** show the stage too.
- *   5. **Nothing a handover carries becomes markup.**
+ *   5. **What a window reports beside its state** (Clarvis 0.17.15, §6.3): problem counts, the
+ *      last build and test, the last model request, the task and the event cursor, each as a
+ *      row only when reported.
+ *   6. **Nothing a handover or a status carries becomes markup.**
  */
 
 const { loadPage } = require("./page_context.js");
@@ -51,13 +54,14 @@ function answer(status, body) {
   return Promise.resolve({ ok: status >= 200 && status < 300, status, json: async () => body });
 }
 
-async function drawn({ handovers, windows = [{ instance_id: WINDOW, live: true, label: "coding" }] }) {
+async function drawn({ handovers, windows = [{ instance_id: WINDOW, live: true, label: "coding" }],
+                       status = { state: "idle" } }) {
   const fetchImpl = (url) => {
     const address = String(url);
     if (address.endsWith("/api/v1/handovers")) {
       return handovers ? answer(200, { items: handovers }) : Promise.reject(new TypeError("fetch failed"));
     }
-    if (address.includes("/api/v1/registry/instances/clarvis/")) return answer(200, DIAGNOSTICS);
+    if (address.includes("/api/v1/registry/instances/clarvis/")) return answer(200, { ...DIAGNOSTICS, status });
     if (address.includes("/api/v1/registry/instances")) return answer(200, { items: windows });
     return Promise.reject(new TypeError("fetch failed"));
   };
@@ -98,16 +102,43 @@ async function noneAndDown() {
   expect(await drawn({ handovers: null }), "Handovers could not be read", "an unanswered read is not said.");
 }
 
+const REPORTED = {
+  state: "agent_running", diagnostics_errors: 2, diagnostics_warnings: 5, diagnostics_information: 0,
+  diagnostics_hints: 1, diagnostics_files: 3, build_result: "failed", build_finished_at: "2026-09-16T12:00:00Z",
+  test_result: "unknown", last_request_id: "f".repeat(32), last_request_model: "ravis/clarvis-agent",
+  last_request_provider: "custom", task_id: "nt_000000000000000c", task_stage: "building", event_cursor: 42,
+};
+
+async function statusRows() {
+  const html = await drawn({ handovers: [], status: REPORTED });
+  expect(html, "2 error(s), 5 warning(s), 0 info, 1 hint(s) in 3 file(s)", "problem counts are not shown.");
+  expect(html, "<dt>build</dt><dd><span class=\"chip warn\">failed</span>", "a failed build is not flagged.");
+  expect(html, "<dt>tests</dt><dd><span class=\"chip\">ended without an exit code</span>", "a test run with no exit code is not said so.");
+  expect(html, "ravis/clarvis-agent · custom · in flight", "the last request in flight is not said so.");
+  expect(html, "request ffffffffffffffffffffffffffffffff", "the last request's id is not shown.");
+  expect(html, "nt_000000000000000c</span> · being built", "the window's task and stage are not shown.");
+  expect(html, "42 published", "the event cursor is not shown.");
+  const quiet = await drawn({ handovers: [], status: { state: "idle" } });
+  for (const label of ["problems", "build", "tests", "last request", "task", "events"]) {
+    if (quiet.includes(`<dt>${label}</dt>`)) failures.push(`a window that reported no ${label} still gets a ${label} row.`);
+  }
+}
+
 async function hostile() {
   const html = await drawn({ handovers: [{ task_id: HOSTILE, folder: HOSTILE, state: "completed", stage: HOSTILE,
                                            outcome: HOSTILE, handed_over_at: HOSTILE, updated_at: HOSTILE }] });
   if (html.includes("<img")) failures.push("something a handover carries became markup.");
+  const odd = await drawn({ handovers: [], status: { ...REPORTED, last_request_model: HOSTILE,
+    last_request_provider: HOSTILE, last_request_result: HOSTILE, task_stage: HOSTILE, build_finished_at: HOSTILE,
+    diagnostics_warnings: HOSTILE, event_cursor: HOSTILE } });
+  if (odd.includes("<img")) failures.push("something a status carries became markup.");
 }
 
 async function main() {
   await everyStage();
   await noWindow();
   await noneAndDown();
+  await statusRows();
   await hostile();
   if (failures.length) {
     console.error("handovers check failed:\n");
@@ -117,7 +148,8 @@ async function main() {
   console.log(
     "Handovers hold: every stage in words with folder, id and times; a task with no handover " +
     "record said so; the list drawn with no window open; none and unanswered said in words; " +
-    "a window's task rows show their stage; nothing a handover carries injects"
+    "a window's task rows show their stage; a window's problem counts, build, tests, last request, " +
+    "task and event cursor shown only when reported; nothing a handover or a status carries injects"
   );
 }
 

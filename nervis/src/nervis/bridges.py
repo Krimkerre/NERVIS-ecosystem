@@ -25,6 +25,7 @@ from reaching a dashboard as though NERVIS had vouched for it.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Mapping
 
 import httpx
@@ -49,6 +50,19 @@ STATES = frozenset({
 # published by the Bridge, so there is nothing here to strip — but the same
 # reasoning applies: an unrecognised category is dropped rather than shown.
 AWAITING = frozenset({"command", "sensitive_read", "step", "other"})
+
+# What `/v1/status` may add beside the state since Clarvis 0.17.15 (§6.3's list),
+# each checked for its own shape. Counts are whole numbers; results and stages
+# come from a closed set; ids are the shapes their owners mint; timestamps and
+# names are clipped. Anything else is dropped rather than repeated.
+STATUS_COUNTS = ("diagnostics_errors", "diagnostics_warnings", "diagnostics_information",
+                 "diagnostics_hints", "diagnostics_files", "event_cursor")
+CHECK_RESULTS = frozenset({"passed", "failed", "unknown"})
+REQUEST_RESULTS = frozenset({"answered", "cancelled", "closed", "error"})
+TASK_STAGES = frozenset({"planning", "building", "paused"})
+_REQUEST_ID = re.compile(r"^[0-9a-f]{32}$")
+_TASK_ID = re.compile(r"^nt_[0-9a-f]{16}$")
+_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 
 # What a configuration summary may contain (`CLARVIS.md` §6.2's
 # `clarvis.config.summary@1`). The Bridge decides what to publish; this decides
@@ -102,12 +116,53 @@ def interpret(body: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(activity_id, str) and activity_id:
         reported["activity_id"] = activity_id[:64]
 
-    for name in ("steps_taken", "elapsed_ms"):
+    for name in ("steps_taken", "elapsed_ms", *STATUS_COUNTS):
         value = _int_or_none(body.get(name))
         if value is not None:
             reported[name] = value
 
+    reported.update(_checks(body))
+    reported.update(_last_request(body))
+    reported.update(_task(body))
     return reported
+
+
+def _matching(body: Mapping[str, Any], name: str, allowed: Any) -> dict[str, str]:
+    """`name` when its value is a string `allowed` accepts: a set, or a pattern."""
+    value = body.get(name)
+    if not isinstance(value, str):
+        return {}
+    fits = value in allowed if isinstance(allowed, frozenset) else bool(allowed.match(value))
+    return {name: value} if fits else {}
+
+
+def _checks(body: Mapping[str, Any]) -> dict[str, str]:
+    """The last build and test run: a result, and when it ended."""
+    found: dict[str, str] = {}
+    for kind in ("build", "test"):
+        found.update(_matching(body, f"{kind}_result", CHECK_RESULTS))
+        found.update(_matching(body, f"{kind}_finished_at", _STAMP))
+    return found
+
+
+def _last_request(body: Mapping[str, Any]) -> dict[str, str]:
+    """The last model request: its request id — RAVIS's route decision is filed under it —
+    the model and provider, clipped, and how it ended."""
+    found = _matching(body, "last_request_id", _REQUEST_ID)
+    if not found:
+        return {}
+    for name, limit in (("last_request_model", MAX_CONFIG_CHARS), ("last_request_provider", 40)):
+        value = body.get(name)
+        if isinstance(value, str) and value:
+            found[name] = value[:limit]
+    found.update(_matching(body, "last_request_result", REQUEST_RESULTS))
+    return found
+
+
+def _task(body: Mapping[str, Any]) -> dict[str, str]:
+    """The task handed over from NERVIS that this window is working on, and its stage."""
+    found = _matching(body, "task_id", _TASK_ID)
+    return {**found, **_matching(body, "task_stage", TASK_STAGES)} if found else {}
 
 
 def interpret_config(body: Mapping[str, Any]) -> dict[str, Any]:

@@ -152,7 +152,12 @@ video.
 ## What an operator can ask it for
 
 Through the dashboard: which editor windows are registered, what each reports
-about itself, and its events. Clarvis answers about itself; it is not a surface
+about itself, and its events. Since Clarvis 0.17.15 a window's card also shows, once
+the window knows them: the editor's problem counts, how the last build and the last
+test run ended (only tasks VS Code itself files as a build or a test; a command typed
+in a terminal isn't counted), the last AI request with its model, provider, result and
+request id (the id RAVIS files its routing decision under), the handed-over task it is
+working on and its stage, and how many events it has published. Clarvis answers about itself; it is not a surface
 NERVIS queries for workspace contents.
 
 ## Slash commands for skills in its chat

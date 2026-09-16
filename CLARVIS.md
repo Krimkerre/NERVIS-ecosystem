@@ -655,6 +655,18 @@ registered, and the chat mode with each role's provider and model on `GET /v1/co
 (`clarvis.config.summary@1`). Not published anywhere yet: aggregate diagnostic counts, build and
 test outcome, the current RAVIS route reference, a recent event cursor and a log reference.
 
+**Since Clarvis 0.17.15 (16 September 2026) the list is carried, except the log reference.** Each
+field is present only when known: `diagnostics_errors`, `_warnings`, `_information`, `_hints` and
+`_files` (while the Bridge runs); `build_result` and `test_result` (`passed`, `failed`, or `unknown`
+for a task that ended with no exit code) with `build_finished_at` and `test_finished_at`, from VS Code
+tasks in the Build or Test group only — a terminal command's kind would be a guess; `last_request_id`,
+the `x-request-id` of the last model request and so the reference to RAVIS's route decision, with
+`last_request_model`, `last_request_provider` and `last_request_result` (absent while in flight);
+`task_id` and `task_stage` for a handover from NERVIS (§6.4); and `event_cursor`, the newest event
+id. No log reference is published: M13's log is a file in the workspace, and §6.8 keeps it an approved
+raw aid rather than status. NERVIS 0.34.10 accepts each field only in its own shape and shows them on
+the window card.
+
 ## 6.4 Events
 
 ```text

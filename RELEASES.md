@@ -25,7 +25,19 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.14
+## Clarvis — 0.17.15
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+Clarvis's status report to NERVIS says more.
+
+- **Now included when known:** the editor's problem counts, how the last build and test run ended,
+  the last AI request (model, provider, how it ended, and its request id), the task handed over from
+  NERVIS and its stage, and how many events Clarvis has published.
+- **Builds and tests are only VS Code's own:** tasks VS Code files as a build or a test. A command typed
+  in a terminal isn't counted, because telling a test from anything else by its words would be a guess.
+
+### 0.17.14
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -655,7 +667,18 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.9
+## NERVIS — 0.34.10
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+An editor window's card on Diagnostics → Clarvis shows what the window reports beyond its state.
+
+- **New rows, each only when the window reported it:** problems, build, tests, last request, task and
+  events. A build or test that failed is flagged. Needs Clarvis 0.17.15.
+- **Each value is checked:** a count must be a whole number, a result one of the known words, an id the
+  shape its owner makes; anything else is left out.
+
+### 0.34.9
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
