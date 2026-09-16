@@ -25,7 +25,18 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.12
+## Clarvis — 0.17.13
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+Codex's approvals reach RAVIS in the order Codex asked.
+
+- **Fixed: answers could overtake each other.** When Codex asked several things at once and Clarvis
+  answered them itself (Unattended), a slow answer could reach RAVIS after the next one. Clarvis now
+  waits for each answer to be received before sending the next. A file change is still copied for undo
+  before its own answer.
+
+### 0.17.12
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
