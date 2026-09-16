@@ -1036,6 +1036,26 @@ tool-capable candidates are all resting answers 503, never 422, because a client
 capability probe for the session (§8.7). A directly named model is neither filtered nor overruled.
 Kept in memory, like the breakers.
 
+**A setting one model refuses is left out, not the request** (16 Sep, RAVIS 0.28.2). When an
+upstream refuses settings by name — OpenAI's "Unrecognized request argument(s) supplied: …",
+"Unsupported parameter: '…'" or "Unsupported value: '…'" — and every one of them only tunes an
+answer (`reasoning_effort`, `temperature`, `top_p`, `top_k`, `min_p`, `frequency_penalty`,
+`presence_penalty`, `repetition_penalty`, `seed`), the same model is asked once more without them,
+and later requests to it leave them out for the same 30-minute window. A 400 naming a setting
+proves nothing was generated, so this is not a second bill. `max_tokens`, `stop`, `tools`,
+`response_format` and anything else that changes what comes back are never dropped: a refusal
+naming one moves on to the next candidate. RAVIS's own request fields (`explore`, `explore_rate`,
+`explore_prefer_unmeasured`) are removed from every forwarded body — found live, when OpenAI
+refused a NERVIS chat turn for carrying them.
+
+**An exploration pick never costs the turn** (16 Sep, RAVIS 0.28.2). A model RAVIS picked on
+purpose to measure it (exploration, switched on per request with `explore`: the answer to §9.2's
+untried-hosted-model loop) was never asked for, so whatever it fails with,
+the chain moves on to the model that would otherwise have answered, and that model is kept out of
+exploration for the same window when the failure says something about it (not a timeout, rate
+limit, overload, lost connection, context overflow or refusal). The one exception is a safety
+refusal, which still stops the chain, as below.
+
 **Retry budget:** max attempts, max total latency, max total monetary cost.
 
 **Client cancellation is not a retry** and must not trigger fallback.

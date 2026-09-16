@@ -356,6 +356,19 @@ class HealthRegistry:
         # router cannot ask with would be a suppression nothing ever consults.
         self._suppressions: dict[tuple[str, Capability], CapabilitySuppression] = {}
         self._suppression_seconds = suppression_seconds
+        # Two more things learned from one model's refusals, kept the same way
+        # and for the same time: in memory, beside the breakers, on this clock,
+        # and time-boxed because the model can change without RAVIS hearing.
+        #
+        # model → (settings it refused by name, until when). The next request
+        # to that model leaves them out instead of paying a refusal to relearn
+        # it — see `reliability.parameters`.
+        self._refused: dict[str, tuple[frozenset[str], float]] = {}
+        # model → (why, until when) for a model an *exploration* pick could not
+        # use. Exploration prefers models nothing has timed, and a model that
+        # always fails is never timed, so without this the same failing model
+        # would keep being drawn at every exploration and never stop.
+        self._unexplorable: dict[str, tuple[str, float]] = {}
         # Public, because it is the *only* clock anything in this layer may
         # read. An attempt's start and its end must be measured against one
         # clock or the elapsed time is meaningless, and the cheapest way to
@@ -520,6 +533,38 @@ class HealthRegistry:
         """
         held = self._suppressions.pop((model, capability), None)
         return held is not None and held.active_at(self.clock())
+
+    def learn_refused(self, model: str, names: frozenset[str]) -> None:
+        """Remember that `model` refused these settings, for the suppression window.
+
+        Added to what is already known rather than replacing it, since a model
+        that refused `reasoning_effort` and later `temperature` refuses both;
+        the window restarts from now, as a repeat suppression's does.
+        """
+        now = self.clock()
+        known = self.refused(model)
+        self._refused[model] = (known | names, now + self._suppression_seconds)
+
+    def refused(self, model: str) -> frozenset[str]:
+        """The settings `model` is known to refuse right now; empty when none."""
+        names, until = self._refused.get(model, (frozenset(), 0.0))
+        return names if self.clock() < until else frozenset()
+
+    def hold_from_exploration(self, model: str, reason: str) -> None:
+        """Keep `model` out of exploration picks for the suppression window.
+
+        Exploration only: the model stays a candidate for everything else, where
+        the ranking, the breakers and the suppressions already decide about it.
+        """
+        self._unexplorable[model] = (reason, self.clock() + self._suppression_seconds)
+
+    def held_from_exploration(self, models: Iterable[str]) -> frozenset[str]:
+        """Which of `models` exploration must not pick right now."""
+        now = self.clock()
+        return frozenset(
+            model for model in models
+            if now < self._unexplorable.get(model, ("", 0.0))[1]
+        )
 
 
 def _mean(samples: deque[float]) -> float | None:

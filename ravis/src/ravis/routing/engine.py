@@ -83,6 +83,10 @@ class Exploration:
     rate: float = 0.0
     roll: float = 1.0
     prefer_unmeasured: bool = True
+    # Models exploration must not pick now, because an exploration pick of
+    # theirs recently failed in a way that says something about the model
+    # (`HealthRegistry.held_from_exploration`). They stay ordinary candidates.
+    avoid: frozenset[str] = frozenset()
 
 
 class RoutingEngine:
@@ -387,6 +391,7 @@ class RoutingEngine:
             remote=remote, prefers_local=policy.prefers_local,
         )
         decision.selected = trying or eligible[0]
+        decision.explored = trying
         # §10 requires every fallback candidate to satisfy the original hard
         # constraints and the pool invariants. Taking them from the ranked
         # eligible list makes that structural: a candidate that failed either
@@ -838,7 +843,10 @@ def _explore_pick(
     # index 0 -- the model that was going to be chosen anyway. Roughly one
     # exploration in three silently did nothing, and the two tests that caught it
     # only did so because they asserted the answer *changed*.
-    alternatives = eligible[1:]
+    # And not a model an exploration recently failed on: exploration prefers
+    # the untimed, a model that always fails is never timed, and without this
+    # it would be drawn again at every exploration.
+    alternatives = [model for model in eligible[1:] if model not in explore.avoid]
     # The privacy line from the docstring. Filtered rather than truncated at the
     # first hosted model, so it does not depend on the ranking having grouped
     # them — though `_privacy_lean` guarantees that it has.

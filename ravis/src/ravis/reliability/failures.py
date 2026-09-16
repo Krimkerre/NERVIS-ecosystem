@@ -220,10 +220,17 @@ _BODY_MARKERS: tuple[tuple[FailureClass, tuple[str, ...]], ...] = (
     ),
     # After the tools entry, so "unsupported parameter: 'tools'" stays a tool
     # incompatibility. OpenAI's own codes first, then its wording.
+    # "unrecognized request argument" is OpenAI's wording for a top-level field
+    # it does not define, found live on 16 September 2026: "Unrecognized request
+    # arguments supplied: explore, explore_prefer_unmeasured, reasoning_effort",
+    # for a body DeepSeek, OpenRouter and Anthropic served the same afternoon. It
+    # carries no `code`, so it fell through to INVALID_REQUEST and stopped the
+    # chain with every other model untried.
     (
         FailureClass.UNSUPPORTED_PARAMETER,
         ("unsupported_parameter", "unsupported_value", "unsupported parameter",
-         "unsupported value", "is not supported with this model"),
+         "unsupported value", "is not supported with this model",
+         "unrecognized request argument"),
     ),
     (FailureClass.LOCAL_OOM, ("out of memory", "insufficient memory", "failed to allocate")),
     # "model unloaded or unavailable" is what the configured LM Studio answers

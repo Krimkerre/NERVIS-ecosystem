@@ -28,6 +28,7 @@ from ravis.core.capabilities import Capability
 from ravis.observations import Observations
 from ravis.reliability.failures import FailureClass, HealthScope
 from ravis.reliability.health import HealthRegistry
+from ravis.reliability.parameters import droppable, refused_parameters
 
 # Anything credential-shaped in a failure's words, and what replaces it.
 #
@@ -146,6 +147,23 @@ class Attempt:
         }
 
 
+#: What an *exploration* pick's failure says about the model rather than about
+#: the moment or the request, and so keeps it out of exploration for a while.
+#: Left out on purpose: timeouts, rate limits, overload and lost connections are
+#: the provider's passing state, which the breakers already handle, and a
+#: refusal or a context overflow is about this request, not about the model.
+EXPLORATION_HOLDS: frozenset[FailureClass] = frozenset({
+    FailureClass.INVALID_REQUEST,
+    FailureClass.UNSUPPORTED_PARAMETER,
+    FailureClass.AUTHENTICATION,
+    FailureClass.TOOL_INCOMPATIBILITY,
+    FailureClass.MODEL_UNAVAILABLE,
+    FailureClass.LOCAL_OOM,
+    FailureClass.INVALID_UPSTREAM_RESPONSE,
+    FailureClass.UNKNOWN,
+})
+
+
 @dataclass
 class AttemptChain:
     """Walks a route decision's candidates until one answers or the budget ends.
@@ -187,6 +205,17 @@ class AttemptChain:
     # hour. The fallback still happens either way — it is the *memory* that
     # needs the proof.
     carries_tools: bool = False
+    # The model the router picked **on purpose, to measure it**, rather than
+    # because it was the best — empty when the pick was the ordinary one.
+    #
+    # It changes what a failure costs. The person asking never chose this model;
+    # RAVIS did, for its own learning. So whatever it fails with (a safety
+    # refusal aside), the chain moves on to the model that would have answered
+    # anyway, and the explored model is kept out of exploration for a while.
+    # Found live on 16 September 2026, when an exploration pick answered
+    # `invalid_request` and the chain stopped with the usual pick untried: the
+    # person lost their turn to RAVIS's curiosity.
+    explored: str = ""
 
     _queue: list[str] = field(default_factory=list, init=False)
     # Models this chain newly suppressed for tools, in order, so the closing
@@ -200,6 +229,13 @@ class AttemptChain:
     _retried: set[str] = field(default_factory=set, init=False)
     _attempts: list[Attempt] = field(default_factory=list, init=False)
     _last_class: FailureClass | None = field(default=None, init=False)
+    # The target the last failure came from: `_may_fall_back` needs to know
+    # whether that was the explored pick, and the class alone cannot say.
+    _last_target: str = field(default="", init=False)
+    # model → settings left out of its retry, and models held from exploration,
+    # both in order, for the attempt summary.
+    _dropped: dict[str, list[str]] = field(default_factory=dict, init=False)
+    _held: list[str] = field(default_factory=list, init=False)
     _started_at: float = field(default=0.0, init=False)
     _stopped: str = field(default="", init=False)
 
@@ -308,7 +344,11 @@ class AttemptChain:
             elapsed_ms=(self.health.clock() - started_at) * 1000,
         ))
         self._last_class = failure_class
+        self._last_target = target
         self._suppress_if_tools_refused(target, failure_class, detail)
+        if self._retry_without_refused(target, failure_class, detail):
+            return
+        self._hold_if_explored(target, failure_class, detail)
         # At most one same-target retry, ever. The policy says this class of
         # failure proves the request never arrived, which justifies a second
         # attempt — not an unbounded series of them. A target that has had its
@@ -332,6 +372,44 @@ class AttemptChain:
             return
         if self.health.suppress(target, self.provider_for(target), Capability.TOOLS, detail):
             self._suppressed.append(target)
+
+    def _retry_without_refused(self, target: str, failure_class: FailureClass,
+                               detail: str) -> bool:
+        """Try `target` once more without the settings it refused; True if armed.
+
+        **The one other same-target retry, and why it is safe.** The policy
+        keeps same-target retries for failures that prove the request never ran,
+        because a second completion is a second bill. A 400 naming a setting
+        proves exactly that: the upstream read the body and refused it before
+        generating anything. What changes on the retry is the body — `_Call`
+        leaves out whatever `HealthRegistry.refused` lists for the model.
+
+        Only when every named setting is one that tunes an answer
+        (`parameters.DROPPABLE`), and never twice for one target: it shares
+        `_retried` with the connection retry, so "at most one same-target retry,
+        ever" stays true. Otherwise the class's own policy applies, which for
+        this class is to move on to another model.
+        """
+        if failure_class is not FailureClass.UNSUPPORTED_PARAMETER or target in self._retried:
+            return False
+        names = refused_parameters(detail)
+        if not droppable(names):
+            return False
+        self.health.learn_refused(target, names)
+        self._dropped.setdefault(target, []).extend(sorted(names))
+        self._retried.add(target)
+        self._retry = target
+        return True
+
+    def _hold_if_explored(self, target: str, failure_class: FailureClass,
+                          detail: str) -> None:
+        """Keep a failed exploration pick out of exploration for a while."""
+        if not self.explored or target != self.explored:
+            return
+        if failure_class not in EXPLORATION_HOLDS:
+            return
+        self.health.hold_from_exploration(target, f"{failure_class.value}: {detail}")
+        self._held.append(target)
 
     def cancelled(self, target: str) -> None:
         """The client went away (§10: cancellation is not a retry).
@@ -388,6 +466,10 @@ class AttemptChain:
             # Which refusals this request turned into a suppression, so a route
             # decision read later says why the next tool request skipped them.
             "suppressed": list(self._suppressed),
+            # Settings a model refused by name and was asked again without, and
+            # the exploration picks this request kept out of exploration.
+            "dropped_parameters": {model: list(names) for model, names in self._dropped.items()},
+            "held_from_exploration": list(self._held),
         }
 
     def _providers_touched(self) -> str:
@@ -440,8 +522,9 @@ class AttemptChain:
     def _may_fall_back(self, failure_class: FailureClass) -> bool:
         """Whether another candidate is worth trying after this failure.
 
-        The class decides, with one exception that the class cannot see:
-        **authentication, from a pool.**
+        The class decides, with two exceptions that the class cannot see:
+        **authentication, from a pool**, and **a failed exploration pick**
+        (`_explored_failed`).
 
         Its policy is `may_fall_back=False`, and for a direct address that is
         right — a fixable 401 naming the problem beats a no-route that does not.
@@ -451,14 +534,28 @@ class AttemptChain:
         candidates and a credential error about somebody else's key. Nothing in
         that 401 was evidence about the other sixty-six.
 
-        Every other class keeps its policy. An invalid request really would fail
+        Otherwise every class keeps its policy. An invalid request really would fail
         the same way everywhere, and spending a second model's time to prove it
         is what the flag exists to prevent — which is why one model refusing a
         *parameter* is its own class, `UNSUPPORTED_PARAMETER`, rather than this.
         """
         if failure_class is FailureClass.AUTHENTICATION and self.from_pool:
             return True
+        if self._explored_failed() and failure_class is not FailureClass.CONTENT_REFUSAL:
+            return True
         return failure_class.policy.may_fall_back
+
+    def _explored_failed(self) -> bool:
+        """Whether the failure just recorded came from the explored pick.
+
+        **The second exception, and the one the class cannot see either.**
+        RAVIS chose that model to measure it, not because it was asked for or
+        was the best, so nothing it fails with is evidence that the model the
+        person would otherwise have got fails too — the fallbacks start with
+        exactly that model (`RoutingEngine`). A safety refusal still stops the
+        chain: §10 forbids routing around one, whoever picked the model.
+        """
+        return bool(self.explored) and self._last_target == self.explored
 
     def _next_permitted(self) -> str | None:
         """Pop candidates until one has a closed circuit, or the queue empties.

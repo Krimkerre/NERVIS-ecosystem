@@ -671,8 +671,14 @@ class _Call:
         return self._destination(model)[1]
 
     def body_for(self, model: str) -> bytes:
-        """The request body addressed to one particular model."""
-        body = _with_model(self.body, self.payload, model, self._ttl(model))
+        """The request body addressed to one particular model.
+
+        Without the settings that model is known to refuse, which is what makes
+        `AttemptChain`'s retry-without-them a different request rather than the
+        same refusal twice, and what spares the next request the refusal.
+        """
+        body = _with_model(self.body, self.payload, model, self._ttl(model),
+                           drop=self.chain.health.refused(model))
         return _for_openai(body) if _is_openai(self.target_for(model)) else body
 
     def finish(self) -> None:
@@ -900,7 +906,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         role_evidence=_role_evidence(request, list(candidates)),
         # Whether this request is allowed to spend itself learning about a
         # model instead of using the best one. Off unless the caller asked.
-        explore=_exploration(payload),
+        explore=_exploration(payload, health.held_from_exploration(candidates)),
         # §10: do not keep routing to a failing provider. Models behind an open
         # circuit are excluded here, with the reason, rather than discovered
         # again by another request that pays another timeout to learn it — and,
@@ -1452,7 +1458,19 @@ def _policy_for(request: Request, payload: dict[str, Any]) -> RoutingPolicy:
     )
 
 
-def _exploration(payload: dict[str, Any]) -> Exploration | None:
+#: The fields a request uses to instruct RAVIS itself, which no upstream defines.
+#: They are read by `_exploration` and removed from every body RAVIS forwards
+#: (`_with_model`): OpenAI refuses a field it does not know with a 400 —
+#: "Unrecognized request arguments supplied: explore, explore_prefer_unmeasured,
+#: …", found live on 16 September 2026 — and NERVIS sends two of them on every
+#: chat turn, exploration on or off. They had reached every transparent upstream
+#: since NERVIS started sending them on 9 September; the lenient ones ignored them.
+RAVIS_FIELDS: frozenset[str] = frozenset({"explore", "explore_rate", "explore_prefer_unmeasured"})
+
+
+def _exploration(
+    payload: dict[str, Any], avoid: frozenset[str] = frozenset()
+) -> Exploration | None:
     """Whether this request may answer with something other than the best pick.
 
     **Opt-in, per request, and off by default.** Exploration costs the person
@@ -1484,6 +1502,8 @@ def _exploration(payload: dict[str, Any]) -> Exploration | None:
         # means "spread the sampling evenly", which keeps existing figures
         # current instead.
         prefer_unmeasured=payload.get("explore_prefer_unmeasured") is not False,
+        # Models a recent exploration pick failed on; see `AttemptChain.explored`.
+        avoid=avoid,
     )
 
 
@@ -1504,6 +1524,8 @@ def _chain_for(request: Request, decision: RouteDecision) -> AttemptChain:
         # Set by `_route` from the normalised request. Only a request that
         # actually carried tools may arm a tool-refusal suppression.
         carries_tools=bool(getattr(request.state, "carries_tools", False)),
+        # A failed exploration pick falls back and is held from exploration.
+        explored=decision.explored,
     )
     chain.load(decision.selected or "", decision.fallbacks)
     return chain
@@ -1538,7 +1560,7 @@ def _for_openai(body: bytes) -> bytes:
 
 
 def _with_model(body: bytes, payload: dict[str, Any], model: str,
-                ttl_seconds: int = 0) -> bytes:
+                ttl_seconds: int = 0, drop: frozenset[str] = frozenset()) -> bytes:
     """Rewrite the `model` field — and, for a local runtime, how long it stays.
 
     This is the one place the transparent path modifies what the client sent,
@@ -1562,11 +1584,17 @@ def _with_model(body: bytes, payload: dict[str, Any], model: str,
     Note what is *not* symmetric: the response stream is never rewritten. §8.3's
     release-critical surfaces — tool-call indexes, fragmented arguments, finish
     reasons, `[DONE]` — are all downstream, and none of them are touched.
+
+    **And fields that must not reach the upstream at all.** RAVIS's own
+    instructions (`RAVIS_FIELDS`) always, and whatever this model is known to
+    refuse (`drop`, from `HealthRegistry.refused`). Leaving them in is what cost
+    a chat turn on 16 September 2026: OpenAI refuses fields it does not know.
     """
     wants_ttl = ttl_seconds > 0 and "ttl" not in payload
-    if model == payload.get("model") and not wants_ttl:
+    removed = (RAVIS_FIELDS | drop) & payload.keys()
+    if model == payload.get("model") and not wants_ttl and not removed:
         return body
-    rewritten = dict(payload)
+    rewritten = {key: value for key, value in payload.items() if key not in removed}
     rewritten["model"] = model
     if wants_ttl:
         rewritten["ttl"] = ttl_seconds

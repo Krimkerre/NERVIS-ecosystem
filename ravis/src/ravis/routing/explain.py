@@ -58,6 +58,11 @@ class RouteDecision:
     # that a fallback still satisfy the original hard constraints and the pool
     # invariants — is guaranteed rather than re-checked at failure time.
     fallbacks: list[str] = field(default_factory=list)
+    # The model picked on purpose to measure it, when `selected` is that pick;
+    # empty for an ordinary pick. The attempt chain reads it, because a failed
+    # exploration pick must not cost the request (see `AttemptChain.explored`).
+    # Kept out of `as_dict`: `reason` already says so in words.
+    explored: str = ""
     reason: str = ""
     considered: list[str] = field(default_factory=list)
     excluded: list[ExcludedCandidate] = field(default_factory=list)

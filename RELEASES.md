@@ -1517,7 +1517,34 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.28.1
+## RAVIS — 0.28.2
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+A chat message no longer fails because RAVIS was trying out a model, or because one model
+refuses a setting.
+
+- **Fixed: OpenAI models couldn't answer NERVIS chat.** NERVIS sends RAVIS a few instructions of
+  its own with each message (whether to try untested models), and RAVIS passed them on to the
+  provider. OpenAI refuses anything it doesn't recognise, so NERVIS chat messages sent to an
+  OpenAI model failed; RAVIS has no record of one ever succeeding. RAVIS now keeps its own
+  instructions to itself.
+- **A model that refuses a tuning setting is asked again without it.** NERVIS asks every model
+  not to spend time "thinking" before an ordinary reply, and gpt-4.1 doesn't take that setting.
+  When a provider names settings it won't take, and they only tune the answer (thinking,
+  temperature and the like), RAVIS asks the same model once more without them, and leaves them out
+  for that model for the next 30 minutes. A spending limit, tools, the answer's format or stop
+  words are never dropped; a model refusing one of those hands the message to the next model.
+- **Trying out a model never costs you the message.** When RAVIS picks an untested model on
+  purpose to measure it and that model fails, the model you'd normally get answers instead, and the
+  failed one isn't tried out again for 30 minutes. A safety refusal still stops, as always.
+- **For operators:** a route decision's `execution` now lists `dropped_parameters` and
+  `held_from_exploration`. OpenAI's "Unrecognized request argument(s) supplied" is classed as
+  `unsupported_parameter`. Both new memories live in RAVIS's memory beside the circuit breakers and
+  use the tool-refusal window (`RAVIS_TOOL_REFUSAL_SUPPRESSION_SECONDS`, 30 minutes by default).
+  No NERVIS change.
+
+### 0.28.1
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

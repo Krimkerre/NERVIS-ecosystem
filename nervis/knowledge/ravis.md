@@ -640,6 +640,14 @@ to fail.
 
 **An exploratory pick that refuses a setting no longer costs the reply.** On 11 September 2026 exploration picked `gpt-5.6-sol`, OpenAI refused the request because that model only accepts `max_completion_tokens`, and chat showed "the model returned an empty message". RAVIS now sends OpenAI the name it wants, treats "this model does not support that parameter" as a reason to try the next model rather than a bad request, and reports a failed stream as the error it was — so the usual pick answers instead, and a real refusal reads as one.
 
+**And no exploratory pick costs the reply at all (RAVIS 0.28.2, 16 September 2026).** Exploration picked `gpt-4.1-2025-04-14`, and OpenAI refused the turn with "Unrecognized request arguments supplied: explore, explore_prefer_unmeasured, reasoning_effort". Two of those were RAVIS's own instructions, which it had been passing on to every provider since 9 September; OpenAI is the one that refuses what it doesn't know, which is why no NERVIS chat message to an OpenAI model had ever succeeded. The third, `reasoning_effort` (chat asks every model not to think before an ordinary reply), is a real setting gpt-4.1 doesn't take. Now:
+
+- RAVIS keeps `explore`, `explore_rate` and `explore_prefer_unmeasured` to itself.
+- A model that names settings it refuses, all of them ones that only tune an answer (thinking, temperature, top-p and the like), is asked once more without them, and they are left out for that model for 30 minutes. A spending limit, tools, the answer's format and stop words are never dropped; a refusal naming one of those goes to the next model.
+- Whatever an exploratory pick fails with, the model that would ordinarily have answered does, and the failed model is not explored again for 30 minutes. A safety refusal still stops the chain.
+
+A route decision's attempts list `dropped_parameters` and `held_from_exploration`.
+
 ## Where the prices come from, and why some are approximate
 
 RAVIS ships **no built-in price list**. Every hosted rate is written down by the
