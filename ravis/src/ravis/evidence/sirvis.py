@@ -54,6 +54,7 @@ from ravis.core.capabilities import (
     Provenance,
 )
 from ravis.errors import UnsupportedProtocolVersionError
+from ravis.evidence.co_residency import newest_pairs, read_pair
 
 # §13.2's accepted threshold for the agent role, recorded in SIRVIS.md §13.2.
 # Both axes, because the phrasing axis is the one that catches failures.
@@ -483,6 +484,9 @@ class EvidenceStore:
         # pool declaring a minimum fails closed on every candidate, which is
         # correct and useless.
         self._context: dict[str, int] = {}
+        # Models measured together (M20), with each measurement's age when read.
+        # Dropped with the records whenever they are: a pair is evidence too.
+        self._pairs: list[tuple[dict[str, Any], float | None]] = []
         self._state = SourceState.ABSENT
         self._detail = "no SIRVIS configured"
         self._read_at: float | None = None
@@ -727,13 +731,13 @@ class EvidenceStore:
             self._state, self._detail = SourceState.ABSENT, "no SIRVIS configured"
             return
         if not candidates:
-            self._records, self._state = {}, SourceState.FRESH
+            self._records, self._pairs, self._state = {}, [], SourceState.FRESH
             self._detail = "no candidates to ask about"
             return
         try:
             refusal = await self._negotiate(client)
             if refusal:
-                self._records, self._state = {}, SourceState.DEGRADED
+                self._records, self._pairs, self._state = {}, [], SourceState.DEGRADED
                 self._detail = refusal
                 return
             response = await client.get(
@@ -752,11 +756,11 @@ class EvidenceStore:
             # structured error, and §13.4 requires SIRVIS being unusable never
             # to stop RAVIS routing. Both hold: the refusal is raised
             # structurally where it is detected and applied as a degrade here.
-            self._records, self._state = {}, SourceState.DEGRADED
+            self._records, self._pairs, self._state = {}, [], SourceState.DEGRADED
             self._detail = mismatch.message
             return
         except (httpx.HTTPError, ValueError) as failure:
-            self._records = {}
+            self._records, self._pairs = {}, []
             self._state = SourceState.DEGRADED
             self._detail = f"SIRVIS did not answer: {type(failure).__name__}"
             return
@@ -835,10 +839,31 @@ class EvidenceStore:
                 ceilings[key] = value
         self._context = ceilings
 
+    def co_residency(self) -> dict[str, Any]:
+        """The models SIRVIS measured together, among the builds RAVIS asked about.
+
+        Each pair's age is its age now — the age SIRVIS gave plus the time since the
+        read — and a pair past the staleness window is marked rather than hidden:
+        this is a reading for a person, and the window is what `record_for` applies
+        before routing believes anything.
+        """
+        since_read = 0.0 if self._read_at is None else max(0.0, self._clock() - self._read_at)
+        pairs = []
+        for pair, age in self._pairs:
+            now = None if age is None else round(age + since_read, 1)
+            pairs.append({**pair, "age_seconds": now,
+                          "past_window": now is not None and now > self._max_age})
+        return {
+            "state": self._state.value,
+            "detail": self._detail,
+            "max_age_seconds": self._max_age,
+            "pairs": pairs,
+        }
+
     def _absorb(self, payload: Any) -> None:
         """Turn one response into records, refusing a shape this cannot read."""
         if not isinstance(payload, Mapping) or not isinstance(payload.get("items"), list):
-            self._records = {}
+            self._records, self._pairs = {}, []
             self._state = SourceState.DEGRADED
             self._detail = "SIRVIS returned a shape this build cannot read"
             return
@@ -856,6 +881,7 @@ class EvidenceStore:
         # role asked. That read existed to work around the role filter. The
         # filter is gone, so the round trip is too.
         shares: dict[str, tuple[float, float | None]] = {}
+        pairs: list[tuple[dict[str, Any], float | None]] = []
         for item in payload["items"]:
             if isinstance(item, Mapping):
                 key = by_variant.get(str((item.get("target") or {}).get("variant") or ""), "")
@@ -869,12 +895,16 @@ class EvidenceStore:
             record = _read_record(item, by_variant)
             if record is None:
                 continue
+            pair = read_pair(item)
+            if pair is not None:
+                pairs.append((pair, record.age_seconds))
             by_role = records.setdefault(record.runtime_key, {})
             held = by_role.get(record.role)
             if held is None or _fresher(record, held):
                 by_role[record.role] = record
         self._shares = shares
         self._records = records
+        self._pairs = newest_pairs(pairs)
         self._read_at = self._clock()
         self._state = SourceState.FRESH
         roles = sorted({role for by_role in records.values() for role in by_role})

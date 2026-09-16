@@ -173,7 +173,8 @@ def _load(request: Request, registry: HealthRegistry) -> dict[str, Any]:
 
     Tracking only: nothing here reaches the router (`reliability/load.py`). The two
     things §12.3 and M20 name that RAVIS does not read yet are listed rather than left
-    out, so a screen can say so instead of drawing their absence as a zero.
+    out, so a screen can say so instead of drawing their absence as a zero. SIRVIS's
+    co-residency evidence is read since RAVIS 0.29.1 (`evidence/co_residency.py`).
     """
     tracker = getattr(request.app.state, "load", None)
     memory: MemoryReading = getattr(request.app.state, "memory", MemoryReading())
@@ -187,11 +188,21 @@ def _load(request: Request, registry: HealthRegistry) -> dict[str, Any]:
             "detail": memory.detail,
         },
         "congestion": registry.congestion(),
+        # SIRVIS's measurements of models loaded together, from the evidence read
+        # RAVIS already makes — so only pairs among the builds it can reach now.
+        "co_residency": _co_residency(request),
         "not_read": [
             "provider credits and spend limits: no provider's balance is asked for",
-            "SIRVIS's contention evidence (how co-loaded models slow each other): not read yet",
         ],
     }
+
+
+def _co_residency(request: Request) -> dict[str, Any]:
+    """What SIRVIS measured about models loaded together, or why there is nothing."""
+    store = getattr(request.app.state, "evidence", None)
+    if store is None:
+        return {"state": "absent", "detail": "no SIRVIS evidence store", "pairs": []}
+    return dict(store.co_residency())
 
 
 @router.post("/health/suppressions/{model:path}/lift")

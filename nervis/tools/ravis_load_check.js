@@ -12,6 +12,9 @@
  *      in words rather than drawn empty; memory it could not read said as not read.
  *   3. **An older RAVIS with no `load`** — no card at all, while the health card still draws.
  *   4. **Nothing RAVIS sends becomes markup.**
+ *   5. **Models measured together** (RAVIS 0.29.1) — a pair whole, with its members, age,
+ *      slowdowns in words, lowest memory and SIRVIS's notes; a failed co-loading and a pair
+ *      past the evidence window flagged; none, and an unread source, said in words.
  */
 
 const { loadPage } = require("./page_context.js");
@@ -39,13 +42,36 @@ const BUSY = {
             under_pressure: true, detail: "" },
   congestion: [{ provider: "openrouter", last: "rate_limit", seconds_ago: 12.4,
                  rate_limit: 3, provider_overload: 1 }],
-  not_read: ["provider credits and spend limits: no provider's balance is asked for",
-             "SIRVIS's contention evidence (how co-loaded models slow each other): not read yet"],
+  not_read: ["provider credits and spend limits: no provider's balance is asked for"],
+  co_residency: {
+    state: "fresh", detail: "12 record(s) for 2 build(s)", max_age_seconds: 2592000,
+    pairs: [{
+      runtime_set: "clarvis-recommended", revision: 1,
+      members: { chat: "qwen/qwen3-4b-2507", agent: "lmstudio-community/granite-4.0-h-tiny" },
+      conditions: ["alone", "sequential", "concurrent"], complete: true, failure: "",
+      slowdown_percent: {
+        chat: { sequential: { time_to_first_token: -0.68, tokens_per_second: 0.27 },
+                concurrent: { time_to_first_token: 11.93, tokens_per_second: 21.19 } },
+        agent: { concurrent: { time_to_first_token: 6.09, tokens_per_second: null } },
+      },
+      lowest_free_bytes: { alone: 8 * 1024 ** 3, concurrent: 6 * 1024 ** 3, sequential: null },
+      thermal: { alone: "nominal" }, validity: "VALID",
+      notes: ["the machine's thermal state changed during this run"],
+      measured_at: "2026-08-24 19:52:06", run_id: "run_1",
+      age_seconds: 23 * 86400, past_window: false,
+    }, {
+      runtime_set: "clarvis-balanced", revision: 2, members: { chat: "a", agent: "b" },
+      conditions: ["alone"], complete: false, failure: "the agent model did not fit beside the chat model",
+      slowdown_percent: {}, lowest_free_bytes: {}, thermal: {}, validity: "VALID", notes: [],
+      measured_at: "", run_id: "run_2", age_seconds: 40 * 86400, past_window: true,
+    }],
+  },
 };
 
 const IDLE = {
   ...BUSY, active: 0, local_generations: 0, peak: 0, attempts_started: 0, by_provider: [],
   limits: [], congestion: [],
+  co_residency: { state: "fresh", detail: "no candidates to ask about", pairs: [] },
   memory: { available_bytes: null, total_bytes: null, free_fraction: null, under_pressure: null,
             detail: "vm_stat could not be read" },
 };
@@ -87,6 +113,18 @@ async function busy() {
   expect(html, "asked to wait 2s (30 s ago)", "a retry-after is not shown.");
   expect(html, "no provider&#39;s balance is asked for", "what RAVIS does not read is not said.");
   expect(html, "routes on none of them", "the card does not say these are readings only.");
+  expect(html, "<b>clarvis-recommended r1</b>", "a measured pair is not named with its revision.");
+  expect(html, "chat: qwen/qwen3-4b-2507 + agent: lmstudio-community/granite-4.0-h-tiny · measured 23 days ago",
+         "a pair's members and age are not shown.");
+  expect(html, "chat — sequential: first token 0.7% faster, output unchanged · concurrent: first token 12% slower, output 21% slower",
+         "a pair's slowdowns are not said in words, with their direction.");
+  expect(html, "agent — concurrent: first token 6.1% slower, output not measured", "a missing slowdown is not said as not measured.");
+  expect(html, "lowest memory free — alone 8.0 GB · concurrent 6.0 GB", "a pair's lowest free memory is not shown.");
+  expect(html, "thermal state changed during this run", "SIRVIS's notes on a pair are not shown.");
+  expect(html, "co-loading failed</span>", "a failed co-loading is not flagged.");
+  expect(html, "did not fit beside the chat model", "why a co-loading failed is not shown.");
+  expect(html, "older than RAVIS's evidence window", "a pair past the window is not flagged.");
+  if (html.includes("SIRVIS&#39;s contention evidence")) failures.push("SIRVIS's evidence is still listed as not read.");
 }
 
 async function idle() {
@@ -96,9 +134,19 @@ async function idle() {
   expect(html, "no provider has answered with a rate limit", "no congestion is not said in words.");
   expect(html, "which is not the same as having none", "no stated limit is not said in words.");
   expect(html, "not read — vm_stat could not be read", "unread memory is not said as not read.");
+  expect(html, "SIRVIS has measured no pair of the models RAVIS can reach now", "no measured pair is not said in words.");
   if (/<b>running now<\/b><span class="mono">—/.test(html)) {
     failures.push("an idle RAVIS shows its running count as a dash.");
   }
+}
+
+async function unreadSirvis() {
+  const html = await drawn({ ...BASE_HEALTH, load: { ...IDLE, co_residency: {
+    state: "degraded", detail: "SIRVIS did not answer: ConnectError", pairs: [] } } });
+  expect(html, "<b>models together</b><span style=\"opacity:.75\">not read — SIRVIS did not answer: ConnectError",
+         "an unread SIRVIS is not said as not read.");
+  const before = await drawn({ ...BASE_HEALTH, load: { ...IDLE, co_residency: undefined } });
+  if (before.includes("models together")) failures.push("a RAVIS that sends no co_residency still gets a row.");
 }
 
 async function older() {
@@ -114,6 +162,11 @@ async function hostile() {
     congestion: [{ ...BUSY.congestion[0], provider: HOSTILE, last: HOSTILE }],
     limits: [{ provider: HOSTILE, [HOSTILE]: { remaining: HOSTILE, seconds_ago: 1 } }],
     not_read: [HOSTILE],
+    co_residency: { state: "fresh", pairs: [{
+      runtime_set: HOSTILE, revision: HOSTILE, members: { [HOSTILE]: HOSTILE }, complete: false,
+      failure: HOSTILE, slowdown_percent: { [HOSTILE]: { [HOSTILE]: { time_to_first_token: 1 } } },
+      lowest_free_bytes: { [HOSTILE]: 1 }, notes: [HOSTILE], age_seconds: 1,
+    }] },
     queue: { held: 0, reason: HOSTILE },
   };
   const html = await drawn({ ...BASE_HEALTH, load });
@@ -123,6 +176,7 @@ async function hostile() {
 async function main() {
   await busy();
   await idle();
+  await unreadSirvis();
   await older();
   await hostile();
   if (failures.length) {
@@ -134,7 +188,8 @@ async function main() {
     "RAVIS load holds: running counts by provider and model, attempts and peak, the queue " +
     "and local-queue sentences, memory and its pressure, congestion with counts and age, " +
     "providers' stated limits and retry-after, what is not read, readings-only said once; " +
-    "zero shown as 0 and absences said in words; no card for a RAVIS without `load`; and " +
+    "zero shown as 0 and absences said in words; models measured together with their slowdowns, " +
+    "memory, notes and flags, or said as none or not read; no card for a RAVIS without `load`; and " +
     "nothing RAVIS sends injects"
   );
 }

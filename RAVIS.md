@@ -1170,7 +1170,16 @@ Track provider quotas where possible: RPM, TPM, credits, rate-limit state.
   response hook on the one client every provider call uses, kept by kind with its age, values as
   sent.
 
-**Not read:** provider credits or balances, and SIRVIS's contention evidence (M20's third part).
+- **SIRVIS's contention evidence** (RAVIS 0.29.1, `evidence/co_residency.py`): the interaction
+  matrix SIRVIS files on each member's evidence record when it benchmarks a Runtime Set, which the
+  evidence read already returned and RAVIS dropped. Kept whole per set and revision (the newest run
+  of each), with its members, SIRVIS's own slowdown percentages per role and condition, lowest free
+  memory, thermal readings, validity notes and a co-loading failure; its age is its age now, and a
+  pair past the staleness window is marked rather than hidden. Only pairs among the builds RAVIS
+  asks SIRVIS about, and gone with the other records whenever SIRVIS stops answering (§13.3).
+  Published as `load.co_residency`.
+
+**Not read:** provider credits or balances.
 **Nothing here reaches the router**: §12.3 says what to track, and using these figures to route is
 a decision still to be made. NERVIS shows them on RAVIS → Diagnostics.
 
@@ -2191,7 +2200,7 @@ and §20.1 maps these milestones onto its stages.
 | **M17** | Dashboard — Dashboard, Providers, Models, Profiles, Rules, Sessions, Routes, Usage, SIRVIS. **Mostly covered by NERVIS as of 12 September 2026, and not closed here:** NERVIS's RAVIS tab serves Dashboard, Providers, Sessions, Routes, Spending for usage, Policies for rules and Evidence for what SIRVIS measured, plus Pools, Credentials, Logs, Diagnostics and Settings. It has no Profiles or Models screen (§15.3). Whether that closes M17 is the owner's call | — |
 | **M18** AUTOMATED VERIFIED | Two halves, scheduled apart. **M18a — read-only management API:** the `/api/v1` reads (`pools`, `policies`, `providers`, `models`, `profiles`, `route-decisions`, `usage`), which is what makes a route decision visible while it is being debugged. **M18b — events and tracing surfaces** for NERVIS | Does not affect Clarvis wire compatibility; M18a exposes no mutation and no credential |
 | **M19** AUTOMATED VERIFIED | Production observations — rolling latency, TTFT and error rate, sampled from real traffic. **Throughput is not part of this**: `observations.py`'s rolling windows and `HealthRegistry.error_rate()` are real and tested, and nothing in `src/ravis` tracks a production throughput figure — the row originally claimed one, corrected 3 Sep after an audit found no supporting code | — |
-| **M20** | Concurrency awareness — active requests, local congestion, SIRVIS contention evidence | — **In part, 16 September 2026 (RAVIS 0.29.0):** active requests, local generations, queue depth, memory pressure, provider congestion and providers' stated limits are tracked and published on `/api/v1/health` (§12.3's as-built note) and shown on NERVIS's RAVIS → Diagnostics; tested against fake upstreams. Not built: SIRVIS contention evidence, provider credits, and any routing use of these figures |
+| **M20** | Concurrency awareness — active requests, local congestion, SIRVIS contention evidence | — **In part, 16 September 2026 (RAVIS 0.29.0):** active requests, local generations, queue depth, memory pressure, provider congestion and providers' stated limits are tracked and published on `/api/v1/health` (§12.3's as-built note) and shown on NERVIS's RAVIS → Diagnostics; tested against fake upstreams. SIRVIS's contention evidence joined them in RAVIS 0.29.1, read from the evidence RAVIS already fetches. Not built: provider credits, and any routing use of these figures |
 | **M21** | Replay and evaluation — request replay, routing comparison | — |
 | **M22** | Advanced routing — escalation, shadow routing, outcome scoring | — |
 | **M23** | Responses API — `/v1/responses` | No regression in Chat Completions compatibility |

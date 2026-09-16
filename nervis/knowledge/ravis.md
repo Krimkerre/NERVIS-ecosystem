@@ -663,8 +663,13 @@ RAVIS → Diagnostics has a **RAVIS load now** card, read from `load` on RAVIS's
   "wait N seconds"), each with its age.
 
 RAVIS keeps no queue of its own, and LM Studio and Ollama don't report theirs, so those are said as
-such rather than shown as zero. RAVIS doesn't read provider balances or SIRVIS's measurements of
-models slowing each other down yet. **None of this changes which model RAVIS picks**: they are
+such rather than shown as zero. RAVIS doesn't read provider balances. Since RAVIS 0.29.1 the card also shows
+**models measured together**: for each pair SIRVIS benchmarked as a Runtime Set (say a chat model
+and a coding model loaded at once), how much slower each got to its first word and its output in
+each condition (one after the other, taking turns, at the same time), the least memory left, when
+it was measured and SIRVIS's notes, with a warning when the measurement is older than RAVIS's
+30-day window or the two didn't fit together. Only pairs of models RAVIS can reach right now are
+shown, so with LM Studio off it says there are none. **None of this changes which model RAVIS picks**: they are
 readings, and routing on them is a decision the owner hasn't made.
 
 The **RAVIS health** card above it has two rows about RAVIS's **first provider only** (NERVIS 0.34.7):

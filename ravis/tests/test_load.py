@@ -217,4 +217,5 @@ def test_health_says_what_is_known_about_memory_and_what_is_not_read() -> None:
                                    "under_pressure", "detail"}
     assert load["congestion"] == []
     assert any("credits" in line for line in load["not_read"])
-    assert any("SIRVIS" in line for line in load["not_read"])
+    # SIRVIS's co-residency evidence is read since 0.29.1 (`test_co_residency.py`).
+    assert "co_residency" in load

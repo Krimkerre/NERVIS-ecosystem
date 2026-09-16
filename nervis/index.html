@@ -15903,6 +15903,7 @@ function ravisLoadCard(rhealth){
    ${loadMemoryRow(load.memory)}
    ${loadCongestionRows(load.congestion)}
    ${loadLimitRows(load.limits)}
+   ${loadCoResidencyRows(load.co_residency)}
    ${(Array.isArray(load.not_read)?load.not_read:[]).map(line=>
      `<div class="trace-step"><b>not read</b><span style="opacity:.75">${escapeHtml(line)}</span></div>`).join('')}
    <small class="mono dim">readings only: RAVIS counts and records these and routes on none of them. Read from <b>/api/v1/health</b>'s <span class="mono">load</span>.</small>`,'ravis')}</div>`;
@@ -15946,10 +15947,61 @@ function loadLimitRows(limits){
  }).join('');
 }
 
-/* "12 s ago", from a figure RAVIS computed on its own clock; nothing when it sent none. */
+/* What SIRVIS measured about models loaded together (RAVIS 0.29.1, `co_residency`).
+   Only pairs among the builds RAVIS can reach now, and each kept whole — which set,
+   which build in which role — because SIRVIS §10.1 is that one pair's slowdown says
+   nothing about another. Slowdowns are SIRVIS's own, positive meaning slower for both
+   figures; a missing one is said as not measured. Nothing at all for a RAVIS that
+   sends no `co_residency`. */
+function loadCoResidencyRows(co){
+ if(!co||typeof co!=='object')return '';
+ if(co.state!=='fresh')
+  return `<div class="trace-step"><b>models together</b><span style="opacity:.75">not read — ${escapeHtml(co.detail||co.state||'no reason given')}</span></div>`;
+ const pairs=Array.isArray(co.pairs)?co.pairs:[];
+ if(!pairs.length)
+  return `<div class="trace-step"><b>models together</b><span style="opacity:.75">SIRVIS has measured no pair of the models RAVIS can reach now</span></div>`;
+ return pairs.map(coResidencyRow).join('');
+}
+
+function coResidencyRow(pair){
+ const members=Object.entries(pair.members||{}).map(([role,model])=>`${role}: ${model}`).join(' + ');
+ const age=pair.age_seconds==null?'measured, when not said':`measured ${ageWords(pair.age_seconds)}`;
+ const lines=[`<span class="mono">${escapeHtml(members)} · ${escapeHtml(age)}</span>${coResidencyFlags(pair)}`];
+ if(!pair.complete&&pair.failure)lines.push(`<span style="opacity:.75">${escapeHtml(pair.failure)}</span>`);
+ for(const [role,byCondition] of Object.entries(pair.slowdown_percent||{}))lines.push(slowdownLine(role,byCondition));
+ const memory=Object.entries(pair.lowest_free_bytes||{}).filter(([,bytes])=>typeof bytes==='number').map(([condition,bytes])=>`${condition} ${fileSize(bytes)}`);
+ if(memory.length)lines.push(`<span class="mono">lowest memory free — ${escapeHtml(memory.join(' · '))}</span>`);
+ for(const note of (Array.isArray(pair.notes)?pair.notes:[]))lines.push(`<span style="opacity:.75">${escapeHtml(note)}</span>`);
+ return `<div class="trace-step"><b>${escapeHtml(pair.runtime_set)}${pair.revision!=null?' r'+escapeHtml(pair.revision):''}</b><span>${lines.join('<br>')}</span></div>`;
+}
+
+function coResidencyFlags(pair){
+ return (pair.past_window?' <span class="chip warn">older than RAVIS\'s evidence window</span>':'')
+  +(pair.complete?'':' <span class="chip warn">co-loading failed</span>');
+}
+
+function slowdownLine(role,byCondition){
+ const parts=Object.entries(byCondition||{}).map(([condition,f])=>
+  `${condition}: first token ${slowdownWords(f&&f.time_to_first_token)}, output ${slowdownWords(f&&f.tokens_per_second)}`);
+ return `<span class="mono">${escapeHtml(role)} — ${escapeHtml(parts.join(' · '))}</span>`;
+}
+
+/* SIRVIS's percentage in words: positive is slower, negative faster. */
+function slowdownWords(percent){
+ if(typeof percent!=='number'||!isFinite(percent))return 'not measured';
+ const size=Math.abs(percent);
+ if(size<0.5)return 'unchanged';
+ return `${size.toFixed(size<10?1:0)}% ${percent>0?'slower':'faster'}`;
+}
+
+/* "12 s ago", from a figure RAVIS computed on its own clock; nothing when it sent none.
+   Hours and days since RAVIS 0.29.1, whose SIRVIS measurements can be weeks old. */
 function ageWords(seconds){
  if(typeof seconds!=='number'||!isFinite(seconds))return 'when, not said';
- return seconds<90?`${Math.round(seconds)} s ago`:`${Math.round(seconds/60)} min ago`;
+ if(seconds<90)return `${Math.round(seconds)} s ago`;
+ if(seconds<90*60)return `${Math.round(seconds/60)} min ago`;
+ if(seconds<48*3600)return `${Math.round(seconds/3600)} h ago`;
+ return `${Math.round(seconds/86400)} days ago`;
 }
 
 /* The behaviours the suite covers — not a verdict on them. This card used to

@@ -632,7 +632,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.7
+## NERVIS — 0.34.8
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+The "RAVIS load now" card shows how models slow each other down when loaded together.
+
+- **Models measured together:** for each pair SIRVIS measured, the two models and their roles, when
+  it was measured, and per condition how much slower (or faster) each got to its first word and its
+  output, in words, plus the least memory left and SIRVIS's notes. A pair older than RAVIS's
+  evidence window, or one that didn't fit together, is flagged. With no measured pair, or SIRVIS
+  not read, the card says so. Needs RAVIS 0.29.1.
+- **Ages in hours and days** on that card, not only seconds and minutes.
+- **For operators:** `ravis_load_check.js` covers the new rows.
+
+### 0.34.7
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
@@ -1635,7 +1649,22 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.29.0
+## RAVIS — 0.29.1
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+RAVIS now also reports how models slow each other down when loaded together.
+
+- **Measured pairs from SIRVIS:** when SIRVIS has benchmarked two models loaded at once (a Runtime
+  Set), RAVIS's health report now includes it: which model played which role, how much slower each
+  got in each condition, the least memory left, SIRVIS's notes, and whether the two failed to fit.
+  RAVIS already fetched these measurements and was discarding them; nothing new is asked of SIRVIS.
+- **Honest about age and absence:** each measurement shows its age now, one older than RAVIS's
+  30-day evidence window is marked rather than hidden, and all of them disappear when SIRVIS stops
+  answering. Only pairs of models RAVIS can currently reach are included.
+- **Still only a reading:** none of this changes which model RAVIS picks.
+
+### 0.29.0
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 
