@@ -679,7 +679,8 @@ keeps the message as you typed it. A skill asked for by name is used even withou
 
 The pop-up that opens when `/` is typed lists the switched-on skills with what each is for; it reads
 them when the chat panel opens and at most once a minute while typing. Arrow keys move, Enter or Tab
-fills the name in, Escape closes it. A line the page answers itself — an unknown name, a skill with
+fills the name in, Escape closes it. A command already typed out in full is sent by that Enter rather
+than filled in again, so one Enter runs `/help`, as it does in Clarvis's chat box. A line the page answers itself — an unknown name, a skill with
 nothing to do — is shown in that tab only: it isn't sent, read aloud, or kept after a reload. While a
 reply's offer, such as Save / No thanks, is still waiting, a skill typed then gets "Answer the
 question first; the skill can wait.", and `/clear` waits too.

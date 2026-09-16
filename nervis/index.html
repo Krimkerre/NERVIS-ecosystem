@@ -15575,19 +15575,33 @@ const SLASH={
   this.draw();
  },
 
- /* A key in the chat box: taken only while the pop-up is open, and only these. */
+ /* A key in the chat box: taken only while the pop-up is open, and only these.
+    An action answering false hands the key straight back to the chat box, which
+    then does what it always does with it: that is Enter on a command already
+    typed in full, and the chat box sends it. */
  key(e){
   const act=SLASH_KEYS[e.key];
   if(!this.open||!act)return false;
+  if(act(this)===false){this.close();return false}
   e.preventDefault();
   e.stopPropagation();
-  act(this);
   return true;
  },
 
  move(step){
   this.index=(this.index+step+this.items.length)%this.items.length;
   this.draw();
+ },
+
+ /* Enter: the highlighted entry is completed, as Tab and a click do — unless
+    the command is already typed in full, when completing it would only add a
+    space. Then the key is the chat box's and sends, which is what Clarvis's
+    chat box does with it and what one Enter on a typed-out command should do. */
+ enter(){
+  const item=this.items[this.index];
+  const word=this.word();
+  if(item&&word!==null&&item.label.toLowerCase()==='/'+word.toLowerCase())return false;
+  this.pick(this.index);
  },
 
  /* Enter, Tab or a click: the entry takes the first word's place, with a space
@@ -15670,7 +15684,7 @@ function slashPlace(menu){
 const SLASH_KEYS={
  ArrowDown:slash=>slash.move(1),
  ArrowUp:slash=>slash.move(-1),
- Enter:slash=>slash.pick(slash.index),
+ Enter:slash=>slash.enter(),
  Tab:slash=>slash.pick(slash.index),
  Escape:slash=>slash.dismiss(),
 };

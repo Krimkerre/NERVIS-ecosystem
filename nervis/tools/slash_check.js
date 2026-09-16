@@ -20,7 +20,8 @@
  *      says which model answers and opens the picker; /model <id> goes through the picker's own
  *      path for this conversation only, and an id the picker doesn't offer is never guessed.
  *   4. **The pop-up** filters as you type, moves with the arrows, completes on Enter, Tab or a
- *      click with a trailing space, closes on Escape, shows only while the first word is typed,
+ *      click with a trailing space, sends instead of completing when Enter lands on a command
+ *      already typed in full, closes on Escape, shows only while the first word is typed,
  *      takes no key while closed, is a listbox the chat box points into, draws with `textContent`
  *      only, and reads the list when the chat panel opens and at most once a minute while typing.
  *   5. **An input method composing** owns Enter and the arrows.
@@ -388,6 +389,13 @@ async function popUp() {
   w.type("/ch write it", 3);
   w.input.onkeydown(key("Enter"));
   same("completing keeps what was typed after the first word", w.input.value, "/changelog-generator write it");
+  w.type("/help");
+  event = key("Enter");
+  w.input.onkeydown(event);
+  await settle();
+  same("Enter on a command already typed in full runs it, rather than adding a space to it",
+       [w.input.value, w.menu.hidden, event.prevented, w.last().kind, w.sent.length],
+       ["", true, false, "local", 0]);
   w.type("/he");
   event = key("Escape");
   w.input.onkeydown(event);

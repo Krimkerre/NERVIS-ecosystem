@@ -559,7 +559,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.0
+## NERVIS — 0.34.1
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+One Enter runs a command you have typed out in full.
+
+- **The `/` pop-up no longer takes that Enter.** Type `/help` and press Enter once and it runs,
+  the way Clarvis's chat box does. The pop-up still fills a command in when what you typed is only
+  part of one, such as `/he`, and Tab, the arrow keys, Escape and a click are unchanged.
+- **For operators:** page only, no route or RAVIS change. The `slash_check.js` dashboard gate covers
+  both cases.
+
+### 0.34.0
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 
