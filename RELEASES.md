@@ -25,7 +25,20 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.9
+## Clarvis — 0.17.10
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+Clarvis's activity lines up exactly with RAVIS's in NERVIS.
+
+- **Clarvis's events name their conversation.** A chat turn or a task now tells NERVIS which
+  conversation it belongs to, the same one its requests to RAVIS name, so NERVIS can file both
+  together. A Codex task has no such conversation in Clarvis and names none.
+- **Times to the millisecond.** Clarvis stamped its events to the whole second, so on NERVIS's trace
+  view its bar could sit up to a second off, and a chat turn looked as if it ended before the RAVIS
+  call inside it.
+
+### 0.17.9
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 

@@ -687,9 +687,11 @@ and a fresh `x-request-id`, which RAVIS uses as sent (`lineageHeaders` in `src/m
 called from `OpenAiCompatibleProvider.ts` and `AnthropicProvider.ts`; the Anthropic adapter only
 reaches Anthropic, since RAVIS serves no `/v1/messages`). **`workspace_id` does not travel:** runbook
 §4.3 names no header for it and RAVIS reads none, so it would be a contract nobody agreed to; the
-salted id reaches NERVIS with the Bridge registration instead. Chat and agent events carry the trace
-but not the request or session id, and model events are not emitted at all (E-C4). Until 12
-September only the trace and the session travelled, and only through the OpenAI-compatible adapter.
+salted id reaches NERVIS with the Bridge registration instead. Since Clarvis 0.17.10 chat and agent
+events carry the trace **and the session** their model requests carry (`ModelService.sessionFor`),
+with millisecond timestamps; not a request id, since a turn can make several requests and its start
+event precedes them all. Model events are not emitted at all (E-C4). Until 12 September only the
+trace and the session travelled, and only through the OpenAI-compatible adapter.
 
 ## 6.6 Multiple simultaneous instances
 
