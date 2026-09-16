@@ -1026,6 +1026,9 @@ answering with an error is named with the code.
 Since NERVIS 0.34.14 starting the stack also switches on the repository's
 commit checks (git's hooks path set to `tools/githooks`) unless another hooks
 path was chosen, so a fresh copy runs the dashboard's checks before a commit.
+Every commit also gets a secret scan: a line that looks like a provider key or
+private key, or carries one of the launcher's own secrets, stops the commit, and
+the refusal names the file and line but never the secret.
 
 ## Watching Clarvis in the editor
 

@@ -18,9 +18,20 @@
 # notes or this hook; any other commit goes straight through. About thirty seconds
 # when it runs.
 #
+# **Except the secret scan, which every commit gets** (16 September 2026): the lines a
+# commit adds are checked for keys, tokens and private keys, by shape and against this
+# machine's own launcher secrets, in about a second (tools/check_secret_content.py). It
+# names the file and line, never the secret.
+#
 # Enabled once per clone:   git config core.hooksPath tools/githooks
 # Skipping it with `git commit --no-verify` is the owner's call, not a session's.
 set -uo pipefail
+
+root_for_scan="$(git rev-parse --show-toplevel)" || exit 1
+if ! python3 "$root_for_scan/tools/check_secret_content.py"; then
+  echo "Commit stopped by the secret scan."
+  exit 1
+fi
 
 changed="$(git diff --cached --name-only)"
 if ! printf '%s\n' "$changed" | grep -Eq '^(nervis/(index\.html|tools/|knowledge/|package(-lock)?\.json)|tools/(knowledge_check\.py|githooks/))'; then

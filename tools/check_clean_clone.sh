@@ -112,6 +112,9 @@ done
 # The launcher is in no package, so no step above type-checks it; it carried four
 # errors unnoticed until 16 September 2026.
 step "launcher mypy" "nervis-eco" mypy --strict tools/run.py
+# Every tracked line, for keys and tokens (tools/check_secret_content.py); the pre-commit
+# hook checks only what each commit adds.
+step "secret scan" "nervis-eco" python3 tools/check_secret_content.py --all
 
 # **One environment per package, and nothing of its siblings in it.**
 #

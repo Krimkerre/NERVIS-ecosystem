@@ -850,9 +850,9 @@ def test_a_malformed_tool_schema_is_an_invalid_request_not_a_tool_refusal(
 @pytest.mark.parametrize(
     "secret",
     [
-        "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",
+        "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",  # secret-scan: allow (a made-up key)
         "sk-or-v1-" + "0123456789abcdef" * 4,
-        "sk-ant-api03-abcdefghijklmnop-QRSTUVWXYZ012345",
+        "sk-ant-api03-abcdefghijklmnop-QRSTUVWXYZ012345",  # secret-scan: allow (a made-up key)
         "AIzaSyA1234567890abcdefghijklmnopqrstu",
         "gsk_abcdefghijklmnopqrstuvwxyz0123456789",
         "0123456789abcdef" * 2,

@@ -903,7 +903,9 @@ first threat-model review and privilege matrix are in `design/security/review-20
 with six findings (S1–S6): NERVIS's supervision routes skipped the control token (fixed in NERVIS
 0.34.15, with the Fish Audio key's routes) and some of its other writes still do, credentials are owner-readable files by design, SIRVIS's
 `admin` is total by design, there is no content-based secret scan, and remote access is not
-built. The note below is what stood before that day.
+built. S5 was closed the same evening: `tools/check_secret_content.py` scans each commit's added
+lines (pre-commit hook) and every tracked line (clean-clone gate) for keys by shape and for this
+machine's own secrets by value. The note below is what stood before that day.
 
 **As built, 12 September 2026 — three parts of the security gate have nothing behind them.**
 No dependency check runs anywhere: the clean-clone gate installs Node packages with

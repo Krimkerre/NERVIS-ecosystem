@@ -95,4 +95,6 @@ clone with `git config core.hooksPath tools/githooks` — `tools/run.py start` d
 since NERVIS 0.34.14, unless the clone already names another hooks path; add a new gate by adding its name to that
 list, which the clean-clone gate reads too. These checks used to run only in the clean-clone gate,
 and five of them failed unnoticed for days. Do not skip the hook with `--no-verify` unless the
-owner says so.
+owner says so. **Every commit, whatever it touches, first gets the secret scan**
+(`tools/check_secret_content.py`): a key-shaped string or one of this machine's launcher secrets
+in an added line stops it. A deliberate fake in a test says `secret-scan: allow` on its line.
