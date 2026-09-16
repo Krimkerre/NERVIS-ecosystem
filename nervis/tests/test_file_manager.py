@@ -17,6 +17,9 @@ from nervis.api.files import TRASH, TRASH_SECONDS, prune_trash
 from nervis.app import create_app
 from nervis.config import Settings
 
+# This file sends the control token itself where a test needs it (`conftest.page_control_token`).
+SENDS_NO_CONTROL_TOKEN = True
+
 
 def an_api(tmp_path: Path) -> TestClient:
     settings = Settings(

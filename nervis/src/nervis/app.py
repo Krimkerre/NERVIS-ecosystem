@@ -66,6 +66,7 @@ from nervis.api import (
 from nervis.api import router as api_router
 from nervis.api.chat_personas import seed_chat_defaults
 from nervis.api.code import UPSTREAM_TIMEOUT as CODE_UPSTREAM_TIMEOUT
+from nervis.api.control import control_refusal, needs_control, presents_control
 from nervis.api.events import event_frames
 from nervis.api.files import prune_trash
 from nervis.api.origin_guard import expected_origins, refuses_cross_origin_mutation
@@ -378,6 +379,11 @@ def _register_correlation(api: FastAPI) -> None:
                     method=request.method,
                 ),
             )
+        # **And every write the page makes carries the page's token** (NERVIS 0.34.17,
+        # `nervis.api.control.needs_control`). Before, only the RAVIS-changing routes and a
+        # few others asked for it, so each new write had to remember to.
+        if needs_control(request.method, request.url.path) and not presents_control(request):
+            return to_response(request, control_refusal())
         request.state.request_id = request.headers.get("x-request-id") or new_request_id()
         # The **trace id**, not the whole header. §11.2 joins events from
         # different services on this value, and `traceparent`'s third field is a

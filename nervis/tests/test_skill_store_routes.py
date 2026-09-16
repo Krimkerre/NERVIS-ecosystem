@@ -29,6 +29,9 @@ from tests.test_ravis_codex_card import ADMIN, REPOSITORY, call, served_routes, 
 
 from nervis.app import create_app
 
+# This file sends the control token itself where a test needs it (`conftest.page_control_token`).
+SENDS_NO_CONTROL_TOKEN = True
+
 STORE = json.loads((REPOSITORY / "ravis" / "tests" / "fixtures" / "skill-store" / "contract.json")
                    .read_text(encoding="utf-8"))
 ROUTES = STORE["nervis_control_routes"]

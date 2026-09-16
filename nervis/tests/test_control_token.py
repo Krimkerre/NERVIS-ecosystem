@@ -36,6 +36,9 @@ from fastapi.testclient import TestClient
 from nervis.app import create_app
 from nervis.config import Settings
 
+# Clients here carry no token unless a test gives one (`conftest.page_control_token`).
+SENDS_NO_CONTROL_TOKEN = True
+
 # The proxies, as (method, path, body). Written out rather than derived from
 # the router: a route that stops being gated should fail this list, and a list
 # built from the code under test agrees with it by construction.
@@ -303,3 +306,83 @@ def test_no_route_that_reads_the_ravis_admin_credential_is_left_ungated() -> Non
         f"these routes touch the credential and are not in MUTATIONS: "
         f"{[(sorted(r.methods - {'HEAD'}), r.path) for r in unnamed]}"
     )
+
+
+def _write_routes(app: Any) -> list[tuple[str, str]]:
+    """Every (method, concrete path) the app accepts a write on, from its real route table."""
+    from fastapi.routing import APIRoute, _IncludedRouter
+
+    routes: list[Any] = []
+    for entry in app.routes:
+        if isinstance(entry, _IncludedRouter):
+            routes.extend(entry.original_router.routes)
+        elif isinstance(entry, APIRoute):
+            routes.append(entry)
+    found = []
+    for route in routes:
+        path = getattr(route, "path", "")
+        concrete = path.replace("{path:path}", "a/b").replace("{model:path}", "q/m")
+        while "{" in concrete:
+            start = concrete.index("{")
+            concrete = concrete[:start] + "x" + concrete[concrete.index("}", start) + 1:]
+        for method in sorted(getattr(route, "methods", None) or ()):
+            if method not in ("GET", "HEAD", "OPTIONS"):
+                found.append((method, concrete))
+    return found
+
+
+def test_every_write_the_page_makes_needs_the_token(client: Any) -> None:
+    """NERVIS 0.34.17: one rule for every write under `/api/v1/`, found from the route table.
+
+    A route added later is covered without being listed anywhere; only the writes that are not
+    the page's to make (`control.NOT_THE_PAGES`) are left to their own guards.
+    """
+    from nervis.api import control
+
+    writes = _write_routes(client.app)
+    checked = [(m, p) for m, p in writes if p.startswith("/api/v1/")]
+    assert len(checked) > 60, f"only {len(checked)} writes found; route discovery is broken"
+    left_out = []
+    for method, path in checked:
+        if not control.needs_control(method, path):
+            left_out.append(path)
+            continue
+        answered = client.request(method, path, json={})
+        assert answered.status_code == 403, (method, path, answered.status_code)
+        assert answered.json()["error"]["code"] == "CONTROL_TOKEN_REQUIRED", (method, path)
+    assert sorted(set(left_out)) == [
+        "/api/v1/events",
+        "/api/v1/registry/instances",
+        "/api/v1/registry/instances/x/x",
+        "/api/v1/registry/instances/x/x/heartbeat",
+    ]
+
+
+def test_the_writes_that_are_not_the_page_s_keep_their_own_guards(client: Any) -> None:
+    """Events, registration and SIRVIS's recommendation read go past the page's rule — and a
+    registration still needs the enrollment secret."""
+    assert client.post("/api/v1/events", json=[]).status_code == 202
+    registration = client.post("/api/v1/registry/instances", json={})
+    assert registration.status_code == 401
+    recommendation = client.post("/api/v1/sirvis/recommendations", json={})
+    assert recommendation.json().get("error", {}).get("code") != "CONTROL_TOKEN_REQUIRED"
+
+
+@pytest.mark.parametrize(("method", "path", "needed"), [
+    ("POST", "/api/v1/chat", True),
+    ("delete", "/api/v1/learned", True),
+    ("PUT", "/api/v1/workspace/files/a.txt", True),
+    ("GET", "/api/v1/chat/conversations", False),
+    ("OPTIONS", "/api/v1/chat", False),
+    ("POST", "/code/login", False),
+    ("POST", "/api/v1/events", False),
+    ("POST", "/api/v1/sirvis/recommendations", False),
+    ("POST", "/api/v1/sirvis/benchmarks", True),
+    ("POST", "/api/v1/eventsx", True),
+    ("POST", "/api/v1/registry/instancesx", True),
+    ("POST", "/api/v1/sirvis/recommendations/x", True),
+])
+def test_which_requests_need_the_token(method: str, path: str, needed: bool) -> None:
+    from nervis.api import control
+
+    assert control.needs_control(method, path) is needed

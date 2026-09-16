@@ -681,7 +681,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.16
+## NERVIS — 0.34.17
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+- **Every change made through the dashboard needs its security token.** Until now only settings
+  that change RAVIS, service control, the voice key and a few others asked for it. Now every
+  change NERVIS accepts does — chat, notifications, workspace files, settings import, background
+  work, recall, voice profiles and the rest — and a change added later is covered automatically.
+  The page sends the token with every change it makes, so nothing looks different.
+- **Not the page's, so not covered:** events and registration sent by the services and editor
+  windows keep their own rules, and so does SIRVIS's recommendation, which only reads.
+- **If NERVIS restarted since you opened the page**, a change is refused with a message saying
+  to reload the page.
+
+### 0.34.16
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

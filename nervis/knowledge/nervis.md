@@ -1010,7 +1010,10 @@ restarted in a loop.
 
 Since NERVIS 0.34.15 every one of these controls — the switch included — also
 needs the token the dashboard page carries, which changes whenever NERVIS
-restarts; a page opened before a restart says to reload it.
+restarts; a page opened before a restart says to reload it. Since NERVIS 0.34.17
+every change made through NERVIS needs it — chat, notifications, files,
+settings and the rest — except what the services and editor windows send
+themselves (events and registration).
 
 There are exactly three things it can do — start, stop, restart — and asking for
 anything else gets "no such thing" rather than an error explaining what would

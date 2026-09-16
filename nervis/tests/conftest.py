@@ -75,3 +75,27 @@ def isolated_config_home(tmp_path: Path, monkeypatch: Any) -> Iterator[Path]:
     )
     monkeypatch.setenv("APPDATA", str(home))
     yield home
+
+
+@pytest.fixture(autouse=True)
+def page_control_token(request: pytest.FixtureRequest, monkeypatch: Any) -> None:
+    """Every test client sends NERVIS's control token, as the dashboard page does.
+
+    Since NERVIS 0.34.17 every write under `/api/v1/` needs it (`nervis.api.control`), and the
+    page adds it to all of them. A test of what a write does is not a test of the token, so its
+    client carries the token the way the page would; `test_control_token.py`, whose subject is
+    the token, sets `SENDS_NO_CONTROL_TOKEN` and gets clients without it.
+    """
+    if getattr(request.module, "SENDS_NO_CONTROL_TOKEN", False):
+        return
+    from fastapi.testclient import TestClient
+
+    original = TestClient.__init__
+
+    def with_token(self: TestClient, app: Any, *args: Any, **kwargs: Any) -> None:
+        token = getattr(getattr(app, "state", None), "control_token", "")
+        if token:
+            kwargs["headers"] = {"x-nervis-control": token, **(kwargs.get("headers") or {})}
+        original(self, app, *args, **kwargs)
+
+    monkeypatch.setattr(TestClient, "__init__", with_token)

@@ -30,6 +30,9 @@ from nervis.code_proxy import COOKIE, IDLE_SECONDS, SESSION_SECONDS, Sessions
 from nervis.config import Settings
 from nervis.errors import UnauthorizedError
 
+# This file sends the control token itself where a test needs it (`conftest.page_control_token`).
+SENDS_NO_CONTROL_TOKEN = True
+
 #: A literal address, not a name: the registry refuses a named host as an
 #: SSRF precaution, and a fixture that trips an unrelated guard makes every
 #: failure here start with a question about the fixture.

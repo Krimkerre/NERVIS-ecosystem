@@ -28,6 +28,7 @@ before drawing a health table is a console nobody opens.
 
 from __future__ import annotations
 
+import re
 import secrets
 
 from fastapi import Request
@@ -37,8 +38,38 @@ from nervis.errors import ControlTokenRequiredError
 HEADER = "x-nervis-control"
 
 
-def require_control(request: Request) -> None:
-    """Refuse unless the caller presents this process's control token.
+#: Methods that change nothing, and so never need the token.
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+#: Writes under `/api/v1/` that are not the page's to make, so the page's token cannot be asked of
+#: them — each guarded its own way — and the one negotiated read that is a POST.
+#:
+#: * Events and registration come from SIRVIS, RAVIS and each Clarvis Bridge; registration needs
+#:   the enrollment secret (`instances._require_enrollment`), and a registered Bridge's heartbeat
+#:   and deregistration need the token it was issued. Event delivery has no guard beyond the
+#:   host and origin checks (`design/security/review-2026-09-16.md`, S7).
+#: * SIRVIS's recommendations are a read with a body (§14.3), passed to SIRVIS and stored nowhere.
+#:
+#: Everything else under `/api/v1/` that is not a read needs the token, and a route added later
+#: does too without having to remember it.
+NOT_THE_PAGES = (
+    re.compile(r"^/api/v1/events$"),
+    re.compile(r"^/api/v1/registry/instances(?:/|$)"),
+    re.compile(r"^/api/v1/sirvis/recommendations$"),
+)
+
+
+def needs_control(method: str, path: str) -> bool:
+    """Whether a request must carry the page's control token (NERVIS 0.34.17)."""
+    return (
+        method.upper() not in SAFE_METHODS
+        and path.startswith("/api/v1/")
+        and not any(pattern.match(path) for pattern in NOT_THE_PAGES)
+    )
+
+
+def presents_control(request: Request) -> bool:
+    """Whether `request` carries this process's control token.
 
     Compared with `compare_digest` rather than `==`. The timing difference is
     not the realistic attack here, and writing the comparison the careful way
@@ -46,8 +77,21 @@ def require_control(request: Request) -> None:
     """
     held = str(getattr(request.app.state, "control_token", "") or "")
     offered = request.headers.get(HEADER, "")
-    if not held or not offered or not secrets.compare_digest(held, offered):
-        raise ControlTokenRequiredError(
+    return bool(held and offered and secrets.compare_digest(held, offered))
+
+
+def control_refusal() -> ControlTokenRequiredError:
+    return ControlTokenRequiredError(
             "this change through NERVIS needs the dashboard's control token, which "
             "changes whenever NERVIS restarts; reload the dashboard and try again"
         )
+
+
+def require_control(request: Request) -> None:
+    """Refuse unless the caller presents this process's control token.
+
+    Kept on the routes that had it before the middleware rule (`needs_control`) covered every
+    write, so a route stays guarded even if it ever moved out from under `/api/v1/`.
+    """
+    if not presents_control(request):
+        raise control_refusal()

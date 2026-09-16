@@ -2213,6 +2213,22 @@ function recentDecisions(payload){
    in. Every configuration write goes through `control_headers()` — a helper
    rather than six literals, so the seventh cannot quietly ship without it. */
 const CONTROL_TOKEN=(document.querySelector('meta[name="nervis-control"]')||{}).content||'';
+/* Every write this page sends NERVIS carries the token, since NERVIS 0.34.17 asks it of every
+   write under /api/v1/ and not only the configuration ones. Added here, once, around `fetch`,
+   rather than at each of the forty-odd call sites: a write added later cannot forget it. Only a
+   request to this page's own origin (a path starting with one `/`) gets it, and only a write;
+   SIRVIS and anything else the page dials never see the token. */
+const PAGE_FETCH=globalThis.fetch;
+function withControlToken(init){
+ const headers=init&&init.headers;
+ if(headers&&typeof headers.set==='function'){headers.set('x-nervis-control',CONTROL_TOKEN);return init}
+ return {...(init||{}),headers:{...(headers||{}),'x-nervis-control':CONTROL_TOKEN}};
+}
+globalThis.fetch=function(input,init){
+ const own=typeof input==='string'&&input.startsWith('/')&&!input.startsWith('//');
+ const write=!['GET','HEAD'].includes(String((init&&init.method)||'GET').toUpperCase());
+ return PAGE_FETCH(input,own&&write?withControlToken(init):init);
+};
 /* Each segment encoded, the separators left alone: the route takes a path and
    `encodeURIComponent` on the whole thing would turn every `/` into `%2F` and
    send one long filename. */
