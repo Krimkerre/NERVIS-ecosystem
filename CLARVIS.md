@@ -696,10 +696,17 @@ stay on the Bridge's own stream: the hub's flood guard allows a service 120 even
 minute after, and a 25-call run with both ends of everything forwarded is about 130 events. An
 ending carries `elapsed_ms`, and a trace's Clarvis bar already spans the turn.
 
-**`clarvis.task.*` is not emitted**, and nothing yet says what a Clarvis task is: an agent run has
-`clarvis.agent.*`, a NERVIS handoff is a file (E-C8), and §6.3's "build and test outcome" suggests
-VS Code tasks. NERVIS's per-window task list (`nervis/src/nervis/clarvis.py`) stays empty until that
-is decided.
+**`clarvis.task.*` since Clarvis 0.17.14: a Clarvis task is a handover from NERVIS** (the owner's
+decision, 16 September 2026). NERVIS writes an id into the brief (`<!-- nervis-task-id: nt_… -->`,
+sixteen hex digits, random) and into its record of the handover (`nervis.command.attempted`, operation
+`nervis.clarvis.task`, with `task_id` and `folder`). Clarvis remembers the id per workspace — the brief
+is deleted once planning has begun — and publishes `clarvis.task.started` with `task_id` and `stage`
+(`planning` when picked up, `building` and `paused` around each run of the task's plan) and
+`clarvis.task.completed` with `outcome: built` when the whole plan is built. Nothing else travels: the
+task's words are the prompt this section keeps on the machine. NERVIS's `GET /api/v1/handovers` joins
+the two across every editor window, since one task is built across reloads; a handover Clarvis has
+said nothing about is `waiting`. A coding run has `clarvis.agent.*`, and a build or test run's outcome
+belongs to `/v1/status` (§6.3).
 
 ## 6.5 Tracing
 
@@ -1028,8 +1035,8 @@ NERVIS's enrolment secret and is not assessed here. **A cross-service trace reso
 16 September 2026:** a Clarvis chat turn in code-server drew, under one trace id in NERVIS,
 `clarvis.chat.started` and `.completed`, RAVIS's `ravis.route.selected` (`ravis/clarvis-chat` to
 `claude-haiku-4-5`) and `ravis.request.completed` naming Anthropic, and RAVIS's log line of the
-provider call (`STATUS.md`, row 5 of "Next"). Still unmet: **§6.4's list is emitted except `clarvis.task.*`** — model, tool and diagnostic events
-arrived in Clarvis 0.17.11 (§6.4's as-built note); what a Clarvis task is has not been decided.
+provider call (`STATUS.md`, row 5 of "Next"). **§6.4's list is emitted in full since Clarvis 0.17.14**: model, tool and diagnostic events arrived in
+0.17.11, and task events — a handover from NERVIS — in 0.17.14 (§6.4's as-built note).
 
 ### E-C5 LIVE VERIFIED — NERVIS visibility
 

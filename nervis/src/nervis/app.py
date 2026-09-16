@@ -49,6 +49,7 @@ from nervis.api import (
     documents_router,
     events_router,
     files_router,
+    handovers_router,
     inspector_router,
     instances_router,
     learned_router,
@@ -136,6 +137,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(supervision_router)
     api.include_router(traces_router)
     api.include_router(instances_router)
+    api.include_router(handovers_router)
     api.include_router(inspector_router)
     api.include_router(logs_router)
     api.include_router(background_router)

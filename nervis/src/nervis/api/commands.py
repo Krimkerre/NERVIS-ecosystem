@@ -51,6 +51,7 @@ from nervis import (
 from nervis.api.chat_calls import _forwarded
 from nervis.api.chat_titles import _title_from
 from nervis.api.documents import SERVED
+from nervis.clarvis import HANDOVER_OPERATION
 from nervis.errors import InvalidConfigurationError
 from nervis.negotiation import Operation, may_attempt, negotiate
 from nervis.registry import RegistryEntry
@@ -238,7 +239,9 @@ async def _hand_over(
     started = await asyncio.to_thread(handoff_git.start, place, written.folder)
     _audit(request, task, "written", f"handed to Clarvis in {written.folder}/"
            + ("" if started.repository else ", not a git repository yet"),
-           verb="hand over")
+           verb="hand over",
+           # What `/api/v1/handovers` joins Clarvis's `clarvis.task.*` events on.
+           extra={"task_id": written.task_id, "folder": written.folder})
     detail = (f"waiting in {written.folder}/ — open that folder in Clarvis "
               "to read and approve it")
     if not started.repository:
@@ -573,11 +576,17 @@ _SUCCEEDED = frozenset({"queued", "cancelled", "deleted", "already_present"})
 
 # The id an attempt is audited under, where it is not in the benchmark family:
 # `delete` acts on a result and `download` on a model, not on the queue.
-_AUDITED_AS = {"delete": "sirvis.result.delete", "download": "sirvis.download.start"}
+# **A handover is Clarvis's, not a SIRVIS benchmark.** `hand over` fell through to
+# `sirvis.benchmark.hand over` about service `sirvis` until 16 September 2026, so no
+# reader looking for handovers could have found one.
+_AUDITED_AS = {"delete": "sirvis.result.delete", "download": "sirvis.download.start",
+               "hand over": HANDOVER_OPERATION}
+_SUBJECT_OF = {HANDOVER_OPERATION: "clarvis"}
 
 
 def _audit(
-    request: Request, target: str, outcome: str, detail: str, verb: str = "submit"
+    request: Request, target: str, outcome: str, detail: str, verb: str = "submit",
+    extra: dict[str, Any] | None = None,
 ) -> None:
     """Every attempt, published — §12 asks for audit and this is the whole of it.
 
@@ -585,6 +594,7 @@ def _audit(
     records only what worked cannot answer "did something try to do this", which
     is the question an audit trail exists for.
     """
+    operation = _AUDITED_AS.get(verb, f"sirvis.benchmark.{verb}")
     request.app.state.hub.emit(
         "nervis.command.attempted",
         # An operation that did what it was asked is not a warning. Only
@@ -592,12 +602,13 @@ def _audit(
         # this file grew a third operation, a delete that worked — published at
         # warning and landed in the error log the operator reads for problems.
         severity="info" if outcome in _SUCCEEDED else "warning",
-        subject={"type": "service", "id": "sirvis"},
+        subject={"type": "service", "id": _SUBJECT_OF.get(operation, "sirvis")},
         data={
-            "operation": _AUDITED_AS.get(verb, f"sirvis.benchmark.{verb}"),
+            "operation": operation,
             "target": target,
             "outcome": outcome,
             "detail": detail,
+            **(extra or {}),
         },
         trace_id=str(getattr(request.state, "trace_id", "") or ""),
     )

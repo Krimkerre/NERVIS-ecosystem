@@ -23,6 +23,7 @@ evidence of what was asked for, never an instruction Clarvis follows unreviewed.
 from __future__ import annotations
 
 import re
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,6 +60,18 @@ MARKER = "<!-- authored-by: nervis -->"
 
 MAX_TASK = 2_000
 
+#: The handover's id, written into the brief so Clarvis's `clarvis.task.*` events can
+#: name it (the owner's decision of 16 September 2026: a Clarvis task is a handover).
+#: Random and derived from nothing — the id travels in events, and the task's words
+#: must not. Clarvis reads exactly this shape and ignores anything else.
+TASK_ID_LINE = "<!-- nervis-task-id: {} -->"
+TASK_ID = re.compile(r"<!-- nervis-task-id: (nt_[0-9a-f]{16}) -->")
+
+
+def new_task_id() -> str:
+    """`nt_` and sixteen hex digits."""
+    return f"nt_{secrets.token_hex(8)}"
+
 
 @dataclass(frozen=True)
 class Task:
@@ -69,6 +82,8 @@ class Task:
     conversation: str = ""
     #: The task's own folder, relative to the editor room — what to open in Clarvis.
     folder: str = ""
+    #: The handover's id (`new_task_id`); empty for a brief written before ids were.
+    task_id: str = ""
 
     def as_markdown(self) -> str:
         """The file Clarvis reads.
@@ -79,7 +94,8 @@ class Task:
         """
         return (
             f"{MARKER}\n"
-            f"# Task from NERVIS\n\n"
+            + (TASK_ID_LINE.format(self.task_id) + "\n" if self.task_id else "")
+            + f"# Task from NERVIS\n\n"
             f"{self.task}\n\n"
             f"---\n\n"
             f"_Handed over from NERVIS chat on {self.asked_on}"
@@ -91,7 +107,7 @@ class Task:
 
     def as_dict(self) -> dict[str, Any]:
         return {"task": self.task, "asked_on": self.asked_on,
-                "conversation": self.conversation}
+                "conversation": self.conversation, "task_id": self.task_id}
 
 
 def folder_name(text: str) -> str:
@@ -184,6 +200,7 @@ def write(
     written = Task(
         task=cleaned, asked_on=asked_on, conversation=conversation,
         folder=f"{TASK_FOLDER}/{folder.name}",
+        task_id=new_task_id(),
     )
     destination.write_text(written.as_markdown(), encoding="utf-8")
     return written
@@ -213,10 +230,12 @@ def waiting(root: Path) -> Task | None:
     # which had always had a conversation in it.
     when = re.search(r"on (\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC)", text)
     conversation = re.search(r"conversation `([^`]+)`", text)
+    task_id = TASK_ID.search(text)
     return Task(
         task=body,
         asked_on=(when.group(1).strip() if when else ""),
         conversation=(conversation.group(1) if conversation else ""),
+        task_id=(task_id.group(1) if task_id else ""),
     )
 
 
@@ -230,6 +249,6 @@ def forget(root: Path) -> bool:
 
 
 __all__ = [
-    "MARKER", "MAX_TASK", "TASK_FILE", "TASK_FOLDER", "Task",
-    "forget", "waiting", "write",
+    "MARKER", "MAX_TASK", "TASK_FILE", "TASK_FOLDER", "TASK_ID", "Task",
+    "forget", "new_task_id", "waiting", "write",
 ]

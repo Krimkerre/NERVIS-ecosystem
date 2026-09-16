@@ -25,7 +25,19 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.13
+## Clarvis — 0.17.14
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+Clarvis tells NERVIS how far a task NERVIS handed over has got.
+
+- **Handed-over tasks are followed:** when you open a task NERVIS handed over, Clarvis reports it as
+  being planned, then being built and paused around each build run, and done once the whole plan is
+  built. Only the task's id and stage are sent, never its words.
+- **Remembered across reloads:** the handover note is deleted once planning starts, so Clarvis keeps
+  the task's id for that project folder itself.
+
+### 0.17.13
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -643,7 +655,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.8
+## NERVIS — 0.34.9
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
+
+NERVIS shows every task it handed to Clarvis and how far each has got.
+
+- **"Handed over to Clarvis":** a new card on Diagnostics → Clarvis lists each handover's folder and
+  whether it is waiting to be opened, being planned, being built, paused, or done. It shows even when
+  no editor window is open, and covers every window that worked on the task. Needs Clarvis 0.17.14.
+- **Each handover has an id**, written into the task note and into NERVIS's record of the handover.
+- **Fixed: handovers were recorded as a SIRVIS benchmark operation.** They are now recorded as
+  Clarvis's.
+- **For operators:** `GET /api/v1/handovers`, and a new dashboard gate, `handovers_check.js`.
+
+### 0.34.8
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS, SIRVIS, Clarvis Bridge, code-server
 

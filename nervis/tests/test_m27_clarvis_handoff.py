@@ -342,7 +342,9 @@ def test_nothing_here_reaches_the_editor() -> None:
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
 
-    assert imported <= {"re", "dataclasses", "datetime", "pathlib", "typing", "__future__"}, (
+    # `secrets` mints a handover's id (16 Sep 2026): random bytes, nothing that opens a socket.
+    assert imported <= {"re", "dataclasses", "datetime", "pathlib", "typing", "__future__",
+                        "secrets"}, (
         f"handoff.py imports {sorted(imported)}; §6.7 forbids NERVIS reaching the "
         "editor, and a module that can open a socket is one edit from doing so"
     )

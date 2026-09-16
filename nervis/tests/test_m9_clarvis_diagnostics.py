@@ -46,8 +46,9 @@ def test_a_task_that_started_and_did_not_finish_is_running() -> None:
     nothing since, which is a different fact from knowing it is stuck.
     """
     found = clarvis.tasks([event(clarvis.TASK_STARTED, "2026-09-02T10:00:00Z", task_id="t1")])
-    assert found == [{"task_id": "t1", "state": "running",
-                      "started_at": "2026-09-02T10:00:00Z", "completed_at": ""}]
+    assert found == [{"task_id": "t1", "state": "running", "stage": "",
+                      "started_at": "2026-09-02T10:00:00Z", "completed_at": "",
+                      "updated_at": "2026-09-02T10:00:00Z"}]
 
 
 def test_a_task_appears_once_however_many_events_it_has() -> None:

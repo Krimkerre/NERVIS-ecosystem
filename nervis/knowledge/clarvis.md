@@ -128,8 +128,19 @@ Besides chat turns, coding runs and approval waits, a window with the Bridge on 
   any) when they change, at most every 30 seconds. Never which files.
 
 The starts of model requests and tool calls stay in the editor, to keep a busy run within NERVIS's
-flood guard. **Clarvis sends no task events yet**, so NERVIS's list of a window's tasks is empty:
-what a "task" means for Clarvis hasn't been decided.
+flood guard.
+
+### Tasks handed over to Clarvis (NERVIS 0.34.9, Clarvis 0.17.14)
+
+A Clarvis "task" is a task NERVIS handed over ("get Clarvis to …"). Each handover gets an id, and
+Clarvis reports where it has got to: **being planned** once someone opens its folder and starts the
+planning questions, **being built** while a run of its plan is going, **paused between runs** after
+each one, and **done · built** once every milestone of the plan is finished. NERVIS → Diagnostics →
+Clarvis lists every handover in the "Handed over to Clarvis" card, whichever editor window worked on
+it; one Clarvis hasn't mentioned yet shows **waiting to be opened**, which means nobody has opened its
+folder in Clarvis, not that it is stuck. Only the task's folder and id are shown there, never its
+words. Handovers made before 16 September 2026 have no id and don't appear. The list goes back as far
+as NERVIS's event history does.
 
 ## Voice
 

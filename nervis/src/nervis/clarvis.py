@@ -35,6 +35,12 @@ from typing import Any, Iterable, Mapping
 TASK_STARTED = "clarvis.task.started"
 TASK_COMPLETED = "clarvis.task.completed"
 
+# What a task is, decided by the owner on 16 September 2026: a handover from NERVIS.
+# Its audit record carries the id Clarvis's task events name.
+HANDOVER_OPERATION = "nervis.clarvis.task"
+# The stages Clarvis says a handover is at; anything else is not shown.
+TASK_STAGES = ("planning", "building", "paused")
+
 # The agent-run family, in the order a run passes through them. `step` is
 # deliberately absent from the terminal set: a run emitting steps is still
 # running, and treating the newest step as an outcome would end every run at
@@ -89,9 +95,18 @@ def tasks(events: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
         if not task_id:
             continue
         entry = seen.setdefault(task_id, {"task_id": task_id, "state": "running",
-                                          "started_at": "", "completed_at": ""})
+                                          "stage": "", "started_at": "", "completed_at": "",
+                                          "updated_at": ""})
+        at = str(event.get("occurred_at") or "")
+        entry["updated_at"] = at
         if event_type == TASK_STARTED:
-            entry["started_at"] = str(event.get("occurred_at") or "")
+            # **The first start, and the latest stage.** Since Clarvis 0.17.14 a
+            # handover says `started` again at each stage — planning, building,
+            # paused — so the start is when it was first picked up.
+            entry["started_at"] = entry["started_at"] or at
+            stage = data.get("stage")
+            if stage in TASK_STAGES:
+                entry["stage"] = stage
         else:
             entry["state"] = "completed"
             entry["completed_at"] = str(event.get("occurred_at") or "")
@@ -99,6 +114,42 @@ def tasks(events: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
             if isinstance(outcome, str) and outcome:
                 entry["outcome"] = outcome[:40]
     return sorted(seen.values(), key=lambda t: t["started_at"], reverse=True)
+
+
+def handovers(
+    audits: Iterable[Mapping[str, Any]], task_events: Iterable[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Every task NERVIS handed to Clarvis, with how far Clarvis has got, newest first.
+
+    **Across every window, unlike `tasks`.** A handover is picked up in one editor
+    window and built across reloads, each a new registration, so a per-window list
+    shows only fragments of it. Joined on the id NERVIS wrote into the brief.
+
+    A handover Clarvis has said nothing about is `waiting`, which is all the
+    evidence supports: nobody may have opened its folder yet. A task Clarvis
+    reports with no handover record — one older than the hub's retention, or a
+    brief from before ids, which Clarvis gives an id of its own — is still listed,
+    with no folder.
+    """
+    found: dict[str, dict[str, Any]] = {}
+    for event in audits:
+        _, data = _envelope(event)
+        if data.get("operation") != HANDOVER_OPERATION or data.get("outcome") != "written":
+            continue
+        task_id = _task_id(data)
+        if task_id:
+            found[task_id] = {
+                "task_id": task_id, "folder": str(data.get("folder") or "")[:120],
+                "handed_over_at": str(event.get("occurred_at") or ""), "state": "waiting",
+                "stage": "", "outcome": "", "started_at": "", "completed_at": "",
+                "updated_at": "",
+            }
+    for task in tasks(task_events):
+        entry = found.setdefault(task["task_id"], {"task_id": task["task_id"], "folder": "",
+                                                   "handed_over_at": ""})
+        entry.update({"outcome": "", **task})
+    return sorted(found.values(),
+                  key=lambda h: h["handed_over_at"] or h["started_at"], reverse=True)
 
 
 def agent_run(events: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
@@ -176,4 +227,5 @@ def diagnostics(
     }
 
 
-__all__ = ["EVENT_WINDOW", "agent_run", "diagnostics", "gate", "tasks"]
+__all__ = ["EVENT_WINDOW", "HANDOVER_OPERATION", "agent_run", "diagnostics", "gate",
+           "handovers", "tasks"]

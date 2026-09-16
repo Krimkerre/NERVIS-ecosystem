@@ -3769,6 +3769,16 @@ const API={
    return {ok:false,detail:detail||`NERVIS refused the install (${r.status})`};
   },
 
+  /* GET /api/v1/handovers — every task NERVIS handed to Clarvis, and how far each got.
+     No mock: an invented handover is NERVIS claiming work it never passed on. */
+  async handovers(){
+   try{
+    const r=await fetch('/api/v1/handovers',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)return{items:(await r.json()).items||[],live:true};
+   }catch(e){}
+   return{items:[],live:false};
+  },
+
   async clarvisInstances(){
    /* The optional Clarvis Bridge, asked rather than assumed. It is a localhost
       surface that starts and stops with the editor window, so "not running" is
@@ -16195,12 +16205,12 @@ function clarvisGateCard(gate,on){
 
 function clarvisTaskRows(tasks){
  if(!tasks.length)return banner('No task recorded',
-   'This window has sent no <code>clarvis.task.*</code> event.','info');
+   'This window has sent no <code>clarvis.task.*</code> event. A task is a handover from NERVIS; they are all listed above.','info');
  return `<div class="table-row head caps" style="grid-template-columns:1.4fr .8fr 1fr 1fr">
    <span>Task</span><span>State</span><span>Started</span><span>Finished</span></div>`
   +tasks.map(t=>`<div class="table-row" style="grid-template-columns:1.4fr .8fr 1fr 1fr">
     <span class="mono">${escapeHtml(t.task_id)}</span>
-    <span>${escapeHtml(t.state)}${t.outcome?` · ${escapeHtml(t.outcome)}`:''}</span>
+    <span>${escapeHtml(t.state)}${t.stage&&t.state!=='completed'?` · ${escapeHtml(HANDOVER_STAGE[t.stage]||t.stage)}`:''}${t.outcome?` · ${escapeHtml(t.outcome)}`:''}</span>
     <span class="mono dim">${escapeHtml(t.started_at?noteExact(t.started_at):'not seen')}</span>
     <span class="mono dim">${escapeHtml(t.completed_at?noteExact(t.completed_at):'—')}</span>
    </div>`).join('');
@@ -16219,6 +16229,33 @@ function clarvisEventRows(events){
 /* The two states with no window to draw, which are different facts: a dashboard
    that cannot reach NERVIS knows nothing, and a NERVIS with no registered window
    knows that there is none — which is Clarvis's ordinary condition, not a fault. */
+/* Tasks handed to Clarvis (the owner's decision of 16 September 2026: that is what a
+   Clarvis "task" is). Across every editor window, since one task is picked up in one
+   and built across several. Waiting means Clarvis has said nothing about it yet —
+   nobody may have opened its folder — which is a different claim from stuck. */
+const HANDOVER_STAGE={planning:'being planned',building:'being built',paused:'paused between runs'};
+
+function handoverState(h){
+ if(h.state==='completed')return `<span class="chip">done${h.outcome==='built'?' · built':h.outcome?' · '+escapeHtml(h.outcome):''}</span>`;
+ if(h.state==='running')return `<span class="chip">${escapeHtml(HANDOVER_STAGE[h.stage]||'picked up')}</span>`;
+ return '<span class="chip warn" title="Clarvis has not said it picked this up">waiting to be opened</span>';
+}
+
+function clarvisHandoverCard(h){
+ const items=Array.isArray(h.items)?h.items:[];
+ const body=!h.live?banner('Handovers could not be read','NERVIS did not answer.','warn')
+  :!items.length?banner('Nothing handed over','Ask NERVIS chat to "get Clarvis to …" and the task is listed here until the hub forgets it.','info')
+  :`<div class="table-row head caps" style="grid-template-columns:1.4fr 1fr 1fr 1fr">
+     <span>Task folder</span><span>Where it is</span><span>Handed over</span><span>Last heard</span></div>`
+   +items.map(t=>`<div class="table-row" style="grid-template-columns:1.4fr 1fr 1fr 1fr">
+     <span class="mono">${escapeHtml(t.folder||'no handover record')} <small class="dim">${escapeHtml(t.task_id)}</small></span>
+     <span>${handoverState(t)}</span>
+     <span class="mono dim">${t.handed_over_at?noteExact(t.handed_over_at):'—'}</span>
+     <span class="mono dim">${t.updated_at?noteExact(t.updated_at):'—'}</span></div>`).join('');
+ return `<div class="card full${liveClass(h.live)}"><h3>Handed over to Clarvis</h3>${cell(body,'clarvis')}
+  <small class="mono dim">Joined from NERVIS's record of each handover and what Clarvis reported about it, in any window. Only the task's folder and id are shown here; its words stay in the folder.</small></div>`;
+}
+
 function clarvisNoWindows(live){
  return `<div class="card full${liveClass(live)}"><h3>Clarvis</h3>${cell(banner(
    live?'No editor window has registered':'NERVIS is not answering',
@@ -16531,9 +16568,9 @@ async function inspectorView(){
 
 async function clarvisDiagnosticsView(){
  heading('Diagnostics','What each registered editor window is doing — read, never driven.');
- const inst=await API.nervis.clarvisInstances();
+ const [inst,handed]=await Promise.all([API.nervis.clarvisInstances(),API.nervis.handovers()]);
  const windows=inst.items||[];
- const sections=`${diagSectionsRow()}`;
+ const sections=`${diagSectionsRow()}${clarvisHandoverCard(handed)}`;
  if(!windows.length){$('#content').innerHTML=sections+clarvisNoWindows(inst.live);return}
 
  /* A selection that points at a window which has since closed is dropped rather
