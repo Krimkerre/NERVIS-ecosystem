@@ -109,6 +109,9 @@ for package in protocol ravis sirvis nervis; do
   step "$package mypy"   "nervis-eco/$package" mypy
   step "$package pytest" "nervis-eco/$package" pytest -q
 done
+# The launcher is in no package, so no step above type-checks it; it carried four
+# errors unnoticed until 16 September 2026.
+step "launcher mypy" "nervis-eco" mypy --strict tools/run.py
 
 # **One environment per package, and nothing of its siblings in it.**
 #

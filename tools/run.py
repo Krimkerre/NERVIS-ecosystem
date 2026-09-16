@@ -1886,7 +1886,7 @@ def status_report() -> dict[str, object]:
     # Only a service this launcher owns has a marker, and so a process it can vouch for.
     markers = {name: marker for name, _, marker, _, _ in owned}
     recorded = _recorded()
-    services = [
+    services: list[dict[str, object]] = [
         {"name": name, "group": group, "answering": answering, "address": _open_address(name, url),
          "problem": _problem(name, markers.get(name), answering, recorded)}
         for (name, url, group), answering in zip(probes, answers)
@@ -2047,7 +2047,8 @@ def _save_menu_sessions(sessions: dict[str, str]) -> None:
 def _model_row(model: dict[str, object], loaded_keys: set[str], held: dict[str, str]) -> dict[str, object]:
     """One installed model as the menu shows it."""
     key = str(model.get("runtime_key") or "")
-    variant = model.get("variant") if isinstance(model.get("variant"), dict) else {}
+    raw_variant = model.get("variant")
+    variant: dict[str, object] = raw_variant if isinstance(raw_variant, dict) else {}
     return {
         "key": key,
         "name": key.split("/")[-1],
