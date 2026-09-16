@@ -1517,7 +1517,30 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.28.2
+## RAVIS — 0.28.3
+
+**Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
+
+RAVIS now counts what streamed replies from OpenAI and LM Studio use.
+
+- **Fixed: OpenAI replies were recorded as costing nothing.** OpenAI, and LM Studio on your own
+  machine, only report how many tokens a streamed reply used when the request asks. Nothing asked,
+  so your two gpt-4.1 test messages were written down with no token counts and no cost, and the
+  budget read them as free. RAVIS now asks on every streamed request that didn't say either way.
+- **What apps receive changes by one final message:** the token counts, with no text in it.
+  OpenRouter already sends exactly that to NERVIS and Clarvis, and both simply skip it; new tests in
+  NERVIS and Clarvis pin that. A request that set this itself, either way, is passed on untouched.
+- **A provider that won't take the question still answers.** RAVIS asks again without it, and
+  doesn't ask that model again for 30 minutes. A setting an app sent itself is never removed.
+- **Dated OpenAI models find their price.** A rate written for `gpt-4o` now also prices
+  `gpt-4o-2024-08-06`, as `claude-haiku-4-5` already priced `claude-haiku-4-5-20251001`.
+- **Still to do by you, if you want OpenAI spend in the budget:** gpt-4.1 has no rate in
+  `~/.config/ravis/prices.json`, so its calls now show their tokens but still no cost. The file has
+  rates for gpt-4o, the gpt-5 family, o1 and o3-mini.
+- **For operators:** the added field is `stream_options.include_usage`, merged into any
+  `stream_options` the client sent; a request that doesn't stream is not touched.
+
+### 0.28.2
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

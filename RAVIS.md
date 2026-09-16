@@ -1242,6 +1242,19 @@ estimated cost as an invoice.** They are kept in RAVIS's database for ninety day
 start (since 12 September 2026): held only in memory, every restart emptied the spend screen and
 the monthly budget with it. A record carries no prompt and no completion.
 
+**A streamed call is asked for its counts** (16 Sep 2026, RAVIS 0.28.3). OpenAI and LM Studio
+send a stream's usage only to a request that set `stream_options.include_usage`, and neither
+NERVIS nor Clarvis sets it, so the first OpenAI calls RAVIS ever recorded carried no counts and no
+cost. RAVIS now adds `include_usage: true` to every transparent streamed request that did not say
+either way, merged into any `stream_options` the client sent; a client that set it, either way,
+is forwarded untouched, and so is a request that does not stream. The client then receives one
+more frame, `choices` empty and `usage` filled in, which OpenRouter already sends everyone and
+NERVIS and Clarvis read as no text. An upstream that refuses the field is asked again without it
+and not asked again for 30 minutes (§10); a `stream_options` the client sent is never removed.
+**A dated build is priced under its undated name** in either vendor's spelling, Anthropic's
+`-20251001` and OpenAI's `-2024-08-06`. A model with no rate written down still costs `UNKNOWN`,
+tokens or not: OpenAI publishes no prices, so a rate is the operator's to write in `prices.json`.
+
 **Budgets:** daily, weekly, monthly, per application, per provider. Budget constraints use
 declared accounting semantics and fail predictably when a price is unavailable.
 

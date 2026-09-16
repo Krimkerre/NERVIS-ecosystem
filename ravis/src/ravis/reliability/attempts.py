@@ -216,6 +216,9 @@ class AttemptChain:
     # `invalid_request` and the chain stopped with the usual pick untried: the
     # person lost their turn to RAVIS's curiosity.
     explored: str = ""
+    # Fields RAVIS added to the forwarded body itself, which a refusal may name
+    # and a retry may then leave out (`parameters.droppable`).
+    added: frozenset[str] = frozenset()
 
     _queue: list[str] = field(default_factory=list, init=False)
     # Models this chain newly suppressed for tools, in order, so the closing
@@ -393,7 +396,7 @@ class AttemptChain:
         if failure_class is not FailureClass.UNSUPPORTED_PARAMETER or target in self._retried:
             return False
         names = refused_parameters(detail)
-        if not droppable(names):
+        if not droppable(names, self.added):
             return False
         self.health.learn_refused(target, names)
         self._dropped.setdefault(target, []).extend(sorted(names))

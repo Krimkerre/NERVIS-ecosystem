@@ -74,6 +74,12 @@ def refused_parameters(message: str) -> frozenset[str]:
     return frozenset(_UNSUPPORTED.findall(message))
 
 
-def droppable(names: frozenset[str]) -> bool:
-    """Whether every named setting may be left out, and there is at least one."""
-    return bool(names) and names <= DROPPABLE
+def droppable(names: frozenset[str], added: frozenset[str] = frozenset()) -> bool:
+    """Whether every named setting may be left out, and there is at least one.
+
+    `added` is what RAVIS put in the request on its own initiative — the caller
+    never asked for it, so leaving it out takes nothing from them. Today that is
+    `stream_options`, which RAVIS adds to learn what a streamed call cost
+    (`chat.USAGE_FIELD`); an upstream that refuses it still answers without it.
+    """
+    return bool(names) and names <= DROPPABLE | added

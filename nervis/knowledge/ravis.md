@@ -648,6 +648,8 @@ to fail.
 
 A route decision's attempts list `dropped_parameters` and `held_from_exploration`.
 
+**What a streamed reply used is counted for every provider (RAVIS 0.28.3, 16 September 2026).** OpenAI and LM Studio only say how many tokens a streamed reply used when the request asks, and neither chat nor Clarvis asked, so the first OpenAI calls RAVIS recorded had no counts and no cost, and the budget read them as free. RAVIS now asks (`stream_options.include_usage`) on any streamed request that didn't say either way. The stream then ends with one extra frame that carries the counts and no text, which chat already received from OpenRouter and skips. A provider that refuses the question is asked again without it. A dated build such as `gpt-4o-2024-08-06` now finds the rate written for `gpt-4o`. A model with no rate in `prices.json` still shows no cost, only its tokens; gpt-4.1 has none written down.
+
 ## Where the prices come from, and why some are approximate
 
 RAVIS ships **no built-in price list**. Every hosted rate is written down by the

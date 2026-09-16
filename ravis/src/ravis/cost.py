@@ -207,7 +207,11 @@ class UsageRecord:
 
 
 # A trailing release date on a model id, as Anthropic dates its builds: `-20251001`.
-_DATED_SUFFIX = re.compile(r"-\d{8}$")
+# Both vendors' spellings of a dated build: Anthropic's `-20251001` and OpenAI's
+# `-2025-04-14`. Only the first was known until 16 September 2026, when the first
+# OpenAI calls RAVIS ever recorded named `gpt-4.1-2025-04-14`, and a rate written
+# for `gpt-4o` could never have reached `gpt-4o-2024-08-06` either.
+_DATED_SUFFIX = re.compile(r"-(?:\d{8}|\d{4}-\d{2}-\d{2})$")
 
 
 def price_from_book(candidates: Mapping[str, Any], book: PriceBook | None) -> None:

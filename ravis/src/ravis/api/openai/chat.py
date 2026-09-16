@@ -79,6 +79,7 @@ from ravis.reliability import (
     error_body,
 )
 from ravis.reliability.failures import HealthScope
+from ravis.reliability.parameters import DROPPABLE
 from ravis.routing.engine import DEFAULT_EXPLORATION_RATE, Exploration, RoutingEngine
 from ravis.routing.explain import RouteDecision
 from ravis.sessions import SESSION_HEADER, SessionStore
@@ -275,6 +276,10 @@ async def create_chat_completion(request: Request) -> Response:
     _emit_selected(request, decision)
 
     chain = _chain_for(request, decision)
+    # A field RAVIS adds itself may be refused and left out (`USAGE_FIELD`);
+    # one the client sent never is.
+    if _usage_unasked(parsed) and USAGE_FIELD not in parsed:
+        chain.added = frozenset({USAGE_FIELD})
     call = _Call(
         client=request.app.state.upstream_client,
         destination=_destination_for(request, upstream),
@@ -633,6 +638,8 @@ class _Call:
         self._ttl = ttl
         self.body = body
         self.payload = payload
+        # Decided once for the request; see `USAGE_FIELD`.
+        self.asks_usage = _usage_unasked(payload)
         # What every upstream lists, for the one purpose of telling "this model
         # is not offered anywhere" apart from "the upstream it was guessed onto
         # is unhappy". Set by the caller; empty means RAVIS has discovered
@@ -677,8 +684,13 @@ class _Call:
         `AttemptChain`'s retry-without-them a different request rather than the
         same refusal twice, and what spares the next request the refusal.
         """
+        refused = self.chain.health.refused(model)
+        # Only settings that tune an answer are left out of what the client
+        # sent; `stream_options` is refused-and-remembered only when RAVIS added
+        # it, and then it is simply not added again.
         body = _with_model(self.body, self.payload, model, self._ttl(model),
-                           drop=self.chain.health.refused(model))
+                           drop=refused & DROPPABLE,
+                           usage=self.asks_usage and USAGE_FIELD not in refused)
         return _for_openai(body) if _is_openai(self.target_for(model)) else body
 
     def finish(self) -> None:
@@ -1306,6 +1318,9 @@ def _usage_in(chunk: bytes) -> Usage | None:
 
     Cheap on the common chunk — the substring test rejects a content delta
     before any JSON is parsed, and a stream carries one usage frame in hundreds.
+    Less so once RAVIS has asked for usage (`USAGE_FIELD`): OpenAI then writes
+    `"usage": null` into every chunk, so each is parsed, found null and passed
+    over, and only the last one's counts are kept.
     """
     if b'"usage"' not in chunk:
         return None
@@ -1467,6 +1482,38 @@ def _policy_for(request: Request, payload: dict[str, Any]) -> RoutingPolicy:
 #: since NERVIS started sending them on 9 September; the lenient ones ignored them.
 RAVIS_FIELDS: frozenset[str] = frozenset({"explore", "explore_rate", "explore_prefer_unmeasured"})
 
+#: Where a streamed request asks for its token counts (`include_usage`).
+#:
+#: **Without it, a streamed call costs nothing, as far as RAVIS can tell.** OpenAI
+#: sends a stream's usage only to a request that asked for it, and so does LM
+#: Studio; DeepSeek, OpenRouter and Ollama send it anyway. Nothing asked — NERVIS
+#: chat doesn't, and neither does Clarvis — so the first OpenAI calls RAVIS ever
+#: recorded (16 September 2026, `gpt-4.1-2025-04-14`) had no token counts and no
+#: cost, three of four LM Studio records had none either, and §14's budget read
+#: those calls as nothing spent.
+#:
+#: So RAVIS asks, on every transparent streamed request that did not say either
+#: way. **What the client receives changes by one frame**: the upstream ends the
+#: stream with a chunk whose `choices` is empty and which carries `usage`, and
+#: puts `"usage": null` on the chunks before it. That is exactly the stream
+#: OpenRouter already sends every client here unasked, and NERVIS's relay, its
+#: page and Clarvis's provider all skip a chunk with no choices. A client that
+#: set `include_usage` itself, either way, is left alone. An upstream that
+#: refuses the field is asked again without it (`parameters.droppable`).
+USAGE_FIELD = "stream_options"
+
+
+def _usage_unasked(payload: dict[str, Any]) -> bool:
+    """Whether a streamed request left `include_usage` unsaid, so RAVIS may ask.
+
+    A `stream_options` that is not an object is the client's own business and is
+    left exactly as sent.
+    """
+    options = payload.get(USAGE_FIELD, {})
+    return payload.get("stream") is True and isinstance(options, dict) and (
+        "include_usage" not in options
+    )
+
 
 def _exploration(
     payload: dict[str, Any], avoid: frozenset[str] = frozenset()
@@ -1560,7 +1607,8 @@ def _for_openai(body: bytes) -> bytes:
 
 
 def _with_model(body: bytes, payload: dict[str, Any], model: str,
-                ttl_seconds: int = 0, drop: frozenset[str] = frozenset()) -> bytes:
+                ttl_seconds: int = 0, drop: frozenset[str] = frozenset(),
+                usage: bool = False) -> bytes:
     """Rewrite the `model` field — and, for a local runtime, how long it stays.
 
     This is the one place the transparent path modifies what the client sent,
@@ -1589,15 +1637,21 @@ def _with_model(body: bytes, payload: dict[str, Any], model: str,
     instructions (`RAVIS_FIELDS`) always, and whatever this model is known to
     refuse (`drop`, from `HealthRegistry.refused`). Leaving them in is what cost
     a chat turn on 16 September 2026: OpenAI refuses fields it does not know.
+
+    **And, when `usage` says so, a request for the stream's token counts** — the
+    one field RAVIS adds for its own bookkeeping (`USAGE_FIELD`), merged into
+    whatever `stream_options` the client already sent.
     """
     wants_ttl = ttl_seconds > 0 and "ttl" not in payload
     removed = (RAVIS_FIELDS | drop) & payload.keys()
-    if model == payload.get("model") and not wants_ttl and not removed:
+    if model == payload.get("model") and not wants_ttl and not removed and not usage:
         return body
     rewritten = {key: value for key, value in payload.items() if key not in removed}
     rewritten["model"] = model
     if wants_ttl:
         rewritten["ttl"] = ttl_seconds
+    if usage:
+        rewritten[USAGE_FIELD] = {**payload.get(USAGE_FIELD, {}), "include_usage": True}
     return json.dumps(rewritten).encode()
 
 
