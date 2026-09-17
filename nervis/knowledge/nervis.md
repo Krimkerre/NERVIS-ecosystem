@@ -1327,6 +1327,18 @@ the memory free at the time, the menu asks. A model loaded any other way shows a
 and SIRVIS loads at most two models at once. Clicking SIRVIS, RAVIS, NERVIS or CLARVIS in the menu opens
 that app's screen in the dashboard in your browser, and code-server opens the browser editor.
 
+**Everyday and advanced (NERVIS 0.34.25).** NERVIS, RAVIS and SIRVIS each show a
+shorter menu until **Advanced controls** is pressed, at the foot of that application's
+menu and as a row in its settings screen. NERVIS everyday shows the overview, chat,
+files, notifications, skills and settings; advanced adds the ecosystem map, events,
+traces, diagnostics and the system screen. RAVIS everyday shows its dashboard, pools,
+providers, credentials, spending and settings. SIRVIS everyday shows everything except
+runtime sets. Each application remembers its own answer (`ui.nervis_advanced`,
+`ui.ravis_advanced`, `ui.sirvis_advanced`), all four tabs stay visible, the Clarvis
+editor is unchanged, and a link to a technical screen still opens it under a "Technical
+details" heading without switching that application into advanced mode. It changes what
+is shown and nothing else.
+
 A service whose program is still running but has stopped answering is not shown as "not running"
 (since 13 September 2026). Its line reads "not answering", and underneath the menu names the process —
 "RAVIS is running as process 700 but not answering." — and what clears it: quit NERVIS and open it again,

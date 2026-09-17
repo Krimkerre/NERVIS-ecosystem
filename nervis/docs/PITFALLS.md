@@ -181,6 +181,23 @@ not.
 These are the ones that make a screen *look finished and be wrong*, which this
 project treats as worse than a missing screen.
 
+**A write that is never checked is a claim, not a save.** `USER.write` posted a
+setting and ignored the answer — `catch(e){}`, no `response.ok` — so a refused or
+unreachable write left the control showing the new value and the store holding the
+old one. Every preference on the settings screen was affected, and the page looked
+right while being wrong, which is the whole class this section is about.
+
+> Read the response. Say what happened. Put the control back when it did not save.
+
+**A read already in flight answers with the old value.** With the write fixed, the
+switch still sprang back: a settings read started before the click landed after it
+and overwrote the new value. The fix is a "being saved right now" note the reader
+respects (`ADVANCED_PENDING`), and setting the value once more after the write
+returns.
+
+> When a screen writes what it also polls, decide which one wins while both are in
+> flight — the one the person just chose.
+
 **Changing one figure invalidates others.** Setting the machine to 24 GB left
 three fixtures arithmetically impossible: 27.8 GB of resident models, a 27.8 GB
 combined peak with zero swap, and 28.9 GB of headroom. No tool catches this; only

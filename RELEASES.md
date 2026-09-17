@@ -709,9 +709,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.24
+## NERVIS — 0.34.25
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **An everyday dashboard, with the technical screens one click away.** NERVIS, RAVIS and SIRVIS each
+  show a shorter menu until you press **Advanced controls** at the foot of that application's menu
+  (also a row in its settings). Each remembers its own answer; none of them is on by default. All four
+  tabs stay where they were, the editor is untouched, and a link to a technical screen still opens it —
+  labelled, without switching that application over.
+- **Settings say when they were not saved.** A preference that NERVIS refused, or that never reached it,
+  used to look saved until the next reload. It now says so and puts the control back.
+- **The sidebar no longer claims "Local ecosystem ● Connected"** whatever is true — that text was fixed
+  in the page and could contradict the live status beside it. The menu bar's live status is unchanged.
 
 - **The menu bar's LM Studio submenu has "Quit LM Studio"**, shown while LM Studio is running.
   With a model loaded it asks first, naming the models, because quitting unloads them and stops

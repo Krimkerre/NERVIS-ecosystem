@@ -19674,6 +19674,36 @@ live store, writing `nervis.db.v11.bak` first, and the editable install reports 
 reinstalled. The dashboard lines were checked by the gate, not in a browser. The 14 September flood
 events are still in the store for the owner to remove, and RAVIS's publishing is unchanged.
 
+## The dashboard learns to show less — 2026-09-17 (NERVIS 0.34.25)
+
+Stage one of the owner's revised interface task: NERVIS, RAVIS and SIRVIS each show a shorter menu
+until an **Advanced controls** switch is pressed, at the foot of that application's own menu and as a
+row in its settings screen where it has one. Each remembers its own answer — `ui.nervis_advanced`,
+`ui.ravis_advanced`, `ui.sirvis_advanced`, through the settings store the page already used, missing
+meaning off. All four tabs stay visible, and Clarvis's editor is untouched.
+
+**The canonical screen list did not change.** `APP_CONFIG.nav` is still what `resolveRoute` validates,
+so every address still names a screen; `EVERYDAY_NAV` is a second, shorter list and `visibleNav(app)`
+picks between them. A technical screen opened by its address opens under a *Technical details* banner
+and does not switch that application over (`technicalScreen`); remembered navigation alone will not
+reopen one (`everydayLanding`).
+
+**Two defects found on the way, both in how the page saved.** `USER.write` ignored the response, so a
+refused or unreachable settings write left the control showing a value the store did not hold — every
+preference on that screen, not just this one. And with that fixed, a settings read already in flight
+answered with the old value and put the switch back; a "being saved right now" note now wins
+(`ADVANCED_PENDING`). Both are in `nervis/docs/PITFALLS.md` §5.
+
+**Also removed:** the sidebar's `Local ecosystem ● Connected` block, which was fixed text nothing
+updated and could contradict the live status bar beside it. The sidebar is now sticky, so the switch at
+its foot is reachable without scrolling to the end of a long page.
+
+**Verified live in a browser** (everyday and advanced, on each application, at 1024 and 820 px):
+independent preferences, all four tabs, the editor iframe not rebuilt when the switch flips, a chat
+draft kept across a toggle, hidden tabs out of keyboard reach, and a technical deep link labelled. All
+44 dashboard gates and `tools/check.py` pass. **Stages two and three — simplifying screen contents and
+plain-language explanations — are not started.**
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

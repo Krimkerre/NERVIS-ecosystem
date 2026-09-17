@@ -137,6 +137,31 @@ Two screens moved or are new since the first pass:
 The wordmark top-left is a home link back to the NERVIS overview, keyboard
 reachable, and it leaves focus mode on the way.
 
+## Everyday and advanced, per application (17 September 2026)
+
+Each of NERVIS, RAVIS and SIRVIS shows a shorter menu until its own **Advanced
+controls** switch is pressed — at the foot of that application's menu, and
+repeated as a row in its settings screen where it has one. Clarvis is untouched:
+the editor is somewhere to work, and every tab stays on show in both modes.
+
+- The preference is one settings key per application — `ui.nervis_advanced`,
+  `ui.ravis_advanced`, `ui.sirvis_advanced` — through the store the page already
+  uses, missing meaning off, and a refused write puts the switch back.
+- `APP_CONFIG.nav` stays the **complete** list: it is what `resolveRoute`
+  validates, so every address still names a screen. `EVERYDAY_NAV` is the shorter
+  list, and `visibleNav(app)` picks between them.
+- A technical screen opened by its address still opens, under a **Technical
+  details** banner, and does not switch the application into advanced mode
+  (`technicalScreen`). Remembered navigation alone will not reopen one
+  (`everydayLanding`).
+- Everyday menus: NERVIS keeps Overview, Chat, Files, Notifications, Skills and
+  Settings; RAVIS keeps Dashboard, Pools, Providers, Credentials, Spending and
+  Settings; SIRVIS keeps everything but Runtime sets — testing models is what
+  SIRVIS is for, so benchmarks and results are not advanced.
+
+Still to do (stages 2 and 3): simplifying the *contents* of those screens, and
+plain-language explanations with technical detail folded underneath.
+
 ## The only mutating controls on the page
 
 RAVIS.md §15.1 defines five mutations. **None of them is built**, and all five

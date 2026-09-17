@@ -18,7 +18,7 @@
 :root{--bg:#07090d;--surface:#0d1219;--panel:#111821;--line:#202a35;--text:#d8e1ea;--muted:#718195;--accent:#7d6cff;--rgb:125,108,255;--ok:#43dc8a;--warn:#ffb648;--bad:#ff5c6a;--cyan:#34e6f2;--mint:#3ddc97;--mag:#ff6ec7}*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:13px/1.45 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input{font:inherit}.mono{font-family:"SFMono-Regular",Consolas,monospace}.app{min-height:100vh;display:grid;grid-template-rows:58px 1fr;background:radial-gradient(800px 360px at 70% -150px,rgba(var(--rgb),.18),transparent 72%),var(--bg)}
 /* Top-level tabs are the stable shell. Keep these mounted when integrating apps. */
 .top{display:flex;align-items:end;padding:0 18px;border-bottom:1px solid var(--line);background:#090d12}.brand{align-self:center;display:flex;align-items:center;gap:10px;margin-right:25px;font-weight:800;letter-spacing:.12em}.brand i{width:24px;height:24px;border:1px solid var(--accent);transform:rotate(45deg);box-shadow:0 0 14px rgba(var(--rgb),.4);position:relative}.brand i:after{content:"";position:absolute;width:6px;height:6px;background:var(--cyan);left:8px;top:8px}.tabs{height:100%;display:flex;gap:3px}.tab{border:0;border-bottom:2px solid transparent;background:transparent;color:#77889a;padding:0 20px;cursor:pointer;font-weight:700;letter-spacing:.04em}.tab:hover{color:#c6d1dc}.tab.active{color:var(--accent);border-color:var(--accent);background:linear-gradient(transparent,rgba(var(--rgb),.09))}.top-status{margin-left:auto;align-self:center;display:flex;align-items:center;gap:9px;color:#8291a1}.dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 9px var(--ok)}
-.body{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:0}.side{border-right:1px solid var(--line);padding:16px 12px;background:#0a0f15;display:flex;flex-direction:column}.app-name{padding:8px 10px 16px}.app-name b{display:block;color:var(--accent);font-size:15px}.app-name small{color:#657587}.side-nav{display:grid;gap:5px}.side-nav button{border:1px solid transparent;border-radius:7px;background:transparent;color:#7c8b9b;text-align:left;padding:9px 10px;cursor:pointer}.side-nav button{display:flex;align-items:center}.side-nav .ico{display:inline-flex;align-items:center;color:var(--accent);margin-right:10px;flex:0 0 auto}.side-nav .ico svg{width:16px;height:16px;display:block;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}.side-nav button:hover,.side-nav button.active{background:rgba(var(--rgb),.12);border-color:rgba(var(--rgb),.25);color:#e4ebf2}.connection{margin-top:auto;border:1px solid var(--line);border-radius:8px;padding:11px;background:#0d131a}.connection b{display:block}.connection span{color:var(--ok);font-size:11px}
+.body{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:0}.side{border-right:1px solid var(--line);padding:16px 12px;background:#0a0f15;display:flex;flex-direction:column;position:sticky;top:0;align-self:start;max-height:100vh;overflow-y:auto}.app-name{padding:8px 10px 16px}.app-name b{display:block;color:var(--accent);font-size:15px}.app-name small{color:#657587}.side-nav{display:grid;gap:5px}.side-nav button{border:1px solid transparent;border-radius:7px;background:transparent;color:#7c8b9b;text-align:left;padding:9px 10px;cursor:pointer}.side-nav button{display:flex;align-items:center}.side-nav .ico{display:inline-flex;align-items:center;color:var(--accent);margin-right:10px;flex:0 0 auto}.side-nav .ico svg{width:16px;height:16px;display:block;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}.side-nav button:hover,.side-nav button.active{background:rgba(var(--rgb),.12);border-color:rgba(var(--rgb),.25);color:#e4ebf2}
 .main{padding:17px;min-width:0;overflow:auto}.page-head{height:116px;border:1px solid var(--line);border-radius:11px;background:linear-gradient(135deg,#111821,#0a0f15);display:flex;align-items:center;padding:18px 22px;margin-bottom:13px;position:relative;overflow:hidden}.page-head:after{content:"";position:absolute;inset:0;background:radial-gradient(380px 160px at 92% 50%,rgba(var(--rgb),.15),transparent 75%);pointer-events:none}.page-head h1{margin:0 0 4px;font-size:22px}.page-head p{margin:0;color:var(--muted)}.page-head .actions{margin-top:10px;display:flex;gap:7px}.btn{border:1px solid #2a3541;background:#121a23;color:#b9c5d0;border-radius:6px;padding:7px 10px;cursor:pointer}.btn:hover{border-color:var(--accent);color:#fff}.btn.primary{background:rgba(var(--rgb),.17);border-color:rgba(var(--rgb),.55);color:var(--accent)}
 /* Avatar slot stays in the same top-right position but swaps per top-level tab. */
 /* The mute pip, in the frame's top-right corner. Small on purpose: it is a state
@@ -158,7 +158,7 @@
 .code-server{height:580px;border:1px solid #2b3641;border-radius:8px;display:grid;grid-template-columns:42px 190px 1fr 285px;grid-template-rows:34px 1fr 135px 22px;background:#0b1016;overflow:hidden}.vtitle{grid-column:1/-1;background:#171c22;border-bottom:1px solid #2b333b;display:flex;align-items:center;padding:0 12px;color:#8996a3}.activity{grid-row:2/4;border-right:1px solid #202832;display:grid;align-content:start;gap:18px;padding:13px;color:#677787;text-align:center}.explorer{grid-row:2/4;border-right:1px solid #202832;padding:12px;color:#8998a8}.explorer b{display:block;color:#c8d2dc;margin-bottom:10px}.file{padding:5px}.file.active{background:#152230;color:#fff}.editor{padding:17px;font:12px/1.7 "SFMono-Regular",monospace;color:#a7b6c5;white-space:pre}.terminal{grid-column:3;border-top:1px solid #252e38;padding:10px;font:10px/1.5 "SFMono-Regular",monospace;color:#7fcf9f}.clarvis-panel{grid-column:4;grid-row:2/4;border-left:1px solid #202832;padding:13px}.statusbar{grid-column:1/-1;background:#153a59;color:#d8ecff;padding:2px 9px;font-size:10px}.kw{color:#d975cd}.fn{color:#e4d26d}.str{color:#d59565}.cursor{display:inline-block;width:7px;height:14px;background:var(--cyan);animation:blink .8s steps(1) infinite}.mini-butler{width:108px;height:108px;display:block;margin:auto}.mini-butler .float{animation:bob 4s ease-in-out infinite;transform-origin:100px 100px}.mini-butler .lid{fill:#1b222e;animation:cbblink 6.2s infinite}.mini-butler .ring{fill:none;stroke:var(--cyan);stroke-dasharray:2.4 20;stroke-width:3;transform-origin:100px 100px;animation:spin 22s linear infinite}
 .toast{position:fixed;right:18px;bottom:18px;padding:11px 14px;border:1px solid var(--accent);background:#101821;border-radius:7px;box-shadow:0 10px 30px #000a;transform:translateY(20px);opacity:0;transition:.25s;z-index:9}.toast.show{transform:none;opacity:1}
 @keyframes spin{to{transform:rotate(360deg)}}@keyframes flow{to{stroke-dashoffset:-20}}@keyframes grow{from{transform:scaleY(0)}}@keyframes flash{50%{background:rgba(var(--rgb),.16)}}@keyframes blink{50%{opacity:0}}@keyframes bob{50%{transform:translateY(-8px) rotate(1deg)}}@keyframes cbblink{0%,92%,100%{transform:translateY(0)}95%{transform:translateY(14px)}}
-@media(max-width:900px){.body{grid-template-columns:72px 1fr}.app-name small,.side-nav span,.connection{display:none}.app-name b{font-size:10px}.side-nav button{text-align:center;padding:10px 4px}.side-nav .ico{margin:0}.side-nav button{justify-content:center}.kpi{grid-column:span 6}.wide,.narrow,.half{grid-column:1/-1}.code-server{grid-template-columns:35px 1fr}.explorer,.clarvis-panel{display:none}.editor{grid-column:2}.terminal{grid-column:2}}@media(max-width:620px){.brand span{display:none}.tab{padding:0 9px;font-size:10px}.top-status{display:none}.main{padding:8px}.page-head{height:140px;padding-right:120px}.kpi{grid-column:1/-1}}
+@media(max-width:900px){.body{grid-template-columns:72px 1fr}.app-name small,.side-nav span,.adv-switch .adv-word{display:none}.adv-switch{justify-content:center;padding:7px 4px}.app-name b{font-size:10px}.side-nav button{text-align:center;padding:10px 4px}.side-nav .ico{margin:0}.side-nav button{justify-content:center}.kpi{grid-column:span 6}.wide,.narrow,.half{grid-column:1/-1}.code-server{grid-template-columns:35px 1fr}.explorer,.clarvis-panel{display:none}.editor{grid-column:2}.terminal{grid-column:2}}@media(max-width:620px){.brand span{display:none}.tab{padding:0 9px;font-size:10px}.top-status{display:none}.main{padding:8px}.page-head{height:140px;padding-right:120px}.kpi{grid-column:1/-1}}
 /* M18 — a phone-width viewport had no way off the screen it loaded on. Below
    620px this used to override the 900px rule's 72px icon rail back to a
    single 1fr column and hide `.side` outright — the only navigation on the
@@ -191,7 +191,13 @@ body{background:#02070b;color:#cfe7f1;font-family:"Arial Narrow",Inter,-apple-sy
 .top-status{font:10px/1 "SFMono-Regular",monospace;letter-spacing:.1em;text-transform:uppercase}.dot{background:var(--hud);box-shadow:0 0 5px var(--hud),0 0 13px var(--hud);animation:hudPulse 2s ease-in-out infinite}
 .side{background:linear-gradient(90deg,rgba(3,11,17,.82),rgba(6,17,25,.72));backdrop-filter:blur(10px);border-color:#143040;box-shadow:inset -8px 0 30px #0005}.app-name{position:relative;border-bottom:1px solid #15303e;margin-bottom:10px}.app-name:after{content:"";position:absolute;bottom:-1px;left:10px;width:48px;height:1px;background:var(--accent);box-shadow:0 0 8px var(--accent)}.app-name b{letter-spacing:.16em;text-shadow:0 0 13px rgba(var(--rgb),.55)}.app-name small{font-family:"SFMono-Regular",monospace;font-size:9px;text-transform:uppercase;letter-spacing:.06em}
 .side-nav button{position:relative;border-radius:2px;border-left:2px solid transparent;font-size:11px;letter-spacing:.05em}.side-nav button:hover,.side-nav button.active{border-color:rgba(var(--rgb),.22);border-left-color:var(--accent);background:linear-gradient(90deg,rgba(var(--rgb),.16),rgba(var(--rgb),.025));box-shadow:inset 12px 0 24px rgba(var(--rgb),.04)}.side-nav button.active:after{content:"";position:absolute;right:8px;top:50%;width:4px;height:4px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
-.connection{position:relative;border-radius:2px;border-color:#173541;background:rgba(7,24,33,.66);font:10px/1.5 "SFMono-Regular",monospace}.connection:before,.connection:after,.card:before,.page-head:before{content:"";position:absolute;width:9px;height:9px;border-color:var(--hud);opacity:.48;pointer-events:none}.connection:before,.card:before,.page-head:before{left:-1px;top:-1px;border-left:1px solid;border-top:1px solid}.connection:after{right:-1px;bottom:-1px;border-right:1px solid;border-bottom:1px solid}
+.adv-switch{margin-top:auto;margin-bottom:0;display:flex;align-items:center;gap:8px;width:100%;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:rgba(255,255,255,.03);color:#8291a1;font:600 10px/1.4 "SFMono-Regular",monospace;letter-spacing:.08em;text-transform:uppercase;padding:7px 9px;cursor:pointer;text-align:left}
+.adv-switch:hover{color:#c6d1dc;border-color:rgba(var(--rgb),.4)}
+.adv-switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.adv-switch .adv-dot{width:8px;height:8px;border-radius:50%;border:1px solid currentColor;flex:0 0 auto}
+.adv-switch[aria-pressed="true"]{color:var(--accent);border-color:rgba(var(--rgb),.5);background:rgba(var(--rgb),.09)}
+.adv-switch[aria-pressed="true"] .adv-dot{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.card:before,.page-head:before{content:"";position:absolute;width:9px;height:9px;border-color:var(--hud);opacity:.48;pointer-events:none;left:-1px;top:-1px;border-left:1px solid;border-top:1px solid}
 .main{padding:18px 20px}.page-head{border-radius:3px;border-color:#193746;background:linear-gradient(115deg,rgba(8,28,40,.88),rgba(5,16,24,.8));box-shadow:inset 0 0 40px rgba(40,177,221,.025),0 10px 35px #0005}.page-head:after{background:radial-gradient(380px 150px at 91% 50%,rgba(var(--rgb),.13),transparent 72%),linear-gradient(90deg,transparent 0 70%,rgba(85,220,255,.025) 70%)}.page-head h1{font-size:20px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:#daf5ff;text-shadow:0 0 16px rgba(85,220,255,.25)}.page-head p{font:10px/1.5 "SFMono-Regular",monospace;letter-spacing:.04em}.avatar-slot:after{content:"ACTIVE INTELLIGENCE";position:absolute;bottom:7px;right:7px;color:rgba(85,220,255,.4);font:7px/1 monospace;letter-spacing:.15em}
 .btn{position:relative;border-radius:2px;border-color:#255064;background:rgba(10,35,47,.7);font:9px/1.2 "SFMono-Regular",monospace;letter-spacing:.08em;text-transform:uppercase;clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)}.btn:hover{border-color:var(--hud);color:#e9fbff;box-shadow:0 0 14px rgba(85,220,255,.12)}.btn.primary{background:linear-gradient(90deg,rgba(var(--rgb),.24),rgba(var(--rgb),.08));box-shadow:inset 2px 0 var(--accent)}
 .card{position:relative;border-radius:3px;border-color:#183542;background:linear-gradient(145deg,rgba(8,26,37,.82),rgba(4,14,21,.86));box-shadow:inset 0 1px rgba(112,224,255,.035),0 9px 24px #0004;backdrop-filter:blur(9px)}.card:after{content:"";position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;border-right:1px solid var(--hud);border-bottom:1px solid var(--hud);opacity:.35;pointer-events:none}.card:hover{border-color:#245267}.card h3{color:#72b9cf;font:9px/1.2 "SFMono-Regular",monospace;letter-spacing:.16em}.kpi strong{color:#dcf7ff;text-shadow:0 0 15px rgba(85,220,255,.18);font-weight:450}.kpi small{font-family:"SFMono-Regular",monospace;font-size:9px}.chip{border-radius:2px;font-family:"SFMono-Regular",monospace;letter-spacing:.08em}
@@ -994,7 +1000,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 .side-nav button:hover:before,.side-nav button:focus-visible:before{opacity:1;transform:translateY(-50%) translateX(0)}
 @media(prefers-reduced-motion:reduce){.side-nav button:before{transition:none}}
 </style></head>
-<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div><div class="note-slot" id="notePipSlot"></div></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><div class="connection"><b>Local ecosystem</b><span>● Connected</span></div></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div><div id="editorHold" hidden></div></div>
+<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div><div class="note-slot" id="notePipSlot"></div></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><button type="button" class="adv-switch" id="advSwitch" aria-pressed="false" aria-label="Advanced controls" title="Show model routing, benchmarks, service configuration and detailed diagnostics"><span class="adv-dot" aria-hidden="true"></span><span class="adv-word">Advanced controls</span></button></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div><div id="editorHold" hidden></div></div>
 <div class="toast" id="toast"></div>
 <script>
 /* APP_CONFIG is the first place to edit when adding a real project or route. */
@@ -1005,6 +1011,70 @@ const APP_CONFIG={
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
 const state={app:'nervis',view:'Overview'};
+
+/* ── EVERYDAY AND ADVANCED ────────────────────────────────────────────────
+   One interface, two amounts of it. `APP_CONFIG.nav` stays the canonical list —
+   it is what `resolveRoute` validates against, so every address that worked
+   yesterday still names a screen today, advanced or not. What the appearance
+   preference decides is only which of those screens are *offered*: a person who
+   opens a technical screen by its address, or from a link on another screen,
+   still gets it (with a line saying where they are), and a person who has a
+   technical screen open when the switch goes off is left on it rather than
+   thrown back to the overview mid-task.
+
+   Deleting entries from `APP_CONFIG` to hide them would break both of those and
+   the bookmarks besides, which is why this is a second, smaller list. */
+const EVERYDAY_NAV={
+ nervis:['Overview','Chat','Files','Notifications','Skills','Settings'],
+ /* "What models can I use, how are they chosen, and what am I spending?" — the
+    six screens that answer it. Routes, Sessions, Policies, Evidence, Logs and
+    Diagnostics are the apparatus behind the answer. */
+ ravis:['Dashboard','Pools','Providers','Credentials','Spending','Settings'],
+ /* "What models do I have, what runs here, and how do they perform?" Testing
+    models *is* SIRVIS, so benchmarks and results stay; runtime sets are the one
+    screen that is configuration rather than use. */
+ sirvis:['Dashboard','Models','Discover','Downloads','Runtime','Benchmarks','Results','Recommendations'],
+ /* Clarvis is deliberately absent: the editor is somewhere to work, and it is
+    left exactly as it is. */
+};
+
+/* Each application remembers its own answer, under its own key. One switch for
+   the whole page would mean turning RAVIS's apparatus on to read NERVIS's. */
+const ADVANCED_KEY={nervis:'ui.nervis_advanced',ravis:'ui.ravis_advanced',sirvis:'ui.sirvis_advanced'};
+
+/* Whether the apparatus is on show.
+
+   A flag of its own rather than a read of `USER`, which is declared further down
+   this file: `nav()` and `applyTheme()` run on the first paint, and a `const`
+   read before its declaration throws rather than reading as absent. `USER.load`
+   and the switch keep it in step. */
+const ADVANCED_ON={};
+/* What is being saved right now, per application, or absent. A settings read
+   that was already in flight when the switch was pressed answers with the *old*
+   value and used to put the page back — the switch said off while the store
+   said on. While a write is in flight this is what the page believes. */
+const ADVANCED_PENDING={};
+function advancedOn(app){return !!ADVANCED_ON[app||state.app]}
+
+/* Whether an application has a shorter everyday list at all. Clarvis has none. */
+function hasEveryday(app){return Array.isArray(EVERYDAY_NAV[app])}
+
+/* The screens a tab offers now. The canonical list when advanced, or when this
+   app has no shorter one. */
+function visibleNav(app){
+ const config=APP_CONFIG[app];
+ if(!config)return[];
+ if(!hasEveryday(app)||advancedOn(app))return config.nav;
+ return EVERYDAY_NAV[app].filter(view=>config.nav.includes(view));
+}
+
+/* Whether this screen exists but is not being offered — the case that needs
+   saying on the screen itself. */
+function technicalScreen(app,view){
+ const config=APP_CONFIG[app];
+ if(!config||!config.nav.includes(view)||advancedOn(app))return false;
+ return !visibleNav(app).includes(view);
+}
 /* ── ROUTING ───────────────────────────────────────────────────────────────
    §25.2: "There is none — no hash, no pushState, no popstate. State is
    {app, view} in a global, so there are no deep links and no back button. A
@@ -1105,6 +1175,14 @@ function landing(opened,held,boot,remember){
  return {app:held.app,view:held.view};
 }
 
+/* **Only an address may open an advanced screen in everyday mode.** Being put back
+   on the Traces screen because that is where the last session ended is the opposite
+   of what the appearance preference was asked for, and nobody chose it this time. An
+   address still wins — `restoreLastTab` checks that before this is reached. */
+function everydayLanding(where){
+ return where&&technicalScreen(where.app,where.view)?null:where;
+}
+
 function rememberTab(){
  /* Filled whichever way the switch is set, because it costs nothing and the
     switch is about what the page *does* with it. */
@@ -1129,7 +1207,7 @@ async function restoreLastTab(opened){
  /* The per-app map comes back with it, so the first hop to another app and
     back lands where it left off rather than on that app's first screen. */
  if(held&&held.views&&held.boot===NERVIS_BOOT)Object.assign(LAST_VIEW,held.views);
- const where=landing(opened,held,NERVIS_BOOT,USER.rememberTab);
+ const where=everydayLanding(landing(opened,held,NERVIS_BOOT,USER.rememberTab));
  if(where&&(where.app!==state.app||where.view!==state.view)){
   go(where.app,where.view,{replace:true});
  }else rememberTab();
@@ -4181,9 +4259,31 @@ const CLARVIS_VIEW={
 function focusClarvisView(view){
  const v=CLARVIS_VIEW[view];if(!v||!usable('clarvis'))return;
  notify(v.panel)}
+/* The switch, wherever it is drawn, and the tabs it decides. Called on every
+   render and whenever the preference changes, so the two copies of one control
+   can never disagree with each other or with what was saved. */
+function syncAdvanced(){
+ const button=$('#advSwitch');
+ if(!button)return;
+ /* Clarvis has no everyday list and is not touched by this, so its tab shows no
+    switch at all rather than one that would do nothing. */
+ const offered=hasEveryday(state.app);
+ button.hidden=!offered;
+ if(!offered)return;
+ const on=advancedOn(state.app);
+ button.setAttribute('aria-pressed',on?'true':'false');
+ const name=APP_CONFIG[state.app]?APP_CONFIG[state.app].name:state.app;
+ button.setAttribute('aria-label','Advanced controls for '+name);
+ button.title=on
+   ?'Hide '+name+"'s technical screens and detail"
+   :'Show '+name+"'s technical screens and detail";
+ const word=button.querySelector('.adv-word');
+ if(word)word.textContent=on?'Advanced controls on':'Advanced controls';
+}
+
 function applyTheme(){const c=APP_CONFIG[state.app];const _app=document.querySelector('.app');
- _app.dataset.app=state.app;_app.classList.toggle('bridge-down',state.app==='clarvis'&&!usable('clarvis'));document.documentElement.style.setProperty('--accent',c.accent);document.documentElement.style.setProperty('--rgb',c.rgb);$('#sideName').textContent=c.name;$('#sideTag').textContent=c.tag;$('.page-head').classList.remove('no-avatar');let full=$('#backronym');if(!full){full=document.createElement('div');full.id='backronym';full.className='backronym';$('#pageTitle').after(full)}full.textContent=c.tag;$$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.app===state.app))}
-function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))state.view=c.nav[0];$('#sideNav').innerHTML=c.nav.map(x=>`<button class="${x===state.view?'active':''}" data-view="${x}" data-label="${x}" aria-label="${x}"><i class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[x]||'<circle cx="8" cy="8" r="4"/>'}</svg></i><span>${x}</span></button>`).join('');$$('#sideNav button').forEach(b=>b.onclick=()=>{if(state.app==='clarvis')focusClarvisView(b.dataset.view);go(state.app,b.dataset.view)})}
+ syncAdvanced();_app.dataset.app=state.app;_app.classList.toggle('bridge-down',state.app==='clarvis'&&!usable('clarvis'));document.documentElement.style.setProperty('--accent',c.accent);document.documentElement.style.setProperty('--rgb',c.rgb);$('#sideName').textContent=c.name;$('#sideTag').textContent=c.tag;$('.page-head').classList.remove('no-avatar');let full=$('#backronym');if(!full){full=document.createElement('div');full.id='backronym';full.className='backronym';$('#pageTitle').after(full)}full.textContent=c.tag;$$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.app===state.app))}
+function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))state.view=c.nav[0];$('#sideNav').innerHTML=visibleNav(state.app).map(x=>`<button class="${x===state.view?'active':''}" data-view="${x}" data-label="${x}" aria-label="${x}"><i class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[x]||'<circle cx="8" cy="8" r="4"/>'}</svg></i><span>${x}</span></button>`).join('');$$('#sideNav button').forEach(b=>b.onclick=()=>{if(state.app==='clarvis')focusClarvisView(b.dataset.view);go(state.app,b.dataset.view)})}
 /* Every app, Clarvis included, presents its avatar in the same slot. When the
    extension detects it is embedded it suppresses its own in-panel avatar and
    lets this one speak for it — see CLARVIS_BRIDGE below. */
@@ -8627,8 +8727,27 @@ async function shareSection(){
    navigation they did not ask for — but so is landing on yesterday's screen
    after a restart, when what changed is precisely what came up. So the memory
    lasts one run of the stack, and a fresh start opens the dashboard. */
+/* The appearance preference as a settings row — the same value the switch at the
+   foot of that application's sidebar holds. Written here rather than duplicated
+   per screen so the two can never drift apart. */
+function advancedSettingRow(app){
+ const name=APP_CONFIG[app]?APP_CONFIG[app].name:app;
+ const hidden=(APP_CONFIG[app]?APP_CONFIG[app].nav:[]).filter(view=>!visibleNav(app).includes(view));
+ const rest=advancedOn(app)
+   ?'Everything '+name+' has is on the menu.'
+   :(hidden.length?'Hidden from the menu now: '+hidden.join(', ')+'.':'');
+ return `<label class="adv-toggle"><input type="checkbox"${advancedOn(app)?' checked':''}
+   onchange="USER.setAdvanced('${app}',this.checked)"> Show ${escapeHtml(name)}'s advanced controls
+  <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;
+   letter-spacing:0">the same switch sits at the foot of this application's menu. It changes
+   what is shown and nothing else: no tool is enabled, no permission granted, no work started,
+   no routing or privacy setting touched, and every screen it offers can already be opened by
+   its address. Each application remembers its own answer. ${escapeHtml(rest)}</small></label>`;
+}
+
 function screenSection(){
  return `<div class="card wide${USER.read?' live':''}"><h3>Where you land</h3>${cell(`
+  ${advancedSettingRow('nervis')}
   <label class="adv-toggle"><input type="checkbox"${USER.rememberTab?' checked':''}
     onchange="USER.setRememberTab(this.checked)"> Open on the tab I used last
    <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;
@@ -12480,7 +12599,12 @@ async function ravisSettings(){
    ${(sProv||[]).map(p=>`<div class="trace-step"><b>${escapeHtml(p.name)}</b><span class="mono" style="opacity:.8">${escapeHtml(p.enabled?'enabled':'disabled')} · ${p.credential_configured?escapeHtml(p.credential_source):'no credential'} · ${escapeHtml(p.reachable===null?'not probed':(p.reachable?'answering':'not answering'))}</span></div>`).join('')}
    <div class="trace-step"><b>credentials</b><span><a href="#" onclick="go(state.app,'Credentials');return false" style="color:inherit">RAVIS → Credentials</a></span></div>
    <small class="mono dim">RAVIS publishes <b>no settings endpoint</b> — <span class="mono">/api/v1/settings</span> and <span class="mono">/api/v1/config</span> are both 404. Mutation is not absent from the surface, though: five endpoints write, and the Providers and Credentials screens use four of them. What has no endpoint is <i>settings as a document</i>. So this reports what the configuration <i>does</i> rather than what it says: the address this dashboard actually reached, the upstream's answer, and each provider's real state. The cards below describe settings nobody publishes and are prototype content.</small>`,'ravis')}</div>`;
- $('#content').innerHTML=liveCard+kpis([
+ /* This page's own preference, not RAVIS's: it is stored in NERVIS's settings and
+    decides what this dashboard offers for RAVIS. Beside the RAVIS settings rather than
+    only at the foot of the menu, because this is where somebody looking to change how
+    RAVIS is presented will look first. */
+ const appearanceCard=`<div class="card full${USER.read?' live':''}"><h3>What this dashboard shows for RAVIS</h3>${cell(advancedSettingRow('ravis'),'ravis')}</div>`;
+ $('#content').innerHTML=liveCard+appearanceCard+kpis([
    ['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
    ['Serving',`${served} / ${s.serving.endpoints.length}`,'endpoints live','ravis',false],
    /* Five, not zero. RAVIS ships PUT and DELETE on provider credentials, PUT
@@ -13275,6 +13399,14 @@ const USER={
    this.excluded=asList(items['chat.memory_excluded']);
    this.memory=items['chat.memory']==='all'?'all':'session';
    this.rememberTab=asFlag(items['ui.remember_tab'],true);
+   /* Appearance only, and off when nobody has said otherwise: everyday first. */
+   /* One read fills all three; a value being written right now wins over what
+      this read was told. */
+   Object.keys(ADVANCED_KEY).forEach(app=>{
+    ADVANCED_ON[app]=ADVANCED_PENDING[app]===undefined
+      ?asFlag(items[ADVANCED_KEY[app]],false)
+      :ADVANCED_PENDING[app];
+   });
    this.editorKeep=EDITOR_KEEP[items['ui.editor_keepalive']]===undefined
      ?'30':String(items['ui.editor_keepalive']);
    this.read=true;
@@ -13288,9 +13420,25 @@ const USER={
     for as long as the route took none, and the route started taking one the
     day the share moved into Settings: every preference here was quietly 403ing
     until the header came back. */
+ /* **Says so when it did not save.** This swallowed every refusal and every
+    network failure, so a switch that NERVIS had rejected still looked set until
+    the next reload put it back — the page being confidently wrong about its own
+    state. The caller gets the outcome so it can put the control back where it
+    was. */
  async write(key,value){
-  try{await fetch(BASE.nervis+'/api/v1/settings/'+encodeURIComponent(key),{method:'PUT',
-    headers:control_headers(),body:JSON.stringify({value})})}catch(e){}
+  try{
+   const answer=await fetch(BASE.nervis+'/api/v1/settings/'+encodeURIComponent(key),{method:'PUT',
+     headers:control_headers(),body:JSON.stringify({value})});
+   if(answer.ok)return{ok:true,detail:''};
+   let detail='';
+   try{const body=await answer.json();detail=String((body.error&&body.error.message)||'')}catch(e){}
+   const why=detail||('NERVIS answered '+answer.status);
+   notify('That setting was not saved — '+why);
+   return{ok:false,detail:why};
+  }catch(e){
+   notify('That setting was not saved — NERVIS could not be reached');
+   return{ok:false,detail:String(e)};
+  }
  },
  setName(value){this.name=value;this.write('user.display_name',value)},
  setBrief(on){this.brief=on;this.write('chat.brief',on)},
@@ -13303,6 +13451,24 @@ const USER={
  setMode(mode){this.mode=mode;this.write('chat.mode',mode)},
  setPreset(id){this.preset=id;this.write('chat.preset',id)},
  setRememberTab(on){this.rememberTab=on;this.write('ui.remember_tab',on);rememberTab()},
+ /* **Which controls are shown, and nothing else.** It enables no tool, grants no
+    permission, starts no job and changes no policy — every screen it reveals was
+    reachable by its address all along. Put back if NERVIS refuses the write, so
+    the switch never shows a state that was not stored. */
+ async setAdvanced(app,on){
+  const key=ADVANCED_KEY[app];
+  if(!key)return;
+  const was=!!ADVANCED_ON[app];
+  ADVANCED_ON[app]=on;ADVANCED_PENDING[app]=on;
+  syncAdvanced();
+  const outcome=await this.write(key,on);
+  delete ADVANCED_PENDING[app];
+  if(!outcome.ok){ADVANCED_ON[app]=was;syncAdvanced();return}
+  /* Set again after the write: a read that landed while it was in flight was
+     told the old value, and this is the one that is now stored. */
+  ADVANCED_ON[app]=on;
+  render();
+ },
  /* Applied to the editor that is open right now as well as written down: a
     person who has just chosen "off" means this one too. */
  setEditorKeep(held){this.editorKeep=held;this.write('ui.editor_keepalive',held);
@@ -17287,6 +17453,16 @@ async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();gl
     escapeHtml(ROUTE_NOTE),'warn')+$('#content').innerHTML;
   ROUTE_NOTE='';
  }
+ /* An advanced screen reached with the switch off — by its address, by a link
+    from another screen, or because it was already open when the switch went
+    off. Shown rather than refused, and labelled rather than left to look like
+    an ordinary screen that has grown strange. */
+ if(technicalScreen(state.app,state.view)){
+  $('#content').innerHTML=banner('Technical details',
+    'This screen is part of the advanced controls. It is shown because you opened it; '
+    +'the everyday menu is unchanged. <button type="button" class="ghost" onclick="go(\'nervis\',\'Overview\')">'
+    +'Back to the overview</button>','info')+$('#content').innerHTML;
+ }
  RENDERED_MOCK=Object.keys(SOURCE).filter(key=>SOURCE[key]==='mock');replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();
  /* Again, after the screen has fetched. The first call paints the bar
     immediately so it is never blank; this one corrects it with whatever the
@@ -17653,6 +17829,8 @@ addEventListener('keydown',e=>{if(e.key==='Escape')setZen(false)});
 const goHome=()=>{setZen(false);go('nervis','Overview')};
 $('#brandHome').onclick=goHome;
 $('#brandHome').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();goHome()}};
+$$('.adv-switch').forEach(button=>button.onclick=()=>
+  void USER.setAdvanced(state.app,!advancedOn(state.app)));
 $$('.tab').forEach(t=>t.onclick=()=>{setZen(false);
  go(t.dataset.app,tabView(t.dataset.app,LAST_VIEW,USER.rememberTab))});
 
