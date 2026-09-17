@@ -20,7 +20,7 @@ from nervis.peers import sirvis as sirvis_peer
 from nervis.peers.reader import peer_credential
 from nervis.peers.reader import read as peer_read
 from nervis.traces import assemble, summarise
-from nervis.unified import models_in, unify
+from nervis.unified import MAX_LINES, models_in, unify, window_around
 
 router = APIRouter(prefix="/api/v1/traces", tags=["traces"])
 
@@ -88,7 +88,7 @@ async def read_unified(trace_id: str, request: Request) -> dict[str, Any]:
         assembled,
         [entry.as_dict() for entry in request.app.state.registry.all()],
         hub.query(event_type="nervis.service.state_changed", limit=500, latest=True),
-        _log_lines(request, trace_id),
+        _log_lines(request, trace_id, assembled),
         evidence=await _evidence_for(request, models_in(assembled)),
     )
 
@@ -128,12 +128,18 @@ async def _evidence_for(
     return found or None
 
 
-def _log_lines(request: Request, trace_id: str) -> list[dict[str, Any]]:
-    """Recent lines from every adapter, for the correlator to pick over.
+def _log_lines(
+    request: Request, trace_id: str, trace: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Lines from every adapter, for the correlator to pick over.
 
     Read here rather than in `unified` so that module stays free of I/O and can
     be tested as a fold. An unconfigured run directory yields nothing, which the
     correlator reports as an absence like any other.
+
+    **The fallback reads the trace's moment, not the newest lines** (17 September 2026): lines
+    whose own time falls in the window around the trace, searched as far back as a filter
+    searches. It used to take each log's last eight lines, whenever the trace happened.
     """
     configured = str(getattr(request.app.state.settings, "run_directory", "") or "")
     if not configured:
@@ -148,8 +154,13 @@ def _log_lines(request: Request, trace_id: str) -> list[dict[str, Any]]:
             found.append({**line, "service": service})
     if found:
         return found
+    started, window_ms = trace.get("started"), trace.get("window_ms")
+    if not isinstance(started, (int, float)):
+        return found
+    ended = started + window_ms / 1000 if isinstance(window_ms, (int, float)) else None
+    between = window_around(float(started), ended)
     for service in logs.FILES:
-        for line in logs.read(run, service, limit=8).get("items", []):
+        for line in logs.read(run, service, limit=MAX_LINES, between=between).get("items", []):
             found.append({**line, "service": service})
     return found
 

@@ -8479,18 +8479,23 @@ function healthOverlay(rows){
    </div>`).join('');
 }
 
-/* The link's strength, said in the card rather than left to the reader. */
+/* The link's strength, said in the card rather than left to the reader. A time-window list that
+   came back empty says so and why (NERVIS 0.34.20) — it used to keep the "from around the same
+   time" heading over nothing, and before that over the newest lines, whenever the trace was. */
 function logCorrelation(logs){
  const exact=logs.how==='carries the trace id';
+ const items=logs.items||[];
  const head=banner(exact?'These lines are part of this trace'
-     :'These lines are from around the same time',
+     :items.length?'These lines are from around the same time'
+     :'No log line can be tied to this trace',
    exact
     ?'Each one carries the trace id, so it belongs to this request rather than merely '
      +'coinciding with it.'
     :escapeHtml(logs.reason||'')+'.',
    exact?'info':'warn');
- if(!logs.items.length)return head;
- return head+logs.items.map(one=>`<div class="table-row" style="grid-template-columns:.7fr .6fr 3fr">
+ if(!items.length)return head;
+ return head+items.map(one=>`<div class="table-row" style="grid-template-columns:.9fr .7fr .6fr 3fr">
+   <span class="mono dim">${one.time?escapeHtml(noteExact(one.time)):'—'}</span>
    <span class="mono dim">${escapeHtml(one.service||'')}</span>
    <span class="mono dim">${escapeHtml(one.level||'—')}</span>
    <span class="mono" style="word-break:break-word">${escapeHtml(

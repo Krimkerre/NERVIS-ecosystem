@@ -305,7 +305,11 @@ As of 17 September 2026 (NERVIS 0.34.19): three of the runbook's end-to-end scen
 against the running stack — **the rest keeps working while NERVIS is down** (and NERVIS catches
 up on the events it missed when it returns), **NERVIS reconstructs a trace across services**, and
 **no key or token appears in any stored event or service log**. The Traces screen also no longer
-lists the dashboard's own requests to view a trace as that trace's log lines.
+lists the dashboard's own requests to view a trace as that trace's log lines. And since NERVIS
+0.34.20, when no log line carries a trace's id, the lines it offers instead are ones written within
+2 seconds of the trace, each with its time — log lines carry a time since then — and if there are
+none it says "No log line can be tied to this trace" and why. It used to show the newest lines,
+whenever the trace happened.
 
 As of 17 September 2026: **rolling the stack back is rehearsed**. SIRVIS, RAVIS, NERVIS and
 their shared package go back together to an earlier release — stop the stack, point the services'

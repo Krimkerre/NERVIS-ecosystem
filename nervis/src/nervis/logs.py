@@ -228,6 +228,7 @@ def read(
     limit: int = DEFAULT_LIMIT,
     level: str = "",
     text: str = "",
+    between: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Recent lines from one adapter, filtered and redacted.
 
@@ -250,7 +251,7 @@ def read(
     # that gains a line a second, that is almost always the wrong conclusion.
     # The window is bounded because the file is not, and `scanned` travels with
     # the answer so an empty result can say what was actually looked at.
-    filtering = bool(level or text)
+    filtering = bool(level or text or between)
     window = SEARCH_LINES if filtering else wanted
     items: list[dict[str, Any]] = []
     scanned = 0
@@ -261,10 +262,20 @@ def read(
             continue
         if text and text.lower() not in json.dumps(entry).lower():
             continue
+        if between is not None and not _written_between(entry, between):
+            continue
         items.append(entry)
     return {"items": items[-wanted:], "present": True, "reason": "",
             "scanned": scanned, "filtered": filtering,
             "format": "json-lines" if service in STRUCTURED else "text"}
+
+
+def _written_between(entry: dict[str, Any], between: tuple[float, float]) -> bool:
+    """Whether a line's own `time` falls within `between` (epoch seconds). No time, no."""
+    from nervis.traces import _moment
+
+    at = _moment(entry.get("time"))
+    return at is not None and between[0] <= at <= between[1]
 
 
 def _entry(line: str, *, structured: bool) -> dict[str, Any]:

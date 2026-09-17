@@ -95,15 +95,92 @@ def test_a_line_carrying_the_trace_id_is_linked_as_a_fact() -> None:
     assert [one["message"] for one in linked.items] == ["the one"]
 
 
+def stamp(seconds: float) -> str:
+    """Epoch seconds as a log line's `time`, the shape ecosystem-protocol 0.2.3 writes."""
+    from datetime import datetime, timezone
+
+    moment = datetime.fromtimestamp(seconds, timezone.utc)
+    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+STARTED = 1_789_565_917.0  # 16 September 2026, 13:38:37 UTC
+
+
 def test_lines_matched_only_by_time_say_so_in_the_link() -> None:
     """A line written in the same second as a request is evidence about the
     second, not about the request. Presenting the two identically turns a
     coincidence into a finding."""
     linked = unified.correlate_logs(
-        [{"message": "something else entirely"}], "t" * 32, 1000.0,
+        [{"time": stamp(STARTED + 0.5), "message": "something else entirely"}],
+        "t" * 32, STARTED,
     )
     assert linked.how == unified.BY_WINDOW
     assert "may belong to something else" in linked.reason
+    assert "within 2 s" in linked.reason
+
+
+def test_only_lines_written_near_the_trace_are_offered() -> None:
+    """17 September 2026: the fallback offered each log's newest lines as "written during the same
+    window" for a trace from the day before. A line counts only if its own time is within the
+    window around the trace — before its start, through its end, and after."""
+    lines = [
+        {"time": stamp(STARTED - 2.5), "message": "too early"},
+        {"time": stamp(STARTED - 1.5), "message": "just before"},
+        {"time": stamp(STARTED + 2.9), "message": "during a 3 s trace"},
+        {"time": stamp(STARTED + 4.5), "message": "just after it ended"},
+        {"time": stamp(STARTED + 5.5), "message": "too late"},
+        {"time": stamp(STARTED + 86_400), "message": "a day later"},
+        {"message": "no time at all"},
+        {"time": "not a time", "message": "an unreadable time"},
+    ]
+    linked = unified.correlate_logs(lines, "t" * 32, STARTED, STARTED + 3.0)
+    assert [one["message"] for one in linked.items] == [
+        "just before", "during a 3 s trace", "just after it ended",
+    ]
+    only_start = unified.correlate_logs(lines, "t" * 32, STARTED)
+    assert [one["message"] for one in only_start.items] == ["just before"]
+
+
+def test_an_empty_window_says_why_it_is_empty() -> None:
+    """None of the lines read has a time (older logs), or none falls near the trace: two different
+    answers, and neither lists lines."""
+    untimed = unified.correlate_logs([{"message": "old"}], "t" * 32, STARTED)
+    assert untimed.items == []
+    assert "says when it was written" in untimed.reason
+    far = unified.correlate_logs(
+        [{"time": stamp(STARTED + 86_400), "message": "tomorrow"}], "t" * 32, STARTED,
+    )
+    assert far.items == []
+    assert "none of the lines read was written within 2 s" in far.reason
+
+
+def test_the_unified_view_passes_the_trace_s_end_to_the_window() -> None:
+    lines = [{"time": stamp(STARTED + 3.5), "message": "near the end of a 3 s trace"}]
+    view = unified.unify(
+        {"trace_id": "t" * 32, "started": STARTED, "window_ms": 3000.0, "spans": [],
+         "events": [], "warnings": []},
+        [], [], lines,
+    )
+    assert [one["message"] for one in view["logs"]["items"]] == ["near the end of a 3 s trace"]
+
+
+def test_the_log_reader_keeps_only_lines_written_in_the_window(tmp_path: Any) -> None:
+    """The I/O half: `logs.read(between=…)` searches back and keeps lines by their own time."""
+    import json as _json
+
+    from nervis import logs
+
+    written = [
+        {"time": stamp(STARTED - 100), "level": "INFO", "logger": "x", "message": "earlier"},
+        {"time": stamp(STARTED + 1), "level": "INFO", "logger": "x", "message": "inside"},
+        {"level": "INFO", "logger": "x", "message": "no time"},
+        *({"time": stamp(STARTED + 500 + n), "level": "INFO", "logger": "x",
+           "message": f"later {n}"} for n in range(50)),
+    ]
+    (tmp_path / "ravis.log").write_text("\n".join(_json.dumps(one) for one in written) + "\n")
+    found = logs.read(tmp_path, "ravis", limit=8, between=unified.window_around(STARTED))
+    assert [one["message"] for one in found["items"]] == ["inside"]
+    assert found["filtered"] is True
 
 
 def test_an_exact_hit_wins_over_the_window() -> None:
@@ -196,3 +273,38 @@ def test_a_trace_with_no_start_cannot_take_a_window_and_says_that() -> None:
     linked = unified.correlate_logs([{"message": "x"}], "t" * 32, None)
     assert linked.items == []
     assert "no start time" in linked.reason
+
+
+def test_the_route_offers_lines_from_the_trace_s_moment_not_the_newest(tmp_path: Any) -> None:
+    """End to end through `GET /api/v1/traces/{id}/unified`, with a real log file whose newest
+    lines are from long after the trace — the case that showed today's lines for yesterday's."""
+    import json as _json
+
+    from fastapi.testclient import TestClient
+
+    from nervis.app import create_app
+    from nervis.config import Settings
+
+    trace_id = "ab" * 16
+    run = tmp_path / "run"
+    run.mkdir()
+    lines = [
+        {"time": stamp(STARTED + 1), "level": "INFO", "logger": "x", "message": "while it ran"},
+        *({"time": stamp(STARTED + 3600 + n), "level": "INFO", "logger": "x",
+           "message": f"an hour later {n}"} for n in range(20)),
+    ]
+    (run / "ravis.log").write_text("\n".join(_json.dumps(one) for one in lines) + "\n")
+    settings = Settings(  # type: ignore[call-arg]
+        database_path=str(tmp_path / "nervis.db"), workspace_path=str(tmp_path),
+        run_directory=str(run), _env_file=None,
+    )
+    with TestClient(create_app(settings)) as client:
+        client.app.state.hub.ingest({  # type: ignore[attr-defined]
+            "event_id": "trace-event-1", "event_type": "ravis.route.selected",
+            "event_version": "1.0.0", "occurred_at": stamp(STARTED),
+            "source": {"service_type": "ravis", "service_id": "ravis-1"},
+            "trace_id": trace_id, "severity": "info", "data": {},
+        })
+        logs = client.get(f"/api/v1/traces/{trace_id}/unified").json()["logs"]
+    assert logs["how"] == unified.BY_WINDOW
+    assert [one["message"] for one in logs["items"]] == ["while it ran"]

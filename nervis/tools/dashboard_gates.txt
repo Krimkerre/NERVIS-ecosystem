@@ -41,3 +41,4 @@ ravis_load
 ravis_readings
 handovers
 control_token
+trace_logs

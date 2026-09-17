@@ -681,7 +681,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.19
+## NERVIS — 0.34.20
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **"From around the same time" now means it.** When no log line carries a trace's id, the Traces
+  screen offers lines written near the trace instead. It used to show each log's newest lines —
+  from whenever, since log lines said nothing about when they were written — so a trace from
+  yesterday showed today's lines. Log lines now carry a time (ecosystem-protocol 0.2.3), and only
+  lines written within 2 seconds of the trace are offered, each with its time.
+- **Said plainly when there are none.** If no line was written near the trace, or the lines read
+  carry no time (anything logged before this release), the card says "No log line can be tied to
+  this trace" and why.
+
+### 0.34.19
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
 
@@ -2967,7 +2980,15 @@ ceiling.
 
 ---
 
-## ecosystem-protocol — 0.2.2
+## ecosystem-protocol — 0.2.3
+
+**Protocol:** MEP 1.0.0 · **Consumed by:** SIRVIS, RAVIS, NERVIS
+
+- **Every log line says when it was written.** `JsonLineFormatter` writes `time` first, in UTC to
+  the millisecond (`2026-09-17T12:00:00.000Z`), the shape of an event's `occurred_at`. SIRVIS,
+  RAVIS and NERVIS pick it up without a release of their own.
+
+### 0.2.2
 
 **Protocol:** MEP 1.0.0 · **Consumed by:** SIRVIS, RAVIS, NERVIS
 

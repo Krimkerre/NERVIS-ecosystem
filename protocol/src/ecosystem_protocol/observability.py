@@ -27,6 +27,7 @@ import sys
 import uuid
 from collections.abc import Iterator
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from typing import Any
 
 # Fields that must never be written to a log, in any product (runbook §9).
@@ -121,6 +122,12 @@ class JsonLineFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
+            # **When**, which no line said until protocol 0.2.3 (17 September 2026). NERVIS's
+            # trace view offers log lines written around a trace's moment when none carries its
+            # id, and with no time on a line it could only offer the newest ones and call them
+            # that. UTC, to the millisecond, the same shape as an event's `occurred_at`.
+            "time": datetime.fromtimestamp(record.created, timezone.utc)
+            .isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

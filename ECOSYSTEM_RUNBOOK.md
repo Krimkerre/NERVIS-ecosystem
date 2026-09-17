@@ -792,7 +792,10 @@ sequence, trace linkage, redaction and persisted state — not screenshots alone
   no warning and nothing partial, and the Traces screen drew both lanes with the services' health
   then and now. It also showed the only "correlated log lines" to be the dashboard's own reads of
   the trace; NERVIS 0.34.19 no longer counts a lookup of a trace as part of it
-  (`nervis/src/nervis/unified.py`).
+  (`nervis/src/nervis/unified.py`). Its fallback, lines "written during the same window", was the
+  newest lines of each log whenever the trace happened, since no log line carried a time; since
+  NERVIS 0.34.20 and ecosystem-protocol 0.2.3 lines carry one and only those within 2 s are
+  offered.
 - **16 passes.** Every event NERVIS holds (622, and 10 quarantined) and every service log
   (15 files in `.run/`, about 1.19 million lines, read by a script that printed locations only)
   carried no key in any issuer's shape and none of this machine's 11 launcher and enrollment

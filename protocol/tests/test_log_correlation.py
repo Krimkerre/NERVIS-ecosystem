@@ -54,6 +54,20 @@ def written() -> Any:
     return logger, records
 
 
+def test_every_line_says_when_it_was_written(written: Any) -> None:
+    """Protocol 0.2.3: NERVIS places log lines next to a trace by this, and had nothing to go on."""
+    from datetime import datetime, timezone
+
+    logger, records = written
+    before = datetime.now(timezone.utc)
+    logger.info("stamped")
+    after = datetime.now(timezone.utc)
+    stamp = json.loads(records[-1])["time"]
+    assert stamp.endswith("Z") and len(stamp) == len("2026-09-17T12:00:00.000Z")
+    written_at = datetime.fromisoformat(stamp)
+    assert before.replace(microsecond=before.microsecond // 1000 * 1000) <= written_at <= after
+
+
 def test_a_line_written_inside_a_request_carries_its_ids(written: Any) -> None:
     logger, records = written
     with carrying(

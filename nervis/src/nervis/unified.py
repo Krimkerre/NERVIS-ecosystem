@@ -103,10 +103,17 @@ def health_at(
     return found
 
 
+def window_around(started: float, ended: float | None = None) -> tuple[float, float]:
+    """The seconds a log line may fall in and still be offered as near a trace."""
+    last = ended if ended is not None and ended >= started else started
+    return started - WINDOW_SECONDS, last + WINDOW_SECONDS
+
+
 def correlate_logs(
     lines: Sequence[Mapping[str, Any]],
     trace_id: str,
     started: float | None,
+    ended: float | None = None,
 ) -> Linked:
     """Log lines belonging to this trace, by the strongest link available.
 
@@ -114,6 +121,13 @@ def correlate_logs(
     *that* — because a line written in the same second as a request is evidence
     about the second, not about the request, and presenting the two the same way
     turns a coincidence into a finding.
+
+    **The window is a window** (17 September 2026). Until then the fallback offered whatever lines
+    it was handed — the newest few of each log — as "written during the same window", although no
+    log line said when it was written, so a trace from yesterday showed today's lines. A line now
+    counts only if its own `time` (log lines carry one since ecosystem-protocol 0.2.3) falls within
+    `WINDOW_SECONDS` of the trace; a line with no time is never offered, and the reason says which
+    of those left the list empty.
     """
     # **A read about the trace is not part of it** (17 September 2026). NERVIS's access log
     # names the trace id in every request to view it, so the dashboard's own reads of a trace
@@ -130,9 +144,26 @@ def correlate_logs(
         return Linked(BY_TRACE, carrying[:MAX_LINES])
     if started is None:
         return Linked(BY_WINDOW, [], "the trace has no start time, so no window can be taken")
-    return Linked(BY_WINDOW, [dict(line) for line in lines][:MAX_LINES],
-                  "no log line carries this trace id — these were written around the same "
-                  "time and may belong to something else entirely")
+    first, last = window_around(started, ended)
+    dated = [(line, at) for line in lines if (at := _line_time(line)) is not None]
+    if not dated:
+        return Linked(BY_WINDOW, [], "no log line carries this trace id, and none of the lines "
+                      "read says when it was written, so none can be placed near this trace "
+                      "(log lines carry a time since ecosystem-protocol 0.2.3)")
+    near = [dict(line) for line, at in dated if first <= at <= last]
+    if not near:
+        return Linked(BY_WINDOW, [], "no log line carries this trace id, and none of the lines "
+                      f"read was written within {WINDOW_SECONDS:g} s of it")
+    return Linked(BY_WINDOW, near[:MAX_LINES],
+                  f"no log line carries this trace id — these were written within "
+                  f"{WINDOW_SECONDS:g} s of it and may belong to something else entirely")
+
+
+def _line_time(line: Mapping[str, Any]) -> float | None:
+    """When a log line says it was written, as epoch seconds, or None."""
+    from nervis.traces import _moment as parse
+
+    return parse(line.get("time"))
 
 
 def _looks_it_up(line: Mapping[str, Any], trace_id: str) -> bool:
@@ -191,6 +222,12 @@ def unify(
     because the thing being diagnosed is usually the thing that is broken.
     """
     started = trace.get("started")
+    window_ms = trace.get("window_ms")
+    ended = (
+        started + window_ms / 1000
+        if isinstance(started, float) and isinstance(window_ms, (int, float))
+        else None
+    )
     models = models_in(trace)
     return {
         "trace": dict(trace),
@@ -198,6 +235,7 @@ def unify(
         "logs": correlate_logs(
             log_lines, str(trace.get("trace_id") or ""),
             started if isinstance(started, float) else None,
+            ended,
         ).as_dict(),
         "runtime": runtime_context(models, evidence),
         "partial": bool(trace.get("warnings")),
@@ -213,5 +251,5 @@ def _moment(event: Mapping[str, Any]) -> float | None:
 
 __all__ = [
     "BY_TRACE", "BY_WINDOW", "Linked", "MAX_LINES", "WINDOW_SECONDS",
-    "correlate_logs", "health_at", "models_in", "runtime_context", "unify",
+    "correlate_logs", "health_at", "window_around", "models_in", "runtime_context", "unify",
 ]
