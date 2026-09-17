@@ -709,9 +709,13 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.27
+## NERVIS — 0.34.28
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **RAVIS's Codex card and "What you can use" sit side by side** in everyday mode, half the row each.
+
+### 0.34.27
 
 - **RAVIS's dashboard says what you can actually use.** One row per provider: ready with the number of
   models it offers, switched off, no key yet, a key the provider refused, not running, or paused after

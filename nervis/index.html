@@ -11087,8 +11087,10 @@ function codexLookup(table,word){return typeof word==='string'&&Object.hasOwn(ta
 
 function codexCardShown(){return state.app==='ravis'&&state.view==='Dashboard'}
 
-function codexCard(codex){
- return `<div class="card full${liveClass(codex.live)}" id="codex-card"><h3>Codex tasks, allowed sites and version</h3>${cell(`<div id="codex-card-body">${codexCardBody(codex,CODEX_CARD.sites)}</div>`,'ravis')}</div>`;
+/* Half the row in everyday mode, where it sits beside "What you can use"; the
+   whole row when the routing cards are on and nothing shares it. */
+function codexCard(codex,width='full'){
+ return `<div class="card ${width}${liveClass(codex.live)}" id="codex-card"><h3>Codex tasks, allowed sites and version</h3>${cell(`<div id="codex-card-body">${codexCardBody(codex,CODEX_CARD.sites)}</div>`,'ravis')}</div>`;
 }
 
 function codexCardBody(codex,sites){
@@ -11473,7 +11475,7 @@ function providerStopper(p){
  return null;
 }
 
-function ravisEverydayCard(providers,live){
+function ravisEverydayCard(providers,live,width='wide'){
  const rows=(providers||[]).map(one=>{
   const ready=providerReady(one);
   return `<div class="table-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:center">
@@ -11482,7 +11484,7 @@ function ravisEverydayCard(providers,live){
     <span class="${ready.chip}">${escapeHtml(ready.word)}</span></div>`;
  }).join('');
  const ready=(providers||[]).filter(one=>providerReady(one).word==='ready').length;
- return `<div class="card wide${escapeHtml(liveClass(live))}"><h3>What you can use <span class="chip">${ready} of ${(providers||[]).length} ready</span></h3>${rows}
+ return `<div class="card ${width}${escapeHtml(liveClass(live))}"><h3>What you can use <span class="chip">${ready} of ${(providers||[]).length} ready</span></h3>${rows}
   <small class="mono dim">a provider that is switched off, or a local runtime that is not running, is a choice rather
   than a fault — a key the provider refused is not. Keys live on
   <a href="#" onclick="go('ravis','Credentials');return false" style="color:inherit">Credentials</a>, and which models
@@ -11511,8 +11513,8 @@ function liveRavisDashboard(decisions, usage, codex, sites, providers){
    ['Spend',spendFigure(usage),spendNote(usage),'ravis',true,
      `<button class="btn" style="margin-top:8px" onclick="resetSpend()" title="Count from now. Nothing is deleted, and the budget keeps its own window.">Reset to 0</button>`],
    codexTile(codex)])
- +codexCard(codex)
- +(advancedOn('ravis')?'':ravisEverydayCard(providers,usage.live))
+ +codexCard(codex,advancedOn('ravis')?'full':'half')
+ +(advancedOn('ravis')?'':ravisEverydayCard(providers,usage.live,'half'))
  +(!advancedOn('ravis')?''
    :decisions.length
    ? decisionCard(decisions[0])+funnelCard(decisions[0])+attemptsCard(decisions[0])
