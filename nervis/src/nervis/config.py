@@ -307,6 +307,14 @@ class Settings(BaseSettings):
     # that closes on the clock cannot do that.
     startup_window_seconds: float = 30.0
 
+    # How long a service must stay down before the notification centre says so (NERVIS 0.34.23).
+    # The launcher stops code-server before NERVIS (runbook §12.1), and a sweep landing between the
+    # two filed "code-server has stopped answering" on an ordinary stop. A note now waits for a
+    # later sweep at least this long after the service went down; a stop takes NERVIS down well
+    # inside it, and a service back by then files nothing either way. The hub records the
+    # transition at once regardless.
+    outage_confirm_seconds: float = 15.0
+
 
 @dataclass(frozen=True)
 class ConfigurationFinding:

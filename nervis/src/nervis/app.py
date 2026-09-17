@@ -705,8 +705,15 @@ def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:
     if stopping is not None and stopping.is_set():
         return
     worth: list[_Noteworthy] = []
+    pending = _pending_outages(api)
+    now = time.monotonic()
     for entry in api.state.registry.all():
         was = before.get(entry.key)
+        # Decided by the pending outage this sweep: its note is filed or dropped, and the
+        # transition below must not file a second one (a "back" for an unannounced outage).
+        settled = entry.key in pending
+        if settled:
+            worth.extend(_confirmed(api, entry, pending, now))
         if was is None or was == entry.state:
             continue
         hub.emit(
@@ -732,9 +739,44 @@ def _announce_transitions(api: FastAPI, before: dict[str, Any]) -> None:
             },
         )
         noteworthy = _note_state_change(api, entry, was)
-        if noteworthy is not None:
+        if noteworthy is None or settled or entry.key in pending:
+            continue
+        if noteworthy.usable:
             worth.append(noteworthy)
+        else:
+            pending[entry.key] = (noteworthy, now)
     _file_notes(api, worth)
+
+
+def _pending_outages(api: FastAPI) -> dict[str, tuple[_Noteworthy, float]]:
+    """Services seen going down whose note waits for confirmation, with when they went."""
+    pending: dict[str, tuple[_Noteworthy, float]] | None = getattr(
+        api.state, "pending_outages", None
+    )
+    if pending is None:
+        pending = api.state.pending_outages = {}
+    return pending
+
+
+def _confirmed(
+    api: FastAPI, entry: Any, pending: dict[str, tuple[_Noteworthy, float]], now: float
+) -> list[_Noteworthy]:
+    """The note for a pending outage, once it has lasted; nothing if it ended first.
+
+    **An outage is news once it has outlasted a stop** (NERVIS 0.34.23). A service back before
+    the note was due files nothing — not the outage, and not a "back to healthy" for an outage
+    nobody was told about. Filed with the state it is in now, which may have moved on from the
+    one first seen (unreachable to stale, say).
+    """
+    noted, since = pending[entry.key]
+    if entry.is_usable:
+        del pending[entry.key]
+        return []
+    if now - since < float(api.state.settings.outage_confirm_seconds):
+        return []
+    del pending[entry.key]
+    return [_Noteworthy(label=noted.label, state=entry.state.value, was=noted.was,
+                        detail=entry.detail, usable=False)]
 
 
 def _enforce_log_bounds(api: FastAPI) -> None:

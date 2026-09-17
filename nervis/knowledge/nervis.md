@@ -933,7 +933,9 @@ configured with an executable NERVIS may start. Those are different answers to
 ## The Notifications tab
 
 Where NERVIS keeps what it wanted to tell you. These file notes: a service
-changing state; unattended work when somebody has switched it on (a note when a
+changing state (since NERVIS 0.34.23 a "stopped answering" note waits until the
+service is still down at a later check, at least 15 seconds on, so stopping the
+stack or a brief blip files nothing); unattended work when somebody has switched it on (a note when a
 service has stayed unreachable or degraded for a while, and a once-a-day digest of
 what the event hub recorded); and, since NERVIS 0.34.12:
 

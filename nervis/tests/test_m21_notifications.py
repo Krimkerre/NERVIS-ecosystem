@@ -47,6 +47,21 @@ def client(tmp_path: Any) -> Any:
         yield client
 
 
+@pytest.fixture()
+def idle(tmp_path: Any) -> Any:
+    """The same app, built and never started: no probe loop moves a state these tests set."""
+    import asyncio
+
+    settings = Settings(  # type: ignore[call-arg]
+        database_path=str(tmp_path / "nervis.db"),
+        workspace_path=str(tmp_path),
+        _env_file=None,
+    )
+    client = TestClient(create_app(settings))
+    client.app.state.stopping = asyncio.Event()  # type: ignore[attr-defined]
+    return client
+
+
 # ── The three promises ──────────────────────────────────────────────────────
 
 
@@ -268,6 +283,84 @@ def test_the_capability_is_advertised(client: TestClient) -> None:
 # ── One event, seen twice ───────────────────────────────────────────────────
 
 
+def later_sweep(api: Any, seconds: float | None = None) -> None:
+    """The probe loop's next pass, as far on as `seconds` (default: past the confirmation wait),
+    with nothing having moved since the last one."""
+    wait = api.state.settings.outage_confirm_seconds if seconds is None else seconds
+    pending = getattr(api.state, "pending_outages", {})
+    for key, (noted, since) in list(pending.items()):
+        pending[key] = (noted, since - wait - 0.01)
+    app_module._announce_transitions(api, {e.key: e.state for e in api.state.registry.all()})
+
+
+def settled_down(api: Any) -> Any:
+    """A NERVIS past its startup window, with one service it saw healthy now down."""
+    api.state.probe_started_at = time.monotonic() - api.state.settings.startup_window_seconds - 1
+    entry = api.state.registry.all()[0]
+    entry.state = RegistryState.UNREACHABLE
+    before = {e.key: e.state for e in api.state.registry.all()}
+    before[entry.key] = RegistryState.HEALTHY
+    app_module._announce_transitions(api, before)
+    return entry
+
+
+def test_an_outage_is_filed_only_once_it_has_outlasted_a_stop(idle: TestClient) -> None:
+    """NERVIS 0.34.23: the launcher stops code-server before NERVIS, and a sweep between the two
+    filed "code-server has stopped answering" on an ordinary stop. The note now waits for a later
+    sweep at least `outage_confirm_seconds` on; the hub still records the transition at once."""
+    api = idle.app  # type: ignore[attr-defined]
+    entry = settled_down(api)
+    assert idle.get("/api/v1/notifications").json()["unread"] == 0, "not on the first sighting"
+    assert api.state.hub.query(event_type="nervis.service.state_changed", latest=True)
+    later_sweep(api, seconds=1.0)
+    assert idle.get("/api/v1/notifications").json()["unread"] == 0, "not before the wait is up"
+    later_sweep(api)
+    notes = idle.get("/api/v1/notifications").json()["items"]
+    assert len(notes) == 1 and entry.declaration.label in notes[0]["title"]
+    later_sweep(api)
+    assert idle.get("/api/v1/notifications").json()["unread"] == 1, "and only once"
+
+
+def test_a_service_back_before_the_wait_files_nothing_at_all(idle: TestClient) -> None:
+    """Down and back inside the wait — a restart — is neither an outage nor a recovery."""
+    api = idle.app  # type: ignore[attr-defined]
+    entry = settled_down(api)
+    down = entry.state
+    entry.state = RegistryState.HEALTHY
+    entry.checked_at = api.state.registry._now()  # answered just now, or it reads as stale
+    app_module._announce_transitions(api, {e.key: e.state for e in api.state.registry.all()}
+                                     | {entry.key: down})
+    later_sweep(api)
+    assert idle.get("/api/v1/notifications").json()["unread"] == 0
+    assert api.state.pending_outages == {}
+
+
+def test_an_outage_that_moved_on_is_filed_as_it_is_now(idle: TestClient) -> None:
+    """Unreachable, then stale before the note was due: one note, in today's words."""
+    api = idle.app  # type: ignore[attr-defined]
+    entry = settled_down(api)
+    was = entry.state
+    entry.state = RegistryState.STALE
+    pending = api.state.pending_outages
+    noted, since = pending[entry.key]
+    pending[entry.key] = (noted, since - api.state.settings.outage_confirm_seconds - 1)
+    app_module._announce_transitions(api, {e.key: e.state for e in api.state.registry.all()}
+                                     | {entry.key: was})
+    notes = idle.get("/api/v1/notifications").json()["items"]
+    assert len(notes) == 1
+    assert "stale" in notes[0]["reason"]
+    later_sweep(api)
+    assert idle.get("/api/v1/notifications").json()["unread"] == 1
+
+
+def test_nothing_is_confirmed_while_nervis_is_stopping(idle: TestClient) -> None:
+    api = idle.app  # type: ignore[attr-defined]
+    settled_down(api)
+    api.state.stopping.set()
+    later_sweep(api)
+    assert idle.get("/api/v1/notifications").json()["unread"] == 0
+
+
 def test_a_state_change_is_filed_by_nervis_not_by_the_browser(client: TestClient) -> None:
     """The record survives a muted voice because the voice never wrote it.
 
@@ -283,6 +376,7 @@ def test_a_state_change_is_filed_by_nervis_not_by_the_browser(client: TestClient
     before = {e.key: e.state for e in api.state.registry.all()}
     before[entry.key] = RegistryState.HEALTHY
     app_module._announce_transitions(api, before)
+    later_sweep(api)
 
     body = client.get("/api/v1/notifications").json()
     assert body["unread"] == 1
@@ -335,6 +429,7 @@ def test_the_same_outage_is_filed_once_the_stack_has_settled(client: TestClient)
     api.state.probe_started_at = time.monotonic() - window - 1
     before = {e.key: RegistryState.HEALTHY for e in api.state.registry.all()}
     app_module._announce_transitions(api, before)
+    later_sweep(api)
     assert client.get("/api/v1/notifications").json()["unread"] > 0
 
 
@@ -418,6 +513,7 @@ def test_an_ordinary_tick_leaves_the_window_closed(client: TestClient) -> None:
 
     before = {e.key: RegistryState.STALE for e in api.state.registry.all()}
     app_module._announce_transitions(api, before)
+    later_sweep(api)
     assert client.get("/api/v1/notifications").json()["unread"] > 0
 
 

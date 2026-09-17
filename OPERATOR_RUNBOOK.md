@@ -289,6 +289,12 @@ remembered:
   NERVIS. It calls no real model and spends nothing, and it exits non-zero if any check fails.
   Since RAVIS 0.23.2 the overhead check sits right at its 5 ms line and can land either side of it
   (see §9.8 in `RAVIS.md`).
+- **Failure rehearsal**: `python3 tools/failure_rehearsal.py` (about four minutes, with the stack
+  running and nothing in flight) — holds SIRVIS's, RAVIS's and NERVIS's port in turn so the rest
+  start without it, then kills RAVIS, NERVIS and code-server outright, checking each time that the
+  others keep answering, that NERVIS reports the right state within a probe interval, and that the
+  launcher brings everything back with its databases intact. Stops and starts the stack several
+  times, and NERVIS files real outage notes for the kills.
 - **Long-running**: `caffeinate -i ravis/.venv/bin/python tools/soak_test.py --hours 4` — the
   running stack under one dashboard's reads, plus chat against a private RAVIS, for hours awake:
   whether any service stops answering or restarts, and whether memory, open files, threads or

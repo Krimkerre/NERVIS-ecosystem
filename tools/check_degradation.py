@@ -174,6 +174,7 @@ CELLS: list[Cell] = [
         evidence=[
             ("live", "tools/acceptance_run.py:crash_clause"),
             ("live", "tools/acceptance_run.py:_reconciled"),
+            ("live", "tools/failure_rehearsal.py:crash_and_restart"),
             ("unit", "sirvis/tests/test_m6_storage.py:test_a_run_starts_recorded_so_a_crash_leaves_evidence_of_it"),
             ("route", "sirvis/tests/test_m14_queue.py:test_a_job_interrupted_by_a_restart_is_not_quietly_run_again"),
         ],
@@ -181,13 +182,20 @@ CELLS: list[Cell] = [
             "truthful",
             "idempotent_recovery",
             "bounded_retries",
+            "standalone",
         ),
         residual=
             "Proved for SIRVIS, live, with a real SIGKILL during a benchmark: the run is "
             "reconciled and the job ends rather than hanging — and, across two applications "
             "over one database file, that the next process does not quietly run the "
             "interrupted job again, which would spend the machine on work nobody was told "
-            "had restarted. RAVIS and NERVIS are never killed mid-operation by anything.",
+            "had restarted. **RAVIS, NERVIS and code-server were killed outright on 17 September "
+            "2026** (`tools/failure_rehearsal.py`), each while the stack was otherwise at work: "
+            "NERVIS reported RAVIS and code-server unreachable after 20 s, the other services "
+            "kept answering their own reads throughout, the launcher brought each back, the "
+            "killed service's database passed SQLite's integrity check and NERVIS's stored "
+            "events did not shrink. Not shown: RAVIS or NERVIS killed with a request of their "
+            "own in flight — nothing was in flight, by the tool's own precondition.",
     ),
     Cell(
         condition="corrupt response",
@@ -238,6 +246,7 @@ CELLS: list[Cell] = [
         verdict="COVERED",
         evidence=[
             ("live", "tools/acceptance_run.py:cold_start_clause"),
+            ("live", "tools/failure_rehearsal.py:absent_at_startup"),
             ("unit", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
             ("unit", "nervis/tests/test_m2_registry.py:test_a_peer_that_is_simply_absent_costs_one_request_a_pass"),
             ("unit", "protocol/tests/test_event_publisher.py:test_the_buffer_is_bounded_and_a_drop_is_counted"),
@@ -254,8 +263,13 @@ CELLS: list[Cell] = [
             "publisher, which buffers to a bound and counts what it drops while its "
             "collector has never answered, and at the probe, where a peer that is simply "
             "not there costs one connection attempt a pass rather than the four reads a "
-            "full pass makes, however long it has been absent. The other starting orders "
-            "are untested.",
+            "full pass makes, however long it has been absent. **Every starting order since "
+            "17 September 2026** (`tools/failure_rehearsal.py`): with SIRVIS, RAVIS or NERVIS "
+            "held off its port, the launcher named it not ready and the rest ready, the rest "
+            "answered their own reads, NERVIS reported the missing one unreachable (31 s for a "
+            "port that times out, 22 s for RAVIS, inside a probe interval plus deadline), and "
+            "each came back healthy in NERVIS within 20 s of being let start. Not shown: queues "
+            "under that condition beyond the publisher's.",
     ),
     Cell(
         condition="timeout",
@@ -517,6 +531,7 @@ CELLS: list[Cell] = [
             ("unit", "nervis/tests/test_m2_registry.py:test_a_code_server_that_stopped_is_not_reported_as_stopped"),
             ("route", "nervis/tests/test_m2_registry.py:test_the_services_route_reports_code_server_as_unreachable"),
             ("static-gate", "nervis/tools/editor_check.js"),
+            ("live", "tools/failure_rehearsal.py:crash_and_restart"),
         ],
         outcomes=(
             "truthful",
@@ -524,7 +539,9 @@ CELLS: list[Cell] = [
         ),
         residual=
             "The registry state changes, the services listing publishes it, and the editor "
-            "tab refuses to frame an editor that is not answering. The derived capability d"
+            "tab refuses to frame an editor that is not answering — live since 17 September "
+            "2026, when code-server was killed and NERVIS reported it unreachable after 20 s "
+            "while SIRVIS, RAVIS and NERVIS kept answering. The derived capability d"
             "eliberately survives the loss, so anything gating on the capability rather tha"
             "n the state would still be wrong.",
     ),

@@ -681,7 +681,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.22
+## NERVIS — 0.34.23
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **Stopping the stack no longer files "code-server has stopped answering".** The launcher stops
+  code-server just before NERVIS, and NERVIS sometimes noticed in between. A "stopped answering"
+  note now waits until the service is still down at a later check, at least 15 seconds on; a
+  service back by then files nothing, neither the outage nor a "back to healthy". The event log
+  still records every change at once.
+- **A failure rehearsal**, `tools/failure_rehearsal.py`, starts the stack with each service held
+  off in turn and kills RAVIS, NERVIS and code-server outright, checking that the rest carry on and
+  that NERVIS reports each state truthfully (operator runbook).
+
+### 0.34.22
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
 

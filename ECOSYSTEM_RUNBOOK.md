@@ -967,6 +967,14 @@ Required outcomes:
 - Recovery is idempotent — no duplicated jobs, charges, agent actions or approvals.
 - Standalone product behaviour stays usable whenever that product's own dependencies are healthy.
 
+**As built, 17 September 2026 — rehearsed live for two conditions across the whole stack.**
+`tools/failure_rehearsal.py` held each of SIRVIS, RAVIS and NERVIS off its port while the launcher
+started the rest, and killed RAVIS, NERVIS and code-server outright: the rest kept answering their
+own reads, NERVIS reported the missing service unreachable in 20–31 s (its probe interval plus a
+probe deadline), the launcher brought each back healthy with its database passing SQLite's
+integrity check, and NERVIS's stored events never shrank. It also showed NERVIS filing an outage
+note during an ordinary stop, which NERVIS 0.34.23 holds back until the outage is confirmed.
+
 **Scored in `tools/check_degradation.py`, which parses the sentence above.** The conditions
 were named here and enumerated nowhere, so which of them were covered was a question with no
 answer — and a matrix nobody can score is one that gets called done. Each condition now
