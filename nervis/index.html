@@ -3195,6 +3195,11 @@ const API={
    live:true,
    items:payload.items.map(x=>({
     pool_id:x.pool_id,
+    /* RAVIS names each pool and says what it is for (`label`, `description`).
+       Both were dropped here, so the screen could show a pool's constraints and
+       not what anybody would want it for. */
+    label:x.label||'',
+    purpose:x.description||'',
     requires:x.requirements,
     members:x.member_count,
     available:x.available,
@@ -12039,7 +12044,10 @@ async function narrowEveryPool(){
 
 function poolRow(x,inv){
  const key=x.pool_id.replace(/^ravis\//,'');
- return `<div class="table-row five"><span class="mono"><a href="#" onclick="POOLEDIT.toggle('${jsAttr(key)}');return false" style="color:inherit" title="choose which models this pool may pick from">${escapeHtml(x.pool_id)}</a>${x.revision?` <span class="dim" style="font-size:.85em" title="RAVIS.md §5.4: pin this revision to be told when the pool's behaviour changes. It tracks how the pool selects, not how it is worded.">@${escapeHtml(x.revision)}</span>`:''}</span><span class="mono" style="opacity:.75">${escapeHtml(inv(x.requires))}</span><span>${escapeHtml(x.members)}</span><span class="chip${warnUnless(x.available)}">${escapeHtml(x.available?'yes':'no')}</span><span style="opacity:.7">${escapeHtml(dash(x.reason))}</span></div>
+ /* What the pool is for, in RAVIS's own words, under its id. */
+ const purpose=x.purpose?`<small class="dim" style="display:block">${escapeHtml(x.purpose)}</small>`:'';
+ return `<div class="table-row five"><span class="mono"><a href="#" onclick="POOLEDIT.toggle('${jsAttr(key)}');return false" style="color:inherit" title="choose which models this pool may pick from">${escapeHtml(x.label||x.pool_id)}</a>
+  <span class="dim" style="font-size:.85em">${escapeHtml(x.label?x.pool_id:'')}</span>${purpose}${x.revision?` <span class="dim" style="font-size:.85em" title="RAVIS.md §5.4: pin this revision to be told when the pool's behaviour changes. It tracks how the pool selects, not how it is worded.">@${escapeHtml(x.revision)}</span>`:''}</span><span class="mono" style="opacity:.75">${escapeHtml(inv(x.requires))}</span><span>${escapeHtml(x.members)}</span><span class="chip${warnUnless(x.available)}">${escapeHtml(x.available?'yes':'no')}</span><span style="opacity:.7">${escapeHtml(dash(x.reason))}</span></div>
   <div id="${domId('pm',key)}" class="model-picker" data-keep-open style="display:none">
    <div class="picker-head">
     <input class="picker-search mono" placeholder="filter this pool\u2019s candidates\u2026"
@@ -12717,7 +12725,21 @@ async function ravisSettings(){
     only at the foot of the menu, because this is where somebody looking to change how
     RAVIS is presented will look first. */
  const appearanceCard=`<div class="card full${USER.read?' live':''}"><h3>What this dashboard shows for RAVIS</h3>${cell(advancedSettingRow('ravis'),'ravis')}</div>`;
- $('#content').innerHTML=liveCard+appearanceCard+kpis([
+ /* **Everyday keeps the two cards a person acts on**, and points at the screens
+    that actually change something; the endpoint lists, the serving surface, the
+    listen address and what a port change breaks are apparatus, behind
+    `ui.ravis_advanced`. RAVIS publishes no settings endpoint either way, so
+    nothing here is a control that quietly does nothing. */
+ const everydayCard=advancedOn('ravis')?'':`<div class="card full${escapeHtml(liveClass(ravisObserved))}"><h3>What you can change</h3>${cell(`
+   <div class="trace-step"><b>provider keys</b><span><a href="#" onclick="go('ravis','Credentials');return false" style="color:inherit">Credentials</a> — add, replace or remove a key</span></div>
+   <div class="trace-step"><b>which models a pool may use</b><span><a href="#" onclick="go('ravis','Pools');return false" style="color:inherit">Pools</a> — narrow a pool, or reset it to its curated default</span></div>
+   <div class="trace-step"><b>a provider on or off</b><span><a href="#" onclick="go('ravis','Providers');return false" style="color:inherit">Providers</a> — and which of its models RAVIS may see</span></div>
+   <div class="trace-step"><b>what it costs</b><span><a href="#" onclick="go('ravis','Spending');return false" style="color:inherit">Spending</a> — estimated from published prices, never an invoice</span></div>
+   <small class="mono dim">everything else on this screen describes how RAVIS is running rather than something to change: RAVIS
+   publishes no settings endpoint, so the profile, the serving surface and the address it listens on are read-only facts.
+   They are on this screen when <b>Advanced controls</b> is on.</small>`,'ravis')}</div>`;
+ const apparatus=advancedOn('ravis');
+ $('#content').innerHTML=liveCard+appearanceCard+everydayCard+(!apparatus?'':kpis([
    ['Active profile',active.label,`${active.profile_id} · rev ${active.revision}`,'ravis'],
    ['Serving',`${served} / ${s.serving.endpoints.length}`,'endpoints live','ravis',false],
    /* Five, not zero. RAVIS ships PUT and DELETE on provider credentials, PUT
@@ -12761,7 +12783,7 @@ async function ravisSettings(){
    <div class="trace-step"><b>listen address</b><span>restart · no endpoint</span></div>
    <div class="trace-step"><b>serving surface</b><span>no endpoint</span></div>
    <div class="trace-step"><b>privacy</b><span>a pool property (<span class="mono">ravis/private</span>), not a service setting</span></div>
-   <small class="mono dim">these are real configuration and RAVIS.md defines no mutation for any of them, so this page shows them and stops. A toggle here would be a claim that an endpoint exists — which is the one thing the ecosystem rule forbids, and a settings screen is where it is most tempting. <b>Credentials used to be listed here too, and that was wrong</b>: a provider nobody can configure is a provider nobody can use, so M10 gave them a real endpoint and they moved to <b>${escapeHtml(s.credentials.surface)}</b>.</small>`,'ravis')}</div>`}
+   <small class="mono dim">these are real configuration and RAVIS.md defines no mutation for any of them, so this page shows them and stops. A toggle here would be a claim that an endpoint exists — which is the one thing the ecosystem rule forbids, and a settings screen is where it is most tempting. <b>Credentials used to be listed here too, and that was wrong</b>: a provider nobody can configure is a provider nobody can use, so M10 gave them a real endpoint and they moved to <b>${escapeHtml(s.credentials.surface)}</b>.</small>`,'ravis')}</div>`)}
 
 
 /* Credentials — the one screen that exists so a provider can be reached at all.

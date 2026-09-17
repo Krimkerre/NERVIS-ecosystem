@@ -709,9 +709,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.28
+## NERVIS — 0.34.29
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **Pools say what they are for.** RAVIS names each pool and describes it, and the dashboard was
+  dropping both — so a pool showed its constraints and never its purpose. The name, the id and the
+  description now sit together, with the constraints unchanged beside them.
+- **RAVIS's settings screen starts with what you can change** — keys, which models a pool may use, a
+  provider on or off, what it costs — each linking to the screen that does it. The serving surface,
+  the listen address, what a port change breaks and the endpoint lists appear with **Advanced
+  controls**, because RAVIS publishes no settings endpoint and they are facts rather than controls.
+- **Spending is unchanged**, deliberately: it already keeps estimates, unpriced calls and a real zero
+  apart, and says it is never an invoice.
+
+### 0.34.28
 
 - **RAVIS's Codex card and "What you can use" sit side by side** in everyday mode, half the row each.
 

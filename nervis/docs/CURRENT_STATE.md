@@ -174,8 +174,16 @@ off is a choice, a refused key is a fault, and they are worded differently), wit
 decision, funnel, attempts and recent-decision cards behind `ui.ravis_advanced`. The
 four headline tiles stayed: `tools/codex_check.js` records them as the owner's layout.
 
-Still to do: RAVIS's Pools, Spending and Settings contents, SIRVIS's screens, then
-stage three's plain-language explanations with technical detail folded underneath.
+**Pools and Settings followed** (0.34.29). Pools carries RAVIS's own `label` and
+`description` through the adapter — both were dropped — so each row says what the
+pool is for beside what it requires. RAVIS's Settings leads with *What you can
+change* (keys, pool membership, a provider on or off, cost), and the profile tiles,
+serving surface, listen address, port dependants and endpoint lists are behind
+`ui.ravis_advanced`. **Spending was left alone on purpose:** it already separates
+estimated, unpriced and zero, and says it is never an invoice.
+
+Still to do: SIRVIS's screens, then stage three's plain-language explanations with
+technical detail folded underneath.
 
 ## The only mutating controls on the page
 
