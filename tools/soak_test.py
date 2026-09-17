@@ -110,6 +110,9 @@ LATENCY_SHARE = 1.5
 LATENCY_SLACK_MS = 2.0
 
 LIVE_SERVICES = ("ravis", "nervis", "sirvis")
+#: Where each live service listens, which is what tells it from the private RAVIS
+#: (`lt.service_process`).
+LIVE_PORTS = {"ravis": 8731, "nervis": 8790, "sirvis": 8721}
 PRIVATE = "private ravis"
 
 DASHBOARD_READS = (
@@ -541,8 +544,10 @@ async def soak(duration: float, sample_seconds: float, path: Path) -> int:
                 while not stop.is_set():
                     await pause(stop, sample_seconds)
                     wall, mono = time.time(), time.monotonic()
-                    processes = {name: process_snapshot(lt.service_process(name))
-                                 for name in LIVE_SERVICES}
+                    processes = {
+                        name: process_snapshot(lt.service_process(name, LIVE_PORTS[name]))
+                        for name in LIVE_SERVICES
+                    }
                     processes[PRIVATE] = process_snapshot(private)
                     reads = traffic.flush()
                     for label, read in reads.items():

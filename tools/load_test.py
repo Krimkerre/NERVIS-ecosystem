@@ -851,13 +851,31 @@ async def admission(home: Path, stub: Stub, report: Report) -> None:
 # ── Part 3 ──────────────────────────────────────────────────────────────────
 
 
-def service_process(name: str) -> psutil.Process | None:
-    """The running `<name> serve`, found by its command line."""
+def service_process(name: str, port: int | None = None) -> psutil.Process | None:
+    """The running `<name> serve`, found by its command line — and, given `port`, the one of
+    them listening there.
+
+    **The port, because a name is not enough.** The soak test runs a private RAVIS beside the
+    live one, and both are `ravis serve`. Picking the first by process number watched the live
+    one on 16 September 2026 and the private one on 17 September, after process numbers wrapped,
+    so that run never measured the live RAVIS's memory, files or threads.
+    """
     for process in psutil.process_iter(["cmdline"]):
         cmdline = process.info.get("cmdline") or []
-        if "serve" in cmdline and any(Path(part).name == name for part in cmdline):
+        if not ("serve" in cmdline and any(Path(part).name == name for part in cmdline)):
+            continue
+        if port is None or _listens_on(process, port):
             return process
     return None
+
+
+def _listens_on(process: psutil.Process, port: int) -> bool:
+    try:
+        connections = process.net_connections(kind="inet")
+    except (psutil.Error, OSError):
+        return False
+    return any(c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port
+               for c in connections)
 
 
 async def timed_get(client: httpx.AsyncClient, url: str, label: str,
