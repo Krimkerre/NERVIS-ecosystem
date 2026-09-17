@@ -709,9 +709,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.30
+## NERVIS — 0.34.31
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **Failures say what to do, with the real words one click away.** "Start it on this machine to use
+  its models" rather than `catalogue: All connection attempts failed` — and that exact text is still
+  there, under **Technical details**, because deciding whether to restart something needs both. On
+  the overview's *What you can do now* and RAVIS's *What you can use*.
+
+### 0.34.30
 
 - **SIRVIS's dashboard keeps the answers and folds away the apparatus.** What is installed, what is
   loaded, what memory it holds, what was measured and the recent evidence all stay; the suite's

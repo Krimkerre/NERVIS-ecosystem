@@ -188,9 +188,13 @@ the memory, the measurements and the recent evidence stay in both modes. Its Res
 screen was left alone — each row is already a `<details>` whose summary is the result
 and whose body holds the identifiers, which is the disclosure the task asks for.
 
-Still to do: plain-language wording on SIRVIS's Models, Discover, Downloads and
-Runtime screens, and stage three's explanations with technical detail folded
-underneath.
+**Stage three began with the two everyday cards** (0.34.31). `withDetail(sentence,
+detail)` puts a sentence somebody can act on in front and folds the service's own
+words under *Technical details* — never instead of them. Used by the Overview's
+*What you can do now* and RAVIS's *What you can use*.
+
+Still to do: the same treatment for SIRVIS's Models, Discover, Downloads and Runtime
+screens and for a failed chat turn.
 
 ## The only mutating controls on the page
 

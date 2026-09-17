@@ -4522,6 +4522,15 @@ const money=(amount,currency)=>{
    Events screen, which is the one the stream repaints most.
    Derived rather than passed, because the summary is already unique per screen
    and threading an id through twenty call sites is twenty chances to reuse one. */
+/* **A sentence anybody can act on, with the real words underneath it.**
+   Not a replacement for the failure: the service's own text is inside the fold,
+   because "it isn't answering" is what to do about it and `ConnectError` is what
+   actually happened, and a reader deciding whether to restart something needs
+   both. Nothing is invented — when there is no detail to fold, only the sentence
+   is drawn. */
+const withDetail=(sentence,detail)=>`${sentence}${detail?explains('Technical details',
+  `<div class="mono dim" style="line-height:1.6">${detail}</div>`):''}`;
+
 const explains=(summary,body)=>`<details class="explains" id="${domId('x',summary)}"><summary>${summary}</summary><div>${body}</div></details>`;
 
 /* A row of headline figures. `[label, value, subtitle, service, live?, extra?]`.
@@ -6519,11 +6528,15 @@ const EVERYDAY_NEEDS=[
 /* One row's answer, and never a green light for something nobody has checked. */
 function everydayReady(row){
  const state=String((row||{}).state||'');
+ const said=String((row||{}).detail||'');
  if(['healthy','degraded'].includes(state))
-  return{word:'ready',chip:'chip',note:state==='degraded'?'working, with something reduced':''};
- if(!state||state==='discovering')return{word:'not checked yet',chip:'chip warn',note:''};
- if(row.optional&&row.awaiting_first_contact)return{word:'not set up',chip:'chip',note:'never configured here'};
- return{word:'not available',chip:'chip bad',note:state};
+  return{word:'ready',chip:'chip',note:state==='degraded'?'working, but something it uses is reduced':'',detail:state==='degraded'?said:''};
+ if(!state||state==='discovering')return{word:'not checked yet',chip:'chip warn',note:'NERVIS has not asked it yet',detail:''};
+ if(row.optional&&row.awaiting_first_contact)
+  return{word:'not set up',chip:'chip',note:'never configured on this machine',detail:said};
+ return{word:'not available',chip:'chip bad',
+   note:'this one is not answering, so that part of the dashboard will not work until it is back',
+   detail:said?`${escapeHtml(state)} — ${escapeHtml(said)}`:escapeHtml(state)};
 }
 
 function everydayFunctionsCard(svc){
@@ -6533,7 +6546,7 @@ function everydayFunctionsCard(svc){
   const target=key==='codeserver'?"go('clarvis','Workspace')":`go('nervis','${view}')`;
   return `<div class="table-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:center">
     <span><a href="#" onclick="${target};return false" style="color:inherit"><b>${escapeHtml(label)}</b></a>
-     <small class="dim" style="display:block">${escapeHtml(needs)}${ready.note?' — '+escapeHtml(ready.note):''}</small></span>
+     <small class="dim" style="display:block">${withDetail(escapeHtml(needs)+(ready.note?' — '+escapeHtml(ready.note):''),ready.detail)}</small></span>
     <span class="${ready.chip}">${escapeHtml(ready.word)}</span></div>`;
  }).join('');
  return `<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>What you can do now</h3>${drawn}
@@ -11478,12 +11491,18 @@ function providerReady(p){
    one decision: a choice, a missing key, a key refused, silence, or a pause. */
 function providerStopper(p){
  const local=p.kind==='local';
- if(!p.enabled)return{word:'switched off',chip:'chip',note:'nobody can route to it'};
- if(p.credential==='rejected')return{word:'key refused',chip:'chip bad',note:p.note||'the provider rejected the key'};
+ /* The sentence says what to do; `detail` carries the provider's own words, folded
+    under "Technical details" rather than printed in front of the reader. */
+ if(!p.enabled)return{word:'switched off',chip:'chip',note:'nobody can route to it until it is switched back on'};
+ if(p.credential==='rejected')return{word:'key refused',chip:'chip bad',
+   note:'the provider would not accept this key — replace it on Credentials',detail:escapeHtml(p.note||'')};
  if(!local&&!p.credential)return{word:'no key yet',chip:'chip warn',note:'add one on Credentials to use it'};
  if(p.reachable===false)return{word:local?'not running':'not answering',chip:local?'chip warn':'chip bad',
-   note:p.note||(local?'start it to use its models':'')};
- if(p.breaker&&p.breaker!=='closed')return{word:'paused',chip:'chip warn',note:'RAVIS stopped sending after repeated failures'};
+   note:local?'start it on this machine to use its models':'it is not answering right now; nothing else is affected',
+   detail:escapeHtml(p.note||'')};
+ if(p.breaker&&p.breaker!=='closed')return{word:'paused',chip:'chip warn',
+   note:'RAVIS stopped sending to it after repeated failures, and will try again by itself',
+   detail:escapeHtml(String(p.breaker))};
  return null;
 }
 
@@ -11492,7 +11511,7 @@ function ravisEverydayCard(providers,live,width='wide'){
   const ready=providerReady(one);
   return `<div class="table-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:center">
     <span><b>${escapeHtml(one.label||one.provider_id)}</b>${one.kind==='local'?' <span class="mono dim">on this machine</span>':''}
-     ${ready.note?`<small class="dim" style="display:block">${escapeHtml(ready.note)}</small>`:''}</span>
+     ${ready.note?`<small class="dim" style="display:block">${withDetail(escapeHtml(ready.note),ready.detail)}</small>`:''}</span>
     <span class="${ready.chip}">${escapeHtml(ready.word)}</span></div>`;
  }).join('');
  const ready=(providers||[]).filter(one=>providerReady(one).word==='ready').length;
