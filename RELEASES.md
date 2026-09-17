@@ -709,9 +709,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.29
+## NERVIS — 0.34.30
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **SIRVIS's dashboard keeps the answers and folds away the apparatus.** What is installed, what is
+  loaded, what memory it holds, what was measured and the recent evidence all stay; the suite's
+  envelope, the runtime set's table and its validity card appear with **Advanced controls**. Testing
+  models and reading results are what SIRVIS is for, so none of that moved.
+
+### 0.34.29
 
 - **Pools say what they are for.** RAVIS names each pool and describes it, and the dashboard was
   dropping both — so a pool showed its constraints and never its purpose. The name, the id and the

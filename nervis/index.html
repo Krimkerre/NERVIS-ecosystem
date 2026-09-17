@@ -9755,6 +9755,30 @@ const SIRVIS_VIEWS={'Models':sirvisModels,'Runtime':sirvisRuntime,'Discover':sir
  'Results':sirvisResults,'Recommendations':sirvisRecommendations,'Downloads':sirvisDownloads};
 const RAVIS_VIEWS={'Routes':ravisRoutes,'Sessions':ravisSessions,'Spending':ravisSpending,'Pools':ravisPools,'Providers':ravisProviders,'Credentials':ravisCredentials,
  'Policies':ravisPolicies,'Evidence':ravisEvidence,'Logs':ravisLogs,'Diagnostics':ravisDiagnostics,'Settings':ravisSettings};
+/* How the numbers on this screen were produced: the suite's envelope, the runtime
+   set's own table and its validity. Apparatus rather than answer, so it waits for
+   `ui.sirvis_advanced` — the measurements themselves stay on the screen. */
+function sirvisRunCards(rn,rs,fromSirvis){
+ return advancedOn('sirvis')?`<div class="card narrow${fromSirvis}"><h3>${escapeHtml(rn.suite)}@${escapeHtml(rn.version)}</h3>${cell(`
+   <div class="trace-step"><b>target</b><span>${escapeHtml(dash((rn.target||'').split(' · ')[0]))}</span></div>
+   <div class="trace-step"><b>generating</b><span>${escapeHtml(rn.generation_tok_s.median)} tok/s</span></div>
+   <div class="trace-step"><b>effective</b><span>${escapeHtml(rn.effective_tok_s.median==null?'— not derivable from the envelope':rn.effective_tok_s.median+' tok/s')}</span></div>
+   <div class="trace-step"><b>first token</b><span>${escapeHtml(rn.first_token_s.median)} s</span></div>
+   <div class="trace-step"><b>warmups</b><span>${escapeHtml(rn.warmups)} discarded</span></div>
+   <div class="trace-step"><b>control</b><span>${rn.control?`${escapeHtml(rn.control.generation_tok_s)} tok/s · ${escapeHtml(rn.control.drift_pct)}% drift`:'none — a control brackets a sweep, not a run'}</span></div>
+   <small class="mono dim">median of ${escapeHtml(rn.samples)}, loaded alone with <b>--parallel ${escapeHtml(rn.parallel)}</b>. ${rn.control?`The control is the same build re-run the same evening: it came back within ${escapeHtml(rn.control.drift_pct)}%, which is what makes anything measured later that day comparable at all on a fanless machine.`:`No control: one brackets a sweep rather than a run, and this engine records runs. The sweep that produced these bracketed itself and its two ends came back <b>26% apart</b> — which is the figure this card would otherwise be silently missing on a fanless machine.`}</small>`,'sirvis')}</div>
+  <div class="card wide${fromSirvis}"><h3>Runtime set · ${escapeHtml(rs.name)} <span class="chip">rev ${escapeHtml(rs.revision)}</span></h3>${cell(`
+   <div class="table-row head five"><span>Role</span><span>Build</span><span>Alone</span><span>Co-resident</span><span>Follow-up</span></div>
+   ${rs.members.map(m=>{const n=(v,u)=>v==null?'—':v+(u||'');
+    /* The same absences the Runtime sets screen renders, on this screen's own
+       copy of the table. Fixing one and not the other left a literal `null` in
+       a chip here — found by loading a model and looking at the dashboard. */
+    return `<div class="table-row five"><span>${escapeHtml(m.role)}</span><span>${escapeHtml(m.family)}</span><span class="mono">${n(m.first_token_alone_s,'s')} · ${n(m.alone_tok_s,' tok/s')}</span><span class="mono">${n(m.first_token_concurrent_s,'s')}</span><span class="chip${escapeHtml(m.follow_up_concurrent==null?'':m.follow_up_concurrent==='used-result'?'':' warn')}">${escapeHtml(m.follow_up_concurrent==null?'—':m.follow_up_concurrent)}</span></div>`}).join('')}
+   <small class="mono dim">${escapeHtml(rs.finding)}.${rs.combined_peak_gb==null?' Peak memory is not on this record — M10 added those rows after the only run that exists, so the figures are in that run\'s telemetry.':` Combined peak ${escapeHtml(rs.combined_peak_gb)} GB with ${escapeHtml(rs.swap_gb)} swap — memory was never the problem, and nothing in either build's solo record predicts the column on the right.`}</small>`,'sirvis')}</div>
+  <div class="card narrow${fromSirvis}"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
+   +`<small class="mono dim">the measurement was clean; the result was not. Validity says the run can be trusted, not that the combination is a good idea.</small>`,'sirvis')}</div>`:'';
+}
+
 async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
  /* Through `control()`, which is the whole reason it exists: "a button for
     an operation that exists, or a disabled one that names what it is waiting
@@ -9825,24 +9849,7 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
      :`The bars are flat because this endpoint carries no throughput: SIRVIS files measurements against evidence records rather than against a build, so a rate belongs to a run under a named configuration and not to a name in a catalogue. The <b>Results</b> screen has them.`}</small>`,'sirvis')}</div>
   <div class="card narrow${fromSirvis}" id="buildPanel"><h3>Selected build</h3>${cell(`
    <small class="mono dim">click a build on the left. This panel reads <b>GET /api/v1/models/{id}</b> and its measurements from <b>GET /api/v1/evidence?variant=…</b> — both live.</small>`,'sirvis')}</div>
-  <div class="card narrow${fromSirvis}"><h3>${escapeHtml(rn.suite)}@${escapeHtml(rn.version)}</h3>${cell(`
-   <div class="trace-step"><b>target</b><span>${escapeHtml(dash((rn.target||'').split(' · ')[0]))}</span></div>
-   <div class="trace-step"><b>generating</b><span>${escapeHtml(rn.generation_tok_s.median)} tok/s</span></div>
-   <div class="trace-step"><b>effective</b><span>${escapeHtml(rn.effective_tok_s.median==null?'— not derivable from the envelope':rn.effective_tok_s.median+' tok/s')}</span></div>
-   <div class="trace-step"><b>first token</b><span>${escapeHtml(rn.first_token_s.median)} s</span></div>
-   <div class="trace-step"><b>warmups</b><span>${escapeHtml(rn.warmups)} discarded</span></div>
-   <div class="trace-step"><b>control</b><span>${rn.control?`${escapeHtml(rn.control.generation_tok_s)} tok/s · ${escapeHtml(rn.control.drift_pct)}% drift`:'none — a control brackets a sweep, not a run'}</span></div>
-   <small class="mono dim">median of ${escapeHtml(rn.samples)}, loaded alone with <b>--parallel ${escapeHtml(rn.parallel)}</b>. ${rn.control?`The control is the same build re-run the same evening: it came back within ${escapeHtml(rn.control.drift_pct)}%, which is what makes anything measured later that day comparable at all on a fanless machine.`:`No control: one brackets a sweep rather than a run, and this engine records runs. The sweep that produced these bracketed itself and its two ends came back <b>26% apart</b> — which is the figure this card would otherwise be silently missing on a fanless machine.`}</small>`,'sirvis')}</div>
-  <div class="card wide${fromSirvis}"><h3>Runtime set · ${escapeHtml(rs.name)} <span class="chip">rev ${escapeHtml(rs.revision)}</span></h3>${cell(`
-   <div class="table-row head five"><span>Role</span><span>Build</span><span>Alone</span><span>Co-resident</span><span>Follow-up</span></div>
-   ${rs.members.map(m=>{const n=(v,u)=>v==null?'—':v+(u||'');
-    /* The same absences the Runtime sets screen renders, on this screen's own
-       copy of the table. Fixing one and not the other left a literal `null` in
-       a chip here — found by loading a model and looking at the dashboard. */
-    return `<div class="table-row five"><span>${escapeHtml(m.role)}</span><span>${escapeHtml(m.family)}</span><span class="mono">${n(m.first_token_alone_s,'s')} · ${n(m.alone_tok_s,' tok/s')}</span><span class="mono">${n(m.first_token_concurrent_s,'s')}</span><span class="chip${escapeHtml(m.follow_up_concurrent==null?'':m.follow_up_concurrent==='used-result'?'':' warn')}">${escapeHtml(m.follow_up_concurrent==null?'—':m.follow_up_concurrent)}</span></div>`}).join('')}
-   <small class="mono dim">${escapeHtml(rs.finding)}.${rs.combined_peak_gb==null?' Peak memory is not on this record — M10 added those rows after the only run that exists, so the figures are in that run\'s telemetry.':` Combined peak ${escapeHtml(rs.combined_peak_gb)} GB with ${escapeHtml(rs.swap_gb)} swap — memory was never the problem, and nothing in either build's solo record predicts the column on the right.`}</small>`,'sirvis')}</div>
-  <div class="card narrow${fromSirvis}"><h3>Validity</h3>${cell(Object.entries(rs.validity).map(([k,v])=>`<div class="trace-step"><b>${k.replace(/_/g,' ')}</b><span>${v}</span></div>`).join('')
-   +`<small class="mono dim">the measurement was clean; the result was not. Validity says the run can be trusted, not that the combination is a good idea.</small>`,'sirvis')}</div>
+  ${sirvisRunCards(rn,rs,fromSirvis)}
   <div class="card full${fromSirvis}"><h3>Recent benchmark evidence</h3>${cell(`
    <div class="table-row head six"><span>Build</span><span>Role</span><span>First token</span><span>Rate</span><span>Tools</span><span>Provenance</span></div>
    ${ev.items.map(e=>`<div class="table-row six"><span>${escapeHtml(e.target.family)} <small class="mono" style="opacity:.5">${escapeHtml(e.target.variant)}</small></span><span>${escapeHtml(e.role)}</span><span class="mono">${escapeHtml(e.metrics.first_token_s==null?'—':e.metrics.first_token_s+'s')}</span><span class="mono">${escapeHtml(e.metrics.generation_tok_s?e.metrics.generation_tok_s+' tok/s':'—')}</span><span class="mono">${escapeHtml(e.metrics.tool_calls?e.metrics.tool_calls.join('/'):'—')}</span><span>${prov(e.evidence_type,e.samples?'n='+e.samples:'')}</span></div>`).join('')}

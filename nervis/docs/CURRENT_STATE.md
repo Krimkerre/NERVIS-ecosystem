@@ -182,8 +182,15 @@ serving surface, listen address, port dependants and endpoint lists are behind
 `ui.ravis_advanced`. **Spending was left alone on purpose:** it already separates
 estimated, unpriced and zero, and says it is never an invoice.
 
-Still to do: SIRVIS's screens, then stage three's plain-language explanations with
-technical detail folded underneath.
+**SIRVIS's dashboard followed** (0.34.30): the suite envelope, the runtime set table
+and the validity card are `sirvisRunCards`, behind `ui.sirvis_advanced`; the builds,
+the memory, the measurements and the recent evidence stay in both modes. Its Results
+screen was left alone — each row is already a `<details>` whose summary is the result
+and whose body holds the identifiers, which is the disclosure the task asks for.
+
+Still to do: plain-language wording on SIRVIS's Models, Discover, Downloads and
+Runtime screens, and stage three's explanations with technical detail folded
+underneath.
 
 ## The only mutating controls on the page
 
