@@ -143,7 +143,10 @@ def test_only_lines_written_near_the_trace_are_offered() -> None:
 
 def test_an_empty_window_says_why_it_is_empty() -> None:
     """None of the lines read has a time (older logs), or none falls near the trace: two different
-    answers, and neither lists lines."""
+    answers, and neither lists lines. No lines at all is the second, not the first."""
+    nothing = unified.correlate_logs([], "t" * 32, STARTED)
+    assert nothing.items == []
+    assert "none of the lines read was written within 2 s" in nothing.reason
     untimed = unified.correlate_logs([{"message": "old"}], "t" * 32, STARTED)
     assert untimed.items == []
     assert "says when it was written" in untimed.reason
@@ -290,6 +293,9 @@ def test_the_route_offers_lines_from_the_trace_s_moment_not_the_newest(tmp_path:
     run.mkdir()
     lines = [
         {"time": stamp(STARTED + 1), "level": "INFO", "logger": "x", "message": "while it ran"},
+        # Somebody opened this trace before: the id is in the line, and it is not part of it.
+        {"time": stamp(STARTED + 7200), "level": "INFO", "logger": "uvicorn.access",
+         "message": f'127.0.0.1:1 - "GET /api/v1/traces/{trace_id}/unified HTTP/1.1" 200'},
         *({"time": stamp(STARTED + 3600 + n), "level": "INFO", "logger": "x",
            "message": f"an hour later {n}"} for n in range(20)),
     ]

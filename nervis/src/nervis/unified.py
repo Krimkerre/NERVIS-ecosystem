@@ -132,7 +132,7 @@ def correlate_logs(
     # **A read about the trace is not part of it** (17 September 2026). NERVIS's access log
     # names the trace id in every request to view it, so the dashboard's own reads of a trace
     # became that trace's "correlated log lines" — the only ones, for a trace a day old.
-    lines = [line for line in lines if not _looks_it_up(line, trace_id)]
+    lines = [line for line in lines if not looks_it_up(line, trace_id)]
     carrying = [
         dict(line) for line in lines
         if trace_id and (
@@ -146,7 +146,7 @@ def correlate_logs(
         return Linked(BY_WINDOW, [], "the trace has no start time, so no window can be taken")
     first, last = window_around(started, ended)
     dated = [(line, at) for line in lines if (at := _line_time(line)) is not None]
-    if not dated:
+    if lines and not dated:
         return Linked(BY_WINDOW, [], "no log line carries this trace id, and none of the lines "
                       "read says when it was written, so none can be placed near this trace "
                       "(log lines carry a time since ecosystem-protocol 0.2.3)")
@@ -166,7 +166,7 @@ def _line_time(line: Mapping[str, Any]) -> float | None:
     return parse(line.get("time"))
 
 
-def _looks_it_up(line: Mapping[str, Any], trace_id: str) -> bool:
+def looks_it_up(line: Mapping[str, Any], trace_id: str) -> bool:
     """Whether a log line is a GET or HEAD to NERVIS's API that names the trace id — a lookup."""
     if not trace_id or str(line.get("trace_id") or "") == trace_id:
         return False
@@ -251,5 +251,6 @@ def _moment(event: Mapping[str, Any]) -> float | None:
 
 __all__ = [
     "BY_TRACE", "BY_WINDOW", "Linked", "MAX_LINES", "WINDOW_SECONDS",
-    "correlate_logs", "health_at", "window_around", "models_in", "runtime_context", "unify",
+    "correlate_logs", "health_at", "looks_it_up", "models_in", "runtime_context", "unify",
+    "window_around",
 ]

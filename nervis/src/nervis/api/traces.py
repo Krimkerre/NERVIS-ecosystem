@@ -20,7 +20,7 @@ from nervis.peers import sirvis as sirvis_peer
 from nervis.peers.reader import peer_credential
 from nervis.peers.reader import read as peer_read
 from nervis.traces import assemble, summarise
-from nervis.unified import MAX_LINES, models_in, unify, window_around
+from nervis.unified import MAX_LINES, looks_it_up, models_in, unify, window_around
 
 router = APIRouter(prefix="/api/v1/traces", tags=["traces"])
 
@@ -145,24 +145,36 @@ def _log_lines(
     if not configured:
         return []
     run = Path(configured)
-    found: list[dict[str, Any]] = []
-    for service in logs.FILES:
-        # By trace id first: an exact hit is worth more than the whole window,
-        # and `read` already searches further back when filtering.
-        matched = logs.read(run, service, limit=20, text=trace_id)
-        for line in matched.get("items", []):
-            found.append({**line, "service": service})
-    if found:
-        return found
+    return _carrying(run, trace_id) or _near(run, trace)
+
+
+def _carrying(run: Path, trace_id: str) -> list[dict[str, Any]]:
+    """Lines naming the trace id — an exact hit is worth more than the whole window, and `read`
+    already searches further back when filtering.
+
+    A request to view this trace names its id too, and is not part of it; counted here it kept
+    the window from being read at all (17 September 2026).
+    """
+    return [
+        {**line, "service": service}
+        for service in logs.FILES
+        for line in logs.read(run, service, limit=20, text=trace_id).get("items", [])
+        if not looks_it_up(line, trace_id)
+    ]
+
+
+def _near(run: Path, trace: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lines whose own time falls in the window around the trace."""
     started, window_ms = trace.get("started"), trace.get("window_ms")
     if not isinstance(started, (int, float)):
-        return found
+        return []
     ended = started + window_ms / 1000 if isinstance(window_ms, (int, float)) else None
     between = window_around(float(started), ended)
-    for service in logs.FILES:
-        for line in logs.read(run, service, limit=MAX_LINES, between=between).get("items", []):
-            found.append({**line, "service": service})
-    return found
+    return [
+        {**line, "service": service}
+        for service in logs.FILES
+        for line in logs.read(run, service, limit=MAX_LINES, between=between).get("items", [])
+    ]
 
 
 async def _note_silent_peers(request: Request, trace: Any) -> None:

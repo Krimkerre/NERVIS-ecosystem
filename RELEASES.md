@@ -681,7 +681,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.20
+## NERVIS — 0.34.21
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **0.34.20's window now opens for traces somebody has already looked at.** Opening a trace leaves
+  a log line naming its id, and NERVIS took that as the trace's own lines, so it never looked for
+  lines written near the trace — and then said, wrongly, that no line had a time. Those look-ups
+  are now skipped before the window is read, and an empty result says no line was written nearby.
+
+### 0.34.20
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
 
