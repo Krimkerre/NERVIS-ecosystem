@@ -301,6 +301,13 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
+As of 17 September 2026: **rolling the stack back is rehearsed**. SIRVIS, RAVIS, NERVIS and
+their shared package go back together to an earlier release — stop the stack, point the services'
+environment at an unpacked copy of that release, start again — and forward the same way; each
+direction took under a minute, with no data lost. Each service's `restore-database` command was
+also tried on a damaged copy of its database and brought it back whole. The steps are in the
+operator runbook, *Rolling the stack back to an earlier release*.
+
 As of 16 September 2026: the ecosystem has a **dependency security check**,
 `python3 tools/check_dependencies.py`. It asks the public advisory databases about the Python
 packages SIRVIS, RAVIS and NERVIS run on, NERVIS's npm tooling and Clarvis. Its first run found

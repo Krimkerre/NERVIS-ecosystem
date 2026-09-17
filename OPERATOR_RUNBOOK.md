@@ -128,6 +128,45 @@ follow it, the same way you would follow any other precondition it can't verify 
 restoring: start the service back up and confirm it reports `healthy` before resuming normal
 work.
 
+### Rolling the stack back to an earlier release
+
+SIRVIS, RAVIS, NERVIS and the shared protocol package roll back **together**, to a commit where
+all four were released as a set. Rolling back one alone can break what they agree on: since
+NERVIS 0.34.18 NERVIS refuses events without a sender's secret, and RAVIS before 0.29.2 and SIRVIS
+before 0.19.4 send none. Rehearsed on 17 September 2026 (below); each direction took under a
+minute.
+
+1. **Check nothing is in flight**: no running benchmark job (`GET /api/v1/benchmark-jobs` on
+   SIRVIS), no open runtime session, no Codex task (RAVIS → Dashboard's Codex card), nothing
+   loaded in LM Studio (`lms ps`). A job stopped halfway is marked unrecoverable, not rerun.
+2. **Pick the target commit** and check whether any database format changed since it:
+   `git diff --stat <commit> HEAD -- '*migrat*'`. If nothing changed, no restore is needed. If
+   something did, stop the stack and restore each affected database (the commands above) before
+   starting the older release — never run an older service on a newer database; the services
+   refuse to.
+3. **Unpack the target beside the checkout**, leaving the checkout itself alone:
+   `mkdir <folder> && git archive <commit> | tar -x -C <folder>`.
+4. **Stop the stack**: `python3 tools/run.py stop`.
+5. **Point the services at the older code**:
+   `ravis/.venv/bin/python -m pip install --no-deps -e <folder>/protocol -e <folder>/ravis -e <folder>/sirvis -e <folder>/nervis`.
+6. **Start the stack** with the checkout's launcher, `python3 tools/run.py start`, and confirm
+   each service reports the older version at `/ecosystem/version` and `healthy`. The launcher
+   stays the current one; an older service ignores settings it doesn't know.
+7. **To roll forward**, repeat 4–6 with the checkout's own folders:
+   `pip install --no-deps -e protocol -e ravis -e sirvis -e nervis`.
+
+**The rehearsal, 17 September 2026:** from NERVIS 0.34.18 / RAVIS 0.29.2 / SIRVIS 0.19.4 /
+protocol 0.2.2 back to commit `b423b5e` (0.34.17 / 0.29.1 / 0.19.3 / 0.2.1) and forward again.
+No database format had changed, so no restore was needed. Before, between and after, every
+database passed SQLite's integrity check and no table lost a row; all three services' events
+arrived on the older set and, through the sender check, on the current one; SIRVIS's 20 jobs
+stayed 20; Clarvis stayed 0.17.16 in both editors; and nothing the launcher printed carried a
+secret (checked against this machine's launcher secrets and every key shape). **The restore
+commands** were rehearsed on copies: each database copied with SQLite's backup API, a
+`.v<N>.bak` made of the copy, the copy's largest table emptied (820 chat messages, 438 usage
+records, 3,406 machine readings), and `restore-database` run against it — all three came back
+whole and passed a full integrity check. The live databases were only read.
+
 ### Clarvis rollback
 
 Reinstall the prior `.vsix` and reopen the workspace:

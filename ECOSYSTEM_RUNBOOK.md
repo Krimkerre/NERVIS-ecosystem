@@ -1060,6 +1060,14 @@ starts and stops the stack.
 - SIRVIS keeps benchmark evidence immutable. Recovery appends corrections; it never rewrites
   provenance.
 
+**As built, 17 September 2026 — rehearsed.** The stack was rolled back from NERVIS 0.34.18,
+RAVIS 0.29.2, SIRVIS 0.19.4 and protocol 0.2.2 to the previous released set and forward again,
+with no lost rows, no rerun job, no secret in the output and Clarvis untouched, and each service's
+`restore-database` was run against a damaged copy of its live database and brought it back whole
+(operator runbook, *Rolling the stack back to an earlier release*). Not rehearsed: a rollback
+across a database format change, which needs the restore on the live databases, and Clarvis's
+own rollback was proven separately on 6 September.
+
 **Recovery gate:** a rehearsed rollback returns the ecosystem to the last compatible set,
 with no lost accepted work, no duplicated execution, no secret exposure and no weakened
 Clarvis boundary.
