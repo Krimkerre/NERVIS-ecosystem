@@ -25,9 +25,15 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.18
+## Clarvis — 0.17.19
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Every model request says which conversation it belongs to.** Clarvis's quick check of whether a
+  model can use tools is a real (one-word) request, and it went to RAVIS unlabelled, so RAVIS filed it
+  under no conversation. It now carries the chat's or agent's session like everything else.
+
+### 0.17.18
 
 - **A closed window really does leave NERVIS's list at once.** 0.17.17's fix didn't hold when tried
   live: the editor runs two shutdown steps together, and the second let the first finish before
