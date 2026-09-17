@@ -1631,8 +1631,19 @@ may only add product-specific detail beside the required state.
       validated the file path of a citation and never the test name after it,
       so a cell kept passing after its test was renamed.*
 
-- [ ] Upgrade, downgrade, backup, rollback and recovery rehearsals pass.
-      *Partial: Clarvis's rollback rehearsal passed for real on 6 September 2026,
+- [x] Upgrade, downgrade, backup, rollback and recovery rehearsals pass.
+      ***Signed 17 September 2026, by the owner's decision.*** *Rollback and recovery were
+      rehearsed live that day: SIRVIS, RAVIS, NERVIS and the protocol package rolled back to the
+      previous release and forward again with no row lost, no job rerun and no secret printed, and
+      each `restore-database` brought a damaged copy of its live database back whole (operator
+      runbook, *Rolling the stack back to an earlier release*). Upgrade, downgrade and backup were
+      rehearsed across each service's newest database format change, on copies of the backups the
+      live services wrote before it (`tools/upgrade_rehearsal.py`): upgraded without loss, the older
+      release refusing the converted data, restored exactly, run and upgraded again. Clarvis's
+      rollback passed on 6 September (below). A downgrade across a format change was rehearsed on
+      copies, not on the live databases, by design.*
+
+      *Partial, before that: Clarvis's rollback rehearsal passed for real on 6 September 2026,
       against a live daily-driver VS Code workspace with real conversation history
       and real provider keys already in it. `krimkerre.clarvis@0.12.6` was
       force-downgraded to 0.12.3, the workspace reopened, and both stores were
