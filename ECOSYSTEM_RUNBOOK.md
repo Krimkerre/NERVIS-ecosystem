@@ -778,6 +778,28 @@ Required end-to-end scenarios:
 **E2E gate:** every scenario asserts over user-visible outcome, API response, event
 sequence, trace linkage, redaction and persisted state — not screenshots alone.
 
+**As built, 17 September 2026 — scenarios 13, 15 and 16 scored against the live stack.**
+
+- **13 passes.** With only NERVIS stopped (11:56:46–11:57:22 UTC), SIRVIS and RAVIS kept their
+  processes and reported `healthy`, `live` and `ready` throughout; SIRVIS served its system read
+  and a recommendation, RAVIS its model list and an embedding through the local Ollama model, and
+  code-server its health. The recommendation's event, published during the outage, reached NERVIS
+  23 seconds after it came back, and nothing was refused. No editor window was open, so Clarvis
+  was covered by its own suite (`clarvis/src/bridge/registration.test.ts`, "a NERVIS that is not
+  running is an outcome, not an exception"); its chat and agent paths never pass through NERVIS.
+- **15 passes.** NERVIS assembled trace `7886440e…` from 16 September — a Clarvis chat (3.0 s)
+  around RAVIS's route to Claude Haiku 4.5 through Anthropic (2.6 s), joined by request id — with
+  no warning and nothing partial, and the Traces screen drew both lanes with the services' health
+  then and now. It also showed the only "correlated log lines" to be the dashboard's own reads of
+  the trace; NERVIS 0.34.19 no longer counts a lookup of a trace as part of it
+  (`nervis/src/nervis/unified.py`).
+- **16 passes.** Every event NERVIS holds (622, and 10 quarantined) and every service log
+  (15 files in `.run/`, about 1.19 million lines, read by a script that printed locations only)
+  carried no key in any issuer's shape and none of this machine's 11 launcher and enrollment
+  secrets (`tools/check_secret_content.py`'s checks). Provider keys are checked by shape only —
+  their stores are not read — and the Fish Audio key has no shape to check.
+- **14 is not scored**: it needs a model call through a direct provider.
+
 ---
 
 ## 8.9 Sketch — two machines, one ecosystem

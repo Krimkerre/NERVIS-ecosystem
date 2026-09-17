@@ -301,6 +301,12 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
+As of 17 September 2026 (NERVIS 0.34.19): three of the runbook's end-to-end scenarios passed
+against the running stack — **the rest keeps working while NERVIS is down** (and NERVIS catches
+up on the events it missed when it returns), **NERVIS reconstructs a trace across services**, and
+**no key or token appears in any stored event or service log**. The Traces screen also no longer
+lists the dashboard's own requests to view a trace as that trace's log lines.
+
 As of 17 September 2026: **rolling the stack back is rehearsed**. SIRVIS, RAVIS, NERVIS and
 their shared package go back together to an earlier release — stop the stack, point the services'
 environment at an unpacked copy of that release, start again — and forward the same way; each

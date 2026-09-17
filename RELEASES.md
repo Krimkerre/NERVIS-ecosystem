@@ -681,7 +681,15 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.18
+## NERVIS — 0.34.19
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **Looking at a trace no longer adds to it.** The Traces screen lists log lines that belong to the
+  trace shown. It counted NERVIS's own record of the dashboard asking for that trace, so opening
+  an old trace showed only those reads. Requests that merely look a trace up are now left out.
+
+### 0.34.18
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
 

@@ -117,6 +117,31 @@ def test_an_exact_hit_wins_over_the_window() -> None:
     assert len(linked.items) == 1
 
 
+def test_reading_a_trace_is_not_part_of_it() -> None:
+    """NERVIS's access log names the trace id in every request to view that trace, and those
+    lines were shown as the trace's own — found on 17 September 2026 in a day-old trace whose
+    only "correlated" lines were the dashboard's reads of it. A line carrying the id as its own
+    trace field, or naming it any other way, still counts."""
+    trace_id = "7886440ed00d054668280d32321ca6e9"
+    lookups = [
+        {"message": f'127.0.0.1:52913 - "GET /api/v1/traces/{trace_id} HTTP/1.1" 200'},
+        {"message": f'127.0.0.1:52915 - "GET /api/v1/traces/{trace_id}/unified HTTP/1.1" 200'},
+        {"message": f'127.0.0.1:1 - "HEAD /api/v1/events?trace_id={trace_id} HTTP/1.1" 200'},
+    ]
+    real = [
+        {"trace_id": trace_id, "message": f'"GET /api/v1/traces/{trace_id} HTTP/1.1" 200'},
+        {"message": f"route selected for {trace_id}"},
+        {"message": f'"POST /api/v1/chat?trace={trace_id} HTTP/1.1" 200'},
+    ]
+    linked = unified.correlate_logs([*lookups, *real], trace_id, 1000.0)
+    assert linked.how == unified.BY_TRACE
+    assert linked.items == real
+
+    only_lookups = unified.correlate_logs(lookups, trace_id, 1000.0)
+    assert only_lookups.how == unified.BY_WINDOW
+    assert only_lookups.items == [], "and they are not offered as the window's lines either"
+
+
 # ── Runtime evidence, where available ──────────────────────────────────────
 
 

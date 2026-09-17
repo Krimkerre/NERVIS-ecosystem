@@ -30,6 +30,7 @@ would be useless in exactly the situation it exists for.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -114,6 +115,10 @@ def correlate_logs(
     about the second, not about the request, and presenting the two the same way
     turns a coincidence into a finding.
     """
+    # **A read about the trace is not part of it** (17 September 2026). NERVIS's access log
+    # names the trace id in every request to view it, so the dashboard's own reads of a trace
+    # became that trace's "correlated log lines" — the only ones, for a trace a day old.
+    lines = [line for line in lines if not _looks_it_up(line, trace_id)]
     carrying = [
         dict(line) for line in lines
         if trace_id and (
@@ -128,6 +133,14 @@ def correlate_logs(
     return Linked(BY_WINDOW, [dict(line) for line in lines][:MAX_LINES],
                   "no log line carries this trace id — these were written around the same "
                   "time and may belong to something else entirely")
+
+
+def _looks_it_up(line: Mapping[str, Any], trace_id: str) -> bool:
+    """Whether a log line is a GET or HEAD to NERVIS's API that names the trace id — a lookup."""
+    if not trace_id or str(line.get("trace_id") or "") == trace_id:
+        return False
+    pattern = r'"(?:GET|HEAD) /api/v1/[^" ]*' + re.escape(trace_id)
+    return re.search(pattern, str(line.get("message") or "")) is not None
 
 
 def runtime_context(
