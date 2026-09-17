@@ -1583,8 +1583,21 @@ may only add product-specific detail beside the required state.
       anything else that process can reach. That boundary is the operating system's,
       stated rather than assumed — see `nervis/src/nervis/api/control.py`'s own
       docstring.*
-- [ ] code-server compatibility is evidenced for every supported matrix cell.
-      *Still open, and for one reason fewer. §13.3's reverse proxy shipped
+- [x] code-server compatibility is evidenced for every supported matrix cell.
+      ***Signed 17 September 2026, by the owner's decision.*** *`clarvis/docs/code-server-matrix.md`
+      has no `NOT_TESTED` cell left: 41 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 0
+      `NOT_TESTED` over 57 cells. The last two were settled the same day, live, with Clarvis
+      0.17.16–0.17.19 in code-server 4.137.0 and the owner at the keyboard — Bridge teardown (a
+      closed tab leaves NERVIS's registry within about a second) and Safari through NERVIS's own
+      Code tab (panel rendered, the Bridge started the moment the folder was trusted with no
+      reload, one chat turn out through RAVIS and back in 1.2 s). Firefox is the owner's everyday
+      browser for Clarvis and needs no separate run. **What is untested, and named rather than
+      closed:** `https` from another machine, and the proxied `/code/` path's own browser rows
+      (`NERVIS.md` §13.3) — that proxy is off unless `code_proxy_enabled` is set, and this
+      deployment binds loopback, so neither is on any path the owner uses. Both stand as
+      limitations on a cell rather than as an ungraded cell.*
+
+      *Partial, before that: still open, and for one reason fewer. §13.3's reverse proxy shipped
       9 September 2026 — `/code/`, per-workspace sessions and the ten-test
       security gate — so M14's proxy half is built and the Code tab is served
       through it rather than from code-server's own port. What is not closed is
