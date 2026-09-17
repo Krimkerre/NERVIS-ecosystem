@@ -126,6 +126,12 @@ class Cell:
     residual: str = ""
     gap: str = ""
     closes_with: str = ""
+    #: Outcomes that cannot arise under this condition, each with the reason (17 September 2026).
+    #: "No automatic failover crosses a constraint" was counted under 7 of 19 conditions, and most
+    #: of the other twelve cannot make anything fail over at all; a count that did not say so
+    #: could not tell "unproved" from "impossible". A reason is required, and an outcome cannot be
+    #: both established and impossible.
+    cannot_arise: dict[str, str] = field(default_factory=dict)
 
 
 CELLS: list[Cell] = [
@@ -148,6 +154,9 @@ CELLS: list[Cell] = [
             "ep there shortens the spend window and can re-admit paid providers the cost co"
             "nstraint had excluded. The behind-direction deadband is 120s, so a producer 3-"
             "119s slow is reported as nothing at all.",
+        cannot_arise={"no_unsafe_failover": (
+            "No request fails because a clock is wrong: skew moves timestamps and lease ages, and RAVIS's attempt chain only moves on when an upstream attempt fails."
+        )},
     ),
     Cell(
         condition="unsupported major protocol version",
@@ -167,6 +176,9 @@ CELLS: list[Cell] = [
             "Proved where a version is *presented*: a peer's probe and a Bridge's registrat"
             "ion claim. Nothing exercises a peer whose major changes mid-session, and nothi"
             "ng covers RAVIS reading SIRVIS evidence across an unsupported major.",
+        cannot_arise={"no_unsafe_failover": (
+            "A version refusal happens between services, never on a request's attempt chain: RAVIS reading an unreadable SIRVIS routes without its evidence, and NERVIS or a Bridge refuses the peer; nothing is re-sent elsewhere."
+        )},
     ),
     Cell(
         condition="crash and restart mid-operation",
@@ -196,6 +208,9 @@ CELLS: list[Cell] = [
             "killed service's database passed SQLite's integrity check and NERVIS's stored "
             "events did not shrink. Not shown: RAVIS or NERVIS killed with a request of their "
             "own in flight — nothing was in flight, by the tool's own precondition.",
+        cannot_arise={"no_unsafe_failover": (
+            'A service that dies takes its in-flight requests with it: RAVIS keeps no queue (`load.queue` in its health says so) and holds nothing to re-send after a restart, so nothing can be moved to another model.'
+        )},
     ),
     Cell(
         condition="corrupt response",
@@ -240,6 +255,9 @@ CELLS: list[Cell] = [
             "grow without bound. A producer that rebuilds the same logical event with a "
             "fresh id is not deduped and nothing tests that, which is the shape a "
             "retrying publisher actually produces.",
+        cannot_arise={"no_unsafe_failover": (
+            "Events are telemetry to NERVIS's hub; no routing decision reads them, so no duplicate or reordering can move a request."
+        )},
     ),
     Cell(
         condition="each service absent at startup",
@@ -247,6 +265,8 @@ CELLS: list[Cell] = [
         evidence=[
             ("live", "tools/acceptance_run.py:cold_start_clause"),
             ("live", "tools/failure_rehearsal.py:absent_at_startup"),
+            ("unit", "ravis/tests/test_capability_filtering.py:test_local_only_fails_closed_rather_than_reaching_for_cloud"),
+            ("unit", "ravis/tests/test_policy.py:test_a_no_route_is_never_quietly_substituted"),
             ("unit", "nervis/tests/test_m2_registry.py:test_a_peer_that_never_answers_is_bounded_by_the_probe_deadline"),
             ("unit", "nervis/tests/test_m2_registry.py:test_a_peer_that_is_simply_absent_costs_one_request_a_pass"),
             ("unit", "protocol/tests/test_event_publisher.py:test_the_buffer_is_bounded_and_a_drop_is_counted"),
@@ -257,6 +277,7 @@ CELLS: list[Cell] = [
             "standalone",
             "bounded_queues",
             "bounded_retries",
+            "no_unsafe_failover",
         ),
         residual=
             "Proved live for one pair — NERVIS started with SIRVIS absent — at the "
@@ -268,8 +289,11 @@ CELLS: list[Cell] = [
             "held off its port, the launcher named it not ready and the rest ready, the rest "
             "answered their own reads, NERVIS reported the missing one unreachable (31 s for a "
             "port that times out, 22 s for RAVIS, inside a probe interval plus deadline), and "
-            "each came back healthy in NERVIS within 20 s of being let start. Not shown: queues "
-            "under that condition beyond the publisher's.",
+            "each came back healthy in NERVIS within 20 s of being let start. A local runtime "
+            "absent leaves only hosted candidates, and a LOCAL_ONLY request is then refused rather "
+            "than answered from the cloud, never quietly substituted — proved at the router, not "
+            "yet with a runtime actually stopped. Not shown: queues under that condition beyond "
+            "the publisher's.",
     ),
     Cell(
         condition="timeout",
@@ -319,6 +343,9 @@ CELLS: list[Cell] = [
             "buffer without holding up ingestion. What is not shown is a *partially* slow "
             "world — one peer slow, the rest healthy — or that a slow peer cannot delay "
             "another peer's row.",
+        cannot_arise={"no_unsafe_failover": (
+            'A reply that is slow but inside its deadline changes nothing; past the deadline it is the timeout condition, which establishes this outcome.'
+        )},
     ),
     Cell(
         condition="full disk",
@@ -341,6 +368,9 @@ CELLS: list[Cell] = [
             "possibly finish still starts; and the release is proved by a patch applied "
             "after `_execute` has already released it, which is weaker evidence than it "
             "reads.",
+        cannot_arise={"no_unsafe_failover": (
+            "RAVIS writes usage only after an attempt has succeeded (`call.note_usage` follows `chain.succeeded`), so a failed write cannot become a failed attempt and move the chain on; SIRVIS's and NERVIS's writes are not on a request's route at all."
+        )},
     ),
     Cell(
         condition="unavailable keychain",
@@ -353,17 +383,25 @@ CELLS: list[Cell] = [
             ("unit", "ravis/tests/test_credentials.py:test_a_host_with_no_security_binary_is_not_an_error"),
             ("unit", "ravis/tests/test_credentials.py:test_a_keychain_that_errors_at_the_operating_system_is_survived"),
             ("unit", "ravis/tests/test_credentials.py:test_a_keychain_that_answers_is_still_preferred_over_the_environment"),
+            ("unit", "ravis/tests/test_translated_in_pools.py:test_a_provider_with_no_credential_contributes_nothing"),
+            ("unit", "ravis/tests/test_routing.py:test_a_direct_address_to_a_missing_model_is_a_no_route"),
+            ("unit", "ravis/tests/test_policy.py:test_a_no_route_is_never_quietly_substituted"),
         ],
         outcomes=(
             "truthful",
             "standalone",
+            "no_unsafe_failover",
         ),
         residual=
             "Six of the seven citations are unit-level, and deliberately: the four ways a l"
             "ookup fails are branches of one function. The route entry shows the providers "
             "listing still answers, but it can pass without entering the Keychain branch at"
             " all. Nothing shows what a *provider* does when its credential is unreachable "
-            "rather than absent.",
+            "rather than absent. What stands in for it: an unreadable keychain is read as no "
+            "stored key, a provider with no usable key offers no models and is not even asked "
+            "for them, a request naming one of its models is then a no-route, and a pool is "
+            "routed only within its policy — never quietly substituted. A transparent upstream "
+            "whose key vanishes answers 401, which the expired-credential cell covers.",
     ),
     Cell(
         condition="trace collector loss (NERVIS event hub unreachable, refusing, hanging, or never configured, from the point of view of every producer that publishes events to it)",
@@ -394,6 +432,9 @@ CELLS: list[Cell] = [
             "rather than minted per attempt, so the retry is one event at the hub instead "
             "of two. The acceptance-run citation beside it is a clause label rather than a "
             "check of collector loss, and is kept only as a pointer.",
+        cannot_arise={"no_unsafe_failover": (
+            "Publishing to NERVIS is fire-and-forget on its own task and never on a request's route, so a lost collector cannot fail an attempt."
+        )},
     ),
     Cell(
         condition="read-only data directory",
@@ -413,6 +454,9 @@ CELLS: list[Cell] = [
             "answering with its results directory read-only. What a *write* does under the "
             "condition is proved for the disk being full rather than for the directory "
             "being read-only, which are two different `OSError`s reaching the same code.",
+        cannot_arise={"no_unsafe_failover": (
+            'The same as a full disk: a refused write reaches no attempt chain, because RAVIS writes usage only after an attempt has succeeded.'
+        )},
     ),
     Cell(
         condition="cloud provider 401/403/429/5xx",
@@ -544,6 +588,9 @@ CELLS: list[Cell] = [
             "while SIRVIS, RAVIS and NERVIS kept answering. The derived capability d"
             "eliberately survives the loss, so anything gating on the capability rather tha"
             "n the state would still be wrong.",
+        cannot_arise={"no_unsafe_failover": (
+            'code-server hosts the editor; no request is routed through it and nothing chooses another editor when it goes.'
+        )},
     ),
     Cell(
         condition="Bridge collision \u2014 two or more Clarvis Bridge instances (one per editor window/extension host) colliding on a listening endpoint, on an `instance_id`, on a NERVIS registry row, or on published state (\u00a710 \"Bridge collision\"; contract in CLARVIS.md \u00a76.6 \"Ports and sockets avoid collisions through OS-assigned endpoints or a documented broker. No instance overwrites another's registration.\")",
@@ -590,6 +637,9 @@ CELLS: list[Cell] = [
             "token, retires the old one, and is refused outright while the id is still "
             "answering. The §5.1 *service* registry keeps its own staleness window and no "
             "cell cites it.",
+        cannot_arise={"no_unsafe_failover": (
+            "A lapsed lease changes what NERVIS lists and probes; NERVIS routes no requests, and Clarvis's never pass through its registry."
+        )},
     ),
 ]
 
@@ -639,9 +689,17 @@ def _scope_failures(cell: Cell) -> list[str]:
     for outcome in cell.outcomes:
         if outcome not in known:
             problems.append(f"{cell.condition!r} claims outcome {outcome!r}, which §10 does not list")
+    for outcome, why in cell.cannot_arise.items():
+        if outcome not in known:
+            problems.append(f"{cell.condition!r} rules out {outcome!r}, which §10 does not list")
+        if outcome in cell.outcomes:
+            problems.append(f"{cell.condition!r} both establishes and rules out {outcome!r}")
+        if len(why.split()) < 6:
+            problems.append(f"{cell.condition!r} rules out {outcome!r} without saying why")
     if cell.verdict == "COVERED" and not cell.outcomes:
         problems.append(f"{cell.condition!r} is COVERED and names no outcome it establishes")
-    if cell.outcomes and len(cell.outcomes) < len(OUTCOMES) and not cell.residual:
+    if cell.outcomes and len(cell.outcomes) + len(cell.cannot_arise) < len(OUTCOMES) \
+            and not cell.residual:
         problems.append(f"{cell.condition!r} establishes {len(cell.outcomes)} of "
                         f"{len(OUTCOMES)} outcomes and says nothing about the rest")
     for kind, where in cell.evidence:
@@ -717,7 +775,10 @@ def main() -> int:
     print()
     for outcome, sentence in OUTCOMES:
         holding = [cell for cell in covered if outcome in cell.outcomes]
-        print(f"  {len(holding):>2}/{len(covered)} conditions establish  {sentence}…")
+        possible = [cell for cell in covered if outcome not in cell.cannot_arise]
+        ruled_out = len(covered) - len(possible)
+        print(f"  {len(holding):>2}/{len(possible)} conditions establish  {sentence}…"
+              + (f"  ({ruled_out} where it cannot arise)" if ruled_out else ""))
     if len(thin) < WITHOUT_LIVE_EVIDENCE:
         print(f"\n{len(thin)} cells rest on unit tests alone; the ceiling is "
               f"{WITHOUT_LIVE_EVIDENCE} and can come down.")

@@ -974,6 +974,11 @@ own reads, NERVIS reported the missing service unreachable in 20–31 s (its pro
 probe deadline), the launcher brought each back healthy with its database passing SQLite's
 integrity check, and NERVIS's stored events never shrank. It also showed NERVIS filing an outage
 note during an ordinary stop, which NERVIS 0.34.23 holds back until the outage is confirmed.
+**Each cell now also says which outcomes cannot arise under its condition, and why** (the same
+day, on the owner's word): "no automatic failover crosses a constraint" is established under all
+9 conditions where a request can fall over to another model, and ruled out, with a reason, under
+the other 10 (a full disk, clock skew, duplicate events and the like never fail a request's
+attempt).
 
 **Scored in `tools/check_degradation.py`, which parses the sentence above.** The conditions
 were named here and enumerated nowhere, so which of them were covered was a question with no
