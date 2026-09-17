@@ -1106,9 +1106,12 @@ starts and stops the stack.
 RAVIS 0.29.2, SIRVIS 0.19.4 and protocol 0.2.2 to the previous released set and forward again,
 with no lost rows, no rerun job, no secret in the output and Clarvis untouched, and each service's
 `restore-database` was run against a damaged copy of its live database and brought it back whole
-(operator runbook, *Rolling the stack back to an earlier release*). Not rehearsed: a rollback
-across a database format change, which needs the restore on the live databases, and Clarvis's
-own rollback was proven separately on 6 September.
+(operator runbook, *Rolling the stack back to an earlier release*). **Across a database format
+change** too, the same day (`tools/upgrade_rehearsal.py`): each service's release before its newest
+migration, on a copy of the backup the live service took before it, was upgraded, refused the
+converted database, was restored exactly with its own `restore-database`, ran again and was
+upgraded again — on copies, so the live data never crossed a format backwards. Clarvis's own
+rollback was proven separately on 6 September.
 
 **Recovery gate:** a rehearsed rollback returns the ecosystem to the last compatible set,
 with no lost accepted work, no duplicated execution, no secret exposure and no weakened

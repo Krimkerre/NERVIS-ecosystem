@@ -167,6 +167,14 @@ commands** were rehearsed on copies: each database copied with SQLite's backup A
 records, 3,406 machine readings), and `restore-database` run against it — all three came back
 whole and passed a full integrity check. The live databases were only read.
 
+**Across a database format change**, the same day (`tools/upgrade_rehearsal.py`, 14 s): NERVIS
+0.30.0 (format 11), RAVIS 0.27.0 (format 13) and SIRVIS 0.16.0 (format 9), each on a copy of the
+backup its live service wrote before its newest migration, were upgraded by the current releases
+(51,399, 574 and 2,695 rows; none lost), refused the converted databases, had them put back exactly
+by their own `restore-database`, ran again, and were upgraded again. The version a copy reports is
+the installed one, so which code ran is shown by the data: the older code leaves the old format and
+refuses the new.
+
 ### Clarvis rollback
 
 Reinstall the prior `.vsix` and reopen the workspace:
@@ -289,6 +297,14 @@ remembered:
   NERVIS. It calls no real model and spends nothing, and it exits non-zero if any check fails.
   Since RAVIS 0.23.2 the overhead check sits right at its 5 ms line and can land either side of it
   (see §9.8 in `RAVIS.md`).
+- **Upgrade rehearsal**: `python3 tools/upgrade_rehearsal.py` (seconds; the live stack is not
+  touched) — for each of NERVIS, RAVIS and SIRVIS, finds its newest database format change and the
+  release before it, and on a copy of the backup the live service took before that change: runs the
+  older release, upgrades with the current one, checks the older one refuses the converted
+  database, restores the backup with the older release's `restore-database`, runs it again and
+  upgrades again, checking row counts and integrity at every step. Each copy runs from its own
+  unpacked source on a spare port with the keychain off and every peer and model address pointed at
+  nothing.
 - **Failure rehearsal**: `python3 tools/failure_rehearsal.py` (about four minutes, with the stack
   running and nothing in flight) — holds SIRVIS's, RAVIS's and NERVIS's port in turn so the rest
   start without it, then kills RAVIS, NERVIS and code-server outright, checking each time that the

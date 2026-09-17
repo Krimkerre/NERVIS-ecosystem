@@ -316,7 +316,10 @@ their shared package go back together to an earlier release — stop the stack, 
 environment at an unpacked copy of that release, start again — and forward the same way; each
 direction took under a minute, with no data lost. Each service's `restore-database` command was
 also tried on a damaged copy of its database and brought it back whole. The steps are in the
-operator runbook, *Rolling the stack back to an earlier release*.
+operator runbook, *Rolling the stack back to an earlier release*. The harder case — going back
+across a change in a service's database format — was rehearsed too, on copies: the older release
+refuses the converted database, its restore command puts the backup back exactly, and the upgrade
+can be repeated (`tools/upgrade_rehearsal.py`).
 
 As of 16 September 2026: the ecosystem has a **dependency security check**,
 `python3 tools/check_dependencies.py`. It asks the public advisory databases about the Python
