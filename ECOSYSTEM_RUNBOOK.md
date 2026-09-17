@@ -778,6 +778,55 @@ Required end-to-end scenarios:
 **E2E gate:** every scenario asserts over user-visible outcome, API response, event
 sequence, trace linkage, redaction and persisted state — not screenshots alone.
 
+**As built, 17 September 2026 (evening) — all sixteen scored against the live stack.** Scenarios 1 to 12
+had been scored in `STATUS.md` from the suites and earlier runs; each was re-checked against the running
+services, most of it read-only. Fifteen hold; scenario 10 holds in half.
+
+- **1 passes.** SIRVIS, RAVIS and NERVIS each answered `/ecosystem/health`, `/version` and
+  `/capabilities` (protocol 1.0.0; 10, 11 and 21 capabilities). NERVIS's readiness matched the machine:
+  it called LM Studio unreachable while nothing listened on 1234, and code-server's session state agreed
+  with code-server's own heartbeat.
+- **2 passes.** SIRVIS measured the `coder-and-small-reasoner` pair this morning and published `MEASURED`
+  evidence for both roles, labelled `SUSPECT` with the reason — the Mac's thermal state changed during
+  the run — which is the honest label rather than a silent pass.
+- **3 passes.** RAVIS holds 11 of SIRVIS's records over 7 builds, the measured pair among them with all
+  four co-residency conditions and its slowdown figures (`/api/v1/health`'s `co_residency`). A route
+  decision from the attended session explains itself — 542 considered, 496 excluded, `claude-sonnet-5`
+  selected — and a later one ranked a candidate lower *because* SIRVIS measured it spending 99% of its
+  output on reasoning. Usage is reported: 52 of 52 calls priced in 24 hours.
+- **4 passes, and found a defect.** The attended session's chat ran on `ravis/clarvis-chat` under one
+  session id and the agent run on `ravis/clarvis-agent` under another (per role, by Clarvis's own
+  decision), the agent's three requests sharing one trace. One request carried no session id at all:
+  Clarvis's tool-support probe sent no lineage headers. Fixed in Clarvis 0.17.19.
+- **5 passes.** The agent run's tool calls were streamed through RAVIS to `claude-sonnet-5` and the edit
+  landed — a fragmented tool call completing through RAVIS, live.
+- **6 passes.** The owner pressed Stop during an agent run: RAVIS recorded the attempt `cancelled`,
+  *"the client disconnected; cancellation is never a failure (§10)"*, and Clarvis's `agent.cancelled`
+  event carried 2,502 ms.
+- **7 passes.** NERVIS's trace read, its unified trace read and its last 500 events carry no prompt text,
+  task wording, file name, workspace path or credential shape, while showing both services, their spans
+  and the route.
+- **8 passes.** The same run reached an approval gate: NERVIS was told `awaiting: step` and nothing else.
+  Twelve write attempts against the live Bridge — `POST`, `PUT`, `PATCH` and `DELETE` on `/v1/status`,
+  `/v1/config` and an invented `/v1/gates/approve` — each answered `405`, *"the Bridge is read-only; it
+  has no write path at all"*, and NERVIS has no route that could answer a gate.
+- **9 passes.** Two code-server windows were registered at once, each with its own instance id and port,
+  as four were on 30 August.
+- **10 passes in half.** *Fail closed, live:* with no local runtime reachable, `ravis/private` refused
+  rather than leaving the machine — 537 cloud candidates excluded as *"served by a remote provider, and
+  this pool never leaves this machine"*, the two local attempts recorded with their connection failures.
+  *Not shown live:* a local runtime failing mid-route and RAVIS moving to another candidate. Both pools
+  that allow the cloud rank a hosted model first here (29 candidates tie at $0 and a hosted one wins the
+  tiebreak), so the case needs a request that prefers local, and the attempt to stage one is what taught
+  the ecosystem that Ollama is NERVIS's own embedding runtime rather than a spare. It stays covered by
+  the router suite and `tools/check_degradation.py`'s condition, and is written here as exactly that.
+- **11 passes.** SIRVIS was stopped: RAVIS kept answering and, when its five-minute cache ran out, relabelled
+  its evidence *"degraded — SIRVIS did not answer: ConnectError"*; it returned to `fresh` by itself once
+  SIRVIS was back. Within the cache window it still read `fresh`, which is the age of the last successful
+  read rather than a claim about now.
+- **12 passes.** The same stop left RAVIS serving; this morning's failure rehearsal covered the other
+  direction, with SIRVIS answering while RAVIS was absent and while it was killed.
+
 **As built, 17 September 2026 — scenarios 13, 15 and 16 scored against the live stack.**
 
 - **13 passes.** With only NERVIS stopped (11:56:46–11:57:22 UTC), SIRVIS and RAVIS kept their

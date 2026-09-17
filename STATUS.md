@@ -2300,6 +2300,17 @@ repository root, which is the same trap this repository has already paid for onc
 Left in place rather than deleted: they are data, and which of them is worth
 keeping is the operator's call.
 
+***All sixteen scored against the live stack, 17 September 2026 (evening).*** *The table below was
+scored from the suites and earlier runs; every scenario has since been re-checked against the running
+services and the results are in runbook §8's as-built note. Fifteen hold. Scenario 10 holds in half —
+fail-closed proven live (`ravis/private` refused with all 537 cloud candidates excluded by locality),
+the local-failure fallback still resting on the router suite and the degradation matrix, because both
+cloud-allowing pools rank a hosted model first here. Scoring scenario 4 found a defect: Clarvis's
+tool-support probe sent a real model request with no session, request or trace id (fixed in Clarvis
+0.17.19). Two scenarios were proved by the owner at the keyboard the same evening: Stop cancelling the
+upstream request (RAVIS recorded `cancelled`, "the client disconnected"), and an approval gate NERVIS
+could see but not answer — twelve write attempts against the live Bridge each got `405`.*
+
 **Stage 10's acceptance list, scored honestly.** §8 named twelve required
 end-to-end scenarios (it lists sixteen since, and 13 to 16 have never been scored) and nothing had ever gone through them one at a time. Most
 turn out to be met by work already done, which is worth knowing precisely — the
