@@ -709,9 +709,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.31
+## NERVIS — 0.34.32
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **A chat turn that fails says what happened and what to do.** "NERVIS is not answering, so this
+  message was not sent. Try again in a moment." instead of `NERVIS is not reachable: load failed` —
+  which is still there under **Technical details**. Seven kinds are worded: NERVIS unreachable, no
+  model available, a model RAVIS paused after failures, a stream refused with no reason, a key
+  refused, rate limiting, and a timeout. Anything else keeps the plain fallback with its own text
+  underneath, so a failure nobody has worded yet is never swallowed.
+- **A download that failed says so in words**, with LM Studio's reason folded under it, and the
+  Failed tile points at the row instead of carrying the raw text.
+
+### 0.34.31
 
 - **Failures say what to do, with the real words one click away.** "Start it on this machine to use
   its models" rather than `catalogue: All connection attempts failed` — and that exact text is still

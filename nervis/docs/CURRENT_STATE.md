@@ -193,8 +193,16 @@ detail)` puts a sentence somebody can act on in front and folds the service's ow
 words under *Technical details* — never instead of them. Used by the Overview's
 *What you can do now* and RAVIS's *What you can use*.
 
-Still to do: the same treatment for SIRVIS's Models, Discover, Downloads and Runtime
-screens and for a failed chat turn.
+**Chat and downloads followed** (0.34.32). A failed turn carries `detail` beside its
+text: `failureSentence` picks the words from what the failure says (`FAILURE_SENTENCES`
+is the table, and an unrecognised failure keeps the plain fallback), and the bubble
+folds the original under *Technical details*. `tools/shaping_golden.json` records all
+four stream failures in their new wording. A failed download reads the same way
+(`downloadNote`). SIRVIS's other screens needed nothing: their empty and failure states
+were already sentences.
+
+Stage three is done. What is left of the interface task is judgement rather than
+mechanism: wording passes over screens as they are used.
 
 ## The only mutating controls on the page
 

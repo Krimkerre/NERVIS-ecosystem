@@ -7504,7 +7504,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
      ?localBubble(m)
      :`<div class="bubble"${m.pending?' id="streaming"':''}>${escapeHtml(m.pending?'':'')}${m.route_decision_id&&rd[m.route_decision_id]
         ? `<details class="route-info"><summary title="Why this model answered" aria-label="Routing decision"></summary><div class="route-pop">${card(rd[m.route_decision_id])}</div></details>`
-        : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${thinkingRow(m.thinking)}${renderMarkdown(m.text)}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${recalledRow(m.recalled)}${offerRow(m.offer,mi)}${planRow(m.plan,mi)}</div>`).join('')}
+        : ''}<b>${escapeHtml(m.speaker||speakerName())}</b>${stampOf(m)}${thinkingRow(m.thinking)}${renderMarkdown(m.text)}${m.detail?explains('Technical details',`<div class="mono dim" style="line-height:1.6">${escapeHtml(m.detail)}</div>`):''}${m.pending?pendingTail(m.text):''}${m.reading?`<div class="mono dim" style="margin-top:7px;font-size:11px;letter-spacing:.04em">${escapeHtml(m.reading)}</div>`:''}${recalledRow(m.recalled)}${offerRow(m.offer,mi)}${planRow(m.plan,mi)}</div>`).join('')}
   </div>
   <div id="slashMenu" class="slash-menu" role="listbox" aria-label="Commands and skills" hidden></div>
   <div class="composer"><label id="uploadLabel" class="upload" title="Attach a file to this conversation for chat to read">📎<input id="uploadFile" type="file" hidden></label><input id="chatInput" placeholder="Ask NERVIS anything, or type / for commands and skills" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="slashMenu" aria-expanded="false"><button id="sendChat">${escapeHtml(CHAT_SESSION.busy?'■':'➤')}</button></div>
@@ -10704,13 +10704,23 @@ async function sirvisRecommendations(){
 /* Downloads — carried by LM Studio, recorded by SIRVIS (M11, 12 September 2026).
    A reload is a fresh read of SIRVIS's rows, so it loses nothing, and a failure
    says what went wrong in LM Studio's or SIRVIS's own words. */
+/* A failure reads as a sentence with LM Studio's own words folded under it; a
+   warning keeps the words it was given, because a warning *is* the detail. */
+function downloadNote(x){
+ if(x.status==='failed')
+  return withDetail('this download did not finish, so the model is not on disk',
+    escapeHtml(x.detail||'no reason given'));
+ const warned=(x.warnings||[]).length?'warned first: '+x.warnings.join(' · '):'';
+ return escapeHtml(x.detail||warned);
+}
+
 function downloadRow(x){
  const pct=x.progress==null?null:Math.round(x.progress*100);
  const total=x.total_bytes||x.expected_bytes;
  const moved=x.downloaded_bytes!=null?`${sizeText(x.downloaded_bytes)} of ${sizeText(total)}`:sizeText(total);
  const speed=x.status==='downloading'&&x.bytes_per_second?` · ${(x.bytes_per_second/1024**2).toFixed(1)} MB/s`:'';
- const note=x.detail||((x.warnings||[]).length?'warned first: '+x.warnings.join(' · '):'');
- return `<div class="table-row six"><span class="mono" style="grid-column:1/3">${escapeHtml(x.repo_id)}<span class="dim" style="opacity:.6"> ${escapeHtml(x.quantization)}</span></span><span class="chip${warnUnless(x.status!=='failed')}">${escapeHtml(x.status.replace('_',' '))}</span><span class="mono">${escapeHtml(moved+speed)}</span><span style="grid-column:5/-1"><div class="bar" style="margin:0"><i style="--w:${pct==null?0:pct}%"></i></div><small class="mono" style="opacity:.6">${escapeHtml(pct==null?'waiting for LM Studio':pct+'%')}${note?' · '+escapeHtml(note):''}</small></span></div>`;
+ const note=downloadNote(x);
+ return `<div class="table-row six"><span class="mono" style="grid-column:1/3">${escapeHtml(x.repo_id)}<span class="dim" style="opacity:.6"> ${escapeHtml(x.quantization)}</span></span><span class="chip${warnUnless(x.status!=='failed')}">${escapeHtml(x.status.replace('_',' '))}</span><span class="mono">${escapeHtml(moved+speed)}</span><span style="grid-column:5/-1"><div class="bar" style="margin:0"><i style="--w:${pct==null?0:pct}%"></i></div><small class="mono" style="opacity:.6">${escapeHtml(pct==null?'waiting for LM Studio':pct+'%')}${note?' · '+note:''}</small></span></div>`;
 }
 async function sirvisDownloads(){
  heading('Downloads','LM Studio carries each download and SIRVIS keeps the record, so a reload loses nothing and a failure says why.');
@@ -10722,7 +10732,7 @@ async function sirvisDownloads(){
    ['Disk free',d.disk_free_bytes!=null?sizeText(d.disk_free_bytes):'—','where LM Studio keeps models','sirvis',d.live],
    ['In progress',String(count('queued','downloading','paused')),speed?`${(speed/1024**2).toFixed(1)} MB/s together`:'nothing moving','sirvis',d.live],
    ['Finished',String(count('completed','already_present')),'on disk','sirvis',d.live],
-   ['Failed',String(count('failed')),failed?failed.detail||'no reason given':'none','sirvis',d.live]])
+   ['Failed',String(count('failed')),failed?'one or more did not finish — see the rows below':'none','sirvis',d.live]])
  +`<div class="card full${escapeHtml(liveClass(d.live))}"><h3>Downloads</h3>${cell(`
    <div class="table-row head six"><span style="grid-column:1/3">Model</span><span>Status</span><span>Transferred</span><span style="grid-column:5/-1">Progress</span></div>
    ${d.items.map(downloadRow).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">no downloads yet · start one from Discover</span></div>'}
@@ -15283,6 +15293,33 @@ function withExtras(outcome){
  return outcome.plan?{...withOffer,plan:outcome.plan}:withOffer;
 }
 
+/* **What went wrong, in a sentence, without throwing the sentence away.** A turn
+   that failed used to put the transport's own words in the bubble — "NERVIS is not
+   reachable: Failed to fetch" — which says nothing about what to do and reads as
+   the dashboard being broken. The sentence is chosen from what the failure says;
+   the failure itself is kept and folded under "Technical details" by the bubble,
+   because the cause is what somebody fixing it needs. Nothing is guessed: an
+   unrecognised failure gets the plain fallback and its own text underneath. */
+const FAILURE_SENTENCES=[
+ [['not reachable','did not answer','failed to fetch'],
+  'NERVIS is not answering, so this message was not sent. Try again in a moment.'],
+ [['no route','no_route','no upstream'],
+  'No model was available for this request. Check the pool and its providers on RAVIS.'],
+ [['circuit open','model_unavailable'],
+  'RAVIS stopped sending to that model after repeated failures. It will try again by itself; another pool works now.'],
+ [['refused mid-stream'],'RAVIS stopped the answer part-way and gave no reason. Try again.'],
+ [['401','unauthorized','credential','api key'],
+  'A provider refused the key for this request. Replace it on RAVIS \u2192 Credentials.'],
+ [['429','rate limit'],'The provider is rate-limiting this key. Wait a moment and try again.'],
+ [['timed out','timeout'],'The model took too long to answer, so the turn was given up on.'],
+];
+
+function failureSentence(failed){
+ const said=String(failed||'').toLowerCase();
+ const hit=FAILURE_SENTENCES.find(([words])=>words.some(word=>said.includes(word)));
+ return hit?hit[1]:'That did not go through, and the answer was not saved.';
+}
+
 function replyMessage({reply,failed,aborted,reasoning,served,requestId,thinking,profile}){
  const base={role:'assistant',served,request_id:requestId,speaker:speakerName(),
    at:new Date().toISOString(),
@@ -15297,7 +15334,7 @@ function replyMessage({reply,failed,aborted,reasoning,served,requestId,thinking,
       ordinary turn produces none and stays exactly as clean, and a turn that
       did deliberate can show its working whoever served it. */
    ...(thinking?{thinking}:{})};
- if(failed)return{...base,text:failed};
+ if(failed)return{...base,text:failureSentence(failed),detail:failed};
  if(aborted)return{...base,interrupted:true,
    /* What the reader saw, kept, and labelled stopped rather than finished.
       NERVIS stored the same partial with `interrupted` set, so the two agree. */

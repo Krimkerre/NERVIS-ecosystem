@@ -438,7 +438,8 @@
         "request_id": "req_1",
         "speaker": "NERVIS",
         "at": "<when>",
-        "text": "circuit open after 3 consecutive failures (model_unavailable)"
+        "text": "RAVIS stopped sending to that model after repeated failures. It will try again by itself; another pool works now.",
+        "detail": "circuit open after 3 consecutive failures (model_unavailable)"
       }
     },
     "null error on a good frame": {
@@ -524,7 +525,8 @@
         "request_id": "req_1",
         "speaker": "NERVIS",
         "at": "<when>",
-        "text": "no upstream available"
+        "text": "No model was available for this request. Check the pool and its providers on RAVIS.",
+        "detail": "no upstream available"
       }
     },
     "refused with no reason given": {
@@ -545,7 +547,8 @@
         "request_id": "req_1",
         "speaker": "NERVIS",
         "at": "<when>",
-        "text": "RAVIS refused mid-stream"
+        "text": "RAVIS stopped the answer part-way and gave no reason. Try again.",
+        "detail": "RAVIS refused mid-stream"
       }
     },
     "malformed frames": {
@@ -605,7 +608,8 @@
         "request_id": "",
         "speaker": "NERVIS",
         "at": "<when>",
-        "text": "NERVIS is not reachable: load failed"
+        "text": "NERVIS is not answering, so this message was not sent. Try again in a moment.",
+        "detail": "NERVIS is not reachable: load failed"
       }
     }
   },
