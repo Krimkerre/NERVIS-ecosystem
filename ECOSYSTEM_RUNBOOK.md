@@ -1559,6 +1559,11 @@ may only add product-specific detail beside the required state.
       on two ports in NERVIS's own registry, and the closed tab correctly showing
       `live: false` rather than vanishing or lingering true) — moving the tally to
       39 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 1 `NOT_TESTED`.*
+      *That last cell, Bridge teardown under code-server, was observed on
+      17 September 2026 with Clarvis 0.17.16 in Firefox: a closed tab and a
+      reloaded window each went `live: false` in NERVIS when the 45-second lease
+      ran out, and the Bridge port closed at once (see the E2E item below). The
+      matrix file itself belongs to Clarvis and is regraded there.*
 - [ ] Pairwise and full E2E suites pass against real services.
       *Reverified 6 September 2026, and one real gap found. Of §8's four named
       pairwise gates, three have live evidence against the current (patched)
@@ -1579,6 +1584,24 @@ may only add product-specific detail beside the required state.
       (Clarvis's contained task through the route; the Bridge-disabled path)
       were last proved attended on 5 September, before those patches, and were
       not reattended today.*
+
+      ***Reattended 17 September 2026, against current code.*** *The owner drove
+      Clarvis 0.17.16 in code-server 4.137.0 in Firefox, in a throwaway git project
+      under `NERVIS workspace/clarvis/`, with every result read from outside the
+      editor. **Contained task, both engines:** Codex put its edit on its own
+      `clarvis/…` branch with `main` untouched, RAVIS held and released the project
+      lock, and NERVIS received every step from Clarvis and RAVIS; Clarvis's own
+      engine did the same on its own branch, took an undo copy, and RAVIS routed its
+      three steps (`ravis/clarvis-agent`) on one trace; Undo Last Agent Run put
+      `notes.txt` back byte for byte and returned to `main`. A Codex change is undone
+      by asking Codex, which worked; Undo Last Agent Run has nothing to restore after
+      a Codex change that asked for no approval. **Bridge disabled:** its port
+      refused connections, NERVIS listed no window, Clarvis sent no event, and chat
+      still went through RAVIS. **Teardown:** a reloaded window and a closed tab each
+      went `live: false` when their 45-second lease ran out (Clarvis does not
+      deregister on shutdown), and code-server's session showed expired about two
+      minutes after the tab closed. The editor was opened at code-server's own
+      address, the Code tab's default path.*
 
       ***Corrected 12 September 2026: that run is not a pass over §8's list.***
       *This item used to say the run proved every one of §8's sixteen scenarios
