@@ -1589,7 +1589,18 @@ may only add product-specific detail beside the required state.
       person-dependent scenarios are reproved against current code, and every
       one of §8's scenarios — not the twelve that were scored — has evidence
       against real services.*
-- [ ] The failure/degradation matrix passes with no unsafe failover.
+- [x] The failure/degradation matrix passes with no unsafe failover.
+      ***Signed 17 September 2026, by the owner's decision, on this sentence's own words.***
+      *`tools/check_degradation.py` passes: 19 of 19 conditions handled with anchored evidence,
+      and "no automatic failover crosses a constraint" established under all 9 conditions where
+      a request can fall over to another model, with the reason it cannot arise written under
+      each of the other 10. The two conditions most likely to break things were also rehearsed
+      live across the whole stack (`tools/failure_rehearsal.py`). The note below read the item as
+      asking for all six outcomes under every condition; the owner signed it on the failover
+      clause it names. The other five still stand at: truthfulness under 16 of 19 conditions,
+      standalone behaviour under 9, bounded retries and idempotent recovery under 8 each, and
+      bounded queues under 6 — not ruled out anywhere yet — and remain worth raising.*
+
       *Re-scoped 8 September 2026, and still open — for a better reason than
       before. `tools/check_degradation.py` reads 19 of 19 conditions handled
       with evidence that exists and is anchored to real tests. What it also
