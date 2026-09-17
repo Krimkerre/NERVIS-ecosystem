@@ -1614,8 +1614,23 @@ may only add product-specific detail beside the required state.
       ran out, and the Bridge port closed at once (see the E2E item below); with
       Clarvis 0.17.18 a closed tab is deregistered within about a second, and
       the cell is `PASS` — 40 / 16 / 0 / 0.*
-- [ ] Pairwise and full E2E suites pass against real services.
-      *Reverified 6 September 2026, and one real gap found. Of §8's four named
+- [x] Pairwise and full E2E suites pass against real services.
+      ***Signed 17 September 2026, by the owner's decision.*** *All four pairwise gates now have
+      live evidence: the fourth — NERVIS → code-server → Clarvis — was driven by the owner that
+      evening, Clarvis 0.17.16 in code-server 4.137.0 in Firefox, with the editor framed at the
+      Code tab's default address. The two clauses that need a person were reproved against the
+      current, patched code the same evening (a contained task on both engines, undone; the
+      Bridge-disabled path), and **all sixteen of §8's scenarios are scored against the live
+      stack** (§8's as-built note). **The gap, named rather than closed:** scenario 10's second
+      half — a local runtime failing mid-route and RAVIS moving to another candidate with the
+      reason recorded — has no live run. Fail-closed does (`ravis/private` refused with 537 cloud
+      candidates excluded by locality); the fallback rests on the router suite and
+      `tools/check_degradation.py`. Both cloud-allowing pools rank a hosted model first on this
+      machine, so staging it needs a request that prefers local and a runtime that is not
+      NERVIS's own. Scoring also found and fixed a defect: Clarvis's tool-support probe sent a
+      real model request with no session, request or trace id (Clarvis 0.17.19).*
+
+      *Partial, before that: reverified 6 September 2026, and one real gap found. Of §8's four named
       pairwise gates, three have live evidence against the current (patched)
       code: SIRVIS→RAVIS (`tools/pairwise_check.py`, 13/13 real), RAVIS→Clarvis
       and all-services→NERVIS (`tools/acceptance_run.py --unattended`, run

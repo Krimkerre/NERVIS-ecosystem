@@ -2309,7 +2309,9 @@ cloud-allowing pools rank a hosted model first here. Scoring scenario 4 found a 
 tool-support probe sent a real model request with no session, request or trace id (fixed in Clarvis
 0.17.19). Two scenarios were proved by the owner at the keyboard the same evening: Stop cancelling the
 upstream request (RAVIS recorded `cancelled`, "the client disconnected"), and an approval gate NERVIS
-could see but not answer — twelve write attempts against the live Bridge each got `405`.*
+could see but not answer — twelve write attempts against the live Bridge each got `405`. **The owner
+ticked runbook §15's "Pairwise and full E2E suites pass against real services" on that basis the same
+evening**, with scenario 10's second half named in the note as the one gap.*
 
 **Stage 10's acceptance list, scored honestly.** §8 named twelve required
 end-to-end scenarios (it lists sixteen since, and 13 to 16 have never been scored) and nothing had ever gone through them one at a time. Most
