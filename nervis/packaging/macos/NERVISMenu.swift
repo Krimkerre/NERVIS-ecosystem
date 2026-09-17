@@ -980,6 +980,29 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
     }
 
+    /// Asks LM Studio to quit, the way its own Quit does. With a model loaded it asks first:
+    /// quitting unloads every model, so whatever was using one — a chat, a benchmark, a
+    /// SIRVIS session — stops with it.
+    @objc private func quitLMStudio() {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: MenuBar.lmStudio)
+        guard !running.isEmpty else { return }
+        let loaded = models?.models.filter { $0.loaded }.map { $0.name } ?? []
+        if !loaded.isEmpty {
+            NSApp.activate()
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Quit LM Studio with \(loaded.count == 1 ? "a model" : "\(loaded.count) models") loaded?"
+            alert.informativeText = "Quitting unloads \(loaded.joined(separator: ", ")), "
+                + "and anything using \(loaded.count == 1 ? "it" : "them") stops."
+            alert.addButton(withTitle: "Quit LM Studio")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        running.forEach { $0.terminate() }
+        // The model list says "not running" on its next read rather than keeping stale ticks.
+        refreshModels()
+    }
+
     static let gibibyte = 1_073_741_824.0
     /// Room a model needs beyond its file — context and working memory — when the menu
     /// judges whether it probably fits in the memory free right now.
@@ -994,6 +1017,12 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
             open.representedObject = app
             open.target = self
             submenu.addItem(open)
+        }
+        // Only while it runs: a Quit item for an app that isn't open would do nothing.
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: MenuBar.lmStudio).isEmpty {
+            let quit = NSMenuItem(title: "Quit LM Studio", action: #selector(quitLMStudio), keyEquivalent: "")
+            quit.target = self
+            submenu.addItem(quit)
         }
         submenu.addItem(NSMenuItem.sectionHeader(title: "Load through SIRVIS"))
         guard let models, models.available else {

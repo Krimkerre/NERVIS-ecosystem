@@ -1321,7 +1321,7 @@ keeps that copy up to date. It does not start at login: opening it starts the st
 notifications are unread, a way to open the dashboard, whether SIRVIS, RAVIS, NERVIS, CLARVIS, code-server,
 LM Studio and Ollama are running — CLARVIS only while an editor window has it open — CPU, GPU and memory use
 (the CPU and GPU figures turn red above 85%), and **Quit NERVIS and stop the stack**. LM Studio's entry opens a list:
-Open LM Studio, and every installed model. Clicking a model loads it through SIRVIS; it gets a tick and
+Open LM Studio, Quit LM Studio (only while it is running; with a model loaded it asks first, since quitting unloads every model), and every installed model. Clicking a model loads it through SIRVIS; it gets a tick and
 stays loaded until you click it again or quit NERVIS. Before loading a model that probably won't fit in
 the memory free at the time, the menu asks. A model loaded any other way shows a dash and is left alone,
 and SIRVIS loads at most two models at once. Clicking SIRVIS, RAVIS, NERVIS or CLARVIS in the menu opens

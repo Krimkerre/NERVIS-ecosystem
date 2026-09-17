@@ -681,9 +681,15 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.23
+## NERVIS — 0.34.24
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **The menu bar's LM Studio submenu has "Quit LM Studio"**, shown while LM Studio is running.
+  With a model loaded it asks first, naming the models, because quitting unloads them and stops
+  whatever was using them. It quits LM Studio the way LM Studio's own Quit does.
+
+### 0.34.23
 
 - **Stopping the stack no longer files "code-server has stopped answering".** The launcher stops
   code-server just before NERVIS, and NERVIS sometimes noticed in between. A "stopped answering"
