@@ -801,7 +801,11 @@ sequence, trace linkage, redaction and persisted state — not screenshots alone
   carried no key in any issuer's shape and none of this machine's 11 launcher and enrollment
   secrets (`tools/check_secret_content.py`'s checks). Provider keys are checked by shape only —
   their stores are not read — and the Fish Audio key has no shape to check.
-- **14 is not scored**: it needs a model call through a direct provider.
+- **14 passes, on the record.** Clarvis predates this ecosystem: talking straight to a provider
+  (`clarvis/src/model/AnthropicProvider.ts`, `OpenAiCompatibleProvider.ts`) was its only path
+  before RAVIS existed and the owner used it daily, and it is still the path Clarvis takes when
+  its provider settings name one — the owner's decision of 16 September 2026 (E-C2 not to be
+  built) rests on it. No separate test call was made for this scoring.
 
 ---
 
