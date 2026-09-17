@@ -37,7 +37,8 @@ at all.
 
 **A run can be undone.** Checkpoints are taken so an agent run can be reviewed
 and reversed, and there are commands for exactly that: review the run, show the
-last summary, undo it.
+last summary, undo it. Since Clarvis 0.17.17 undo also covers a Codex task, including
+changes Codex made without asking, and says what it did in the Clarvis chat.
 
 **It stops at what is missing.** When a command fails because something is not on
 this computer — a Python module such as tkinter, a package, a program, a system
@@ -106,7 +107,11 @@ OpenRouter, or a custom base URL — each with its own configurable endpoint.
 
 When enabled, Clarvis registers with NERVIS and serves a small status surface,
 so the dashboard can show a live editor. It is **off unless configured**, needs
-an enrollment secret, and binds a dynamic port.
+an enrollment secret, and binds a dynamic port. The setting is `clarvis.bridge.enabled`;
+code-server's settings screen doesn't show it, so the command **Clarvis: Turn the Bridge
+On or Off** (Fn+F1 opens the command palette in code-server) switches it and offers a
+window reload. It starts as soon as an untrusted folder is trusted, and a window that
+closes tells NERVIS so at once (Clarvis 0.17.17).
 
 What it publishes is deliberately thin: identity, health, capabilities, version,
 events, `/v1/status`, and `/v1/config` — a summary of its settings with the setting
@@ -195,8 +200,9 @@ and publishing events to NERVIS with the trace on them.
 which NERVIS's plan marks IMPLEMENTED.** The evidence behind it is Clarvis's
 compatibility matrix, whose cells are graded `PASS`, `PASS_WITH_LIMITATION`,
 `FAIL` or `NOT_TESTED` — grades for single checks, not the state of a milestone.
-It stands at 39 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 1 `NOT_TESTED`
-(Bridge teardown under code-server), but nearly all of those cells were run
+It stands at 39 `PASS` / 17 `PASS_WITH_LIMITATION` / 0 `FAIL` / 0 `NOT_TESTED` —
+Bridge teardown under code-server was observed in the owner's hands-on session on
+17 September 2026 with Clarvis 0.17.16 in Firefox — but nearly all of those cells were run
 against Clarvis 0.0.1 at the end of August; only the multiple-window and rollback
 checks were run later, on 0.12.6. So the matrix describes that early version
 rather than today's.

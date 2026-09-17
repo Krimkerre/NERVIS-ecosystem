@@ -1601,7 +1601,9 @@ may only add product-specific detail beside the required state.
       went `live: false` when their 45-second lease ran out (Clarvis does not
       deregister on shutdown), and code-server's session showed expired about two
       minutes after the tab closed. The editor was opened at code-server's own
-      address, the Code tab's default path.*
+      address, the Code tab's default path. Five Clarvis flaws found on the way
+      are fixed in Clarvis 0.17.17 the same day, among them the missed
+      deregistration and undo after an unasked Codex change.*
 
       ***Corrected 12 September 2026: that run is not a pass over §8's list.***
       *This item used to say the run proved every one of §8's sixteen scenarios

@@ -25,9 +25,25 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.16
+## Clarvis — 0.17.17
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+Five fixes from the owner's hands-on session in code-server on 17 September 2026.
+
+- **Trusting a folder takes effect at once.** The Bridge and the branch helper used to stay off until
+  the window was reloaded, even after you trusted the folder.
+- **NERVIS shows how long a task or chat took.** A finished run was reported as taking 0 ms.
+- **Undo works after a Codex task.** A change Codex made without asking you first had no copy to go
+  back to, so **Clarvis: Undo Last Agent Run** said there was nothing to undo; the copy now comes from
+  the commit the task started on. What undo did — or that there was nothing — is also said in the
+  Clarvis chat, not only in a notification that is easy to miss.
+- **Clarvis: Turn the Bridge On or Off.** code-server's settings screen doesn't show the Bridge
+  setting; this command switches it and offers to reload the window. A project still can't switch it on.
+- **A closed window leaves NERVIS's list at once.** Clarvis now waits for its goodbye to NERVIS
+  before the editor shuts it down; before, the window showed as live for up to 45 seconds.
+
+### 0.17.16
 
 Text inside your project can no longer pass itself off as instructions to Clarvis's agent.
 
