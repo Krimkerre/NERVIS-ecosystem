@@ -709,9 +709,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.26
+## NERVIS — 0.34.27
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **RAVIS's dashboard says what you can actually use.** One row per provider: ready with the number of
+  models it offers, switched off, no key yet, a key the provider refused, not running, or paused after
+  repeated failures — a choice and a fault worded differently, with links to Credentials and Pools. The
+  route decision, the constraint funnel, the attempts and the recent decisions appear when **Advanced
+  controls** is on. The four headline tiles are unchanged.
+- **The Codex card sits beside the services tile** on NERVIS's overview in everyday mode, instead of
+  leaving three quarters of the row empty.
+
+### 0.34.26
 
 - **The overview answers "what can I do now".** Chat, Files, Notifications and the editor each say
   whether they are ready, from the service each one actually needs — not one green light for the

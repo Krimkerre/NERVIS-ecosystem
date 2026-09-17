@@ -98,7 +98,7 @@
 .note-bar .rule{flex:0 0 1px;height:15px;background:var(--line);margin:0 3px}
 .note-bar .mode-chip[disabled]{opacity:.38;cursor:default;pointer-events:none}
 .avatar-slot{position:absolute;z-index:2;right:22px;top:5px;width:118px;height:108px;display:grid;place-items:center}.avatar{width:106px;height:106px;overflow:visible;filter:drop-shadow(0 0 8px rgba(var(--rgb),.28))}.avatar .chrome{fill:none;stroke:var(--accent);stroke-opacity:.4}.avatar .tick{fill:none;stroke:var(--accent);stroke-width:3;stroke-dasharray:2.5 20;transform-origin:100px 100px;animation:spin 26s linear infinite}.avatar .coreline{fill:none;stroke:var(--accent);stroke-width:2}.avatar .data{fill:none;stroke:var(--cyan);stroke-width:2}.avatar .fill{fill:var(--accent)}.avatar .sat{fill:#091019;stroke:var(--cyan);stroke-width:2}.avatar.state-active .tick{animation-duration:5s}.avatar.state-warn{--accent:var(--warn)}.avatar.state-bad{--accent:var(--bad)}.avatar .flow{stroke-dasharray:3 7;animation:flow 1s linear infinite}
-.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:11px}.card{border:1px solid var(--line);border-radius:9px;background:linear-gradient(145deg,#111821,#0b1118);padding:13px;min-width:0}.card h3{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#728397;margin:0 0 11px}.kpi{grid-column:span 3}.kpi strong{display:block;font:650 24px/1.2 "SFMono-Regular",monospace}.kpi small{color:var(--ok)}.wide{grid-column:span 8}.narrow{grid-column:span 4}.half{grid-column:span 6}.full{grid-column:1/-1}.metric-row,.table-row{display:grid;grid-template-columns:1.2fr repeat(3,.7fr);gap:10px;padding:9px 7px;border-bottom:1px solid #1b2530;align-items:center}.table-row{font-size:11px}.table-row:hover{background:rgba(var(--rgb),.07)}.table-row.head{color:#617286;font-size:9px;text-transform:uppercase}.chip{display:inline-block;border:1px solid #275b44;background:#10251c;color:var(--ok);border-radius:999px;padding:2px 7px;font-size:9px}.chip.warn{border-color:#745223;background:#2a2113;color:var(--warn)}.spark{height:50px;display:flex;align-items:end;gap:3px;margin-top:10px}.spark i{flex:1;height:var(--h);background:linear-gradient(var(--accent),transparent);border-top:1px solid var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:11px}.card{border:1px solid var(--line);border-radius:9px;background:linear-gradient(145deg,#111821,#0b1118);padding:13px;min-width:0}.card h3{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#728397;margin:0 0 11px}.kpi{grid-column:span 3}.kpi strong{display:block;font:650 24px/1.2 "SFMono-Regular",monospace}.kpi small{color:var(--ok)}.wide{grid-column:span 8}.rest{grid-column:span 9}.narrow{grid-column:span 4}.half{grid-column:span 6}.full{grid-column:1/-1}.metric-row,.table-row{display:grid;grid-template-columns:1.2fr repeat(3,.7fr);gap:10px;padding:9px 7px;border-bottom:1px solid #1b2530;align-items:center}.table-row{font-size:11px}.table-row:hover{background:rgba(var(--rgb),.07)}.table-row.head{color:#617286;font-size:9px;text-transform:uppercase}.chip{display:inline-block;border:1px solid #275b44;background:#10251c;color:var(--ok);border-radius:999px;padding:2px 7px;font-size:9px}.chip.warn{border-color:#745223;background:#2a2113;color:var(--warn)}.spark{height:50px;display:flex;align-items:end;gap:3px;margin-top:10px}.spark i{flex:1;height:var(--h);background:linear-gradient(var(--accent),transparent);border-top:1px solid var(--accent)}
 .map{height:230px;position:relative;display:grid;place-items:center}
 /* The Overview draws the same topology in a narrow column, where a node's label
    is a third of the card's width — at the shared radius the left and right
@@ -158,7 +158,7 @@
 .code-server{height:580px;border:1px solid #2b3641;border-radius:8px;display:grid;grid-template-columns:42px 190px 1fr 285px;grid-template-rows:34px 1fr 135px 22px;background:#0b1016;overflow:hidden}.vtitle{grid-column:1/-1;background:#171c22;border-bottom:1px solid #2b333b;display:flex;align-items:center;padding:0 12px;color:#8996a3}.activity{grid-row:2/4;border-right:1px solid #202832;display:grid;align-content:start;gap:18px;padding:13px;color:#677787;text-align:center}.explorer{grid-row:2/4;border-right:1px solid #202832;padding:12px;color:#8998a8}.explorer b{display:block;color:#c8d2dc;margin-bottom:10px}.file{padding:5px}.file.active{background:#152230;color:#fff}.editor{padding:17px;font:12px/1.7 "SFMono-Regular",monospace;color:#a7b6c5;white-space:pre}.terminal{grid-column:3;border-top:1px solid #252e38;padding:10px;font:10px/1.5 "SFMono-Regular",monospace;color:#7fcf9f}.clarvis-panel{grid-column:4;grid-row:2/4;border-left:1px solid #202832;padding:13px}.statusbar{grid-column:1/-1;background:#153a59;color:#d8ecff;padding:2px 9px;font-size:10px}.kw{color:#d975cd}.fn{color:#e4d26d}.str{color:#d59565}.cursor{display:inline-block;width:7px;height:14px;background:var(--cyan);animation:blink .8s steps(1) infinite}.mini-butler{width:108px;height:108px;display:block;margin:auto}.mini-butler .float{animation:bob 4s ease-in-out infinite;transform-origin:100px 100px}.mini-butler .lid{fill:#1b222e;animation:cbblink 6.2s infinite}.mini-butler .ring{fill:none;stroke:var(--cyan);stroke-dasharray:2.4 20;stroke-width:3;transform-origin:100px 100px;animation:spin 22s linear infinite}
 .toast{position:fixed;right:18px;bottom:18px;padding:11px 14px;border:1px solid var(--accent);background:#101821;border-radius:7px;box-shadow:0 10px 30px #000a;transform:translateY(20px);opacity:0;transition:.25s;z-index:9}.toast.show{transform:none;opacity:1}
 @keyframes spin{to{transform:rotate(360deg)}}@keyframes flow{to{stroke-dashoffset:-20}}@keyframes grow{from{transform:scaleY(0)}}@keyframes flash{50%{background:rgba(var(--rgb),.16)}}@keyframes blink{50%{opacity:0}}@keyframes bob{50%{transform:translateY(-8px) rotate(1deg)}}@keyframes cbblink{0%,92%,100%{transform:translateY(0)}95%{transform:translateY(14px)}}
-@media(max-width:900px){.body{grid-template-columns:72px 1fr}.app-name small,.side-nav span,.adv-switch .adv-word{display:none}.adv-switch{justify-content:center;padding:7px 4px}.app-name b{font-size:10px}.side-nav button{text-align:center;padding:10px 4px}.side-nav .ico{margin:0}.side-nav button{justify-content:center}.kpi{grid-column:span 6}.wide,.narrow,.half{grid-column:1/-1}.code-server{grid-template-columns:35px 1fr}.explorer,.clarvis-panel{display:none}.editor{grid-column:2}.terminal{grid-column:2}}@media(max-width:620px){.brand span{display:none}.tab{padding:0 9px;font-size:10px}.top-status{display:none}.main{padding:8px}.page-head{height:140px;padding-right:120px}.kpi{grid-column:1/-1}}
+@media(max-width:900px){.rest{grid-column:1/-1}.body{grid-template-columns:72px 1fr}.app-name small,.side-nav span,.adv-switch .adv-word{display:none}.adv-switch{justify-content:center;padding:7px 4px}.app-name b{font-size:10px}.side-nav button{text-align:center;padding:10px 4px}.side-nav .ico{margin:0}.side-nav button{justify-content:center}.kpi{grid-column:span 6}.wide,.narrow,.half{grid-column:1/-1}.code-server{grid-template-columns:35px 1fr}.explorer,.clarvis-panel{display:none}.editor{grid-column:2}.terminal{grid-column:2}}@media(max-width:620px){.brand span{display:none}.tab{padding:0 9px;font-size:10px}.top-status{display:none}.main{padding:8px}.page-head{height:140px;padding-right:120px}.kpi{grid-column:1/-1}}
 /* M18 — a phone-width viewport had no way off the screen it loaded on. Below
    620px this used to override the 900px rule's 72px icon rail back to a
    single 1fr column and hide `.side` outright — the only navigation on the
@@ -6578,7 +6578,9 @@ async function nervis(){
    /* `true` was written here literally, so the tile counted mock rows as
       reachable services on a page with nothing running. */
    ['Services',`${reach.live} / ${reach.expected}`,reach.note,'nervis',svc.live]])
- +codexOverviewCard(codex)
+ /* Beside the services tile rather than under it: everyday mode draws one tile,
+    and a full-width card next to it left three quarters of the row empty. */
+ +codexOverviewCard(codex,advancedOn('nervis')?'full':'rest')
  +everydayFunctionsCard(svc)
  +(advancedOn('nervis')?`<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span title="The Minimal Ecosystem Protocol major version this peer publishes — the wire-format contract NERVIS negotiates before anything else. A number outside NERVIS's supported range would mark the whole peer incompatible, separately from any one capability being unavailable. Shown as '—' for a peer with no protocol surface, like a local runtime or code-server.">Protocol</span><span>Negotiated capability</span><span>State</span></div>
@@ -10980,8 +10982,8 @@ function codexAgo(iso){
 /* The Overview's one line (NERVIS.md §6): the state, the tasks, and what is left in the
    tightest window, in a card owned by RAVIS so it goes absent with RAVIS. It controls
    nothing, and links to the Codex card, where the tasks are listed. */
-function codexOverviewCard(codex){
- return `<div class="card full${liveClass(codex.live)}"><h3>Codex</h3>${cell(codexOverviewLine(codex),'ravis')}</div>`;
+function codexOverviewCard(codex,width='full'){
+ return `<div class="card ${width}${liveClass(codex.live)}"><h3>Codex</h3>${cell(codexOverviewLine(codex),'ravis')}</div>`;
 }
 
 function codexOverviewLine(codex){
@@ -11449,9 +11451,50 @@ const CODEX_CARD={
  },
 };
 
-function liveRavisDashboard(decisions, usage, codex, sites){
+/* **What RAVIS can serve right now, in the words the question is asked in.**
+   One row per provider: whether it is switched on, whether it has what it needs
+   to be used, and how many models it offers. A provider that is off is not a
+   fault, a local runtime that is not running is not a fault either, and a key
+   RAVIS has and the provider rejected is — so the three are said differently. */
+function providerReady(p){
+ return providerStopper(p)||{word:'ready',chip:'chip',note:p.models?`${p.models} model(s)`:''};
+}
+
+/* Why it cannot be used, or nothing. Split from the answer above so each stays
+   one decision: a choice, a missing key, a key refused, silence, or a pause. */
+function providerStopper(p){
+ const local=p.kind==='local';
+ if(!p.enabled)return{word:'switched off',chip:'chip',note:'nobody can route to it'};
+ if(p.credential==='rejected')return{word:'key refused',chip:'chip bad',note:p.note||'the provider rejected the key'};
+ if(!local&&!p.credential)return{word:'no key yet',chip:'chip warn',note:'add one on Credentials to use it'};
+ if(p.reachable===false)return{word:local?'not running':'not answering',chip:local?'chip warn':'chip bad',
+   note:p.note||(local?'start it to use its models':'')};
+ if(p.breaker&&p.breaker!=='closed')return{word:'paused',chip:'chip warn',note:'RAVIS stopped sending after repeated failures'};
+ return null;
+}
+
+function ravisEverydayCard(providers,live){
+ const rows=(providers||[]).map(one=>{
+  const ready=providerReady(one);
+  return `<div class="table-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:center">
+    <span><b>${escapeHtml(one.label||one.provider_id)}</b>${one.kind==='local'?' <span class="mono dim">on this machine</span>':''}
+     ${ready.note?`<small class="dim" style="display:block">${escapeHtml(ready.note)}</small>`:''}</span>
+    <span class="${ready.chip}">${escapeHtml(ready.word)}</span></div>`;
+ }).join('');
+ const ready=(providers||[]).filter(one=>providerReady(one).word==='ready').length;
+ return `<div class="card wide${escapeHtml(liveClass(live))}"><h3>What you can use <span class="chip">${ready} of ${(providers||[]).length} ready</span></h3>${rows}
+  <small class="mono dim">a provider that is switched off, or a local runtime that is not running, is a choice rather
+  than a fault — a key the provider refused is not. Keys live on
+  <a href="#" onclick="go('ravis','Credentials');return false" style="color:inherit">Credentials</a>, and which models
+  each pool may use is on <a href="#" onclick="go('ravis','Pools');return false" style="color:inherit">Pools</a>.</small></div>`;
+}
+
+function liveRavisDashboard(decisions, usage, codex, sites, providers){
  const share=usage.local_share;
  CODEX_CARD.arrive(codex,sites);
+ /* The four headline tiles are the owner's layout (`tools/codex_check.js` holds
+    it to Decisions, Local, Spend, Codex), so both modes keep them. What advanced
+    mode adds below is the routing apparatus. */
  $('#content').innerHTML=kpis([
    ['Decisions',`${usage.routed} / ${usage.decisions_recorded}`,
      usage.no_route?`${usage.no_route} refused as no-route`:'none refused','ravis',true],
@@ -11469,7 +11512,9 @@ function liveRavisDashboard(decisions, usage, codex, sites){
      `<button class="btn" style="margin-top:8px" onclick="resetSpend()" title="Count from now. Nothing is deleted, and the budget keeps its own window.">Reset to 0</button>`],
    codexTile(codex)])
  +codexCard(codex)
- +(decisions.length
+ +(advancedOn('ravis')?'':ravisEverydayCard(providers,usage.live))
+ +(!advancedOn('ravis')?''
+   :decisions.length
    ? decisionCard(decisions[0])+funnelCard(decisions[0])+attemptsCard(decisions[0])
      +recentDecisionsCard(decisions.slice(0,8))
    : `<div class="card full live"><h3>Nothing has routed yet</h3>${cell(`
@@ -11481,12 +11526,12 @@ function liveRavisDashboard(decisions, usage, codex, sites){
 async function ravis(){const v=RAVIS_VIEWS[state.view];if(v)return v();
  heading('Route intelligence','Hard constraints eliminate, then preferences rank. Every route explains itself.',control('Simulate request','reroute',' primary'));
  const since=await API.ravis.spendCountedSince();
- const [decisions,usage,codex,sites]=await Promise.all([API.ravis.decisions(25),
-   API.ravis.usage(since),API.ravis.codex(),API.ravis.codexSites()]);
+ const [decisions,usage,codex,sites,providers]=await Promise.all([API.ravis.decisions(25),
+   API.ravis.usage(since),API.ravis.codex(),API.ravis.codexSites(),API.ravis.providers()]);
  /* Live when RAVIS answers at all — the counts are real even before anything
     has routed, and "nothing has routed yet" is a better first screen than four
     invented figures. */
- if(usage.live)return liveRavisDashboard(decisions.items,usage,codex,sites);
+ if(usage.live)return liveRavisDashboard(decisions.items,usage,codex,sites,providers.items||[]);
  $('#content').innerHTML=banner('RAVIS has recorded no route decision',
   'Nothing has been routed through RAVIS yet, or it is not answering. Send a request and '
   +'this screen explains exactly which model was chosen and why every other candidate was '

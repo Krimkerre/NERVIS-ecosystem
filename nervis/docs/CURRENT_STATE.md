@@ -168,8 +168,14 @@ Clarvis instances, the trace and the diagnostics card. The event card is shared 
 both modes (`overviewEventsCard`): the flood guard's notes and a refused sender are
 blocked work and a refused permission, which no preference hides.
 
-Still to do: RAVIS's and SIRVIS's screen contents, then stage three's plain-language
-explanations with technical detail folded underneath.
+**RAVIS's dashboard followed** (0.34.27): a *What you can use* card built from the
+page's own provider read (`providerReady`, `providerStopper` — a provider switched
+off is a choice, a refused key is a fault, and they are worded differently), with the
+decision, funnel, attempts and recent-decision cards behind `ui.ravis_advanced`. The
+four headline tiles stayed: `tools/codex_check.js` records them as the owner's layout.
+
+Still to do: RAVIS's Pools, Spending and Settings contents, SIRVIS's screens, then
+stage three's plain-language explanations with technical detail folded underneath.
 
 ## The only mutating controls on the page
 
