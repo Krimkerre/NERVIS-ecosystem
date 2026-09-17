@@ -9,7 +9,9 @@ on any machine.
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -162,3 +164,41 @@ def as_administrator(store: Any) -> dict[str, str]:
     """
     store.store("admin.tests", ADMIN_SECRET)
     return {"Authorization": f"Bearer {ADMIN_SECRET}"}
+
+
+# ── No test reaches the running stack (17 September 2026) ───────────────────
+#
+# NERVIS's suite reached the owner's running services about 1,850 times a run and spent RAVIS's
+# anonymous allowance during a soak test. An audit of this suite found two tests starting an app
+# whose upstream was LM Studio's real address. These fail any test that connects to a port the
+# running stack or its runtimes listen on.
+
+LIVE_PORTS = frozenset({8721, 8731, 8790, 7071, 8080, 1234, 11434})
+_LIVE_CONNECTIONS: list[int] = []
+
+
+def _watch_connections(event: str, args: tuple[Any, ...]) -> None:
+    if event != "socket.connect" or len(args) < 2:
+        return
+    address = args[1]
+    if (isinstance(address, tuple) and len(address) >= 2
+            and address[0] in ("127.0.0.1", "::1", "localhost") and address[1] in LIVE_PORTS):
+        _LIVE_CONNECTIONS.append(int(address[1]))
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _live_connection_watch() -> None:
+    sys.addaudithook(_watch_connections)  # cannot be removed; it only records
+
+
+@pytest.fixture(autouse=True)
+def no_live_service_ports(_live_connection_watch: None) -> Iterator[None]:
+    before = len(_LIVE_CONNECTIONS)
+    yield
+    reached = sorted(set(_LIVE_CONNECTIONS[before:]))
+    if reached:
+        pytest.fail(
+            f"this test connected to the running stack's port(s) {reached}; give it a dead "
+            "address such as http://127.0.0.1:9 or a fake of its own",
+            pytrace=False,
+        )

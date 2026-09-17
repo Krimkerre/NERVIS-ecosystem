@@ -139,7 +139,8 @@ def test_the_pools_listing_does_not_call_a_hosted_model_local() -> None:
 
     settings = Settings(
         database_path=":memory:",
-        upstream_base_url="http://127.0.0.1:1234",
+        # Nothing listens here, so starting the app asks no real runtime for its models.
+        upstream_base_url="http://127.0.0.1:9",
         _env_file=None,  # type: ignore[call-arg]
     )
     app = create_app(settings)
@@ -181,7 +182,8 @@ def test_a_narrowing_that_admits_nothing_reports_the_pool_unavailable() -> None:
 
     settings = Settings(
         database_path=":memory:",
-        upstream_base_url="http://127.0.0.1:1234",
+        # Nothing listens here, so starting the app asks no real runtime for its models.
+        upstream_base_url="http://127.0.0.1:9",
         _env_file=None,  # type: ignore[call-arg]
     )
     app = create_app(settings)
