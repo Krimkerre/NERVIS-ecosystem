@@ -25,9 +25,15 @@ every entry.
 
 ---
 
-## Clarvis — 0.17.17
+## Clarvis — 0.17.18
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **A closed window really does leave NERVIS's list at once.** 0.17.17's fix didn't hold when tried
+  live: the editor runs two shutdown steps together, and the second let the first finish before
+  Clarvis had said goodbye to NERVIS. Both now wait for the same goodbye.
+
+### 0.17.17
 
 Five fixes from the owner's hands-on session in code-server on 17 September 2026.
 

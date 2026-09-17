@@ -111,7 +111,7 @@ an enrollment secret, and binds a dynamic port. The setting is `clarvis.bridge.e
 code-server's settings screen doesn't show it, so the command **Clarvis: Turn the Bridge
 On or Off** (Fn+F1 opens the command palette in code-server) switches it and offers a
 window reload. It starts as soon as an untrusted folder is trusted, and a window that
-closes tells NERVIS so at once (Clarvis 0.17.17).
+closes tells NERVIS so at once (Clarvis 0.17.17, made to hold in 0.17.18).
 
 What it publishes is deliberately thin: identity, health, capabilities, version,
 events, `/v1/status`, and `/v1/config` — a summary of its settings with the setting
