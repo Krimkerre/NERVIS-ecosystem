@@ -1562,8 +1562,9 @@ may only add product-specific detail beside the required state.
       *That last cell, Bridge teardown under code-server, was observed on
       17 September 2026 with Clarvis 0.17.16 in Firefox: a closed tab and a
       reloaded window each went `live: false` in NERVIS when the 45-second lease
-      ran out, and the Bridge port closed at once (see the E2E item below). The
-      matrix file itself belongs to Clarvis and is regraded there.*
+      ran out, and the Bridge port closed at once (see the E2E item below); with
+      Clarvis 0.17.18 a closed tab is deregistered within about a second, and
+      the cell is `PASS` — 40 / 16 / 0 / 0.*
 - [ ] Pairwise and full E2E suites pass against real services.
       *Reverified 6 September 2026, and one real gap found. Of §8's four named
       pairwise gates, three have live evidence against the current (patched)
@@ -1602,8 +1603,9 @@ may only add product-specific detail beside the required state.
       deregister on shutdown), and code-server's session showed expired about two
       minutes after the tab closed. The editor was opened at code-server's own
       address, the Code tab's default path. Five Clarvis flaws found on the way
-      are fixed in Clarvis 0.17.17 the same day, among them the missed
-      deregistration and undo after an unasked Codex change.*
+      are fixed in Clarvis 0.17.17 and 0.17.18 the same day, among them undo
+      after an unasked Codex change and the missed deregistration — with
+      0.17.18, a closed tab left NERVIS's registry within about a second.*
 
       ***Corrected 12 September 2026: that run is not a pass over §8's list.***
       *This item used to say the run proved every one of §8's sixteen scenarios

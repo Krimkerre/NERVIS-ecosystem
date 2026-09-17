@@ -200,9 +200,10 @@ and publishing events to NERVIS with the trace on them.
 which NERVIS's plan marks IMPLEMENTED.** The evidence behind it is Clarvis's
 compatibility matrix, whose cells are graded `PASS`, `PASS_WITH_LIMITATION`,
 `FAIL` or `NOT_TESTED` — grades for single checks, not the state of a milestone.
-It stands at 39 `PASS` / 17 `PASS_WITH_LIMITATION` / 0 `FAIL` / 0 `NOT_TESTED` —
+It stands at 40 `PASS` / 16 `PASS_WITH_LIMITATION` / 0 `FAIL` / 0 `NOT_TESTED` —
 Bridge teardown under code-server was observed in the owner's hands-on session on
-17 September 2026 with Clarvis 0.17.16 in Firefox — but nearly all of those cells were run
+17 September 2026 and, with Clarvis 0.17.18, a closed tab leaves NERVIS's list within
+about a second — but nearly all of those cells were run
 against Clarvis 0.0.1 at the end of August; only the multiple-window and rollback
 checks were run later, on 0.12.6. So the matrix describes that early version
 rather than today's.
