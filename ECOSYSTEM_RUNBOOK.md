@@ -1543,6 +1543,11 @@ may only add product-specific detail beside the required state.
       §13.3) has one graded row, Chromium on loopback http, and Clarvis is
       still installed by a command the launcher prints rather than by NERVIS.
       `clarvis/docs/code-server-matrix.md` is honest about the rest.
+      **Firefox, on the default path, is covered by the owner's daily use**
+      (17 September 2026): it is their main browser and practically the only
+      way they have used Clarvis, and it works as intended. The default Code
+      tab frames code-server at its own address (`code_proxy_enabled` is off
+      unless set), so this does not grade the proxied path's Firefox row.
       The matrix itself is graded against Clarvis 0.0.1 while the product ships
       0.15.4 (12 September 2026), and of its 56 graded cells 1 remains
       `NOT_TESTED`: Bridge teardown under code-server. (56 is what its tally and

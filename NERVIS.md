@@ -1179,7 +1179,7 @@ different arrangement.
 | Host | Browser | Result | Evidence |
 | --- | --- | --- | --- |
 | macOS 26 (Darwin 27), loopback `http://127.0.0.1:8790`, code-server 4.135.0 | Chromium 152 | `PASS` | **The full workbench, signed in and rendering through the proxy** — file explorer, editor, and the Clarvis panel active inside it — reached by logging in to a throwaway password-protected code-server rather than the operator's own. Before that: the login page framed same-origin; `GET /code/` answered `302` with `location: /code/login`, its own redirect rewritten onto the proxy rather than sent absolute, carrying `frame-ancestors 'self'`, `SAMEORIGIN`, `nosniff` and `no-referrer`; `..%2f..%2fetc/passwd` and an absolute URL as a path both answered `409` |
-| Same host, Firefox | — | `NOT_TESTED` | No second browser was driven |
+| Same host, Firefox | — | `NOT_TESTED` | No second browser was driven through the proxy. Firefox is the owner's main browser and their daily Clarvis use works in it (their report, 17 September 2026), but on the default path — the Code tab framing code-server at its own address, since `code_proxy_enabled` is off unless set — so it is evidence for that path, not this row |
 | Same host, Safari | — | `NOT_TESTED` | No second browser was driven |
 | Non-loopback host, `https` | — | `NOT_TESTED` | The deployment this ships as binds `127.0.0.1`; the `Secure` cookie attribute follows the scheme and has not been exercised over TLS |
 
