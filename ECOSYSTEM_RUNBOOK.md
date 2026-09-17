@@ -1613,7 +1613,11 @@ may only add product-specific detail beside the required state.
       reloaded window each went `live: false` in NERVIS when the 45-second lease
       ran out, and the Bridge port closed at once (see the E2E item below); with
       Clarvis 0.17.18 a closed tab is deregistered within about a second, and
-      the cell is `PASS` — 40 / 16 / 0 / 0.*
+      the cell is `PASS`. **Safari on 17 September 2026** through NERVIS's own
+      Code tab — panel rendered, the Bridge started the moment the folder was
+      trusted with no reload (Clarvis 0.17.17's fix, live), one chat turn out
+      through RAVIS and back — takes the matrix to 41 / 16 / 0 / 0 over 57 cells.
+      What is left there is `https` from another machine.*
 - [x] Pairwise and full E2E suites pass against real services.
       ***Signed 17 September 2026, by the owner's decision.*** *All four pairwise gates now have
       live evidence: the fourth — NERVIS → code-server → Clarvis — was driven by the owner that
