@@ -314,3 +314,30 @@ def test_the_route_offers_lines_from_the_trace_s_moment_not_the_newest(tmp_path:
         logs = client.get(f"/api/v1/traces/{trace_id}/unified").json()["logs"]
     assert logs["how"] == unified.BY_WINDOW
     assert [one["message"] for one in logs["items"]] == ["while it ran"]
+
+
+def test_the_reader_s_quick_checks_never_drop_a_line_the_exact_check_keeps(tmp_path: Any) -> None:
+    """The raw-line tests that keep the trace view fast (17 September 2026) only skip lines the
+    parsed record would refuse: a time not written first, a time in another ISO shape, a line on
+    the window's very edge, and a search that only the redacted record can match all still come
+    through."""
+    import json as _json
+
+    from nervis import logs
+
+    edge = STARTED + unified.WINDOW_SECONDS
+    written = [
+        _json.dumps({"level": "INFO", "message": "time not first", "time": stamp(STARTED)}),
+        _json.dumps({"time": "2026-09-16T13:38:37.500000+00:00", "message": "another shape"}),
+        _json.dumps({"time": stamp(edge), "message": "on the edge"}),
+        _json.dumps({"time": stamp(edge + 0.001), "message": "just past it"}),
+        _json.dumps({"message": "no time"}),
+        _json.dumps({"time": stamp(STARTED), "message": "the key sk-abcdef123456 was sent"}),
+    ]
+    (tmp_path / "ravis.log").write_text("\n".join(written) + "\n")
+    found = logs.read(tmp_path, "ravis", limit=20, between=unified.window_around(STARTED))
+    assert [one["message"] for one in found["items"]] == [
+        "time not first", "another shape", "on the edge", "the key [redacted] was sent",
+    ]
+    redacted = logs.read(tmp_path, "ravis", limit=20, text="[redacted]")
+    assert [one["message"] for one in redacted["items"]] == ["the key [redacted] was sent"]

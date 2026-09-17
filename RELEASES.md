@@ -681,7 +681,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.21
+## NERVIS — 0.34.22
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **The Traces screen loads again.** 0.34.20's two log searches read up to 20,000 lines of every
+  log line by line and took about three seconds, longer than the page waits, so the screen said the
+  trace list did not answer. Lines that cannot match are now skipped before being read in full:
+  on this machine the searches went from about three seconds to 0.04 each.
+
+### 0.34.21
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
 

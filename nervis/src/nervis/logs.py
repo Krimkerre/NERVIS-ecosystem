@@ -39,6 +39,7 @@ import re
 import shutil
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -255,19 +256,71 @@ def read(
     window = SEARCH_LINES if filtering else wanted
     items: list[dict[str, Any]] = []
     scanned = 0
+    # **Cheap tests on the raw line first** (17 September 2026): parsing every one of up to
+    # 20,000 lines per log made the trace view's two searches take three seconds, past the page's
+    # wait. A plain word the raw line lacks cannot be in its record, and a structured line starts
+    # with its time; only lines that could match are parsed and checked properly below.
+    plain = bool(text) and PLAIN_TEXT.fullmatch(text) is not None
+    bounds = _stamp_bounds(between) if between is not None else None
     for line in _tail(path, window):
         scanned += 1
+        if plain and text.lower() not in line.lower():
+            continue
+        if bounds is not None and not _may_be_between(line, bounds):
+            continue
         entry = _entry(line, structured=service in STRUCTURED)
-        if level and str(entry.get("level", "")).upper() != level.upper():
-            continue
-        if text and text.lower() not in json.dumps(entry).lower():
-            continue
-        if between is not None and not _written_between(entry, between):
-            continue
-        items.append(entry)
+        if _matches(entry, level, text, between):
+            items.append(entry)
     return {"items": items[-wanted:], "present": True, "reason": "",
             "scanned": scanned, "filtered": filtering,
             "format": "json-lines" if service in STRUCTURED else "text"}
+
+
+#: Search text a raw line can be tested against as-is: nothing JSON would escape or redaction
+#: would change. A trace id is always this.
+PLAIN_TEXT = re.compile(r"[A-Za-z0-9_.:-]+")
+#: A structured line's time, which ecosystem-protocol 0.2.3 writes first.
+_LEADING_TIME = re.compile(r'^\{\s*"time"\s*:\s*"([^"]+)"')
+
+
+#: The one shape ecosystem-protocol writes a line's time in, which sorts as text.
+_STAMP_LENGTH = len("2026-09-17T12:00:00.000Z")
+
+
+def _stamp(seconds: float) -> str:
+    moment = datetime.fromtimestamp(seconds, timezone.utc)
+    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _stamp_bounds(between: tuple[float, float]) -> tuple[str, str]:
+    """`between` as two stamps a line's time can be compared with as text — widened by a
+    millisecond at the top, so rounding can only let a line through to the exact check."""
+    return _stamp(between[0] - 0.001), _stamp(between[1] + 0.001)
+
+
+def _may_be_between(line: str, bounds: tuple[str, str]) -> bool:
+    """False only when the raw line's leading time is in the protocol's shape and outside
+    `bounds`. Anything else is left to the parsed record's exact check."""
+    if '"time"' not in line:
+        return False  # no time anywhere: the exact check would refuse it too
+    found = _LEADING_TIME.match(line)
+    if found is None:
+        return True
+    stamp = found.group(1)
+    if len(stamp) != _STAMP_LENGTH or not stamp.endswith("Z"):
+        return True
+    return bounds[0] <= stamp <= bounds[1]
+
+
+def _matches(
+    entry: dict[str, Any], level: str, text: str, between: tuple[float, float] | None
+) -> bool:
+    """Whether a parsed line passes every filter asked for."""
+    if level and str(entry.get("level", "")).upper() != level.upper():
+        return False
+    if text and text.lower() not in json.dumps(entry).lower():
+        return False
+    return between is None or _written_between(entry, between)
 
 
 def _written_between(entry: dict[str, Any], between: tuple[float, float]) -> bool:
