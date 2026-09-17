@@ -709,9 +709,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.25
+## NERVIS — 0.34.26
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **The overview answers "what can I do now".** Chat, Files, Notifications and the editor each say
+  whether they are ready, from the service each one actually needs — not one green light for the
+  ecosystem. Codex, anything down, and recent activity stay where they were; the service registry's
+  protocol and capability columns, the ecosystem map, the editor windows, the cross-service trace,
+  the routing diagnostics and the throughput figures are shown when **Advanced controls** is on.
+- **Never hidden, whatever the switch says:** events held back by the flood guard, and a sender NERVIS
+  refused. Blocked work and a refused permission are not detail.
+
+### 0.34.25
 
 - **An everyday dashboard, with the technical screens one click away.** NERVIS, RAVIS and SIRVIS each
   show a shorter menu until you press **Advanced controls** at the foot of that application's menu

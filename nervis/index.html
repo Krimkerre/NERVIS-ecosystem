@@ -6500,6 +6500,50 @@ function bridgeDoing(row){
  return said;
 }
 
+/* **What the everyday screens need, so the Overview can say whether they work.**
+   Not one "ready" light: chat needs a router as well as NERVIS, the editor is a
+   separate program, and a share nobody configured is not a fault. Each row is
+   answered from the registry row of the service it depends on. */
+const EVERYDAY_NEEDS=[
+ ['Chat','Chat','ravis','answers come through RAVIS'],
+ ['Files','Files','nervis','the workspace NERVIS serves'],
+ ['Notifications','Notifications','nervis','what NERVIS has noticed'],
+ ['Code','Workspace','codeserver','the editor, served by code-server'],
+];
+
+/* One row's answer, and never a green light for something nobody has checked. */
+function everydayReady(row){
+ const state=String((row||{}).state||'');
+ if(['healthy','degraded'].includes(state))
+  return{word:'ready',chip:'chip',note:state==='degraded'?'working, with something reduced':''};
+ if(!state||state==='discovering')return{word:'not checked yet',chip:'chip warn',note:''};
+ if(row.optional&&row.awaiting_first_contact)return{word:'not set up',chip:'chip',note:'never configured here'};
+ return{word:'not available',chip:'chip bad',note:state};
+}
+
+function everydayFunctionsCard(svc){
+ const rows=Object.fromEntries((svc.items||[]).map(item=>[item.key,item]));
+ const drawn=EVERYDAY_NEEDS.map(([label,view,key,needs])=>{
+  const ready=everydayReady(rows[key]);
+  const target=key==='codeserver'?"go('clarvis','Workspace')":`go('nervis','${view}')`;
+  return `<div class="table-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:center">
+    <span><a href="#" onclick="${target};return false" style="color:inherit"><b>${escapeHtml(label)}</b></a>
+     <small class="dim" style="display:block">${escapeHtml(needs)}${ready.note?' — '+escapeHtml(ready.note):''}</small></span>
+    <span class="${ready.chip}">${escapeHtml(ready.word)}</span></div>`;
+ }).join('');
+ return `<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>What you can do now</h3>${drawn}
+  <small class="mono dim">each answer is the state of the service that function needs, not a summary of the
+  ecosystem: chat needs RAVIS, the editor needs code-server, and a peer nobody configured is not a fault.</small></div>`;
+}
+
+/* The Overview's event card: the guard's notes, anything refused, and the last
+   events with repeats collapsed. **Not behind the appearance preference** — a
+   guard holding events back and a sender turned away are blocked work and a
+   refused permission, and recent activity is what an overview is for. */
+function overviewEventsCard(ev){
+ return `<div class="card narrow${escapeHtml(liveClass(ev.live))}"><h3>Recent events</h3>${floodGuardNotes(ev.guard)}${refusedSenderNotes(ev.refused_senders)}${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}${e._repeats>1?` <i style="font-style:normal;opacity:.6">×${escapeHtml(Number(e._repeats).toLocaleString('en-GB'))}</i>`:''}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>`;
+}
+
 async function nervis(){
  const view=NERVIS_VIEWS[state.view];
  if(view)return view();
@@ -6513,19 +6557,30 @@ async function nervis(){
     holds four, so the two disagreed the moment the registry went live. */
  const reach=reachability(svc);
  const bar=sp=>spanBar(sp,tr.window_ms);
- $('#content').innerHTML=kpis([...measured,
+ /* **Everyday first, the apparatus behind the switch.** What a person acts on —
+    is anything down, is Codex signed in, what can I do now — stays. Throughput, the
+    local share, the registry's protocol and capability columns, the map, the Bridge
+    table, the event feed, the trace waterfall and the routing diagnostics are the
+    apparatus, and `ui.nervis_advanced` is what reveals them. Nothing is deleted:
+    each still has its own screen, still reachable by its address. */
+ /* The share of work that ran on this machine is a routing statistic, so it
+    travels with the throughput tiles rather than with "is anything down". */
+ const measuredTiles=advancedOn('nervis')?measured:[];
+ const localTile=advancedOn('nervis')?[
    /* `local_share`, not `local_pct`. The mock defines `local_pct` and RAVIS
       publishes `local_share`, so this tile read **undefined%** against a live
       RAVIS and the correct figure against nothing running — the one direction a
       mock fallback must never fail in. Rendered the way the RAVIS dashboard
       renders it: a share nobody has measured says so rather than showing 0%. */
    ['Local',usage.local_share==null?'not measured':Math.round(usage.local_share*100)+'%',
-    usage.executed?`of ${usage.executed} executed`:'nothing routed yet','ravis',Boolean(usage.live)],
+    usage.executed?`of ${usage.executed} executed`:'nothing routed yet','ravis',Boolean(usage.live)]]:[];
+ $('#content').innerHTML=kpis([...measuredTiles,...localTile,
    /* `true` was written here literally, so the tile counted mock rows as
       reachable services on a page with nothing running. */
    ['Services',`${reach.live} / ${reach.expected}`,reach.note,'nervis',svc.live]])
  +codexOverviewCard(codex)
- +`<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Service registry</h3>
+ +everydayFunctionsCard(svc)
+ +(advancedOn('nervis')?`<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>Service registry</h3>
    <div class="table-row head five caps"><span>Service</span><span>Build</span><span title="The Minimal Ecosystem Protocol major version this peer publishes — the wire-format contract NERVIS negotiates before anything else. A number outside NERVIS's supported range would mark the whole peer incompatible, separately from any one capability being unavailable. Shown as '—' for a peer with no protocol surface, like a local runtime or code-server.">Protocol</span><span>Negotiated capability</span><span>State</span></div>
    ${svc.items.map(r=>`<div class="table-row five caps"><span>${escapeHtml(r.label)}</span><span class="mono">${escapeHtml(r.build_version)}</span><span class="mono">${escapeHtml(r.protocol_version?'proto '+r.protocol_version:'—')}</span><span class="mono" style="opacity:.7">${escapeHtml(r.capability)}${r.capability_source==='adapted'?' <i style="font-style:normal;opacity:.6">· adapted</i>':''}</span><span class="chip${['healthy','degraded'].includes(r.state)?'':(r.awaiting_first_contact?' dim':' warn')}">${r.awaiting_first_contact?'not configured':escapeHtml(r.state)}</span></div>`).join('')}
    <small class="mono dim">every control on this dashboard is bound to one of these capabilities. Unknown capability means the control is absent, not disabled-and-hopeful. <b>Read from NERVIS's own registry</b> — one call to <b>/api/v1/services</b>, not six from this browser. Until M2 this table was assembled here, which made every open of the page re-probe the ecosystem, put a stopped service's timeout in the render path, and left <i>stale</i> unobservable because nothing remembered a previous answer. NERVIS probes on a timer; these are §5.1's <b>observer-side</b> states — a service reports <i>healthy/degraded/unhealthy</i> about itself and NERVIS adds reachability, so "healthy" here means a truthful response <b>plus</b> reachability, never a successful connect. The capability shown is the first each reports as <i>available</i> rather than the first it declares. <b>Clarvis Bridge, LM Studio and Ollama publish no MEP surface</b>, so reachability is all that can honestly be claimed about them and no capability is inferred.</small></div>
@@ -6554,7 +6609,7 @@ async function nervis(){
    ${inst.items.map(c=>`<div class="table-row five"><span>${escapeHtml(c.label)}</span><span class="mono" style="opacity:.6">${escapeHtml(c.endpoint)}</span><span class="chip${warnUnless(c.live)}">${escapeHtml(c.state)}</span><span class="mono">${escapeHtml(bridgeDoing(c))}</span><span class="mono">${c.live?escapeHtml(String(c.expires_in))+'s':'—'}</span></div>`).join('')}
    <small class="mono dim">two editor windows, two extension hosts, two separate lifetimes — <b>never merged</b>, because §6.6 says an instance describes the host serving it. Each registered itself with the enrollment secret only this user can read, and holds a lease it renews; a window that closes stops counting within ${escapeHtml(String(inst.lease||45))}s. <b>No workspace path, file or token is stored</b> — the registration has no field for one. <b>Doing</b> is a second read, of each Bridge's own <b>/v1/status</b>, presenting the token NERVIS issued it — one window, one answer, never merged; a row NERVIS could not read says <i>unknown</i> and why, because a blank cell reads as <i>idle</i>. NERVIS reads these and never acts on them: it cannot resolve a gate, run a tool, or widen a workspace root — and <b>waiting for you</b> is displayed, never answered.</small>`
    :banner('No Clarvis Bridge has registered',inst.live?'NERVIS is answering and no editor window has announced itself. Registration is per extension host, so this is the ordinary state with no editor open. Clarvis itself is unaffected.':'NERVIS is not reachable from this page, so whether a Bridge is running is unknown.','info')}</div>
-  <div class="card narrow${escapeHtml(liveClass(ev.live))}"><h3>Recent events</h3>${floodGuardNotes(ev.guard)}${refusedSenderNotes(ev.refused_senders)}${ev.items.slice(0,4).map(e=>`<div class="event"><time>${escapeHtml(eventClock(e.occurred_at))}</time><span class="mono">${escapeHtml(e.event_type)}${e._repeats>1?` <i style="font-style:normal;opacity:.6">×${escapeHtml(Number(e._repeats).toLocaleString('en-GB'))}</i>`:''}</span></div>`).join('')}<small class="mono dim">identifiers and result classes only — no prompt, source, path or key.${ev.live?' Read from <b>NERVIS /api/v1/events</b>.':''}</small></div>
+  ${overviewEventsCard(ev)}
   ${overviewTraceCard(tr,bar)}
   <!-- **This card demonstrated the point it was making.** It set out to show
        that a service-reported fact, a NERVIS observation and an operator
@@ -6570,7 +6625,18 @@ async function nervis(){
    <div class="trace-step"><b>fact</b><span>${usage.live&&usage.routing_p50_ms!=null?`RAVIS reported ${escapeHtml(usage.routing_p50_ms)} ms`:'RAVIS has reported no routing time'}</span></div>
    <div class="trace-step dim"><b>observation</b><span>not measured — NERVIS does not time its own call to RAVIS</span></div>
    <div class="trace-step dim"><b>inference</b><span>needs both of the above; transport is their difference</span></div>
-   <small class="mono dim">service-reported fact, NERVIS observation and operator inference are three different things and are never stacked into one number — so the two NERVIS has not measured say so instead of carrying a plausible figure. §9.8's routing overhead is the milestone that fills these in.</small></div>`}
+   <small class="mono dim">service-reported fact, NERVIS observation and operator inference are three different things and are never stacked into one number — so the two NERVIS has not measured say so instead of carrying a plausible figure. §9.8's routing overhead is the milestone that fills these in.</small></div>`
+ /* **The guard and the refusals are not apparatus.** They say that events were
+    held back, or that something claiming to be a service was turned away — work
+    blocked and a permission refused, which this page never hides behind a
+    preference. So the card keeps its heading and those notes in everyday mode,
+    and it is the feed underneath that waits for the switch. */
+ :overviewEventsCard(ev)
+ +`<div class="card wide${escapeHtml(liveClass(svc.live))}"><h3>The apparatus is one click away</h3>
+   <small class="mono dim">the service registry with its protocol and capability columns, the ecosystem map, the
+   editor windows that have registered, the event feed, the cross-service trace and the routing diagnostics are
+   on this screen when <b>Advanced controls</b> is on — the switch at the foot of the menu. No link is broken by
+   leaving it off: each of those screens still opens at its own address.</small></div>`)}
 
 /* ── EVENTS ────────────────────────────────────────────────────────────────
    The hub is operational telemetry, not the system of record: producers stay

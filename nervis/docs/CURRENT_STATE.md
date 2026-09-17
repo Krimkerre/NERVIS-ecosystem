@@ -159,8 +159,17 @@ the editor is somewhere to work, and every tab stays on show in both modes.
   Settings; SIRVIS keeps everything but Runtime sets — testing models is what
   SIRVIS is for, so benchmarks and results are not advanced.
 
-Still to do (stages 2 and 3): simplifying the *contents* of those screens, and
-plain-language explanations with technical detail folded underneath.
+**Stage two has begun with NERVIS's Overview** (0.34.26). Everyday shows the
+services tile, Codex, *What you can do now* — Chat, Files, Notifications and the
+editor, each answered from the service it depends on (`EVERYDAY_NEEDS`,
+`everydayReady`) — recent events, and a line saying where the rest is. Advanced
+adds the throughput tiles, the local share, the service registry, the map, the
+Clarvis instances, the trace and the diagnostics card. The event card is shared by
+both modes (`overviewEventsCard`): the flood guard's notes and a refused sender are
+blocked work and a refused permission, which no preference hides.
+
+Still to do: RAVIS's and SIRVIS's screen contents, then stage three's plain-language
+explanations with technical detail folded underneath.
 
 ## The only mutating controls on the page
 
