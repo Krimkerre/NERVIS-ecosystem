@@ -721,7 +721,9 @@ it was reported at the time, with the `STATUS.md` passage that records it:
   (`tools/soak_test.py`) is built and has never run its length: the two runs recorded in
   `.run/soak/`, both 12 September, lasted three and five minutes. Rollback and recovery have
   never been rehearsed as one sequence. No release candidate is frozen — the repository has no
-  tags. Four of §15's items are unchecked: code-server coverage, pairwise and E2E, the
+  tags. *(Since then: the soak ran its four hours on 16–17 September, the rehearsals and the
+  rest of §15 were done on 17 September, and **`ecosystem-rc1` was frozen on 18 September
+  2026** — its record, with the evidence, is at the top of `RELEASES.md`.)* Four of §15's items are unchecked: code-server coverage, pairwise and E2E, the
   degradation matrix, and the rehearsals. And the milestones the product documents map to this
   stage carry no completion state: NERVIS M19 (`NERVIS.app`), RAVIS M20 (concurrency
   awareness), SIRVIS M22 (`SIRVIS.app`) and Clarvis E-C7 (release regression).

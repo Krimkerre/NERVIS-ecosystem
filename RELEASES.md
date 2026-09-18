@@ -25,6 +25,53 @@ every entry.
 
 ---
 
+## Release candidates
+
+A release candidate freezes one combination of the five — the exact commits that passed the gates
+below — so "the version that passed" names something. It is a git tag, not a new version number:
+each component keeps its own. Runbook §12's canary and cohort steps did not run; whether they
+apply to a stack that runs on one machine is still the owner's decision.
+
+### ecosystem-rc1 — 18 September 2026
+
+| Component | Version | Commit |
+|---|---|---|
+| NERVIS | 0.34.40 | this repository at the `ecosystem-rc1` tag |
+| RAVIS | 0.30.4 | the same |
+| SIRVIS | 0.19.5 | the same |
+| ecosystem-protocol | 0.2.3 (MEP 1.0.0) | the same |
+| Clarvis | 0.17.19 | `clarvis` at 596ae20 |
+
+**The evidence, all on this code or recorded against it:**
+- **The clean-clone gate, 75 of 75,** on 87ec39f cloned from GitHub (`tools/check_clean_clone.sh`):
+  every package's lint, types and tests from the committed declarations alone, each package loadable
+  on its own, the repository gates (status, releases, secrets, tracked files), the 25 dashboard
+  gates, and Clarvis's types, lint, unit tests, build and extension-host tests. The tag's commit adds
+  only this record and `STATUS.md`.
+- **Linux,** the same day, in the Docker bench: RAVIS 2,039 (+1 skipped, macOS-only), NERVIS
+  1,774, SIRVIS 539, protocol 66. The installer ran end to end on Debian 12, Fedora, Arch and an
+  Ubuntu 24.04 desktop; Codex's two Linux sources were checked against the real packages.
+- **The live dashboard checks** against the running stack: every card's badge matches its source
+  (`honesty_check.js`); 37 of 39 screens repaint on their own after a transition
+  (`recovery_check.js`), the Overview confirmed by hand in a browser and SIRVIS Discover drawing
+  nothing from a service.
+- **The whole-ecosystem acceptance checklist** (runbook §15), every box ticked on 17 September
+  2026, each with its note of what stays untested underneath.
+- **The four-hour long-running test** (16–17 September): five of six verdicts, the sixth explained
+  and fixed. **The load test** (12 September): five of six, §9.8's overhead budget missed by under
+  a millisecond.
+- **The rollback, recovery and database-restore rehearsals** (17 September).
+
+**Known and not fixed in this candidate:**
+- One RAVIS test failed once on Linux in about five runs before today and has not recurred in the
+  three full Linux runs since; it isn't named yet.
+- Codex on Linux has not signed in or run a task, and a chat through a local model and a benchmark
+  have not been run by hand on Linux.
+- The Code tab's Safari and https rows are ungraded; the owner's own browser, Firefox, is graded.
+- The unbuilt parts of the four specifications (STATUS, "Next", rows 6 to 14).
+
+---
+
 ## Clarvis — 0.17.19
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
