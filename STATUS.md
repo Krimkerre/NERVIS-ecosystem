@@ -20023,7 +20023,7 @@ RAVIS:** a superseded lock is re-checked on the heartbeat, every 15 s, and the b
 the test's own tick a moment later then skipped the recheck. In use that means the lock comes back
 on the next heartbeat, as designed. **Proven before fixing:** forcing a tick before the removal
 failed three times out of three with the same assertion. The test now sets the heartbeat to zero,
-as its sibling in `test_agent_orphaned.py` does for retention; with the ordering still forced it
+as its sibling in `ravis/tests/test_agent_orphaned.py` does for retention; with the ordering still forced it
 passes, and the file passed 20 runs on the Mac and 10 on Linux.
 
 ## WSL 1 refused by the installer — 2026-09-18 (NERVIS 0.34.42)
