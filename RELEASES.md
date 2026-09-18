@@ -756,7 +756,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.44
+## NERVIS — 0.34.45
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **A full-screen button in the top bar**, beside the notifications. One click puts the whole
+  dashboard in full screen; the same button, or Esc, brings it back. Where the browser doesn't
+  allow full screen the button isn't shown, and if it refuses anyway it says so.
+
+### 0.34.44
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

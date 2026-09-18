@@ -57,6 +57,16 @@
 .note-pip.warn{border-color:var(--warn);color:var(--warn);
  box-shadow:0 0 9px rgba(255,182,72,.22)}
 .note-pip .bell{width:9px;height:9px;fill:none;stroke:currentColor;stroke-width:1.5}
+/* Full screen, beside the notifications: the whole dashboard, not one card. Hidden where the
+   browser doesn't allow it (an embedding frame, an old Safari), rather than a button that fails. */
+.fs-toggle{align-self:center;margin-left:8px;height:19px;width:19px;padding:0;border-radius:6px;
+ border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer;
+ display:flex;align-items:center;justify-content:center;opacity:.75;
+ transition:opacity .15s,border-color .15s}
+.fs-toggle:hover,.fs-toggle:focus-visible{opacity:1;border-color:var(--accent)}
+.fs-toggle[hidden]{display:none}
+.fs-toggle svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.6;
+ stroke-linecap:round;stroke-linejoin:round}
 /* A plan reads as one thing with parts, so it gets a frame the individual
    offers do not: the border is what says these steps were confirmed together
    and run in the order shown. */
@@ -1003,7 +1013,7 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
 .side-nav button:hover:before,.side-nav button:focus-visible:before{opacity:1;transform:translateY(-50%) translateX(0)}
 @media(prefers-reduced-motion:reduce){.side-nav button:before{transition:none}}
 </style></head>
-<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div><div class="note-slot" id="notePipSlot"></div></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><button type="button" class="adv-switch" id="advSwitch" aria-pressed="false" aria-label="Advanced controls" title="Show model routing, benchmarks, service configuration and detailed diagnostics"><span class="adv-dot" aria-hidden="true"></span><span class="adv-word">Advanced controls</span></button></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div><div id="editorHold" hidden></div></div>
+<body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div><div class="note-slot" id="notePipSlot"></div><button type="button" class="fs-toggle" id="fsToggle" title="Full screen" aria-label="Full screen" aria-pressed="false" hidden></button></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><button type="button" class="adv-switch" id="advSwitch" aria-pressed="false" aria-label="Advanced controls" title="Show model routing, benchmarks, service configuration and detailed diagnostics"><span class="adv-dot" aria-hidden="true"></span><span class="adv-word">Advanced controls</span></button></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div><div id="editorHold" hidden></div></div>
 <div class="toast" id="toast"></div>
 <script>
 /* APP_CONFIG is the first place to edit when adding a real project or route. */
@@ -8040,6 +8050,37 @@ function notePip(){
    onclick="go('nervis','Notifications')"
    ><svg class="bell" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.6a4 4 0 0 1 8 0c0 3 1.1 4 1.1 4H2.9S4 9.6 4 6.6z"/><path d="M6.6 12.8a1.5 1.5 0 0 0 2.8 0"/></svg>${escapeHtml(NOTE_UNREAD>99?'99+':NOTE_UNREAD)}</button>`;
 }
+
+/* The full-screen button in the top bar: the whole page, entered and left from one place, and
+   Esc leaves it as it always does. The icon follows the browser's own state rather than a flag
+   of ours, so leaving with Esc can't leave it showing the wrong way round. */
+const FULLSCREEN_ICONS={
+ enter:'<path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/>',
+ leave:'<path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/>'};
+function fullscreenElement(){return document.fullscreenElement||document.webkitFullscreenElement||null}
+function paintFullscreenToggle(){
+ const button=document.getElementById('fsToggle');
+ if(!button)return;
+ const allowed=document.fullscreenEnabled||document.webkitFullscreenEnabled;
+ button.hidden=!allowed;
+ const on=!!fullscreenElement();
+ const label=on?'Leave full screen':'Full screen';
+ button.title=label;
+ button.setAttribute('aria-label',label);
+ button.setAttribute('aria-pressed',String(on));
+ button.innerHTML=`<svg viewBox="0 0 16 16" aria-hidden="true">${FULLSCREEN_ICONS[on?'leave':'enter']}</svg>`;
+}
+async function toggleFullscreen(){
+ const root=document.documentElement;
+ try{
+  if(fullscreenElement())await (document.exitFullscreen||document.webkitExitFullscreen).call(document);
+  else await (root.requestFullscreen||root.webkitRequestFullscreen).call(root);
+ }catch(e){notify('The browser didn\u2019t allow full screen here')}
+}
+document.addEventListener('fullscreenchange',paintFullscreenToggle);
+document.addEventListener('webkitfullscreenchange',paintFullscreenToggle);
+document.getElementById('fsToggle')?.addEventListener('click',toggleFullscreen);
+paintFullscreenToggle();
 
 /* Re-read the count and redraw just the badge.
 

@@ -20013,6 +20013,17 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## A full-screen button in the top bar — 2026-09-19 (NERVIS 0.34.45)
+
+The owner's request: an icon beside the notifications that puts the whole dashboard in full screen.
+`#fsToggle` in the header, drawn by `paintFullscreenToggle` from the browser's own
+`fullscreenElement` (so leaving with Esc can't leave it showing the wrong way round), with the
+WebKit-prefixed calls beside the standard ones; hidden where `fullscreenEnabled` is false, and a
+refusal is a note rather than silence. Every dashboard gate passes. **Seen in the app's browser
+pane only up to the browser's refusal:** the button draws beside the badge, a click reaches it,
+and that pane refuses full screen to every page ("Permissions check failed"), which the button
+reports. Full screen itself is for the owner to see in Firefox.
+
 ## Clarvis connected on a fresh install — 2026-09-19 (NERVIS 0.34.43)
 
 The owner, in the Ubuntu VM: the theme wasn't installed in code-server. It was — Clarvis ships
