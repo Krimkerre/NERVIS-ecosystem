@@ -119,6 +119,8 @@ class RoutingEngine:
         role_evidence: Mapping[str, Mapping[str, str]] | None = None,
         explore: Exploration | None = None,
         direct_owners: Mapping[str, str] | None = None,
+        strain: Mapping[str, float] | None = None,
+        requirements: RequestRequirements | None = None,
     ) -> RouteDecision:
         """Resolve a requested model, pool or direct address to a decision.
 
@@ -166,7 +168,13 @@ class RoutingEngine:
         """
         policy = policy or RoutingPolicy()
         refusals = policy_refusals or {}
-        requirements = analyse(request) if request else RequestRequirements()
+        # Analysed here from the request, unless the caller already has the
+        # analysis. Replay does: it holds the constraints the original request
+        # was decided under and has no request to re-derive them from, and a
+        # dry run that re-derived them from nothing would be routing a
+        # different question than the one it claims to be replaying.
+        if requirements is None:
+            requirements = analyse(request) if request else RequestRequirements()
         if is_pool_id(requested):
             return self._select_from_pool(
                 POOLS_BY_ID[requested],
@@ -187,6 +195,7 @@ class RoutingEngine:
                 resold or {},
                 explore,
                 direct_owners,
+                strain or {},
             )
 
         target = direct_target(requested)
@@ -300,6 +309,7 @@ class RoutingEngine:
         resold: Mapping[str, str] | None = None,
         explore: Exploration | None = None,
         direct_owners: Mapping[str, str] | None = None,
+        strain: Mapping[str, float] | None = None,
     ) -> RouteDecision:
         """Resolve a pool to one model, or explain why it cannot be resolved.
 
@@ -367,7 +377,7 @@ class RoutingEngine:
         eligible = _rank(
             pool, candidates, residency, memory, requirements, unavailable, remote,
             effective, observed or {}, refusals, policy, sticky,
-            expected_session_requests, reasoning, resold, direct_owners,
+            expected_session_requests, reasoning, resold, direct_owners, strain or {},
         )
 
         if not eligible:
@@ -413,6 +423,7 @@ class RoutingEngine:
                 remote,
                 _probe_note(eligible, requirements, residency, remote, policy),
                 _locality_note(eligible, remote, policy),
+                _strain_note(eligible, strain or {}),
             )
         )
         return decision
@@ -581,6 +592,7 @@ def _rank(
     reasoning: Mapping[str, float] | None = None,
     resold: Mapping[str, str] | None = None,
     direct_owners: Mapping[str, str] | None = None,
+    strain: Mapping[str, float] | None = None,
 ) -> list[str]:
     """Order the eligible candidates, cheapest-to-reach among equals.
 
@@ -704,12 +716,33 @@ def _rank(
         # `_demoted_resellers`: ranking OpenRouter's Claude behind an Anthropic
         # copy the pool had just refused handed every agent session to Qwen.
         reseller = 1.0 if model in demoted else 0.0
+        # **What the provider has said about being able to take this (§12.3).**
+        # M20 counted requests in flight and published them and steered on none
+        # of it, which the base review named: an existing load display is not a
+        # scheduler. This is the smallest honest use of that data, chosen by the
+        # owner on 18 September 2026 over building a queue.
+        #
+        # Ahead of the pool's preference, because it is not a judgement about
+        # which model is better — it is about whether the request will be served
+        # at all. A provider that answered 429 ten seconds ago will answer 429
+        # again, and the attempt chain then pays a round trip to learn what the
+        # last one already established.
+        #
+        # Behind session affinity, because §12.1 lists the four conditions that
+        # break stickiness and congestion is not among them: a busy provider is
+        # a reason to prefer elsewhere, not to move a conversation mid-flight.
+        #
+        # Never an exclusion. §10 says do not keep routing to a *failing*
+        # provider, and a congested one is not failing — it is working and busy,
+        # and removing its models would empty pools that only it can fill. See
+        # `reliability/strain.py` for what the levels mean.
+        strained = (strain or {}).get(model, 0.0)
         # **The privacy lean leads the whole key, and nothing else may.** See
         # `_privacy_lean`: every term consulted before it is one more way for a
         # `LOCAL_PREFERRED` request to leave this machine, and five of them were.
         terms: list[float | str] = [
             *_privacy_lean(policy, model, remote),
-            probe, affinity, load, reseller,
+            probe, affinity, load, strained, reseller,
             *_preference_terms(pool, policy, model, candidates, remote, observed or {}),
         ]
         terms.extend((warmth, preference) if pressured else (preference, warmth))
@@ -1374,6 +1407,7 @@ def _selection_reason(
     remote: frozenset[str] = frozenset(),
     probe_note: str = "",
     locality_note: str = "",
+    strain_note: str = "",
 ) -> str:
     """Say honestly why the winner won.
 
@@ -1399,6 +1433,11 @@ def _selection_reason(
     # line says what outranked it.
     parts.append(locality_note)
     parts.append(probe_note)
+    # Said in the same breath as the probe, and for the same reason: a candidate
+    # that lost on its provider's strain lost for a reason that has nothing to
+    # do with how good it is, and a reader looking at a weaker model on top will
+    # otherwise conclude the ranking is broken.
+    parts.append(strain_note)
 
     # §12.2's tradeoff, said out loud when it changed anything. §9.7 wants an
     # explanation that separates facts from estimates, and "we declined to load
@@ -1469,6 +1508,32 @@ def _selection_reason(
         f"what fits the request rather than on quality, and nothing ranks one admitted "
         f"build above another on how good it is. {cost}, and health is used to exclude "
         f"rather than to rank{tail}"
+    )
+
+
+def _strain_note(eligible: list[str], strain: Mapping[str, float]) -> str:
+    """What a provider's own words about its limits did to this ordering.
+
+    Silent unless it changed something — which is almost always, since nothing
+    is strained until a provider says so.
+
+    The three causes are named together rather than picked apart by level. The
+    scale itself belongs to `reliability/strain.py`, which is where the evidence
+    is read; the router knows only that a larger number is a worse place to send
+    a request, and a note that claimed to know which cause applied would be
+    reading meaning into a float it was handed.
+    """
+    if not strain:
+        return ""
+    winner = strain.get(eligible[0], 0.0)
+    passed_over = [model for model in eligible[1:] if strain.get(model, 0.0) > winner]
+    if not passed_over:
+        return ""
+    return (
+        f"{len(passed_over)} candidate(s) ranked lower because their provider is under "
+        "strain — it refused a request moments ago, states almost no headroom left, or "
+        "is a local runtime already generating; they were not excluded, and the "
+        "ordering lifts by itself (§12.3)"
     )
 
 

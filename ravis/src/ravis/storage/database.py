@@ -416,6 +416,45 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        15,
+        "route decisions kept on disk, by the owner's decision of 18 Sep 2026",
+        """
+        -- Why a request went where it went, kept past the restart that used to erase it.
+        -- The explanation is the published shape verbatim (`RouteDecision.as_dict()`) plus
+        -- `resting`, the excluded candidates whose only reason was a temporary one: the
+        -- published shape drops that distinction, and a stored record that cannot be read
+        -- back as the object it was is a record of something else.
+        --
+        -- Identifiers and reasons only. §9.7 and runbook §9 keep prompts, credentials and
+        -- internal URLs out of a route explanation, so nothing here needs redacting: this
+        -- table stores what a dashboard already shows, for longer.
+        CREATE TABLE IF NOT EXISTS route_decision (
+            decision_id    TEXT PRIMARY KEY,
+            decided_at     REAL NOT NULL,
+            application_id TEXT NOT NULL DEFAULT '',
+            request_id     TEXT NOT NULL DEFAULT '',
+            trace_id       TEXT NOT NULL DEFAULT '',
+            requested      TEXT NOT NULL DEFAULT '',
+            pool           TEXT,
+            selected       TEXT,
+            reason         TEXT NOT NULL DEFAULT '',
+            explanation    TEXT NOT NULL,
+            -- The attempt chain, written when the request finishes rather than when it was
+            -- decided. NULL means it never ran to completion, which is what a decision read
+            -- mid-stream looks like and is not the same as an empty chain.
+            execution      TEXT,
+            execution_path TEXT NOT NULL DEFAULT ''
+        );
+        -- Newest-first is the only ordering anything asks for. Reads break a tie on the
+        -- row's insertion order, for the same reason SIRVIS's evidence cursor carries both
+        -- halves of its sort key — two decisions inside one clock tick must still have an
+        -- order — and that half stays out of the index because SQLite will not index
+        -- `rowid`. It costs nothing: a tie is a handful of rows inside one second.
+        CREATE INDEX IF NOT EXISTS route_decision_recent ON route_decision (decided_at DESC);
+        CREATE INDEX IF NOT EXISTS route_decision_trace ON route_decision (trace_id);
+        """,
+    ),
 ]
 
 

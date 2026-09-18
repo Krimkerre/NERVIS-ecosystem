@@ -1274,6 +1274,14 @@ against the fastest one measured, and the Models screen draws a resident-memory 
 throughput, TTFT, RAM, swap, quality, context scaling, the quality, speed and memory trade-offs,
 joint score against RAM and concurrency degradation have no chart.
 
+**Struck, 18 September 2026, with M19 and M20.** Pareto analysis, historical regressions and
+result comparison are the screens those two milestones exist to feed, and the owner struck both:
+this is a stack that routes to APIs, and the three are worth building only for somebody who
+benchmarks local builds as a habit. They are no longer work in progress and no longer count
+against this specification. The charts and the Playground are **not** struck — a chart draws a
+figure SIRVIS already measures, and the Playground is a way to try a model rather than an
+analysis of one.
+
 ---
 
 # 17. Storage
@@ -1443,8 +1451,8 @@ mapping is in §21.2.
 | **M16** LIVE VERIFIED | RAVIS evidence API | Filtering and query APIs RAVIS requires | A RAVIS test client queries `clarvis-agent` on this machine for candidate builds and receives provenance-rich evidence |
 | **M17** | Configuration sweeps | Model, context and runtime-flag matrix expansion with warnings | Expanded run count shown before execution |
 | **M18** | Advanced quality suites | Coding, reasoning, structured output, long-context, tool use | — |
-| **M19** | Format comparison | Family comparison, GGUF vs MLX, variant grouping, comparable-build download and benchmark | — |
-| **M20** | Advanced analytics | Pareto, regression, historical comparison, validity warnings, combination prediction | Predictions labelled `ESTIMATED` |
+| ~~**M19**~~ **STRUCK 18 September 2026** | ~~Format comparison~~ | Family comparison, GGUF against MLX, variant grouping, comparable-build download and benchmark. **Struck by the owner's decision**, with the base review's reasoning: this ecosystem is API-first, the local runtimes are a fallback plus the runtime NERVIS's own embeddings run on, and comparing quantisation formats is research nobody here is doing. It is not deferred — an unbuilt milestone nobody wants is counted as unfinished work by every audit that reads this table, which is a cost paid forever for a feature nobody asked for | — |
+| ~~**M20**~~ **STRUCK 18 September 2026** | ~~Advanced analytics~~ | Pareto fronts, regression detection, historical comparison, validity warnings, combination prediction. **Struck by the owner's decision**, for M19's reason: all five only pay off for somebody benchmarking local builds as a habit. If a smaller piece is ever wanted — two existing runs side by side, with a warning when they are not comparable — it is a screen over evidence SIRVIS already holds and can be specified then, rather than kept alive here as five | — |
 | **M21** AUTOMATED VERIFIED | Ecosystem events and tracing | Shared event envelope, trace propagation, NERVIS subscription | A benchmark job trace is visible externally; tracing failure does not block benchmark execution |
 | **M22** | Packaging | `SIRVIS.app` | Launches the service, opens the UI, shuts down cleanly, leaves no orphan process. **Un-ticked 3 Sep**: no `.app` bundle, packaging script or build config exists anywhere in the repo — `tools/run.py` is a dev-mode launcher for all three services together, never attributed to this milestone. Flagged as a suspect tick once already (1 Sep, alongside M12/M22b) but never resolved then; an audit confirmed it is genuinely unbuilt, not merely unverified **Superseded 12 September 2026, by the owner's decision:** one menu bar app, NERVIS M19 (`nervis/packaging/macos`), starts the whole stack from the repository, so no separate `SIRVIS.app` will be built. |
 
@@ -1474,7 +1482,8 @@ Load GGUF + MLX → measure combined RAM → benchmark independently
 | Stage 4 — SIRVIS evidence plane *(parallel; may start after Stage 1)* | M1 + M2 (machine detection and runtime integration — nothing can be measured without them), M3 + M4 (inventory, state and the public API), M7 (evidence and provenance schema — **its acceptance is verbatim this stage's exit criterion**), M8 (Resource Manager, which owns every load and unload), M6 + M10 (benchmark lifecycle), M9 (Runtime Sets), M12 + M13 + M15 (the asset spike, the Clarvis role workloads it produced, and recommendations) + M15b (the §14.3 outputs M15 left out, unbuilt), M22b (reasoning-token overhead, the measurement RAVIS's reasoning tiebreak was waiting on), **M16 (the RAVIS evidence API)** |
 | Stage 6–7 — NERVIS core, events and tracing | M21 — **no production test doubles** |
 | Stage 10 — whole-ecosystem hardening | M22 |
-| **Unscheduled — deferred by decision** | M5 (SDK), M17, M18, M19, M20. Listed so no milestone is silently unassigned |
+| **Unscheduled — deferred by decision** | M5 (SDK), M17, M18. Listed so no milestone is silently unassigned |
+| **Struck, 18 September 2026** | M19 (format comparison) and M20 (advanced analytics), by the owner's decision after the base review. Kept in the table with their rows struck rather than deleted: a milestone that vanishes leaves the numbering with a hole and the next reader wondering what M19 was |
 | **Built outside the stage plan** | M11 (model browser and download). Deferred by decision until it shipped on 12 September 2026, when NERVIS's Discover and Downloads screens needed a real source; no runbook stage names it |
 | Stage 4 — visible increment | M14 (web UI). Not deferred. The wiring this row asked for is done: as of 12 September 2026 all nine screens on the SIRVIS tab of `nervis/index.html` read the live service (§16's opening note). What is left of M14 is §16's charts, Pareto analysis, historical regressions, result comparison and the Playground, plus separate Queue, System and Settings pages — none of them built |
 

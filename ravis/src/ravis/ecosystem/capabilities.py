@@ -175,6 +175,21 @@ DECLARED: dict[str, Capability] = {
         "(default: Ollama's nomic-embed-text) — no multi-provider routing, no "
         "fallback chain and no conformance suite yet, unlike the chat path",
     ),
+    # Degraded rather than available, on the same reading as embeddings above:
+    # §4.1's bar is "`/v1/responses` conformance actually implemented", and what
+    # ships is a translation into the Chat Completions path rather than a native
+    # surface with a conformance suite of its own. Real, working, and scoped —
+    # and the scope is in the reason, because a consumer negotiating this needs
+    # to know that a streamed request will be refused before it sends one.
+    "ravis.openai_compatible.responses@1": Capability(
+        version="1.0.0",
+        state=DEGRADED,
+        reason="POST /v1/responses is translated into the Chat Completions path — "
+        "messages, instructions, tools and their calls, structured output, "
+        "reasoning effort, token caps and usage; streaming, server-stored "
+        "responses and provider-run tools are refused by name, and there is no "
+        "conformance suite for this surface yet",
+    ),
     # RAVIS.md §4.1: advertised once `/api/v1/codex` and its routes pass their tests, which
     # they do from M29's second increment (R2). **Never a readiness check**: Codex may still be
     # not installed, paused for re-testing or signed out, and `/api/v1/codex` says which. The

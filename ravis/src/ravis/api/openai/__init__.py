@@ -9,5 +9,6 @@ object rather than the MEP envelope (§4.5).
 from ravis.api.openai.chat import router as chat_router
 from ravis.api.openai.embeddings import router as embeddings_router
 from ravis.api.openai.models import router as models_router
+from ravis.api.openai.responses import router as responses_router
 
-__all__ = ["chat_router", "embeddings_router", "models_router"]
+__all__ = ["chat_router", "embeddings_router", "models_router", "responses_router"]

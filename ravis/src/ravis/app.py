@@ -54,7 +54,12 @@ from ravis.api.management.credentials import router as credentials_router
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.management.skill_store import router as skill_store_router
 from ravis.api.management.skills import router as skills_router
-from ravis.api.openai import chat_router, embeddings_router, models_router
+from ravis.api.openai import (
+    chat_router,
+    embeddings_router,
+    models_router,
+    responses_router,
+)
 from ravis.codex.service import CodexService
 from ravis.config import Settings, resolved_capabilities
 from ravis.cost import (
@@ -119,6 +124,7 @@ def create_app(settings: Settings) -> Any:
     api.include_router(models_router)
     api.include_router(chat_router)
     api.include_router(embeddings_router)
+    api.include_router(responses_router)
     api.include_router(management_router)
     api.include_router(credentials_router)
     api.include_router(codex_router)
@@ -414,10 +420,12 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # Stateless and I/O-free: capabilities are passed in, so a decision is
     # reproducible and testable without a provider (§9.7's determinism gate).
     api.state.routing_engine = RoutingEngine()
-    # Bounded and in memory: route decisions are diagnostic rather than business
-    # state, and §17's storage model does not list them. Losing them on restart
-    # costs a debugging session; persisting every one costs disk forever.
-    api.state.decision_log = DecisionLog()
+    # Kept in memory and on disk since the owner's decision of 18 September 2026.
+    # Memory is still the bounded working set; the database is what a restart
+    # reads back, so a link to a decision made yesterday still resolves and
+    # §17's storage model — which lists `RouteDecision` — is met rather than
+    # deviated from. `decisions.py` carries the reasoning and the two bounds.
+    api.state.decision_log = DecisionLog(database=api.state.database)
     # Providers whose upstream does not speak the external protocol, keyed by
     # the name a direct address uses: `ravis/<provider>/<model>`. Empty until
     # M4 registers the first one — and empty is the honest default, because a
@@ -773,22 +781,33 @@ async def _refresh_catalogues_periodically(api: FastAPI, interval: float) -> Non
 
 
 async def _expire_sessions_periodically(api: FastAPI, interval: float) -> None:
-    """Delete sessions past their retention window, on the catalogue timer.
+    """Delete stored rows past their retention window, on the catalogue timer.
 
-    On an existing timer rather than its own: it is one indexed DELETE, and a
-    second scheduler for a millisecond of work is machinery nobody has to
-    maintain if it does not exist.
+    Sessions since §12.1, and route decisions since they were given a table of
+    their own — two indexed DELETEs on the same timer, for the same reason it
+    was an existing timer in the first place: a second scheduler for a
+    millisecond of work is machinery nobody has to maintain if it does not
+    exist.
 
     Tolerates everything. A sweep that raised would kill the task it shares
     with catalogue refreshes, so a failure to prune old rows would stop the
-    model lists updating — a much worse outcome than a late deletion.
+    model lists updating — a much worse outcome than a late deletion. Each
+    sweep is suppressed separately, so one failing does not skip the other.
     """
-    sessions: Any = getattr(api.state, "sessions", None)
-    if sessions is None:
+    keepers = [
+        keeper
+        for keeper in (
+            getattr(api.state, "sessions", None),
+            getattr(api.state, "decision_log", None),
+        )
+        if keeper is not None
+    ]
+    if not keepers:
         return
     while True:
-        with contextlib.suppress(Exception):
-            sessions.enforce_retention()
+        for keeper in keepers:
+            with contextlib.suppress(Exception):
+                keeper.enforce_retention()
         await asyncio.sleep(interval)
 
 

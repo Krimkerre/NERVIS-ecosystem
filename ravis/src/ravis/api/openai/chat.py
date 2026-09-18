@@ -34,31 +34,40 @@ import random
 import time
 import uuid
 from contextlib import aclosing
-from typing import Any, AsyncGenerator, Callable, Sequence
+from typing import Any, AsyncGenerator, Callable
 
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from ravis.api.catalogue import (
+    assemble,
+    chosen_models,
+    direct_providers,
+    disabled_providers,
+    model_filters,
+    observed_ttft,
+    provider_of,
+    reasoning_shares,
+    role_evidence,
+)
 from ravis.api.management.decisions import RecordedDecision
+from ravis.api.management.replay import constraints_of
 from ravis.api.openai.agent_backends import agent_backend_refusal
 from ravis.api.openai.serialize import DONE, completion, frame_for, opening_frame
 from ravis.content import check_image_count
-from ravis.core.capabilities import Capability, ModelCapabilities
-from ravis.core.pools import POOL_PREFIX, POOLS_BY_ID, direct_provider, is_pool_id
+from ravis.core.capabilities import Capability
+from ravis.core.pools import POOL_PREFIX, POOLS_BY_ID, direct_provider
 from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent, Usage
 from ravis.cost import (
     BudgetBand,
-    PriceBook,
     UsageLedger,
     UsageRecord,
     band_for,
     estimate,
-    price_from_book,
 )
 from ravis.evidence import EvidenceStore  # noqa: F401 - state typing
-from ravis.evidence.sirvis import candidates_with_evidence
 from ravis.policy import (
     ApplicationPolicies,
     PrivacyLevel,
@@ -68,8 +77,7 @@ from ravis.policy import (
     policy_refusals,
     resold_models,
 )
-from ravis.providers.base import ProviderAdapter, TranslatingAdapter, TranslationError
-from ravis.registry import ModelRegistry
+from ravis.providers.base import TranslatingAdapter, TranslationError
 from ravis.reliability import (
     AttemptChain,
     FailureClass,
@@ -79,19 +87,16 @@ from ravis.reliability import (
     classify_response,
     error_body,
 )
-from ravis.reliability.failures import HealthScope
 from ravis.reliability.load import LoadTracker
 from ravis.reliability.parameters import DROPPABLE
+from ravis.reliability.strain import strain_of
 from ravis.routing.engine import DEFAULT_EXPLORATION_RATE, Exploration, RoutingEngine
 from ravis.routing.explain import RouteDecision
+from ravis.routing.requirements import analyse
 from ravis.sessions import SESSION_HEADER, SessionStore
 from ravis.transparent import (
     TransparentUpstream,
-    merged_candidates,
-    merged_residency,
-    remote_models,
     resolve,
-    translated_candidates,
 )
 from ravis.upstream import Upstream, forwardable_headers
 from ravis.upstreams import is_local_address
@@ -122,105 +127,6 @@ SKIPPED_RESPONSE_HEADERS = frozenset({"content-encoding", "content-length", "tra
 # `_provider_of`. Leaving it as one shared label after M8 was a routing bug, not
 # a naming one: a provider circuit takes out every model behind that provider,
 # so one failing runtime excluded the entire catalogue.
-UPSTREAM_PROVIDER = "upstream"
-
-
-async def _direct_providers(request: Request) -> frozenset[str]:
-    """Vendors this machine can buy from at the source, right now.
-
-    **The set the reseller rule is allowed to prefer**, and every word of the
-    condition is load-bearing. A vendor belongs here only if it is configured,
-    its circuit is closed, *and it actually lists models*. The rule refuses an
-    aggregator's copy, so a vendor that cannot serve the request is not a reason
-    to refuse the only route that can.
-
-    That third condition is not hypothetical. On this machine `google` is
-    configured and credentialed and publishes **no catalogue at all**, while
-    OpenRouter offers 43 `google/*` models. Without the check the rule would
-    have refused all 43 in favour of a provider with nothing behind it, and
-    Gemini would have become unreachable — a price preference turned into an
-    outage, which is exactly what the fail-open clause exists to prevent.
-
-    Asking the adapters is cheap: their discovery sits behind a TTL, so this is
-    a dictionary lookup in the ordinary case, and a listing that fails leaves
-    the vendor out — the safe direction.
-    """
-    translating: dict[str, Any] = getattr(request.app.state, "translating", {})
-    transparents: dict[str, TransparentUpstream] = getattr(
-        request.app.state, "transparents", {}
-    )
-    health = request.app.state.health
-
-    def closed(name: str) -> bool:
-        known = health.known(HealthScope.PROVIDER, name)
-        return known is None or known.allows()
-
-    usable = set()
-    for name, adapter in translating.items():
-        if not closed(name):
-            continue
-        try:
-            if await adapter.models():
-                usable.add(name)
-        except Exception:  # noqa: BLE001 — a failed listing is not a catalogue
-            continue
-    for built in transparents.values():
-        if closed(built.name) and built.registry.model_ids():
-            usable.add(built.name)
-    return frozenset(usable)
-
-
-def _provider_of(request: Request) -> Callable[[str], str]:
-    """Resolve a model to the provider that will actually serve it.
-
-    Used for policy, provider health and session attribution — three readers of
-    one question, and the answer has to be the same one execution uses or each
-    of them describes a request that did not happen.
-
-    **The owner map is consulted, and its absence was a policy bypass.** A
-    translated provider's models reach the candidate set as bare ids —
-    `claude-audit-1`, not `ravis/anthropic/claude-audit-1` — and this resolved
-    only the explicit form, falling through to the transparent upstreams for
-    everything else. So the same model answered `anthropic` at execution
-    (`_translating_for` reads `request.state.translated_owners`) and `default`
-    here, and a deny-list naming `anthropic` was compared against `default`,
-    matched nothing, and let the request through. Found by an external audit on
-    9 September 2026; `test_hard_constraints_route.py` holds the reproduction.
-
-    The same wrong answer credited a successful Anthropic call to `default` in
-    the health record, and the accounting path had already been fixed for it
-    separately — `owner_of` below reads the map exactly as this now does, which
-    is the tell that one resolution should have served both.
-
-    Read lazily: the map is put on the request after this closure is built.
-
-    Falls back to the single label when nothing is declared, so a deployment
-    using the singular settings keeps exactly the health record it had.
-    """
-    transparents: dict[str, TransparentUpstream] = getattr(
-        request.app.state, "transparents", {}
-    )
-    filters = _filters(request)
-
-    def provider(model: str) -> str:
-        translating: dict[str, Any] = getattr(request.app.state, "translating", {})
-        addressed = direct_provider(model)
-        if addressed is not None and addressed in translating:
-            return addressed
-        # Before the transparent upstreams, matching `_translating_for`: a model
-        # a translated provider owns is served by that provider whatever a
-        # transparent catalogue happens to also list.
-        owned = getattr(request.state, "translated_owners", {}).get(model)
-        if owned is not None:
-            return str(owned)
-        if not transparents:
-            return UPSTREAM_PROVIDER
-        built = resolve(transparents, model, filters)
-        return built.name if built else UPSTREAM_PROVIDER
-
-    return provider
-
-
 class _TryNext(Exception):  # noqa: N818 - a control signal, not an error condition
     """Internal signal: this attempt failed before any byte reached the client.
 
@@ -248,7 +154,22 @@ async def create_chat_completion(request: Request) -> Response:
     and its ranked fallbacks, and §10's chain walks them until one answers or
     the retry budget is spent.
     """
-    body = await request.body()
+    return await complete(request, await request.body())
+
+
+async def complete(request: Request, body: bytes) -> Response:
+    """Admit, route and execute one Chat Completions request.
+
+    Separated from the endpoint when `/v1/responses` arrived (M23). The Responses
+    surface is a translation *into this* rather than a second implementation of
+    it: routing, policy, the fallback chain, the ledger and the decision record
+    are one path, and a second copy of any of them would be a second set of
+    rules for the same questions — which is how two surfaces of one gateway come
+    to disagree about what an application is allowed to do.
+
+    Takes the body rather than reading it, because the caller may have written
+    it: what arrives at `/v1/responses` is not what routes.
+    """
     parsed = _inspect(body, request)
     if isinstance(parsed, JSONResponse):
         return parsed
@@ -261,7 +182,7 @@ async def create_chat_completion(request: Request) -> Response:
     # translated fork finds no adapter, falls through to Path A, and forwards an
     # Anthropic model to whatever the transparent upstream happens to be.
     addressed = direct_provider(parsed.get("model") or "")
-    if addressed is not None and addressed in _disabled(request):
+    if addressed is not None and addressed in disabled_providers(request):
         return _openai_error(f"Provider {addressed!r} is disabled.", "provider_disabled", 503)
 
     upstream = request.app.state.upstream
@@ -324,7 +245,7 @@ def _destination_for(
     transparents: dict[str, TransparentUpstream] = getattr(
         request.app.state, "transparents", {}
     )
-    filters = _filters(request)
+    filters = model_filters(request)
     incoming = dict(request.headers)
 
     def destination(model: str) -> tuple[str, dict[str, str]]:
@@ -363,7 +284,7 @@ def _ttl_for(request: Request) -> Callable[[str], int]:
     transparents: dict[str, TransparentUpstream] = getattr(
         request.app.state, "transparents", {}
     )
-    filters = _filters(request)
+    filters = model_filters(request)
 
     def ttl(model: str) -> int:
         if seconds <= 0:
@@ -415,60 +336,11 @@ def _translating_for(
     return adapter
 
 
-def _chosen(request: Request, requested: str) -> tuple[str, ...]:
-    """The models an operator picked for this pool, or empty.
-
-    Empty for anything that is not a pool: a direct address names its target and
-    a bare model name is passed through, so neither has a membership list to
-    consult.
-    """
-    membership = getattr(request.app.state, "pool_membership", None)
-    if membership is None or not is_pool_id(requested):
-        return ()
-    return tuple(membership.for_pool(requested))
-
-
-def _observed(request: Request) -> dict[str, float]:
-    """Median TTFT per model, for the models measured often enough to mean it."""
-    store = getattr(request.app.state, "observations", None)
-    return store.ttft_for_ranking() if store is not None else {}
-
-
-def _reasoning_shares(request: Request, models: Sequence[str]) -> dict[str, float]:
-    """SIRVIS's measured reasoning share per candidate, for the ones it has one.
-
-    Only the models this pass is actually considering, and only the shares that
-    were counted rather than inferred — `EvidenceStore.reasoning_share` drops
-    the rest, along with anything past the staleness window. A build with no
-    entry here is not ranked down; see `_reasoning_rank`.
-    """
-    store = getattr(request.app.state, "evidence", None)
-    if store is None:
-        return {}
-    shares = {model: store.reasoning_share(model) for model in models}
-    return {model: share for model, share in shares.items() if share is not None}
-
-
-def _role_evidence(request: Request, models: Sequence[str]) -> dict[str, dict[str, str]]:
-    """Which roles SIRVIS has measured each candidate for, and how it did.
-
-    The map a pool's membership is derived from: `{model: {role: state}}`. Only
-    the models this pass is considering, and only those with a record — a build
-    nobody has measured is absent rather than present with an UNKNOWN, because
-    `_admits` reads absence and UNKNOWN the same way and an empty dict is
-    cheaper to reason about than one full of nothings.
-    """
-    store = getattr(request.app.state, "evidence", None)
-    if store is None or not hasattr(store, "roles_measured"):
-        return {}
-    fit = {model: store.roles_measured(model) for model in models}
-    return {model: roles for model, roles in fit.items() if roles}
-
-
 def _record_path(call: _Call, path: str) -> None:
     """Note which of §6's two paths ran, on the record a diagnostic reads."""
     if call.recorded is not None:
         call.recorded.execution_path = path
+        call.recorded.stored()
 
 
 async def _translated(
@@ -717,6 +589,9 @@ class _Call:
         """
         if self.recorded is not None:
             self.recorded.attempts = self.chain.summary()
+            # The row was written when the decision was made; this is the half
+            # that only exists once the request has finished.
+            self.recorded.stored()
         if self._note_finished is not None:
             self._note_finished(self.chain)
 
@@ -803,23 +678,6 @@ def _shape_refusal(parsed: dict[str, Any]) -> JSONResponse | None:
     return None
 
 
-def _disabled(request: Request) -> frozenset[str]:
-    """Providers an operator has switched off (M10).
-
-    Read per request rather than cached: the file is small and local, and a
-    toggle that only took effect after a restart would be a toggle nobody
-    trusts during an incident.
-    """
-    state = getattr(request.app.state, "provider_state", None)
-    return frozenset(state.disabled()) if state else frozenset()
-
-
-def _filters(request: Request) -> dict[str, Any] | None:
-    """Each provider's model filter, or None when nothing is configured."""
-    filters = getattr(request.app.state, "model_filters", None)
-    return filters.all() if filters else None
-
-
 async def _route(request: Request, payload: dict[str, Any], body: bytes) -> RouteDecision:
     """Resolve what the client addressed into a model to call (§9).
 
@@ -829,56 +687,13 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     needs a network call to answer, this is the line that has to change.
     """
     engine: RoutingEngine = request.app.state.routing_engine
-    registry: ModelRegistry = request.app.state.model_registry
     health: HealthRegistry = request.app.state.health
-    # SIRVIS's measurements with RAVIS's own trials beside them (see `trials.py`).
-    evidence = getattr(request.app.state, "capability_evidence", None) or getattr(
-        request.app.state, "evidence", None
-    )
-    transparents: dict[str, TransparentUpstream] = getattr(
-        request.app.state, "transparents", {}
-    )
-    # Every upstream's models, each asked through its own adapter. With one
-    # upstream this is what it always was; with several it is the only way a
-    # model on LM Studio gets LM Studio's catalogue read for it instead of
-    # whichever adapter happened to be primary.
-    if transparents:
-        candidates = await merged_candidates(
-            transparents, evidence, _disabled(request), _filters(request)
-        )
-        residency = merged_residency(transparents)
-        # Translated providers join the candidate set. They were absent
-        # entirely, so an Anthropic model could not be selected by any pool —
-        # only addressed directly. The owner map travels with them so the fork
-        # below can attribute a selection back to the adapter that serves it.
-        translated, owners = await translated_candidates(
-            {
-                name: adapter
-                for name, adapter in getattr(request.app.state, "translating", {}).items()
-                if name not in _disabled(request)
-            },
-            evidence,
-        )
-        for model, known in translated.items():
-            candidates.setdefault(model, known)
-        request.state.translated_owners = owners
-    else:
-        adapter: ProviderAdapter = request.app.state.adapter
-        candidates = await candidates_with_evidence(adapter, registry.model_ids(), evidence)
-        residency = registry.residency
-    # §14's price book, filled from the catalogue this pass already read. Done
-    # here rather than on the refresh timer because the capability records are
-    # what carry a price, and this is where they are assembled — harvesting it
-    # anywhere else would mean reading the catalogue a second time to learn
-    # something the first read already knew.
-    _harvest_prices(request, candidates)
-    # And the gaps the catalogue left, from the same book: operator-stated rates for the
-    # providers that publish none, so a direct build ranks on its price rather than on
-    # its name. See `price_from_book`.
-    price_from_book(candidates, getattr(request.app.state, "prices", None))
-    remote = remote_models(transparents) | frozenset(
-        getattr(request.state, "translated_owners", {})
-    )
+    # The catalogue, assembled the one way there is to assemble it — see
+    # `api/catalogue.py`, which replay reads through the same door so that a
+    # dry run cannot answer about a catalogue no request ever routes against.
+    offered = await assemble(request)
+    candidates, residency, remote = offered.candidates, offered.residency, offered.remote
+    request.state.translated_owners = offered.translated_owners
     policy = _policy_for(request, payload)
     # §12.1's affinity, and §9.6.1's exemption from it. A background call is
     # explicitly *exempt* from session affinity — it is short, disposable and
@@ -892,13 +707,18 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     expected = _expected_session_requests(request)
     # Vendors this machine can buy from at the source, resolved once: the
     # refusal path and the ranking path must agree about what is direct.
-    direct = await _direct_providers(request)
+    direct = await direct_providers(request)
     # Normalised once and kept: the engine reads its requirements, the
     # tool-refusal suppression below applies only when it carries tools, and
     # the attempt chain needs the same answer to decide whether a refusal may
     # arm one. Three readers of one fact should not each re-derive it.
     normalized = normalize(body, payload)
     request.state.carries_tools = normalized.carries_tools
+    # Analysed once here rather than again inside the engine, because the record
+    # needs the same analysis the decision was made from: a replay decided from
+    # a second, separately derived answer would be replaying a different
+    # request. See `management/replay.py`.
+    requirements = analyse(normalized)
     decision = engine.select(
         payload.get("model") or "",
         candidates,
@@ -909,6 +729,7 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         # or images demands a model that can handle them, whatever the pool's
         # static invariants say.
         request=normalized,
+        requirements=requirements,
         # Providers whose catalogue this engine cannot see. Their own model
         # list is the authority, so a direct address to one is not checked
         # against the local upstream's — see `_direct`.
@@ -922,15 +743,15 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         remote_models=remote,
         # An operator's narrowing of this pool, if they made one. Read per
         # request for the same reason the provider toggles are.
-        chosen=_chosen(request, payload.get("model") or ""),
+        chosen=chosen_models(request, payload.get("model") or ""),
         # What RAVIS has timed, for the pools that rank on speed. Only models
         # past the sample floor appear here — see `Observations`.
-        observed_ttft_ms=_observed(request),
+        observed_ttft_ms=observed_ttft(request),
         # §11.4's reasoning share, which breaks a tie only when this request
         # capped its output — a build that spends the budget thinking returns
         # less answer, or none. Dormant otherwise; see `_reasoning_rank`.
-        reasoning_share=_reasoning_shares(request, list(candidates)),
-        role_evidence=_role_evidence(request, list(candidates)),
+        reasoning_share=reasoning_shares(request, list(candidates)),
+        role_evidence=role_evidence(request, list(candidates)),
         # Whether this request is allowed to spend itself learning about a
         # model instead of using the best one. Off unless the caller asked.
         explore=_exploration(payload, health.held_from_exploration(candidates)),
@@ -952,14 +773,24 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
             policy,
             candidates,
             addressed=payload.get("model") or "",
-            provider_of=_provider_of(request),
+            provider_of=provider_of(request),
             remote=remote,
         ),
         # Ranked rather than refused inside a pool; see `_rank`.
-        resold=resold_models(candidates, _provider_of(request), direct),
+        resold=resold_models(candidates, provider_of(request), direct),
         # Who serves each directly bought candidate, so a resold copy is only
         # ranked behind a maker's copy that survived this request's constraints.
-        direct_owners=direct_owners(candidates, _provider_of(request), direct),
+        direct_owners=direct_owners(candidates, provider_of(request), direct),
+        # §12.3's load figures, as a preference rather than a queue. Computed
+        # here for the same reason `unavailable` is: which provider serves a
+        # model, and what that provider last said about its own limits, is not
+        # something a pure function of a capability table can answer.
+        strain=strain_of(
+            list(candidates),
+            provider_of(request),
+            getattr(request.app.state, "load", None),
+            health,
+        ),
     )
     # Recorded rather than recomputed. Re-running the router later would use a
     # different catalogue, residency and memory reading, and could reach a
@@ -971,6 +802,9 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
         application_id=identity.application_id if identity else "anonymous",
         request_id=getattr(request.state, "request_id", ""),
         trace_id=getattr(request.state, "trace_id", ""),
+        # What this route was decided under, so it can be decided again against
+        # a later catalogue. Derived facts only — no message reaches the store.
+        constraints=constraints_of(requirements, policy),
     )
     _record_session(request, decision, background=policy.background)
     request.state.route_decision = decision
@@ -999,7 +833,7 @@ def _unavailable_for(
     Passed in as `unavailable` rather than as a new engine argument, so the
     engine stays a pure function of what it is handed and needs no change.
     """
-    blocked = health.unavailable(models, _provider_of(request))
+    blocked = health.unavailable(models, provider_of(request))
     if not normalized.carries_tools:
         return blocked
     for model, reason in health.suppressed(models, Capability.TOOLS).items():
@@ -1041,21 +875,6 @@ def _expected_session_requests(request: Request) -> int | None:
         return None
     identity = getattr(request.state, "identity", None)
     return store.typical_length(identity.application_id if identity else "anonymous")
-
-
-def _harvest_prices(request: Request, candidates: dict[str, ModelCapabilities]) -> None:
-    """Record every published price this catalogue carried.
-
-    Only models that actually publish one: a model with no price is left absent
-    from the book rather than entered as free, which is the distinction the
-    whole cost engine rests on.
-    """
-    prices: PriceBook | None = getattr(request.app.state, "prices", None)
-    if prices is None:
-        return
-    for model, known in candidates.items():
-        if known.price is not None:
-            prices.record(model, known.price)
 
 
 def _events(request: Request) -> Any:
@@ -1234,10 +1053,10 @@ def _usage_writer(
     application = identity.application_id if identity else "anonymous"
     request_id = getattr(request.state, "request_id", "")
     session_id = _session_id(request)
-    provider_of = _provider_of(request)
+    serves = provider_of(request)
     prices = getattr(request.app.state, "prices", None)
     pool = decision.pool_id or ""
-    # **Which provider actually served it**, which `_provider_of` cannot answer
+    # **Which provider actually served it**, which `provider_of` cannot answer
     # for a translated call: it resolves the *selected* model, and a translated
     # provider's models never appear in a transparent upstream's catalogue — so
     # `claude-haiku-4-5` fell through to whichever transparent upstream was
@@ -1276,7 +1095,7 @@ def _usage_writer(
         ledger.record(
             UsageRecord(
                 model=model,
-                provider=owner or provider_of(model),
+                provider=owner or serves(model),
                 application_id=application,
                 usage=usage,
                 cost=amount,
@@ -1443,7 +1262,7 @@ def _record_session(
         supplied,
         pool=decision.pool_id or decision.requested,
         model=decision.selected or "",
-        provider=_provider_of(request)(decision.selected or ""),
+        provider=provider_of(request)(decision.selected or ""),
         # §5.4: the revision the session used, so a consumer can tell that a
         # pool's definition changed under a conversation already in progress.
         pool_revision=pool.revision if pool else "",
@@ -1579,7 +1398,7 @@ def _chain_for(request: Request, decision: RouteDecision) -> AttemptChain:
     """
     chain = AttemptChain(
         health=request.app.state.health,
-        provider=_provider_of(request),
+        provider=provider_of(request),
         budget=request.app.state.retry_budget,
         observations=getattr(request.app.state, "observations", None),
         from_pool=decision.pool_id is not None,

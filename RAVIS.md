@@ -1180,8 +1180,25 @@ Track provider quotas where possible: RPM, TPM, credits, rate-limit state.
   Published as `load.co_residency`.
 
 **Not read:** provider credits or balances.
-**Nothing here reaches the router**: §12.3 says what to track, and using these figures to route is
-a decision still to be made. NERVIS shows them on RAVIS → Diagnostics.
+**They reach the router as a preference, since 18 September 2026** (0.30.0). §12.3 says what to
+track, and what to do with it was the owner's decision; the base review made the cost of leaving it
+open plain — *an existing load display is not a scheduler*. What was chosen is the small half: a
+penalty inside the ranking that already exists, never a queue and never an exclusion. Two levels,
+each of them something a provider said rather than a threshold RAVIS invented — a rate limit or an
+overload answered in the last minute, or a `retry-after` still running; and a provider's own stated
+remaining leaving it under a tenth of its stated limit. Requests in flight are deliberately not a
+level, for two different reasons. Against a hosted provider RAVIS is not the only caller of that key
+and does not know the ceiling unless the provider states one. Against a *local* runtime the wait is
+real — LM Studio queues the second generation — but this term outranks the pool's preference, so
+scoring it would move the next request to the next candidate, which for most pools is hosted and
+paid for; spending money because the machine is busy is the owner's decision rather than a side
+effect of a latency preference. Every level therefore comes from a remote provider's own statement,
+so the term can move a request away from a strained provider and, at worst, onto this machine. The term sits behind session
+affinity (§12.1 lists the four conditions that break stickiness, and congestion is not among them)
+and ahead of the pool's own preference, because it is about whether the request will be served
+rather than which model is better — and §9.7's explanation says so whenever it moved anything.
+See `ravis/src/ravis/reliability/strain.py`. NERVIS shows the figures themselves on
+RAVIS → Diagnostics.
 
 ---
 
@@ -2006,9 +2023,15 @@ has six: `applied_migration`, `client_application`, `setting`, `routing_session`
 `capability_trial` and `usage_record` (schema in `ravis/src/ravis/storage/database.py`).
 Operator configuration is JSON in RAVIS's configuration directory (`providers.json`,
 `models.json`, `pools.json`, `policies.json`, `prices.json`, `observations.json`), with
-credentials in the keyring or the credential file (§14). **`RouteDecision` is not stored:** the
-most recent 200 decisions are held in memory (`DecisionLog` in
-`ravis/src/ravis/api/management/decisions.py`), so a restart empties `/api/v1/route-decisions`.
+credentials in the keyring or the credential file (§14). **`RouteDecision` is stored since
+18 September 2026** (0.30.0, migration 15's `route_decision`): the whole explanation, plus the
+constraints the route was decided under, kept for thirty days and under a ceiling of fifty thousand
+rows. The most recent two hundred stay in memory as the working set, exactly as `usage_record`'s do,
+so an ordinary dashboard read touches no table. It was in memory alone until then, and the trade
+went bad in two ways: a link to a decision rotted after two hundred requests, and a table this
+model lists in as many words was being deviated from rather than applied. `RouteCandidate` and
+`RequestMetric` are still not tables — the candidates and their exclusions ride inside the stored
+explanation, which is the shape everything reads them in anyway.
 **`SirvisModelRef` is not built**; nothing in `ravis/src` defines it, so the join the next
 paragraph describes does not exist yet.
 
@@ -2201,9 +2224,9 @@ and §20.1 maps these milestones onto its stages.
 | **M18** AUTOMATED VERIFIED | Two halves, scheduled apart. **M18a — read-only management API:** the `/api/v1` reads (`pools`, `policies`, `providers`, `models`, `profiles`, `route-decisions`, `usage`), which is what makes a route decision visible while it is being debugged. **M18b — events and tracing surfaces** for NERVIS | Does not affect Clarvis wire compatibility; M18a exposes no mutation and no credential |
 | **M19** AUTOMATED VERIFIED | Production observations — rolling latency, TTFT and error rate, sampled from real traffic. **Throughput is not part of this**: `observations.py`'s rolling windows and `HealthRegistry.error_rate()` are real and tested, and nothing in `src/ravis` tracks a production throughput figure — the row originally claimed one, corrected 3 Sep after an audit found no supporting code | — |
 | **M20** | Concurrency awareness — active requests, local congestion, SIRVIS contention evidence | — **In part, 16 September 2026 (RAVIS 0.29.0):** active requests, local generations, queue depth, memory pressure, provider congestion and providers' stated limits are tracked and published on `/api/v1/health` (§12.3's as-built note) and shown on NERVIS's RAVIS → Diagnostics; tested against fake upstreams. SIRVIS's contention evidence joined them in RAVIS 0.29.1, read from the evidence RAVIS already fetches. Not built: provider credits, and any routing use of these figures |
-| **M21** | Replay and evaluation — request replay, routing comparison | — |
+| **M21** | Replay and evaluation — request replay, routing comparison | **Half built, 18 September 2026 (0.30.0), and the state column stays empty because the other half is not.** `GET /api/v1/route-decisions/{id}/replay` routes a stored decision again against today's catalogue, prices, residency and health, using the constraints it was decided under, and contacts nobody — chosen by the owner over a replay that really calls, which costs money per replay and needs the prompt, content RAVIS does not keep. Session affinity and exploration are named in the answer as not reproduced rather than silently omitted. **Not built:** routing comparison, two pools or profiles over the same recorded traffic |
 | **M22** | Advanced routing — escalation, shadow routing, outcome scoring | — |
-| **M23** | Responses API — `/v1/responses` | No regression in Chat Completions compatibility |
+| **M23** | Responses API — `/v1/responses` | **Built as a translation, 18 September 2026 (0.30.0), not as a native surface — the state column stays empty because §4.1's bar is a conformance suite for this surface and there is none.** The request is reshaped into a Chat Completions one and answered by the same path, so admission, policy, routing, §10's chain, the ledger and the decision record happen once. Translated: `input` in every shape the SDK sends, `instructions`, function tools and their calls both ways, `text.format`, `reasoning.effort`, `max_output_tokens`, `metadata` (so §9.6.1's background marker and §14's declared privacy bind here too) and usage. Refused by name rather than ignored: `stream`, `previous_response_id`, `store` and provider-run tools. Advertised `DEGRADED`. **The acceptance criterion below is met and tested** (`test_responses_api.py`) |
 | **M24** | Packaging — `RAVIS.app`. **Superseded 12 September 2026, by the owner's decision:** one menu bar app, NERVIS M19 (`nervis/packaging/macos`), starts the whole stack from the repository, so no separate `RAVIS.app` will be built. | — |
 | **M25a** | **Serverless GPU as a transparent upstream — RunPod.** A `kind: "runpod"` adapter over `https://api.runpod.ai/v2/{endpoint_id}/openai/v1`, which vLLM workers already expose OpenAI-compatibly. **Direct addressing only** — `ravis/runpod/<model>` — and deliberately *not* a pool candidate, the same position Anthropic holds. No new capability: it is Path A, so `ravis.openai_compatible.chat_completions@1` already covers it | A completion runs through a declared RunPod endpoint; no pool can select it; the key never leaves the credential store |
 | **M26** | **`ravis/background` — a pool for work with nobody watching.** Unattended callers (NERVIS's own thinking, M25 there) need a pool that runs *beside* interactive work rather than competing with it, and none of the thirteen pools that existed when this row was written expressed that. Eighteen are served on 12 September 2026, `ravis/free-api` (M28) among them, and whether that one now serves this purpose is §20.1's open decision. **The invariant is "must not contend", and it is deliberately not "must be hosted" or "must be free".** Both of those are answers to the question rather than the question, and each is wrong on some machine: on a laptop with a closed runtime, free resolves to a cold local load that fights chat for RAM — the exaone incident — while on a workstation with an idle 16 GB card, local is fast, costs nothing and contends with nobody, and a hosted-only rule would spend money to avoid a machine that was sitting there. So the pool's price ceiling is **operator configuration** and the invariant is expressed through what RAVIS already measures: residency, memory pressure and §12.2's load-versus-don't tradeoff. Prefer a model already resident, refuse to pay a load under pressure, and let the ceiling say what this machine is willing to spend | A background caller and an interactive one run concurrently without either paying a model load for the other; **the same RAVIS reaches opposite answers on two machines from configuration alone** — a resident local model where one is loaded and idle, a small hosted one where the local runtime is cold or the memory is tight — with the route explanation naming which and why; spend is attributable by pool in `/api/v1/usage`, so "what did unattended work cost this week" is a query; **§9.6.1's marker is not how this is used** — "must be free" is the same baked-in answer in a different place, and it resolves to local on exactly the machine where local is the wrong choice |
@@ -2228,7 +2251,7 @@ and §20.1 maps these milestones onto its stages.
 | **Unscheduled — blocked on M14's residency vocabulary** | M25b (serverless GPU as a routing candidate). **M15 and M16 are no longer blockers** — both are AUTOMATED VERIFIED, and the paragraphs below that said otherwise were stale. M25a may land at any time, because a directly-addressed upstream is not a routing decision |
 | **Unscheduled — wanted only with a second machine** | M27 (multi-source evidence). Blocked on nothing; the work is not worth doing until a second host actually serves models — see §20.3 |
 | **Unscheduled — Codex tasks through RAVIS (runbook §2.2)** | M29, paired with Clarvis E-C9 and NERVIS M28. It may land at any time once the contract is accepted; the owner accepted it on 13 September 2026, and its fixtures landed that day. Its increments and their order are in `STATUS.md` |
-| **Unscheduled — deferred by decision** | M17 (RAVIS's own dashboard). Not "never": §15 keeps a *built-in* UI optional because the prototype at `nervis/` renders RAVIS's screens from Stage 3 onward and NERVIS serves them properly from Stage 6, so a third implementation inside RAVIS would be the redundant one. M21, M22, M23, M24 likewise deferred. Listed so that no milestone is silently unassigned |
+| **Unscheduled — deferred by decision** | M17 (RAVIS's own dashboard). Not "never": §15 keeps a *built-in* UI optional because the prototype at `nervis/` renders RAVIS's screens from Stage 3 onward and NERVIS serves them properly from Stage 6, so a third implementation inside RAVIS would be the redundant one. M22 and M24 likewise deferred. **M21 and M23 came off this row on 18 September 2026**, each built in the part the owner chose — the dry run, and the translated Responses surface. Listed so that no milestone is silently unassigned |
 
 ### M25 — why serverless splits in two
 

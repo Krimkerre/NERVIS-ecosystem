@@ -1,8 +1,9 @@
 """§12.3's live figures (M20): what RAVIS has running, and what providers say about limits.
 
-Tracking only — nothing here may change a route — so these tests read the figures and never
-a routing decision. The wire tests drive real requests through the real application with the
-upstream replaced, and read `/api/v1/health`'s `load`.
+These tests read the figures, and never a routing decision: what the figures do to a route is
+`test_strain_routing.py`, kept apart so that "what RAVIS saw" and "what RAVIS did about it" fail
+separately. The wire tests drive real requests through the real application with the upstream
+replaced, and read `/api/v1/health`'s `load`.
 """
 
 from __future__ import annotations

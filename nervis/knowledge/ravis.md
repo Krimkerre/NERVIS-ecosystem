@@ -450,9 +450,26 @@ Every routing decision is recorded rather than recomputed, because re-running a
 router later uses a different catalogue and can reach a different answer — an
 explanation you recompute is a guess about the past.
 
-**Recorded in memory, not on disk.** RAVIS keeps the most recent 200 decisions.
-An older one falls off the end, and a restart empties the list, so a decision
-made before the last restart can no longer be looked up.
+**Kept for thirty days, since RAVIS 0.30.0 (18 September 2026).** They used to
+be held in memory only — 200 of them — so a decision fell off the end after 200
+requests and a restart emptied the list. Now the whole explanation is written
+down: every candidate considered, every one excluded and why, and what the
+request itself needed. Old records are deleted after thirty days, or sooner if
+there are more than fifty thousand, so it cannot grow forever. The most recent
+200 are still kept in memory as well, so looking at the dashboard doesn't touch
+the database.
+
+**You can ask what RAVIS would choose today.** Any stored decision can be routed
+again against the models, prices and health of right now, and RAVIS says whether
+the answer would be different — useful after a price change, a model being
+withdrawn, or a pool being edited. It contacts no provider and costs nothing: it
+only decides. Two things it can't reproduce, and says so: which model the
+conversation was already on, and the occasional deliberate choice to try
+something unmeasured, both of which are facts about a live request.
+
+**No message is ever stored.** What is written down is identifiers and reasons —
+which capabilities the request needed, how much context it was estimated to take,
+what it capped its answer at — and never the text of anything anybody typed.
 
 ## Where provider credentials live
 
@@ -674,8 +691,20 @@ and a coding model loaded at once), how much slower each got to its first word a
 each condition (one after the other, taking turns, at the same time), the least memory left, when
 it was measured and SIRVIS's notes, with a warning when the measurement is older than RAVIS's
 30-day window or the two didn't fit together. Only pairs of models RAVIS can reach right now are
-shown, so with LM Studio off it says there are none. **None of this changes which model RAVIS picks**: they are
-readings, and routing on them is a decision the owner hasn't made.
+shown, so with LM Studio off it says there are none.
+
+**Since RAVIS 0.30.0 (18 September 2026) some of it changes which model RAVIS picks.** The owner
+decided: a provider that has just answered "too many requests" or "overloaded", or asked RAVIS to
+wait and the wait hasn't run out, or whose own answer says it has almost no allowance left, is
+ranked *below* an equally suitable model somewhere else. Nothing is ever refused for being busy —
+a busy provider is working, and dropping its models would empty pools only it can fill — and RAVIS
+still keeps no queue. The route explanation says when this moved anything, so a model you didn't
+expect on top comes with a sentence explaining why. Plain counts of what RAVIS has running change
+nothing, on purpose. For a hosted provider RAVIS isn't the only thing calling that account and
+doesn't know the ceiling. For a local runtime the wait is real — LM Studio does queue a second
+generation — but this preference sits above the pool's own, so treating a busy LM Studio as a reason
+to look elsewhere would send the next request to a paid provider. Spending money because your Mac is
+busy is your decision to make, not something routing should do quietly. Say the word if you want it.
 
 The **RAVIS health** card above it has two rows about RAVIS's **first provider only** (NERVIS 0.34.7):
 whether it answers and how many models it lists. With LM Studio first and switched off they read "not
@@ -860,6 +889,20 @@ stays correct under load: every request at up to 200 at once got its own answer.
 fallback chain, unlike chat. Built for NERVIS chat's own knowledge lookup
 rather than a general-purpose embeddings API; a machine with no local
 embedding model configured gets a stated refusal, not a guess.
+
+**The newer OpenAI shape is translated, not implemented (RAVIS 0.30.0).** A
+client that speaks `POST /v1/responses` works: the request is reshaped into the
+one RAVIS already routes and answered by the same path, so it obeys exactly the
+same policies, budget and privacy rules. What it carries across: the messages,
+standing instructions, tools and the calls a model makes, a required JSON shape,
+how hard to think, a cap on the answer's length, and the token counts back.
+Three things it **refuses with a message** instead of quietly ignoring —
+streaming (use `/v1/chat/completions`, which streams), continuing from an
+earlier response by id (RAVIS keeps no conversation on the server), and asking
+for the answer to be stored (RAVIS stores no answers). Tools the provider runs
+itself, such as web search, are refused too: RAVIS forwards requests, it doesn't
+run provider machinery. It's advertised as degraded because there's no
+conformance suite for that surface yet.
 
 ## The free pool
 

@@ -20,8 +20,9 @@ import pytest
 from fastapi.testclient import TestClient
 from tests.test_reliability import FakeClock
 
+from ravis.api.catalogue import UPSTREAM_PROVIDER
 from ravis.api.management.decisions import DecisionLog
-from ravis.api.openai.chat import UPSTREAM_PROVIDER, _Call, _relay
+from ravis.api.openai.chat import _Call, _relay
 from ravis.app import create_app
 from ravis.config import Settings
 from ravis.core.capabilities import Capability

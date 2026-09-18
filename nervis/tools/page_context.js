@@ -34,6 +34,29 @@
  * `tools/check_clean_clone.sh`'s gate loop — which does not stop the escape
  * but stops it from being able to act: no file written or deleted, no
  * `child_process` reachable, whatever a script inside obtains.
+ *
+ * **Decided on 18 September 2026: this keeps executing the page, contained.**
+ * The question had been open since the scan — parse `index.html` instead, or
+ * execute it and contain the process — and the owner chose to keep executing.
+ * The reasoning, recorded here so it is not reopened every time somebody reads
+ * the paragraph above:
+ *
+ * - The bugs these checks exist to catch happen *while a render function builds
+ *   its string*. Thirty-eight of the forty gates load the page this way for
+ *   that reason. Static parsing finds a screen that is missing; only running
+ *   the code finds a screen that throws.
+ * - The containment is real and is now on both paths. `tools/node_guard.sh`
+ *   applies one policy to the clean-clone check and to the commit hook alike
+ *   (18 September 2026, the base review's fifth finding): Node's permission
+ *   model with no filesystem write and no child process, plus the platform's
+ *   network denial. The escape still exists; it can do nothing with it.
+ * - What is left is hostile code in this repository's own dashboard file,
+ *   reached through a change its owner made or reviewed. That is a position
+ *   from which the checks are not the remaining line of defence.
+ *
+ * A real isolate (`isolated-vm`) would close the escape itself, and was not
+ * chosen: it is a native npm dependency in a repository that has almost none,
+ * bought against a threat that is already contained.
  */
 
 const fs = require("node:fs");

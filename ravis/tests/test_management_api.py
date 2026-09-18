@@ -284,13 +284,20 @@ def test_one_decision_can_be_fetched_by_id() -> None:
     assert fetched["decision_id"] == first["decision_id"]
 
 
-def test_an_aged_out_decision_says_so_rather_than_erroring_vaguely() -> None:
+def test_a_decision_that_is_not_there_says_how_long_they_are_kept() -> None:
+    """A 404 that is a fact about retention rather than about existence.
+
+    A running RAVIS keeps its decisions in a table now, so the honest answer to
+    an id nobody recognises is how long one would have lasted — not "it aged
+    out", which was true of the bounded log and would now send a reader looking
+    for a bound that no longer decides anything.
+    """
     client = _client()
     with client:
         response = client.get("/api/v1/route-decisions/doesnotexist")
 
     assert response.status_code == 404
-    assert "age out" in response.json()["error"]["message"]
+    assert "30 days" in response.json()["error"]["message"]
 
 
 def test_usage_reports_cost_as_unknown_rather_than_zero() -> None:

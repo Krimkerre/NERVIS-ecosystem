@@ -709,7 +709,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.35
+## NERVIS — 0.34.36
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+
+- **Knows about RAVIS 0.30.** The version window was closed at 0.29, so the new RAVIS would have
+  been reported as a peer NERVIS cannot vouch for. Chat's knowledge of RAVIS is current with it:
+  what routing now does with a busy provider, that route decisions are kept for thirty days and
+  can be routed again against today, and that `/v1/responses` works and what it refuses.
+- **The page checks keep running the dashboard's own code, on purpose.** The alternative — reading
+  it without running it — was an open question since a security scan; it is decided and the
+  reasoning is written where the question gets asked, at the top of `nervis/tools/page_context.js`.
+  Nothing about how the checks run changed.
+
+### 0.34.35
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.3+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 
@@ -2028,7 +2041,33 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.29.3
+## RAVIS — 0.30.0
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Adds:** `POST /v1/responses` and a route-decision replay
+
+Four decisions the owner took after the base review, built.
+
+- **Route decisions are kept for thirty days instead of until the next restart.** A link to a
+  decision used to stop working after two hundred requests, and a restart emptied the list. The
+  whole explanation is stored now — every candidate considered, every exclusion and its reason, and
+  what the request required — so a question about yesterday has an answer. There is a limit of
+  thirty days and fifty thousand records, whichever comes first, so it cannot grow forever.
+  **Upgrading applies migration 15**, which the launcher backs the database up before running.
+- **A busy provider is ranked lower.** RAVIS has been reading what providers say about their own
+  limits and doing nothing with it. Now a provider that refused a request in the last minute, or
+  that states it has almost no allowance left, loses its place to an equally suitable model
+  somewhere else. Nothing is ever refused because of this, nothing queues, and the route explanation
+  says when it happened. A local runtime that is already generating is **not** counted as busy, on
+  purpose: it would send the next request to a paid provider, and that is your decision to make.
+- **You can ask what RAVIS would choose today.** `GET /api/v1/route-decisions/{id}/replay` runs an
+  old decision again against the models, prices and health of right now, and says whether the answer
+  would be different. It contacts nobody and costs nothing.
+- **`POST /v1/responses` works**, for clients that speak OpenAI's newer shape. It is translated into
+  the path RAVIS already routes, so it obeys exactly the same policies. Streaming, server-stored
+  answers and provider-run tools such as web search are **refused with a message saying so** rather
+  than quietly ignored. Advertised as degraded, because it has no conformance suite of its own yet.
+
+### 0.29.3
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve`
 

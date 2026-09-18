@@ -5,10 +5,12 @@ and provider congestion, and provider quotas where possible. Until 16 September 
 pressure was known — sampled on a timer for routing — and nothing counted a request between the
 moment it was sent and the moment its stream closed.
 
-**Tracking, not steering.** §12.3 says what to watch and not what to do about it, and M20 names no
-exit that changes a route. So nothing here reaches the router: a figure that moved requests would
-be a routing decision nobody has made, and every client on the machine would feel it. The owner
-decides that separately, with these numbers in front of them.
+**Tracking until 18 September 2026, and a preference since.** §12.3 says what to watch and not
+what to do about it, so nothing here reached the router at first: a figure that moved requests
+would have been a routing decision nobody had made, and every client on the machine would have
+felt it. The base review put the consequence plainly — an existing load display is not a
+scheduler — and the owner made the decision: the queries below feed `strain.py`, which turns a
+provider's own statements into a ranking penalty. Still no queue, and still nothing excluded.
 
 **Unknown stays unknown.** RAVIS holds no queue of its own — it sends a request upstream as it
 arrives — so its queue depth is a fact, zero, and said as one. LM Studio and Ollama publish no
@@ -59,6 +61,22 @@ def read_limits(headers: Mapping[str, str]) -> dict[str, dict[str, str]]:
             continue
         found.setdefault(kind, {})[part] = value.strip()
     return found
+
+
+def _numeric(value: str | None) -> float | None:
+    """A header's value as a number, or None when it is not one.
+
+    Rate-limit headers carry counts, but also durations like `6m0s` and, from
+    some services, nothing at all. A value that is not a plain number is an
+    unknown rather than a zero — reading `6m0s` as 6 would report a provider as
+    nearly spent every time it stated a reset.
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -147,6 +165,57 @@ class LoadTracker:
     @property
     def active(self) -> int:
         return sum(self._running.values())
+
+    def retrying_after(self, within_seconds: float) -> frozenset[str]:
+        """Providers that asked to be left alone, and whose wait has not run out.
+
+        `retry-after` is a provider saying how long to wait in its own words, so
+        the wait is read from the header rather than assumed: a header naming
+        seconds is honoured for that many, and one naming an HTTP date — which
+        this tracker keeps verbatim — falls back to `within_seconds`, because a
+        request sent during a stated wait is one the provider has already said
+        it will refuse.
+        """
+        now = self._clock()
+        asked = set()
+        for name, known in self._providers.items():
+            if not known.retry_after or known.retry_after_at is None:
+                continue
+            stated = known.retry_after.strip()
+            wait = float(stated) if stated.isdigit() else within_seconds
+            if now - known.retry_after_at < wait:
+                asked.add(name)
+        return frozenset(asked)
+
+    def nearly_spent(self, share: float, within_seconds: float) -> frozenset[str]:
+        """Providers whose own last statement left them little headroom.
+
+        A provider's `x-ratelimit-remaining-*` is the only non-invented measure
+        of how close it is to refusing: RAVIS knows how many calls *it* has in
+        flight, but not what else the same key is carrying, and not what the
+        limit is unless the provider says. So this reads what was said, and says
+        nothing about a provider that has said nothing.
+
+        A stale statement is no statement. A remaining count from ten minutes
+        ago describes a window that has since reset, and treating it as current
+        would route around a limit that no longer exists.
+        """
+        now = self._clock()
+        spent = set()
+        for name, known in self._providers.items():
+            for limit in known.limits.values():
+                if now - limit.seen_at >= within_seconds:
+                    continue
+                left = _numeric(limit.values.get("remaining"))
+                ceiling = _numeric(limit.values.get("limit"))
+                # A ceiling of zero is not a ceiling: it would make every
+                # remaining count "nearly spent" by arithmetic rather than by
+                # anything the provider said.
+                if left is None or not ceiling:
+                    continue
+                if left <= ceiling * share:
+                    spent.add(name)
+        return frozenset(spent)
 
     def snapshot(self) -> dict[str, Any]:
         """What is running, and what providers last said, for `/api/v1/health`."""

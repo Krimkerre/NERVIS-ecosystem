@@ -49,6 +49,7 @@ from pydantic import BaseModel
 from ravis.api.management import audit
 from ravis.api.management.credentials import _may_write, _refused
 from ravis.api.management.decisions import DecisionLog
+from ravis.api.management.replay import replay
 from ravis.core.capabilities import Capability
 from ravis.core.pools import DEFAULT_POOLS, POOL_PREFIX, POOLS_BY_ID, size_tier
 from ravis.cost import (
@@ -1099,7 +1100,7 @@ async def read_evidence(request: Request) -> dict[str, Any]:
 
 @router.get("/route-decisions")
 async def read_route_decisions(
-    request: Request, limit: int = Query(default=50, ge=1, le=200)
+    request: Request, limit: int = Query(default=50, ge=1, le=2000)
 ) -> dict[str, Any]:
     """Recent routing decisions, newest first.
 
@@ -1108,6 +1109,10 @@ async def read_route_decisions(
     is how an integration gets debugged, and it has to be *recorded* rather than
     recomputed: re-running the router would use today's catalogue and residency
     and could reach a different answer than the one being asked about.
+
+    The ceiling was the in-memory bound while that was all there was. Decisions
+    are kept on disk now, so asking for more than memory holds is answered from
+    the table rather than silently truncated at what happened to be resident.
     """
     log: DecisionLog = request.app.state.decision_log
     return _listing([entry.as_dict() for entry in log.recent(limit)])
@@ -1115,16 +1120,54 @@ async def read_route_decisions(
 
 @router.get("/route-decisions/{decision_id}")
 async def read_route_decision(request: Request, decision_id: str) -> dict[str, Any]:
-    """One decision by ID, or a 404 that says it aged out."""
+    """One decision by ID, or a 404 that says why it is not there.
+
+    Two wordings because there are two reasons, and a reader acts on them
+    differently: a decision deleted at the end of its retention window is gone
+    for good, while one that fell out of a log with nothing behind it was never
+    written down — which is what a RAVIS running without a database does.
+    """
+    log: DecisionLog = request.app.state.decision_log
+    entry = log.find(decision_id)
+    if entry is None:
+        kept = (
+            f"decisions are kept for {round(log.retention_seconds / 86400)} days "
+            "and are then deleted"
+            if log.database is not None
+            else "decisions are kept in memory and age out"
+        )
+        raise NotFoundError(
+            f"decision {decision_id} is not in the decision log; {kept}",
+            decision_id=decision_id,
+        )
+    return entry.as_dict()
+
+
+@router.get("/route-decisions/{decision_id}/replay")
+async def replay_route_decision(request: Request, decision_id: str) -> dict[str, Any]:
+    """Route a stored decision again against today, without calling anybody.
+
+    **A GET, and it was a POST for an afternoon.** POST is the usual verb for
+    "run this", and it was the wrong one here: this file's own guard —
+    `test_every_write_this_surface_serves_is_one_it_declares` — reads the verbs
+    off the published OpenAPI document and treats every POST under `/api/v1/` as
+    a mutation that must be declared and authorized. It caught this, which is
+    exactly what it exists for, and the answer was not to declare a write. This
+    writes nothing, contacts no provider and generates no answer: it reads every
+    upstream's catalogue, as the pools read beside it does, and decides. Asking
+    twice gives the same answer for the same world, which is what a GET promises.
+
+    See `replay.py` for what is and is not reproduced.
+    """
     log: DecisionLog = request.app.state.decision_log
     entry = log.find(decision_id)
     if entry is None:
         raise NotFoundError(
-            f"decision {decision_id} is not in the recent-decision log; "
-            "decisions are kept in memory and age out",
+            f"decision {decision_id} is not in the decision log, so there is "
+            "nothing to route again",
             decision_id=decision_id,
         )
-    return entry.as_dict()
+    return await replay(request, entry)
 
 
 @router.get("/usage")

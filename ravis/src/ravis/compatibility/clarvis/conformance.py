@@ -28,7 +28,8 @@ from typing import Any, Iterator
 
 import httpx
 
-from ravis.api.openai.chat import UPSTREAM_PROVIDER, _Call, _relay
+from ravis.api.catalogue import UPSTREAM_PROVIDER
+from ravis.api.openai.chat import _Call, _relay
 from ravis.app import create_app
 from ravis.compatibility.clarvis import fixtures
 from ravis.compatibility.clarvis.contract import ReadStream, read_stream

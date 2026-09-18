@@ -560,6 +560,25 @@ class HealthRegistry:
             })
         return rows
 
+    def congested_within(self, seconds: float) -> frozenset[str]:
+        """Providers that answered with a rate limit or an overload just now.
+
+        The routing half of `congestion`, which reports the same fact for a
+        screen. A window rather than a flag, because congestion lifts by itself
+        and a provider that was busy an hour ago is not busy — while one that
+        said "too fast" ten seconds ago will almost certainly say it again, and
+        an attempt sent meanwhile buys a round trip and a refusal.
+
+        Distinct from an open circuit, which *excludes* a target: a provider can
+        be congested and perfectly healthy, and §10 is explicit that the answer
+        to congestion is to route elsewhere by preference rather than to declare
+        the provider unavailable.
+        """
+        now = self.clock()
+        return frozenset(
+            provider for provider, (_, at) in self._congested.items() if now - at < seconds
+        )
+
     def learn_refused(self, model: str, names: frozenset[str]) -> None:
         """Remember that `model` refused these settings, for the suppression window.
 
