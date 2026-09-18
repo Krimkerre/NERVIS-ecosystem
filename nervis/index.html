@@ -7162,7 +7162,7 @@ async function eventsView(){
    <div class="table-row head" style="grid-template-columns:.8fr .9fr 1fr 2.2fr"><span>Service</span><span>Capability</span><span>State</span><span>Why</span></div>
    ${row('RAVIS',rv)}
    ${row('SIRVIS',sv)}
-   <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. The hub exists and ingests, and <b>RAVIS publishes since its M18b</b> — a routed request emits a selection and a completion under the caller's trace_id, which is what gives RAVIS a lane on the Traces screen rather than a note saying it has none. <b>SIRVIS lands at its M21</b>, so a benchmark still shows no lane. Whether RAVIS actually publishes depends on it being configured with a hub to reach; the table above reads that from each service rather than assuming it.</small>`,'nervis')}</div>
+   <small class="mono dim">read live from each service's own <b>/ecosystem/capabilities</b>. The hub exists and ingests, and <b>RAVIS publishes since its M18b</b> — a routed request emits a selection and a completion under the caller's trace_id, which is what gives RAVIS a lane on the Traces screen rather than a note saying it has none. <b>SIRVIS publishes since its M21</b>, so a benchmark has a lane too. Whether RAVIS actually publishes depends on it being configured with a hub to reach; the table above reads that from each service rather than assuming it.</small>`,'nervis')}</div>
 
   <div class="card wide${liveClass(quarantineLive)}"><h3>Quarantine <span class="chip${warnIf(quarantine.items.length)}">${escapeHtml(quarantine.items.length)}</span></h3>${cell(`
    ${quarantine.items.length?`<div class="table-row head"><span>Reason</span><span style="grid-column:2/-1">Detail</span></div>
@@ -8667,15 +8667,6 @@ function latestDecisionCard(latest){
 `;
 }
 
-/* Its own card, because it is its own claim: what is above is RAVIS's decision
-   record, not a distributed trace. */
-function crossServiceCard(){
- return `<div class="card narrow"><h3>Cross-service spans <span class="chip warn">unavailable</span></h3>${cell(`
-   <div class="trace-step"><b>RAVIS events</b><span class="mono">M18b · Stage 7</span></div>
-   <div class="trace-step"><b>SIRVIS events</b><span class="mono">M21 · Stage 7</span></div>
-   <div class="trace-step"><b>span timeline</b><span>not drawn</span></div>
-   <small class="mono dim">what is above is <b>RAVIS's own decision record</b>, not a distributed trace. A timeline correlating Clarvis, RAVIS, SIRVIS and the runtime needs event publication, which both services currently declare <b>unavailable</b> on their own capability surface. Drawing a timeline from one service's record would invent the other three rows.</small>`,'ravis')}</div>`;
-}
 
 
 /* ── M17: what else was going on, around one trace ───────────────────────────
@@ -8779,7 +8770,7 @@ async function tracesView(){
  if(!items.length){
   $('#content').innerHTML=waterfall+`<div class="card full${escapeHtml(liveClass(SOURCE.ravis==='live'))}"><h3>Nothing has routed yet</h3>${cell(`
    <div class="trace-step"><b>decisions recorded</b><span>0</span></div>
-   <small class="mono dim">RAVIS records a decision per request and keeps them in memory — §17's storage model does not list them, and a breaker that survived a restart would be worse than one that did not. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`;
+   <small class="mono dim">RAVIS records a decision per request and keeps each one for thirty days, so a restart doesn't empty this. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`;
   return;}
 
  const routed=items.filter(d=>d.selected).length;
@@ -8788,11 +8779,11 @@ async function tracesView(){
       through the peer surface, and this screen has already returned if that
       read produced nothing — so all four of these are arithmetic over a live
       answer and all four asserted `false`. */
-   ['Decisions',String(items.length),'kept in memory, not persisted','ravis',SOURCE.ravis==='live'],
+   ['Decisions',String(items.length),'the newest; each kept 30 days','ravis',SOURCE.ravis==='live'],
    ['Routed',`${routed} / ${items.length}`,'no-route is an outcome, not a failure','ravis',SOURCE.ravis==='live'],
    ['Pools',String(new Set(items.map(d=>dash(d.pool))).size),'distinct pools addressed','ravis',SOURCE.ravis==='live'],
    ['Paths',String(new Set(items.map(d=>d.execution_path)).size),'transparent vs translated','ravis',SOURCE.ravis==='live']])
- +decisionsCard(items,items[0])+latestDecisionCard(items[0])+crossServiceCard();
+ +decisionsCard(items,items[0])+latestDecisionCard(items[0]);
 }
 
 /* ── SETTINGS ──────────────────────────────────────────────────────────────
@@ -10169,7 +10160,7 @@ async function sirvisDiscover(){
  const order=(DISCOVER_SORTS.find(s=>s[0]===DISCOVER.sort)||DISCOVER_SORTS[0])[1];
  const options=DISCOVER_SORTS.map(([val,label])=>`<option value="${escapeHtml(val)}"${DISCOVER.sort===val?' selected':''}>${escapeHtml(label)}</option>`).join('');
  $('#content').innerHTML=discoverKpis(res,live,order)
- +`<div class="card full live"><h3>Search</h3>${cell(`
+ +`<div class="card full${live?' live':''}"><h3>Search</h3>${cell(`
    <div class="profile-row"><input id="discoverQ" value="${escapeHtml(DISCOVER.q)}" placeholder="A model family: qwen3, gemma, llama…" style="flex:1;min-width:220px" onkeydown="if(event.key==='Enter')discoverSearch('search')">
     <button class="btn primary" onclick="discoverSearch('search')">Search</button>
     <button class="btn" onclick="discoverSearch('top')">Top 10</button></div>
@@ -11597,7 +11588,7 @@ function liveRavisDashboard(decisions, usage, codex, sites, providers){
      +recentDecisionsCard(decisions.slice(0,8))
    : `<div class="card full live"><h3>Nothing has routed yet</h3>${cell(`
    <div class="trace-step"><b>decisions recorded</b><span>0</span></div>
-   <small class="mono dim">RAVIS records a decision per request and keeps them in memory — §17's storage model does not list them, and a breaker that survived a restart would be worse than one that did not. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`);
+   <small class="mono dim">RAVIS records a decision per request and keeps each one for thirty days, so a restart doesn't empty this. Send a request through <span class="mono">/v1/chat/completions</span> and this fills in.</small>`,'ravis')}</div>`);
  CODEX_CARD.land();
 }
 
@@ -12692,7 +12683,7 @@ async function ravisEvidence(){
    <div class="trace-step"><b>hard constraints</b><span>still enforced</span></div>
    <div class="trace-step"><b>degradation</b><span>${usable('sirvis')?'none':'labelled on every affected route'}</span></div>
    <div class="trace-step"><b>scores</b><span>never fabricated</span></div>
-   <small class="mono dim">${usable('sirvis')?'SIRVIS is answering, so local candidates rank on measured evidence. Cycle it off on the SIMULATE strip: routing continues on provider metadata and RAVIS’s own observations, the table above goes absent rather than stale, and the constraints do not move.':'SIRVIS is '+SERVICES.sirvis.state+'. Routing continues — the ranking now rests on provider metadata and RAVIS’s own production observations, and says so. What it does not do is keep serving the last measured scores as though they were current.'}</small>`)}`,'sirvis')}</div>
+   <small class="mono dim">${usable('sirvis')?'SIRVIS is answering, so local candidates rank on measured evidence. If it stops answering, routing continues on provider metadata and RAVIS’s own observations, the table above goes absent rather than stale, and the constraints do not move.':'SIRVIS is '+SERVICES.sirvis.state+'. Routing continues — the ranking now rests on provider metadata and RAVIS’s own production observations, and says so. What it does not do is keep serving the last measured scores as though they were current.'}</small>`)}`,'sirvis')}</div>
   ${obs.live?`<div class="card full live"><h3>What RAVIS has timed itself <span class="chip">OBSERVED_BY_RAVIS</span></h3>${cell(`
    ${obs.items.length?`<div class="table-row head five"><span>Model</span><span>Median TTFT</span><span>Median latency</span><span>Samples</span><span>Rankable</span></div>
    ${[...obs.items].sort((a,b)=>b.samples-a.samples).map(o=>`<div class="table-row five">

@@ -709,7 +709,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.39
+## NERVIS — 0.34.40
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL
+
+- **Traces no longer contradicts itself.** Under the timeline of a request across services, a card
+  still said that timeline couldn't be drawn because the services didn't publish events — true
+  once, false since they do. The card is gone. The same screen said routing decisions are kept in
+  memory only; since RAVIS 0.30.0 each is kept thirty days, and it now says so.
+- **SIRVIS's search is marked live only once it has read something**, and its routing note no
+  longer points at a SIMULATE strip the dashboard hasn't had for a while. The events screen now
+  says SIRVIS publishes, as it has since its M21.
+
+### 0.34.39
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL
