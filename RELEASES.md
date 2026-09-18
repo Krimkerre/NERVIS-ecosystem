@@ -756,7 +756,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.46
+## NERVIS — 0.34.47
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **The System screen says "not reported", never "null".** A reading SIRVIS couldn't take was
+  pasted into the text as it was. It also shows the GPU by name where there's no core count to
+  show, and NERVIS's own temperature reading now works on Linux too. NERVIS chat's summary of
+  the machine names the GPU the same way.
+
+### 0.34.46
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
@@ -3266,7 +3276,19 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.5
+## SIRVIS — 0.19.6
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
+
+- **Linux machines are described properly.** Free memory, swap, the temperature state and the
+  GPU were read only the macOS way, so on Linux — bare metal included, not just a VM — all of
+  them came out unknown. Memory and swap now come from the kernel's own figures; the
+  temperature state from its thermal sensors, judged against each sensor's own warning
+  thresholds (a machine without any, like most VMs, stays "not reported" rather than guessed);
+  and the GPU by name and memory, with a VM's display adapter said to be virtual. A Mac reads
+  exactly as before, and its GPU is now also named by its chip.
+
+### 0.19.5
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve`
 

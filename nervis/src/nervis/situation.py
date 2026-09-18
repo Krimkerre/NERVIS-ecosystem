@@ -679,10 +679,12 @@ def machine_lines(machine: Mapping[str, Any]) -> list[str]:
     total = _gigabytes(machine.get("unified_memory_bytes"))
     free = _gigabytes(machine.get("memory_available_bytes"))
     lines = [
-        f"this machine: {clip(str(machine.get('chip') or machine.get('platform_name') or '?'))}"
-        f", {clip(str(machine.get('cpu_cores') or '?'))} CPU core(s)"
-        f", {clip(str(machine.get('gpu_cores') or '?'))} GPU core(s)"
-        f", {clip(str(machine.get('os_description') or ''))}".rstrip(", ")
+        (
+            f"this machine: {clip(str(machine.get('chip') or machine.get('platform_name') or '?'))}"
+            f", {clip(str(machine.get('cpu_cores') or '?'))} CPU core(s)"
+            + _gpu_words(machine)
+            + f", {clip(str(machine.get('os_description') or ''))}"
+        ).rstrip(", ")
     ]
     if total and free:
         share = round(free / total * 100)
@@ -703,6 +705,16 @@ def machine_lines(machine: Mapping[str, Any]) -> list[str]:
     if disk:
         lines.append(f"  disk free: {disk} GB")
     return lines
+
+
+def _gpu_words(machine: Mapping[str, Any]) -> str:
+    """", 10 GPU core(s)" on Apple Silicon; the GPU by name elsewhere, where Linux states no
+    core count (SIRVIS 0.19.6); "?" when neither was read."""
+    if machine.get("gpu_cores"):
+        return f", {clip(str(machine['gpu_cores']))} GPU core(s)"
+    if machine.get("gpu_name"):
+        return f", GPU: {clip(str(machine['gpu_name']))}"
+    return ", ? GPU core(s)"
 
 
 def spend_lines(usage: Mapping[str, Any]) -> list[str]:

@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4454 tests, no network, no live service
+.venv/bin/pytest                      # part of 4469 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -40,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 539 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1785 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 552 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1787 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4454 passing across the four, conformance `PASS`.
+Expected: all clean, 4469 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,30 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Linux machines described properly — 2026-09-19 (SIRVIS 0.19.6, NERVIS 0.34.47)
+
+The owner, in the Ubuntu VM: System's Memory and GPU tiles said "null" and Thermal stayed empty;
+was that the VM? **Mostly not — the same would have shown on bare-metal Linux.** SIRVIS read free
+memory with `vm_stat`, swap and total with `sysctl`, the GPU with `ioreg` and the thermal state
+through `NSProcessInfo`, all macOS-only; NERVIS's own thermal reading too. And the page pasted a
+missing value straight into its text. Now: `/proc/meminfo` for available memory, total and swap
+(`memory.meminfo`); the kernel's thermal zones judged against each zone's own trip points —
+critical past a critical trip, serious past hot or passive, fair within 10 °C of passive, a zone
+without trips skipped, nothing to judge `None` (`linux_thermal_state`, in `sirvis/src/sirvis/telemetry/thermal.py`
+and, as a second copy for the protocol package's reason, `nervis/src/nervis/telemetry.py`); the GPU by name
+and memory from `nvidia-smi`, else `/sys/class/drm` (amdgpu states its VRAM), with a virtual
+adapter (virtio_gpu, vmwgfx, qxl…) named as one (`_linux_gpu`, new `gpu_name`/`gpu_memory_bytes`
+snapshot fields; a Mac's GPU is named by its chip). SIRVIS's benchmark validity reads the same
+thermal state, so Linux runs are judged too. The page shows "not reported" and the GPU by name.
+The machine id is a stored random value, not derived from the fields, so the Mac's history is
+unaffected.
+
+13 SIRVIS tests and 2 NERVIS tests against trees shaped like the kernel's files; on Linux, three
+older memory tests were reading the container's real `/proc/meminfo` ahead of their recorded
+`vm_stat` and now stand in for a Mac fully. SIRVIS 552 and NERVIS 1,787 pass on the Mac and on
+Linux; every dashboard gate passes (`systemView` split into `machineCard` and `conditionsCard`
+for the complexity ratchet).
 
 ## Screens update in place — 2026-09-19 (NERVIS 0.34.46)
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import platform
 import subprocess
+from pathlib import Path
 
 # Apple's `NSProcessInfoThermalState`. Named here rather than passed around as
 # integers because these end up in stored evidence, where `2` means nothing to
@@ -50,12 +51,80 @@ def read_thermal_pressure() -> str | None:
     validity, so "we could not tell" has to stay distinguishable from "it was
     fine".
     """
+    if platform.system() == "Linux":
+        return linux_thermal_state()
     if platform.system() != "Darwin":
         return None
     output = _run(["osascript", "-l", "JavaScript", "-e", _READ_THERMAL_STATE])
     if output is None:
         return None
     return THERMAL_STATES.get(output.strip())
+
+
+# Linux's thermal zones (added 19 September 2026: on Linux this module said nothing at all,
+# bare metal included, and the owner saw an empty Thermal card in the Ubuntu VM).
+LINUX_THERMAL = Path("/sys/class/thermal")
+# Within this much of the throttling point, "fair": warm enough to be worth saying before the
+# kernel starts slowing the CPU down.
+FAIR_MARGIN_MILLIDEGREES = 10_000
+_ORDER = ("nominal", "fair", "serious", "critical")
+
+
+def linux_thermal_state(root: Path = LINUX_THERMAL) -> str | None:
+    """The kernel's thermal zones, each judged against its own trip points; the worst wins.
+
+    Linux publishes temperatures (`thermal_zoneN/temp`, millidegrees) and, per zone, the
+    temperatures at which it acts (`trip_point_N_type` / `_temp`). Reading a temperature
+    against the machine's *own* thresholds says what `NSProcessInfo.thermalState` says on a
+    Mac — whether results are being taken under duress — without inventing a limit:
+    - at or past a `critical` trip: `critical` (the kernel is about to shut down);
+    - at or past `hot` or `passive`: `serious` (passive cooling is the CPU being slowed);
+    - within 10 °C of `passive`: `fair`;
+    - otherwise `nominal`.
+    A zone with no trip points can't be judged and is skipped; a machine with none to judge —
+    most VMs — is `None`, "not reported", never a comfortable guess.
+
+    **The second copy**, beside `nervis/src/nervis/telemetry.py`'s. Kept apart for the reason
+    the macOS reader is: the protocol package is the wire contract, not a host library.
+    """
+    worst: str | None = None
+    for zone in sorted(root.glob("thermal_zone*")):
+        state = _zone_state(zone)
+        if state is not None and (worst is None or _ORDER.index(state) > _ORDER.index(worst)):
+            worst = state
+    return worst
+
+
+def _zone_state(zone: Path) -> str | None:
+    try:
+        temperature = int((zone / "temp").read_text().strip())
+    except (OSError, ValueError):
+        return None
+    trips = _trips(zone)
+    if not trips:
+        return None
+    if "critical" in trips and temperature >= trips["critical"]:
+        return "critical"
+    if any(kind in trips and temperature >= trips[kind] for kind in ("hot", "passive")):
+        return "serious"
+    if "passive" in trips and temperature >= trips["passive"] - FAIR_MARGIN_MILLIDEGREES:
+        return "fair"
+    return "nominal"
+
+
+def _trips(zone: Path) -> dict[str, int]:
+    """A zone's trip points by kind (`passive`, `hot`, `critical`…), the lowest of each."""
+    trips: dict[str, int] = {}
+    for kind_file in zone.glob("trip_point_*_type"):
+        try:
+            kind = kind_file.read_text().strip()
+            limit = int(kind_file.with_name(kind_file.name[: -len("type")] + "temp")
+                        .read_text().strip())
+        except (OSError, ValueError):
+            continue
+        if limit > 0:
+            trips[kind] = min(limit, trips.get(kind, limit))
+    return trips
 
 
 def is_compromised(state: str | None) -> bool:

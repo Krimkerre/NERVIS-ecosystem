@@ -2736,6 +2736,9 @@ const API={
     chip:p.chip,
     cpu_cores:p.cpu_cores,cpu_performance_cores:p.performance_cores,
     cpu_efficiency_cores:p.efficiency_cores,gpu_cores:p.gpu_cores,
+    /* What the GPU is, and its own memory (SIRVIS 0.19.6): Linux states no core count, so
+       there the GPU is named instead; a Mac's is named by its chip. */
+    gpu_name:p.gpu_name,gpu_memory_gb:gb(p.gpu_memory_bytes),
     memory_gb:gb(p.unified_memory_bytes),
     available_gb:gb(p.memory_available_bytes),
     swap_gb:gb(p.swap_used_bytes),
@@ -10035,9 +10038,9 @@ async function sirvisModels(){
    <small class="mono dim">this chain is the key every benchmark result is filed under. Collapse any link of it and you get <b>model → score</b>, which is the one shape SIRVIS is not allowed to publish.</small>`)}
    ${explains('what a build costs in memory',`
    <div class="trace-step"><b>resident</b><span>${escapeHtml(resident.toFixed(1))} GB</span></div>
-   <div class="bar"><i style="--w:${escapeHtml(Math.round(resident/mc.memory_gb*100))}%"></i></div>
-   <div class="trace-step"><b>available</b><span>${escapeHtml(mc.available_gb)} GB</span></div>
-   <div class="trace-step"><b>swap</b><span>${escapeHtml(mc.swap_gb)} GB</span></div>
+   <div class="bar"><i style="--w:${escapeHtml(mc.memory_gb?Math.round(resident/mc.memory_gb*100):0)}%"></i></div>
+   <div class="trace-step"><b>available</b><span>${escapeHtml(gbOr(mc.available_gb))}</span></div>
+   <div class="trace-step"><b>swap</b><span>${escapeHtml(gbOr(mc.swap_gb))}</span></div>
    <small class="mono dim">${mc.system_baseline_gb==null?'<b>the at-rest baseline is not detected.</b> It is this machine with an or':`the ${escapeHtml(mc.system_baseline_gb)} GB baseline is this machine with an or`}dinary working set open — editor, browser, LM Studio — before any model loaded, so the usable budget is ${mc.model_budget_gb==null?'<b>not detected</b> — the at-rest figure was measured by hand and nothing computes it, so this page will not guess at it':`about ${escapeHtml(mc.model_budget_gb)} GB rather than ${escapeHtml(mc.memory_gb)}`}. Whether two builds fit together is still a measurement and not this subtraction — see Runtime sets.</small>`)}`,'sirvis')}</div>
   
   `}
@@ -10837,15 +10840,31 @@ async function sirvisDownloads(){
 const gib=b=>b==null?null:+(b/1073741824).toFixed(1);
 const orDash=v=>v==null?'<span class="mono dim">—</span>':v;
 
+/* A reading SIRVIS didn't take, said as that. These tiles glued a missing value into their
+   text, so a Linux machine — whose memory, GPU and thermal state SIRVIS read only the macOS way
+   until 0.19.6 — showed "null GB" and "null". */
+const gbOr=v=>v==null?'not reported':`${v} GB`;
+function memoryInUse(m){return m.memory_gb==null||m.available_gb==null?null:m.memory_gb-m.available_gb}
+
+/* The GPU tile: cores where the machine counts them (Apple Silicon), else the GPU by name, and
+   a virtual adapter said plainly — a VM's display device runs no model. */
+function gpuTile(m){
+ if(m.gpu_cores!=null)return['GPU',String(m.gpu_cores),`cores · ${m.cpu_cores??'—'} CPU`,'sirvis'];
+ if(m.gpu_name&&/^virtual/.test(m.gpu_name))return['GPU','virtual',`${m.gpu_name.replace(/^virtual /,'')}: no GPU to run a model on`,'sirvis'];
+ if(m.gpu_name)return['GPU',m.gpu_memory_gb==null?'found':`${m.gpu_memory_gb} GB`,m.gpu_name,'sirvis'];
+ return['GPU','not reported',`${m.cpu_cores??'—'} CPU`,'sirvis'];
+}
+
 async function systemView(){
  heading('System','What this machine is — as SIRVIS pinned it to every result — and what it is doing right now.');
  const [m,now]=await Promise.all([API.sirvis.machine(),API.nervis.system()]);
- const usedPct=Math.round((m.memory_gb-m.available_gb)/m.memory_gb*100);
+ const inUse=memoryInUse(m);
+ const usedPct=inUse==null?0:Math.round(inUse/m.memory_gb*100);
  $('#content').innerHTML=kpis([
-   ['Memory',m.available_gb+' GB',`free of ${m.memory_gb} · ${m.swap_gb} GB swap`,'sirvis'],
-   ['Thermal',m.thermal_state,safe(stamp(SERVICES.sirvis.age)),'sirvis'],
-   ['GPU',String(m.gpu_cores),`cores · ${m.cpu_cores} CPU`,'sirvis'],
-   ['Disk',m.disk_free_gb+' GB','free for model artifacts','sirvis']])
+   ['Memory',gbOr(m.available_gb),`free of ${gbOr(m.memory_gb)} · ${gbOr(m.swap_gb)} swap`,'sirvis'],
+   ['Thermal',m.thermal_state||'not reported',safe(stamp(SERVICES.sirvis.age)),'sirvis'],
+   gpuTile(m),
+   ['Disk',gbOr(m.disk_free_gb),'free for model artifacts','sirvis']])
  /* Four cards, two services, and they go down separately: `now` is NERVIS's
     sample of this machine, `m` is the identity SIRVIS pins to every result.
     All four hardcoded ` live`, so from disk the mock machine — a fictional
@@ -10861,22 +10880,33 @@ async function systemView(){
    ${(now.processes||[]).length?now.processes.map(p=>`<div class="table-row"><span class="mono">${p.command} <small style="opacity:.45">${p.pid}</small></span><span class="mono" style="grid-column:2/-1">${(p.memory_bytes/1073741824).toFixed(2)} GB</span></div>`).join('')
     :'<div class="table-row"><span class="mono dim" style="grid-column:1/-1">no process was readable</span></div>'}
    <small class="mono dim">read from <b>NERVIS /api/v1/system</b>, sampled at the moment of the request rather than by a background timer — a value from a timer is whatever the timer last caught, not the state when you looked. Ordered by <b>memory</b> rather than CPU: this ecosystem's failure mode is a multi-gigabyte model resident when something else needs the room. A command name, never a command line — an argument list is where a workspace path leaks. <b>Thermal is macOS-only</b> and reads <i>not reported</i> elsewhere rather than a comfortable-looking <i>nominal</i>: SIRVIS's first probe collapsed those two and reported a happy machine while it lost 48% of its throughput to heat.</small>`,'nervis')}</div>
-  <div class="card wide${escapeHtml(liveClass(m.live))}"><h3>Machine ${escapeHtml(m.machine_id)}</h3>${cell(`
-   <div class="table-row head five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>Hostname</span><span>Model</span><span>Chip</span><span>Cores</span><span>OS</span></div>
-   <div class="table-row five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>${orUnknown(m.hostname)}${(m.sensitive_fields||[]).includes('hostname')?' <span class="chip warn" title="§5.1: a hostname is often a person&#39;s name. Labelled so anything forwarding this snapshot knows to drop it.">personal</span>':''}</span><span class="mono">${orUnknown(m.model)}</span><span>${escapeHtml(m.chip)}</span><span class="mono">${escapeHtml(m.cpu_cores)} CPU · ${escapeHtml(m.gpu_cores)} GPU</span><span class="mono">${escapeHtml(m.macos)}</span></div>
-   <div class="trace-step" style="margin-top:11px"><b>memory in use</b><span>${escapeHtml((m.memory_gb-m.available_gb).toFixed(1))} of ${escapeHtml(m.memory_gb)} GB</span></div>
-   <div class="bar"><i style="--w:${usedPct}%"></i></div>
-   <small class="mono dim">this identity is part of every evidence record. A result carried to another machine — a different chip, a different macOS, a different thermal state — is a fact about the machine it was measured on, and SIRVIS keeps it labelled that way rather than averaging across hardware.</small>`,'sirvis')}</div>
+  `+machineCard(m,inUse,usedPct)+`
   <div class="card narrow${escapeHtml(liveClass(m.live))}"><h3>Runtimes</h3>${cell(`
    <div class="table-row head"><span>Runtime</span><span style="grid-column:2/-1">Version</span></div>
    ${m.runtimes.map(r=>`<div class="table-row"><span>${escapeHtml(r.name)}</span><span class="mono" style="grid-column:2/-1">${escapeHtml(r.version)}</span></div>`).join('')}
    <small class="mono dim">runtime versions are pinned too. An LM Studio or MLX upgrade is exactly the event that moves throughput without anything else changing, and comparing across one without saying so produces a regression nobody can locate.</small>`,'sirvis')}</div>
-  <div class="card full${escapeHtml(liveClass(m.live))}"><h3>Conditions</h3>${cell(`
+  `+conditionsCard(m)+``}
+
+
+/* The machine SIRVIS pinned to every result: its identity, and memory in use. */
+function machineCard(m,inUse,usedPct){
+ return `<div class="card wide${escapeHtml(liveClass(m.live))}"><h3>Machine ${escapeHtml(m.machine_id)}</h3>${cell(`
+   <div class="table-row head five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>Hostname</span><span>Model</span><span>Chip</span><span>Cores</span><span>OS</span></div>
+   <div class="table-row five" style="grid-template-columns:1fr .62fr .78fr 1.05fr .55fr"><span>${orUnknown(m.hostname)}${(m.sensitive_fields||[]).includes('hostname')?' <span class="chip warn" title="§5.1: a hostname is often a person&#39;s name. Labelled so anything forwarding this snapshot knows to drop it.">personal</span>':''}</span><span class="mono">${orUnknown(m.model)}</span><span>${escapeHtml(m.chip)}</span><span class="mono">${escapeHtml(m.cpu_cores??'—')} CPU · ${escapeHtml(m.gpu_cores!=null?m.gpu_cores+' GPU':(m.gpu_name||'GPU not reported'))}</span><span class="mono">${escapeHtml(m.macos)}</span></div>
+   <div class="trace-step" style="margin-top:11px"><b>memory in use</b><span>${inUse==null?'not reported':`${escapeHtml(inUse.toFixed(1))} of ${escapeHtml(m.memory_gb)} GB`}</span></div>
+   <div class="bar"><i style="--w:${usedPct}%"></i></div>
+   <small class="mono dim">this identity is part of every evidence record. A result carried to another machine — a different chip, a different macOS, a different thermal state — is a fact about the machine it was measured on, and SIRVIS keeps it labelled that way rather than averaging across hardware.</small>`,'sirvis')}</div>`;
+}
+
+/* The three conditions a measurement is judged by, each "not reported" when it wasn't read. */
+function conditionsCard(m){
+ return `<div class="card full${escapeHtml(liveClass(m.live))}"><h3>Conditions</h3>${cell(`
    <div class="table-row head five"><span>Condition</span><span>Now</span><span style="grid-column:3/-1">Effect on a measurement taken in it</span></div>
-   <div class="table-row five"><span>Thermal state</span><span class="chip${warnUnless(m.thermal_state==='nominal')}">${escapeHtml(m.thermal_state)}</span><span style="grid-column:3/-1;opacity:.75">throttling lowers throughput; a run taken hot is marked, not silently averaged in</span></div>
-   <div class="table-row five"><span>Swap</span><span class="chip${warnIf(m.swap_gb)}">${escapeHtml(m.swap_gb)} GB</span><span style="grid-column:3/-1;opacity:.75">any swap means the run partly measured the disk, and the result is invalid for throughput</span></div>
-   <div class="table-row five"><span>Available memory</span><span class="mono">${escapeHtml(m.available_gb)} GB</span><span style="grid-column:3/-1;opacity:.75">bounds which builds and which combinations can be attempted at all</span></div>
-   <small class="mono dim">these are read at the start and the end of every run. They are the difference between "this build is slow" and "this machine was busy".</small>`,'sirvis')}</div>`}
+   <div class="table-row five"><span>Thermal state</span><span class="chip${warnIf(m.thermal_state&&m.thermal_state!=='nominal')}">${escapeHtml(m.thermal_state||'not reported')}</span><span style="grid-column:3/-1;opacity:.75">throttling lowers throughput; a run taken hot is marked, not silently averaged in</span></div>
+   <div class="table-row five"><span>Swap</span><span class="chip${warnIf(m.swap_gb)}">${escapeHtml(gbOr(m.swap_gb))}</span><span style="grid-column:3/-1;opacity:.75">any swap means the run partly measured the disk, and the result is invalid for throughput</span></div>
+   <div class="table-row five"><span>Available memory</span><span class="mono">${escapeHtml(gbOr(m.available_gb))}</span><span style="grid-column:3/-1;opacity:.75">bounds which builds and which combinations can be attempted at all</span></div>
+   <small class="mono dim">these are read at the start and the end of every run. They are the difference between "this build is slow" and "this machine was busy".</small>`,'sirvis')}</div>`;
+}
 
 /* Which profile the operator has selected but not yet committed. A single
    module-level value: arming is transient UI state, not something the router

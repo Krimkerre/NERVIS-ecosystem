@@ -24,9 +24,10 @@ import re
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
-from sirvis.telemetry.memory import MemoryProbe
+from sirvis.telemetry.memory import MemoryProbe, meminfo, swap_used
 from sirvis.telemetry.thermal import read_thermal_pressure
 
 # Long enough for a cold `system_profiler`-class call, short enough that a wedged
@@ -80,6 +81,13 @@ class SystemSnapshot:
     performance_cores: int | None = None
     efficiency_cores: int | None = None
     gpu_cores: int | None = None
+    # What the GPU is, and its own memory where it has any (19 September 2026). A core count is
+    # an Apple Silicon reading — Linux doesn't publish one — so on Linux the GPU is named and its
+    # memory stated instead: `nvidia-smi` where the driver is there, else the kernel's graphics
+    # devices. On a Mac the GPU is part of the chip, so it's named by the chip and shares
+    # `unified_memory_bytes`. A virtual display adapter says it's virtual.
+    gpu_name: str | None = None
+    gpu_memory_bytes: int | None = None
     unified_memory_bytes: int | None = None
     os_version: str | None = None
     disk_total_bytes: int | None = None
@@ -222,10 +230,17 @@ def _detect_portable(system: str, machine: str) -> SystemSnapshot:
     rather than the machine.
 
     What stays absent stays absent: no chip marketing name, no GPU core count,
-    no performance/efficiency split, no thermal state. Those are Apple Silicon
-    facts read from `sysctl`, and there is no portable equivalent to read.
+    no performance/efficiency split. Those are Apple Silicon facts read from
+    `sysctl`, and there is no portable equivalent to read.
+
+    **Linux's own readings, since 19 September 2026:** swap from `/proc/meminfo`,
+    the thermal state from the kernel's thermal zones (`thermal.py`), and the GPU
+    by name and memory (`_linux_gpu`). Before that all three were read only the
+    macOS way, so a bare-metal Linux machine showed them as unknown too.
     """
     disk_total, disk_free = _disk()
+    linux = meminfo() if system == "Linux" else None
+    gpu_name, gpu_memory = _linux_gpu() if system == "Linux" else (None, None)
     return SystemSnapshot(
         platform_name=system,
         architecture=machine,
@@ -240,7 +255,58 @@ def _detect_portable(system: str, machine: str) -> SystemSnapshot:
         ).available_bytes,
         disk_total_bytes=disk_total,
         disk_free_bytes=disk_free,
+        swap_total_bytes=linux.get("SwapTotal") if linux else None,
+        swap_used_bytes=swap_used(linux) if linux else None,
+        thermal_state=read_thermal_pressure() if system == "Linux" else None,
+        gpu_name=gpu_name,
+        gpu_memory_bytes=gpu_memory,
     )
+
+
+#: PCI vendor ids a GPU's maker is named by. The virtual ones say so, because a VM's display
+#: adapter is not a GPU anything can run a model on.
+GPU_VENDORS = {"0x10de": "NVIDIA", "0x1002": "AMD", "0x8086": "Intel", "0x1af4": "virtual",
+               "0x15ad": "virtual", "0x1234": "virtual", "0x80ee": "virtual", "0x1414": "virtual"}
+VIRTUAL_DRIVERS = {"virtio_gpu", "virtio-gpu", "vmwgfx", "qxl", "bochs-drm", "bochs", "vboxvideo",
+                   "hyperv_drm", "simpledrm", "cirrus"}
+DRM = Path("/sys/class/drm")
+
+
+def _linux_gpu(drm: Path = DRM) -> tuple[str | None, int | None]:
+    """The first GPU's name and memory: `nvidia-smi` if it answers, else the kernel's devices."""
+    answer = _run(["nvidia-smi", "--query-gpu=name,memory.total",
+                   "--format=csv,noheader,nounits"])
+    if answer:
+        name, _, mebibytes = answer.splitlines()[0].rpartition(",")
+        try:
+            return name.strip() or None, int(float(mebibytes)) * 1024 * 1024
+        except ValueError:
+            return name.strip() or None, None
+    for card in sorted(drm.glob("card[0-9]*")):
+        if "-" in card.name:  # a connector, card0-HDMI-A-1, not a device
+            continue
+        found = _drm_gpu(card / "device")
+        if found[0] is not None:
+            return found
+    return None, None
+
+
+def _drm_gpu(device: Path) -> tuple[str | None, int | None]:
+    def read(name: str) -> str | None:
+        try:
+            return (device / name).read_text().strip() or None
+        except OSError:
+            return None
+
+    driver = (device / "driver").resolve().name if (device / "driver").exists() else None
+    maker = GPU_VENDORS.get(read("vendor") or "")
+    if driver in VIRTUAL_DRIVERS or maker == "virtual":
+        return f"virtual display adapter ({driver or 'unknown driver'})", None
+    vram = read("mem_info_vram_total")  # amdgpu states its own memory; others don't
+    memory = int(vram) if vram and vram.isdigit() else None
+    if maker is None and driver is None:
+        return None, None
+    return f"{maker or 'unknown'} GPU" + (f" ({driver})" if driver else ""), memory
 
 
 def _hostname() -> str | None:
@@ -281,6 +347,7 @@ def _detect_macos(machine: str, apple_silicon: bool) -> SystemSnapshot:
         performance_cores=_sysctl_int("hw.perflevel0.logicalcpu"),
         efficiency_cores=_sysctl_int("hw.perflevel1.logicalcpu"),
         gpu_cores=_gpu_cores(),
+        gpu_name=_sysctl_text("machdep.cpu.brand_string") if apple_silicon else None,
         unified_memory_bytes=_sysctl_int("hw.memsize"),
         os_version=_run(["sw_vers", "-productVersion"]),
         disk_total_bytes=disk_total,

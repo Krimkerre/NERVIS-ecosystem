@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 import psutil
@@ -238,6 +239,8 @@ def _thermal_state() -> str | None:
     protocol package that knows about macOS is a worse one. A third copy is the
     point at which that trade changes.
     """
+    if platform.system() == "Linux":
+        return linux_thermal_state()
     if platform.system() != "Darwin":
         return None
     try:
@@ -253,6 +256,60 @@ def _thermal_state() -> str | None:
     if result.returncode != 0:
         return None
     return THERMAL_STATES.get(result.stdout.strip())
+
+
+# Linux's thermal zones, judged against their own trip points (19 September 2026: this said
+# nothing on Linux, bare metal included). The second copy of SIRVIS's
+# `sirvis/src/sirvis/telemetry/thermal.py` `linux_thermal_state`, kept apart for the reason
+# the macOS reader above is.
+LINUX_THERMAL = Path("/sys/class/thermal")
+FAIR_MARGIN_MILLIDEGREES = 10_000
+_THERMAL_ORDER = ("nominal", "fair", "serious", "critical")
+
+
+def linux_thermal_state(root: Path = LINUX_THERMAL) -> str | None:
+    """The worst of the kernel's thermal zones: `critical` past a critical trip, `serious` past a
+    hot or passive one (passive cooling is the CPU being slowed), `fair` within 10 °C of passive,
+    else `nominal`. A zone without trip points is skipped; none to judge — most VMs — is None."""
+    worst: str | None = None
+    for zone in sorted(root.glob("thermal_zone*")):
+        state = _zone_state(zone)
+        if state is not None and (
+            worst is None or _THERMAL_ORDER.index(state) > _THERMAL_ORDER.index(worst)
+        ):
+            worst = state
+    return worst
+
+
+def _zone_state(zone: Path) -> str | None:
+    try:
+        temperature = int((zone / "temp").read_text().strip())
+    except (OSError, ValueError):
+        return None
+    trips = _trips(zone)
+    if not trips:
+        return None
+    if "critical" in trips and temperature >= trips["critical"]:
+        return "critical"
+    if any(kind in trips and temperature >= trips[kind] for kind in ("hot", "passive")):
+        return "serious"
+    if "passive" in trips and temperature >= trips["passive"] - FAIR_MARGIN_MILLIDEGREES:
+        return "fair"
+    return "nominal"
+
+
+def _trips(zone: Path) -> dict[str, int]:
+    trips: dict[str, int] = {}
+    for kind_file in zone.glob("trip_point_*_type"):
+        try:
+            kind = kind_file.read_text().strip()
+            limit = int(kind_file.with_name(kind_file.name[: -len("type")] + "temp")
+                        .read_text().strip())
+        except (OSError, ValueError):
+            continue
+        if limit > 0:
+            trips[kind] = min(limit, trips.get(kind, limit))
+    return trips
 
 
 def _processes(limit: int) -> tuple[ProcessSample, ...]:

@@ -37,6 +37,7 @@ import re
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from types import TracebackType
 from typing import Any, Callable
 
@@ -138,7 +139,16 @@ class MemoryProbe:
     # ── Reading the machine ──────────────────────────────────────────────────
 
     def _read_available(self) -> int | None:
-        """Reclaimable memory in bytes, or None when `vm_stat` will not answer."""
+        """Reclaimable memory in bytes, or None when the machine will not say.
+
+        On Linux `MemAvailable` from `/proc/meminfo` — the kernel's own estimate of what can be
+        handed out without swapping, which is the same question the macOS sum of reclaimable
+        pages answers. Until 19 September 2026 only `vm_stat` was asked, so every Linux machine
+        read as unknown here, bare metal included.
+        """
+        linux = meminfo()
+        if linux is not None:
+            return linux.get("MemAvailable")
         output = _run(["vm_stat"])
         if output is None:
             return None
@@ -160,6 +170,10 @@ class MemoryProbe:
         """Physical memory, read once. It does not change while we run."""
         if not self._total_read:
             self._total_read = True
+            linux = meminfo()
+            if linux is not None:
+                self._total_bytes = linux.get("MemTotal")
+                return self._total_bytes
             text = _run(["sysctl", "-n", "hw.memsize"])
             self._total_bytes = int(text.strip()) if text and text.strip().isdigit() else None
         return self._total_bytes
@@ -171,6 +185,9 @@ class MemoryProbe:
         that swapped measured the disk as much as the inference, which is why
         §11.8 makes it a validity warning rather than a footnote.
         """
+        linux = meminfo()
+        if linux is not None:
+            return swap_used(linux)
         return _parse_swap_used(_run(["sysctl", "-n", "vm.swapusage"]))
 
 
@@ -308,3 +325,28 @@ def _run(command: list[str]) -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     return finished.stdout
+
+
+#: Where Linux states its memory, in kB per line: `MemAvailable:   12345678 kB`.
+MEMINFO = Path("/proc/meminfo")
+
+
+def meminfo(path: Path = MEMINFO) -> dict[str, int] | None:
+    """`/proc/meminfo` in bytes, or None where there is no such file (macOS) or it won't read."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    found: dict[str, int] = {}
+    for line in text.splitlines():
+        name, _, rest = line.partition(":")
+        parts = rest.split()
+        if parts and parts[0].isdigit():
+            found[name.strip()] = int(parts[0]) * (1024 if parts[1:2] == ["kB"] else 1)
+    return found or None
+
+
+def swap_used(linux: dict[str, int]) -> int | None:
+    """Swap in use from `/proc/meminfo`, or None when either figure is missing."""
+    total, free = linux.get("SwapTotal"), linux.get("SwapFree")
+    return None if total is None or free is None else total - free

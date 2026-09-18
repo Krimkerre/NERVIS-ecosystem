@@ -52,6 +52,9 @@ def _probe(monkeypatch: pytest.MonkeyPatch, vm_stat: str | None = VM_STAT,
         return swap
 
     monkeypatch.setattr(memory, "_run", fake)
+    # A Mac's reading: no `/proc/meminfo`, which on a Linux machine is read first (since
+    # 19 September 2026) and would stand in front of the recorded `vm_stat` above.
+    monkeypatch.setattr(memory, "meminfo", lambda _path=None: None)
     return MemoryProbe()
 
 
