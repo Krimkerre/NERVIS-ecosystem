@@ -22,6 +22,7 @@ from nervis.documents import (
     newest_readable,
     prune_attachments,
     read_document,
+    reconcile_attachments,
     store_upload,
 )
 from nervis.pdf import render
@@ -450,6 +451,27 @@ def test_an_id_of_dots_deletes_nothing(tmp_path: Path) -> None:
     for wanted in ("..", ".", "../..", "cv_aaaa/.."):
         assert forget_attachments(tmp_path, wanted) == 0, wanted
         assert (tmp_path / "unattached.txt").is_file(), wanted
+
+
+def test_reconciling_attachments_never_reads_through_a_link(tmp_path: Path) -> None:
+    """The destination was validated and the source was not, and `is_file()`
+    follows a link — so a link planted among a conversation's attachments handed
+    an outside file's bytes to a place certified as inside the workspace (base
+    review, 17 September 2026, finding 7)."""
+    secret = tmp_path / "outside" / "secret.txt"
+    secret.parent.mkdir()
+    secret.write_text("OUTSIDE_SECRET", encoding="utf-8")
+    source = attachment_dir(tmp_path, "cv_aaaa")
+    assert source is not None
+    (source / "ours.txt").write_bytes(b"ours")
+    (source / "leak.txt").symlink_to(secret)
+
+    assert reconcile_attachments(tmp_path, "cv_aaaa", "cv_bbbb") == 1
+
+    landed = tmp_path / ".attachments" / "cv_bbbb"
+    assert (landed / "ours.txt").read_bytes() == b"ours"
+    assert not (landed / "leak.txt").exists()
+    assert all(b"OUTSIDE_SECRET" not in entry.read_bytes() for entry in landed.iterdir())
 
 
 def test_a_symlinked_attachment_directory_is_left_alone(tmp_path: Path) -> None:

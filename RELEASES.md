@@ -709,9 +709,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.34
+## NERVIS — 0.34.35
 
-**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.3+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.3+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+
+- **Copying a folder no longer turns a shortcut into a copy of what it points at.** A link inside a
+  copied folder was followed, so a file from outside the workspace landed inside it as an ordinary
+  file the file manager would then list and serve. Links are copied as links, and the workspace still
+  refuses to read through one. The same check now applies to attachments carried between
+  conversations.
+
+### 0.34.34
 
 - **A private choice for unattended work is kept by every step of the fallback.** Titles, folder
   names and the PDF glance used to try the model that had just answered your chat before falling
@@ -2978,7 +2986,24 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.4
+## SIRVIS — 0.19.5
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve`
+
+Three findings from a review of the base applications.
+
+- **Giving up on a model load no longer ties up the slot.** If the only caller waiting for a load
+  cancelled — a closed browser tab, a stopped benchmark — the load kept its place in the manager's
+  count for good, and every other model was refused as "at capacity" until that same one was asked
+  for again. The load now clears its own place when it finishes, whoever is still waiting.
+- **Reading the evidence list page by page no longer skips results.** Results are ordered by when
+  they were measured, recorded to the second, and a run writes all of its results at once — so every
+  result sharing a second with the end of a page was passed over and never appeared on a later one.
+- **The newest trial decides whether a model can use tools.** The recommendation screen judged
+  eligibility on the *oldest* verdict while scoring on the newest, so a model fixed since a bad run
+  stayed excluded, and one that had regressed stayed recommendable.
+
+### 0.19.4
 
 **Protocol:** MEP 1.0.0 · **Measures:** local models through LM Studio · **Browses:** Hugging Face
 

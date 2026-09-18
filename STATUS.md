@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4321 tests, no network, no live service
+.venv/bin/pytest                      # part of 4327 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -40,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 535 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1748 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 539 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1750 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4321 passing across the four, conformance `PASS`.
+Expected: all clean, 4327 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -19750,9 +19750,24 @@ that answered the conversation for those pools — the borrowed step was how a p
 an opening in front of a free remote model, since the background marker means "must be free" and
 never meant "must stay here". Two tests, both failing on the previous code.
 
-**Still open from the same review:** copying follows symbolic links out of the workspace;
-cancelling the only waiter for a model load strands SIRVIS capacity; evidence paging skips records
-sharing a second; and the oldest tool verdict decides eligibility while the newest decides the score.
+**The third group closed the review the same day (NERVIS 0.34.35, SIRVIS 0.19.5).** Copying a folder
+kept only its two ends inside the workspace and `copytree` follows links, so a link at any depth put
+an outside file's bytes inside as an ordinary file; links are now copied as links, and attachment
+reconciliation skips a symlinked source instead of reading through it — the destination was checked
+and the source never was. In SIRVIS, a shared model load now clears its own pending entry when it
+finishes (`_load_finished`), so the sole waiter cancelling no longer leaves a reservation counting
+against the ceiling with no lease to expire; the evidence cursor carries both halves of the sort key
+(`created_at` *and* `result_id`, joined by `|`), so results sharing a second are no longer skipped
+while a plain timestamp still means "strictly older" for an incremental reader; and
+`_capability_states` sorts newest-first and keeps the first answer per build, so eligibility and
+scoring read the same measurement — before, the oldest verdict decided eligibility while the newest
+decided the score. Four tests, each failing on the previous code, one of them reproducing the
+capacity refusal verbatim (`at capacity (1 models); ... loading ['old-model']`).
+
+**The eleven findings are closed.** What the review left as owner decisions — a scheduler for
+concurrency, durable route history, replay, the Responses API, SIRVIS's comparison and analytics
+work, and whether to stop executing `index.html` in favour of static parsing — are unchanged and
+still the owner's to pick up.
 
 ## Starting the thing
 

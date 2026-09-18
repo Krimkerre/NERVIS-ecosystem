@@ -1033,7 +1033,20 @@ def _capability_states(records: list[dict[str, Any]]) -> dict[str, str]:
     and a flag saying `tool_use` is not evidence of anything.
     """
     states: dict[str, str] = {}
-    for record in records:
+    # **Newest first, and the first answer for a build stands.** Every record
+    # used to overwrite the same key, so the *oldest* verdict decided — while
+    # `recommendations.axis_values` sorts newest-first for the score. One build
+    # was then judged on its old failure and scored on its new pass: fixed and
+    # still excluded, or regressed and still recommended (base review,
+    # 17 September 2026, finding 10). Sorted here rather than trusted from the
+    # caller, because the order this used to inherit was incidental — and on
+    # the same key the scoring uses, so the two cannot disagree about which
+    # measurement is the recent one.
+    for record in sorted(
+        records,
+        key=lambda one: (str(one.get("measured_at") or ""), str(one.get("evidence_id") or "")),
+        reverse=True,
+    ):
         rate = (record.get("metrics") or {}).get("tool_call_well_formed")
         key = record.get("runtime_key")
         if not isinstance(rate, dict) or not key or not rate.get("total"):
@@ -1057,6 +1070,10 @@ def _capability_states(records: list[dict[str, Any]]) -> dict[str, str]:
             and phrasings >= MIN_PHRASINGS
             and repetitions >= MIN_REPETITIONS
         )
+        if f"{key}:tool_use" in states:
+            # A newer record already answered for this build; an older one is
+            # history, not a correction of it.
+            continue
         if not covered:
             states[f"{key}:tool_use"] = "UNKNOWN"
             continue

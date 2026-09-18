@@ -521,3 +521,35 @@ def test_two_files_of_one_name_deleted_in_the_same_second_are_both_recoverable(
 
     kept = sorted(entry.read_text(encoding="utf-8") for entry in (root / TRASH).iterdir())
     assert kept == ["FIRST", "SECOND"], "one delete overwrote the other's only copy"
+
+
+def test_a_copied_folder_never_turns_a_link_out_into_a_readable_file(tmp_path: Path) -> None:
+    """**Both ends were checked; nothing looked inside.** `copytree` follows
+    symbolic links by default, so a link at any depth in the copied folder was
+    dereferenced and an outside file's bytes landed in the workspace as an
+    ordinary file — which the file manager then lists and serves (base review,
+    17 September 2026, finding 7)."""
+    root = a_workspace(tmp_path)
+    secret = tmp_path / "outside" / "secret.txt"
+    secret.parent.mkdir()
+    secret.write_text("OUTSIDE_SECRET", encoding="utf-8")
+    (root / "library" / "bundle").mkdir()
+    (root / "library" / "bundle" / "ours.txt").write_text("ours", encoding="utf-8")
+    (root / "library" / "bundle" / "leak.txt").symlink_to(secret)
+
+    with an_api(tmp_path) as client:
+        answer = client.post("/api/v1/workspace/move", json={
+            "from": "library/bundle", "to": "export/bundle", "copy": True,
+        }, headers=control(client))
+
+        assert answer.status_code == 200, answer.text
+        # The ordinary file came across; the link came across *as a link*, so the
+        # outside bytes are not sitting in the workspace as a file.
+        assert (root / "export" / "bundle" / "ours.txt").read_text() == "ours"
+        landed = root / "export" / "bundle" / "leak.txt"
+        assert landed.is_symlink(), "the link became a plain file holding the outside bytes"
+        # And nothing inside the workspace will serve what it points at.
+        served = client.get("/api/v1/workspace/download/export/bundle/leak.txt",
+                            headers=control(client))
+        assert served.status_code == 409, served.text
+        assert b"OUTSIDE_SECRET" not in served.content

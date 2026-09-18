@@ -103,6 +103,11 @@ class EvidenceAnswer:
     next_cursor: str | None = None
 
 
+#: What joins the two halves of a page cursor. A character no timestamp or
+#: `res_…` id contains, so splitting one can never be ambiguous.
+CURSOR_JOIN = "|"
+
+
 def query_evidence(
     database: Database, query: EvidenceQuery, *, now: datetime | None = None
 ) -> EvidenceAnswer:
@@ -125,8 +130,13 @@ def query_evidence(
     items = [_view(row, moment) for row in page]
     return EvidenceAnswer(
         items=items,
-        next_cursor=page[-1]["created_at"] if len(rows) > query.limit and page else None,
+        next_cursor=_cursor(page[-1]) if len(rows) > query.limit and page else None,
     )
+
+
+def _cursor(row: Any) -> str:
+    """Where the next page resumes: both keys the ordering uses, in that order."""
+    return f"{row['created_at']}{CURSOR_JOIN}{row['result_id']}"
 
 
 def read_evidence(
@@ -183,11 +193,24 @@ def _conditions(query: EvidenceQuery) -> tuple[str, list[Any]]:
         arguments.append(f"$.target.runtime_config.{key}")
         arguments.append(str(value))
     if query.since:
-        # Strictly less-than, because the cursor is the last row already
-        # returned: `<=` would hand the caller that row again on every page and
-        # a caller paging to exhaustion would never exhaust.
-        clauses.append("created_at < ?")
-        arguments.append(query.since)
+        # **Both halves of the sort key, when the caller has both.** Rows are
+        # ordered by `created_at DESC, result_id DESC`, and the cursor used to
+        # carry the timestamp alone — so "strictly before that second" skipped
+        # every row tying with the last one returned, and `datetime('now')` is
+        # whole seconds while a run writes all its results in one transaction.
+        # A multi-role run therefore lost rows on every page boundary (base
+        # review, 17 September 2026, finding 9).
+        #
+        # A plain timestamp still means what it always did, because a consumer
+        # keeping its own high-water mark passes one of those rather than a
+        # cursor of ours: page traversal and incremental filtering stay separate.
+        stamp, _, result_id = str(query.since).partition(CURSOR_JOIN)
+        if result_id:
+            clauses.append("(created_at < ? OR (created_at = ? AND result_id < ?))")
+            arguments.extend((stamp, stamp, result_id))
+        else:
+            clauses.append("created_at < ?")
+            arguments.append(stamp)
     return (f"WHERE {' AND '.join(clauses)}" if clauses else "", arguments)
 
 

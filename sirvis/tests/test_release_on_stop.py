@@ -372,3 +372,29 @@ def test_serve_bounds_uvicorns_wait_for_requests_in_flight(
 
     assert cli._run_serve(settings) == cli.EXIT_OK
     assert served["timeout_graceful_shutdown"] == GRACEFUL_SHUTDOWN_SECONDS
+
+
+async def test_the_only_waiter_giving_up_does_not_strand_the_capacity() -> None:
+    """**A shielded load is nobody's once its waiter goes.** The cleanup removed
+    the pending entry only if the load had already finished when the caller
+    left, so a caller cancelled mid-load left the entry behind — and it counts
+    against the ceiling, with no lease that can expire. On a manager configured
+    for one model, the next acquire of anything else was refused as at capacity
+    until that same model was asked for again (base review, 17 September 2026,
+    finding 8)."""
+    runtime = FakeRuntime()
+    runtime.load_gate = asyncio.Event()
+    manager = ResourceManager(runtime, max_loaded=1)
+
+    waiting = asyncio.create_task(manager.acquire(owner="dashboard", model_key="old-model"))
+    await runtime.load_started.wait()
+    waiting.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await waiting
+    runtime.load_gate.set()
+    # Let the shielded load land and its cleanup run.
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    lease = await manager.acquire(owner="menubar", model_key="another-model")
+    assert lease.model_keys == ("another-model",)

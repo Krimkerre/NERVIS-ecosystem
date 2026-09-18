@@ -325,6 +325,43 @@ def test_a_cursor_pages_without_repeating_a_row() -> None:
     assert not seen & {item["result_id"] for item in second.items}
 
 
+def test_paging_loses_no_record_that_shares_a_second_with_the_page_boundary() -> None:
+    """**The sort key is the pair; the cursor carried half of it.** Ordering is
+    `created_at DESC, result_id DESC`, the cursor held the timestamp alone, and
+    the next page asked for rows strictly *before* that second — so every row
+    sharing the boundary second was skipped and unreachable. SQLite's default
+    timestamp is whole seconds and a run writes all its results in one
+    transaction, so a multi-role run produces those ties every time (base
+    review, 17 September 2026, finding 9)."""
+    database = a_database(*[a_record(evidence_id=f"ev_{n}") for n in range(5)])
+    everything = query_evidence(database, EvidenceQuery(limit=50)).items
+    all_ids = {item["result_id"] for item in everything}
+    assert len(all_ids) == 5
+    stamps = {item["measured_at"] for item in everything}
+    assert len(stamps) == 1, "this test is only meaningful when the rows tie"
+
+    seen: set[str] = set()
+    cursor: str | None = None
+    for _ in range(10):
+        page = query_evidence(database, EvidenceQuery(limit=2, since=cursor))
+        seen |= {item["result_id"] for item in page.items}
+        cursor = page.next_cursor
+        if cursor is None:
+            break
+
+    assert seen == all_ids, "paging to exhaustion dropped rows that shared a second"
+
+
+def test_a_plain_timestamp_still_reads_only_what_is_older() -> None:
+    """A consumer that keeps its own high-water mark passes a timestamp rather
+    than one of our cursors, and that has to keep meaning "strictly before"."""
+    database = a_database(*[a_record(evidence_id=f"ev_{n}") for n in range(3)])
+    stamp = query_evidence(database, EvidenceQuery(limit=1)).items[0]["measured_at"]
+    older = stamp.replace("T", " ").removesuffix("Z")
+
+    assert query_evidence(database, EvidenceQuery(limit=50, since=older)).items == []
+
+
 def test_the_last_page_offers_no_cursor() -> None:
     database = a_database(a_record())
 

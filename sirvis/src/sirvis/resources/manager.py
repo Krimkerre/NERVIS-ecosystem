@@ -27,6 +27,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import partial
 from typing import Any, Callable, Protocol
 
 from sirvis.runtimes import LoadedModel, RuntimeUnavailableError
@@ -598,7 +599,36 @@ class ResourceManager:
             self._make_room(policy)
             in_flight = asyncio.create_task(self._acquire_instance(model_key, configuration))
             self._loading[model_key] = in_flight
+            # **The load cleans up after itself, rather than depending on a
+            # caller still being there.** `_ensure_loaded`'s `finally` removes
+            # the entry only when the load has already finished — which is never
+            # true for the caller that gave up *during* it. The sole waiter
+            # cancelling therefore left the entry behind for good: it counts
+            # against the ceiling and has no lease to expire, so every other cold
+            # model was refused as at capacity until this same key was asked for
+            # again (base review, 17 September 2026, finding 8).
+            in_flight.add_done_callback(partial(self._load_finished, model_key))
         return in_flight
+
+    def _load_finished(self, model_key: str, task: asyncio.Task[Any]) -> None:
+        """Forget a finished load, whether or not anybody was still waiting.
+
+        A callback rather than an `await`: this runs the moment the task ends,
+        including when no coroutine is left to notice. The removal itself needs
+        the lock, so it is scheduled as its own small task.
+        """
+        del task
+        try:
+            asyncio.get_running_loop().create_task(self._forget_load(model_key))
+        except RuntimeError:  # pragma: no cover - the loop is already gone
+            self._loading.pop(model_key, None)
+
+    async def _forget_load(self, model_key: str) -> None:
+        """Drop the pending-load entry once its task is done, under the lock."""
+        async with self._lock:
+            in_flight = self._loading.get(model_key)
+            if in_flight is not None and in_flight.done():
+                del self._loading[model_key]
 
     async def _acquire_instance(
         self, model_key: str, configuration: dict[str, Any] | None

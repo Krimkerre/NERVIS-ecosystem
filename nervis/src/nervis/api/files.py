@@ -338,8 +338,17 @@ async def move_entry(request: Request) -> dict[str, Any]:
     # write.
     if bool(body.get("copy")):
         if source.is_dir():
-            shutil.copytree(source, target)
+            # **`symlinks=True`, so a link is copied as a link.** The default
+            # follows them, and only the two ends of this operation are checked
+            # — so a link at any depth inside the folder was dereferenced and an
+            # outside file's bytes landed here as an ordinary file, which the
+            # manager then lists and serves (base review, 17 September 2026,
+            # finding 7). Kept as links, they resolve outside and every reader
+            # here goes through `resolve_in_workspace`, which refuses them.
+            shutil.copytree(source, target, symlinks=True)
         else:
+            # A single file's source went through `_inside`, which resolves
+            # before it compares, so a link out was already refused above.
             shutil.copy2(source, target)
     else:
         shutil.move(str(source), str(target))

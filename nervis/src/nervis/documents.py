@@ -508,6 +508,13 @@ def reconcile_attachments(root: Path, source_id: str, target_id: str) -> int:
         return 0
     copied = 0
     for entry in source.iterdir():
+        if entry.is_symlink():
+            # **Where the bytes come from is checked too.** This validated the
+            # destination and read the source unexamined, and `is_file()`
+            # follows a link — so a link planted in an attachment directory
+            # handed an outside file's contents to a destination certified as
+            # inside the workspace (base review, 17 September 2026, finding 7).
+            continue
         if entry.is_file():
             # `entry.name` is a real directory entry and cannot traverse, but a
             # file of that name in the destination may still be a link out.

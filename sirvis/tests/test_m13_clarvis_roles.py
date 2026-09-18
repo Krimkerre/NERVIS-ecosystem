@@ -750,3 +750,39 @@ def test_the_variant_gate_does_not_refuse_a_cold_machine() -> None:
     # After it: nothing resident is a refusal, because by then something should be.
     with pytest.raises(VariantUnconfirmedError):
         _confirmed_variant(ColdRuntime(), variant, "granite", required=True)
+
+
+def test_the_newest_trial_decides_a_build_s_tool_state_whatever_order_it_arrives_in() -> None:
+    """**Eligibility read the oldest verdict while the score read the newest.**
+    The records arrive newest-first and every one overwrote the same key, so the
+    last processed — the oldest — won. A build fixed since its bad run stayed
+    excluded with `tool_use is UNSUPPORTED` beside a record showing it passing,
+    and one that regressed stayed recommendable. `recommendations.axis_values`
+    sorts newest-first for exactly this reason, with the note that says so
+    (base review, 17 September 2026, finding 10)."""
+    from sirvis.api.routes import _capability_states
+
+    def record(when: str, passed: int) -> dict[str, object]:
+        return {
+            "runtime_key": "build-a",
+            "measured_at": when,
+            "evidence_id": f"ev_{when}",
+            "metrics": {
+                "tool_call_well_formed": {
+                    "passed": passed, "total": 24, "rate": passed / 24,
+                    "phrasings": 8, "repetitions": 3,
+                }
+            },
+        }
+
+    newest_pass = record("2026-09-17T10:00:00Z", 24)
+    older_fail = record("2026-09-01T10:00:00Z", 0)
+
+    # Whichever order the caller hands them over, the newest measurement decides.
+    assert _capability_states([newest_pass, older_fail])["build-a:tool_use"] == "SUPPORTED"
+    assert _capability_states([older_fail, newest_pass])["build-a:tool_use"] == "SUPPORTED"
+
+    newest_fail = record("2026-09-17T10:00:00Z", 0)
+    older_pass = record("2026-09-01T10:00:00Z", 24)
+    assert _capability_states([newest_fail, older_pass])["build-a:tool_use"] == "UNSUPPORTED"
+    assert _capability_states([older_pass, newest_fail])["build-a:tool_use"] == "UNSUPPORTED"
