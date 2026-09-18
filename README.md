@@ -75,6 +75,11 @@ Arch and its relatives (pacman's file check), and elsewhere OpenAI's npm build i
 `--no-codex` leaves it out; `--update-codex` brings the latest npm build. A build RAVIS hasn't seen
 waits for your OK in NERVIS before it runs.
 
+Clarvis is connected as well as installed: its chat and agent go through RAVIS, its Bridge
+reports to NERVIS, and code-server wears its theme. Only settings that are missing are added, so
+anything you set yourself stays. On a machine installed before 19 September 2026, run
+`python3 tools/run.py clarvis-settings` once.
+
 It asks for sudo only to install system packages, and never runs as root. Ollama gets NERVIS's
 embedding model (`nomic-embed-text`, about 270 MB); the PDF layout model (about 3 GB) is offered,
 not assumed. Building Clarvis needs Node 20 or newer: a system Node that is new enough is used,

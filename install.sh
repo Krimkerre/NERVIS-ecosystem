@@ -412,6 +412,10 @@ else
       good "Clarvis ${version:-}: built and installed in code-server"
     fi
   fi
+  # Clarvis's settings: chat and agent through RAVIS, the Bridge to NERVIS, and its theme. Only
+  # the missing ones are added; anything already set, by you or earlier, is left as it is.
+  if [ "$DRY_RUN" = 1 ]; then run "$PYTHON" "$REPO/tools/run.py" clarvis-settings
+  else good "Clarvis settings: $("$PYTHON" "$REPO/tools/run.py" clarvis-settings)"; fi
 fi
 
 # ── Codex ─────────────────────────────────────────────────────────────────────

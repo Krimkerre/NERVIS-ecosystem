@@ -756,7 +756,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.42
+## NERVIS — 0.34.43
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **A fresh install connects Clarvis.** The installer put Clarvis into code-server and nothing
+  else, so on a new machine it wasn't pointed at RAVIS, didn't report to NERVIS, and the editor
+  didn't wear Clarvis's theme — only a machine where somebody had typed those settings in had
+  them. The installer now adds them, and `tools/run.py clarvis-settings` does the same on a
+  machine installed before. Only missing settings are added; anything already set is left alone,
+  and a settings file with comments isn't rewritten — the settings to add are printed instead.
+
+### 0.34.42
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

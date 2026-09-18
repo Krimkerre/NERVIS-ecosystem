@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4448 tests, no network, no live service
+.venv/bin/pytest                      # part of 4451 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 539 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1779 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1782 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4448 passing across the four, conformance `PASS`.
+Expected: all clean, 4451 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,26 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Clarvis connected on a fresh install — 2026-09-19 (NERVIS 0.34.43)
+
+The owner, in the Ubuntu VM: the theme wasn't installed in code-server. It was — Clarvis ships
+`clarvis-nervis` — but nothing selected it, and looking further, **nothing wrote any of Clarvis's
+settings on a new machine**: not the chat and agent provider pointing at RAVIS, not the Bridge's
+NERVIS address or enrollment secret path. The VM's code-server had no `settings.json` at all. The
+owner's Mac had all nine only because they were typed in by hand long ago; the earlier Linux runs
+checked that the extension was installed, not that it was connected. `run.py clarvis-settings`
+(`seed_clarvis_settings`) adds whichever of the nine are missing to code-server's user settings
+(`$XDG_DATA_HOME` or `~/.local/share`, `code-server/User/settings.json`), never changes one that
+is set, and leaves a file that isn't plain JSON untouched, printing the lines to add; the
+installer runs it after Clarvis, whether Clarvis was just installed or already there. Checked
+read-only against the Mac first: all nine present with exactly these values, so nothing there
+changes. Three tests in `nervis/tests/test_launcher_clarvis_settings.py`.
+
+**Also open, from the same VM session:** code-server asks for a password there, which the launcher
+generated and keeps in the checkout's `.run/code-server.password`; the tray, the menu bar and the
+installer never show it. The owner has been asked whether to add a "copy code-server password"
+item or have NERVIS sign in for them.
 
 ## The intermittent Linux test, named and fixed — 2026-09-18
 

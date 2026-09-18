@@ -2779,6 +2779,69 @@ def _run_setup() -> int:
     return 0
 
 
+# Clarvis's own settings, which make it part of the ecosystem: its chat and agent go through
+# RAVIS, its Bridge reports to NERVIS with the enrollment secret beside NERVIS's database, and
+# the editor wears the theme Clarvis ships. Nothing else writes these, so on a machine where
+# nobody typed them in, Clarvis was installed and none of it was connected — found on the
+# Ubuntu VM on 18 September 2026, where the owner saw the theme missing. The owner's Mac only
+# had them because they were set by hand long ago.
+def clarvis_settings() -> dict[str, object]:
+    return {
+        "clarvis.chat.provider": "custom",
+        "clarvis.chat.baseUrl.custom": f"http://127.0.0.1:{RAVIS_PORT}",
+        "clarvis.chat.model": "ravis/clarvis-chat",
+        "clarvis.agent.provider": "custom",
+        "clarvis.agent.model": "ravis/clarvis-agent",
+        "clarvis.bridge.enabled": True,
+        "clarvis.bridge.nervisUrl": f"http://127.0.0.1:{NERVIS_PORT}",
+        "clarvis.bridge.enrollmentSecretPath": str(ROOT / "nervis" / "nervis.enrollment"),
+        "workbench.colorTheme": "clarvis-nervis",
+    }
+
+
+def code_server_user_settings() -> Path:
+    """code-server's user settings file: under XDG_DATA_HOME, else ~/.local/share, on macOS too."""
+    data = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(data) / "code-server" / "User" / "settings.json"
+
+
+def seed_clarvis_settings(path: Path | None = None) -> tuple[list[str], str]:
+    """Add whichever of `clarvis_settings` are missing, and say what happened.
+
+    **Only missing ones.** A setting somebody chose — another model, the Bridge off, another
+    theme — is theirs, and filling in blanks is the most this may do. A file that isn't plain
+    JSON (VS Code allows comments and trailing commas) is left exactly as it is, because
+    rewriting it would lose the comments; the settings to add are printed instead.
+    Returns (the keys added, a sentence for the person).
+    """
+    path = path or code_server_user_settings()
+    wanted = clarvis_settings()
+    try:
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, ValueError):
+        current = None
+    if not isinstance(current, dict):
+        lines = "\n".join(f"    {json.dumps(k)}: {json.dumps(v)}," for k, v in wanted.items())
+        return [], (f"{path} isn't plain JSON, so it was left as it is. To connect Clarvis, "
+                    f"add these to it (keeping any you've set differently):\n{lines}")
+    added = [key for key in wanted if key not in current]
+    if not added:
+        return [], f"Clarvis's settings were already there, in {path}"
+    merged = {**current, **{key: wanted[key] for key in added}}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+    return added, f"added {len(added)} of Clarvis's settings to {path}"
+
+
+def _run_clarvis_settings() -> int:
+    """`run.py clarvis-settings`: connect Clarvis in code-server to RAVIS and NERVIS."""
+    _, said = seed_clarvis_settings()
+    print(said)
+    return 0
+
+
 def _run_renew() -> int:
     return _answer(renew_models())
 
@@ -2794,14 +2857,15 @@ def _run_status() -> int:
 COMMANDS = {
     "start": start, "stop": stop, "status": _run_status, "setup": _run_setup,
     "models": _run_models, "load": _run_load, "unload": _run_unload, "renew": _run_renew,
-    "codex": _run_codex,
+    "codex": _run_codex, "clarvis-settings": _run_clarvis_settings,
 }
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "start"
     if action not in COMMANDS:
         print(
-            f"usage: {Path(__file__).name} [setup|start|stop|status [--json]|models|load KEY|unload KEY"
+            f"usage: {Path(__file__).name} [setup|start|stop|status [--json]|clarvis-settings"
+            "|models|load KEY|unload KEY"
             "|renew|codex sign-in|codex cancel-sign-in|codex stop ID --project NAME --turn TURN"
             "|codex reprove|codex calibrate --project-a PATH --project-b PATH]",
             file=sys.stderr,
