@@ -756,7 +756,18 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.45
+## NERVIS — 0.34.46
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Screens update in place.** Every refresh used to rebuild the whole screen and then put back
+  what you had typed, opened and scrolled. Now only what changed is changed: a figure, a row, a
+  label. Cards no longer replay their entrance on every refresh, text you've selected to copy
+  stays selected, and whatever is under the mouse keeps its hover. Every screen looks exactly as
+  it did.
+
+### 0.34.45
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

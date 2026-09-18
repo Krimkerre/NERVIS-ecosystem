@@ -1034,6 +1034,10 @@ tray-icon extension for the icon to show (Ubuntu has it; the installer switches 
 and back in may be needed once). On Windows (WSL) there is no tray: start with `./start-linux.sh`
 and open http://127.0.0.1:8790 in a Windows browser.
 
+**Screens update in place** (NERVIS 0.34.46). A refresh changes only what changed — a figure,
+a row, a label — instead of rebuilding the screen, so cards don't replay their entrance, a text
+selection survives and nothing jumps.
+
 **On a computer with weak graphics the dashboard goes still** (NERVIS 0.34.38). If the browser
 draws in software, or its first few seconds on screen are jerky, the dashboard stops its animations
 — the moving background, the avatars, the small spinners — exactly as the system's "reduce motion"

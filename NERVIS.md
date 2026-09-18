@@ -1717,6 +1717,19 @@ un-clear a form that was just saved. The one genuinely targeted update is the
 avatar — a sixty-thousand-character iframe document that was being torn down and
 rebuilt identically on all fifty render call sites.
 
+**As built, 19 September 2026 (NERVIS 0.34.46): targeted updates, without rewriting a view.**
+The content region's `innerHTML` setter is replaced, for that element alone, by `morphInto`:
+the new markup is parsed off-screen and the live tree changed only where it differs, an element
+with an `id` matched by it wherever it moved and never patched into another. None of the places
+that write the region changed. A focused or typed-in field keeps its value and a `<details>` the
+reader opened stays open; the preserve-and-restore layer still runs. The Files screen's handlers,
+the only ones attached after a render, are assigned rather than added, so a kept row re-wired for
+another file can't carry the old one's drag. **Checked in a browser:** all 39 screens produce the
+same markup as a full replace (with the data held still — Traces differed only by a request that
+arrived between the two renders); a live repaint of Spending kept all six cards as the same
+elements, with a text selection and the scroll position intact. `tools/morph_check.js` pins the
+matching rules; each of four deliberate breakages fails it.
+
 **Routing.** Hash-based, because `web.py` serves one file and mounts nothing
 else, so `pushState` would 404 on reload or on a pasted link. All 35 screens are
 addressable and round-trip; back, forward and a hand-edited fragment all work;

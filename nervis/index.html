@@ -4975,7 +4975,9 @@ function wireGrips(){
  const pane=$('#filesPane');
  if(!pane)return;
  $$('#filesPane .grip, .entry-head .grip').forEach(grip=>{
-  grip.addEventListener('pointerdown',event=>{
+  /* Assigned, not added: with in-place updates the grip may be the same element as last
+     time, and `addEventListener` would stack a second drag on it at every repaint. */
+  grip.onpointerdown=event=>{
    event.preventDefault();
    const which=grip.dataset.grip;
    const from=event.clientX;
@@ -4995,7 +4997,7 @@ function wireGrips(){
    };
    window.addEventListener('pointermove',move);
    window.addEventListener('pointerup',done);
-  });
+  };
  });
 }
 
@@ -5141,7 +5143,10 @@ function wireEntry(row){
   if(event.target.closest&&event.target.closest('[data-act]'))return;
   pickRow(path,event);
  };
- row.addEventListener('dragstart',event=>{
+ /* Assigned, not added, like every handler here: in-place updates keep a row element when
+    the markup still matches, and the same element can now stand for another file. A second
+    listener added beside the first would drag the file it used to be. */
+ row.ondragstart=event=>{
   /* **Dragging an unselected row drags that row**, and dragging a selected one
      drags everything selected. Anything else would either lose the ten files
      somebody just picked or quietly carry them when they meant one. */
@@ -5151,8 +5156,8 @@ function wireEntry(row){
   event.dataTransfer.effectAllowed='copyMove';
   FILES_SHIFT=event.shiftKey;
   row.classList.add('lifting');
- });
- row.addEventListener('dragend',()=>row.classList.remove('lifting'));
+ };
+ row.ondragend=()=>row.classList.remove('lifting');
  row.querySelectorAll('[data-act]').forEach(button=>{
   button.onclick=event=>{event.stopPropagation();fileAction(button.dataset.act,path,name)};
  });
@@ -5497,16 +5502,18 @@ async function sendTo(row,place,path){
    *list* means changes every navigation. */
 function dropOnto(node,where,opts={}){
  const clear=()=>node.classList.remove('landing');
- node.addEventListener('dragover',event=>{
+ /* Assigned, not added: see `wireEntry`. A kept element is re-wired with the place it
+    means now, replacing what it meant before. */
+ node.ondragover=event=>{
   event.preventDefault();node.classList.add('landing');
- });
- node.addEventListener('dragleave',clear);
- node.addEventListener('drop',async event=>{
+ };
+ node.ondragleave=clear;
+ node.ondrop=async event=>{
   event.preventDefault();clear();
   const moving=event.dataTransfer.getData('text/nervis-path');
   if(moving)return dropMove(JSON.parse(moving),where());
   if(opts.files&&event.dataTransfer.files.length)return dropFiles(event.dataTransfer.files,where());
- });
+ };
 }
 
 /* **Between places a drag copies; within one it moves.** Working between a
@@ -17793,6 +17800,105 @@ function restoreInteraction(was){
  restoreFocus(was);
  window.scrollTo(0,was.y);
 }
+
+/* ── IN-PLACE UPDATES (§25.2, the owner's decision to keep it, 18 September 2026) ─────────
+   Every screen writes its whole content region as one template string, and the section above
+   makes what the reader touched survive that. What it could not keep is everything else a
+   replaced node takes with it: each card's entrance animation played again on every poll, a
+   text selection somebody was about to copy vanished, the element under the mouse lost its
+   hover, and a scrolled table jumped. §25.2 asks for targeted updates instead.
+
+   **Compared and patched, not rewritten per view.** The content region's `innerHTML` setter is
+   replaced, for that one element, with `morphInto`: the new markup is parsed off-screen and the
+   live tree is changed only where it differs — a text that changed, an attribute, a row added or
+   gone. An element with an `id` is matched by it wherever it moved among its siblings; others
+   by position and tag. None of the fifty-odd places that write the content region changed, and
+   the preserve-and-restore above still runs, now mostly with nothing to do.
+
+   **Three things are the reader's, not the markup's,** and a patch leaves them alone: a field
+   that has focus or was typed in (`TOUCHED`) keeps its value, and a `<details>` the reader
+   opened stays open. Everything else follows the markup, as the full replace did.
+
+   Only in a real browser: the checks' page shim has no element tree, and there the setter is
+   left as it was. `morph_check.js` pins the matching rules against a small tree of its own. */
+function morphInto(target,html){
+ const parsed=document.createElement('template');
+ parsed.innerHTML=html;
+ morphChildren(target,parsed.content);
+}
+
+function morphChildren(into,from){
+ let old=into.firstChild;
+ for(let fresh=from.firstChild;fresh;){
+  const next=fresh.nextSibling;
+  const match=morphMatch(old,fresh);
+  if(match){
+   if(match!==old)into.insertBefore(match,old);
+   morphNode(match,fresh);
+   old=match.nextSibling;
+  }else{
+   into.insertBefore(fresh,old);
+  }
+  fresh=next;
+ }
+ while(old){const gone=old;old=old.nextSibling;into.removeChild(gone)}
+}
+
+/* The live node `fresh` should become, or null to insert `fresh` itself. An element with an
+   id is only ever the element with that id — patching another element into it would hand one
+   screen's state to another thing. Without an id, the next few siblings are looked at, past
+   any id'd ones that belong elsewhere, for the same kind of node. */
+function morphMatch(old,fresh){
+ const id=fresh.nodeType===1?fresh.getAttribute('id'):null;
+ if(id){
+  for(let c=old;c;c=c.nextSibling)if(c.nodeType===1&&c.getAttribute('id')===id&&c.nodeName===fresh.nodeName)return c;
+  return null;
+ }
+ let c=old;
+ for(let looked=0;c&&looked<4;looked++,c=c.nextSibling){
+  if(c.nodeType===fresh.nodeType&&c.nodeName===fresh.nodeName&&!(c.nodeType===1&&c.getAttribute('id')))return c;
+ }
+ return null;
+}
+
+function morphNode(live,fresh){
+ if(live.nodeType!==1){
+  if(live.nodeValue!==fresh.nodeValue)live.nodeValue=fresh.nodeValue;
+  return;
+ }
+ const opened=live.nodeName==='DETAILS'&&live.open;
+ morphAttributes(live,fresh);
+ if(opened&&!live.hasAttribute('open'))live.open=true;
+ morphChildren(live,fresh);
+ morphField(live,fresh);
+}
+
+function morphAttributes(live,fresh){
+ for(const {name} of [...live.attributes])if(!fresh.hasAttribute(name))live.removeAttribute(name);
+ for(const {name,value} of [...fresh.attributes])if(live.getAttribute(name)!==value)live.setAttribute(name,value);
+}
+
+/* A form field's current value is a property, not an attribute, so the attributes above don't
+   reach it once somebody has changed it. Brought into line with the markup unless the reader
+   is in it or typed in it — the full replace did the same by starting from the markup. */
+function morphField(live,fresh){
+ if(!/^(INPUT|TEXTAREA|SELECT)$/.test(live.nodeName))return;
+ if(live===document.activeElement||(live.id&&TOUCHED.has(live.id)))return;
+ if(live.type==='checkbox'||live.type==='radio'){live.checked=fresh.checked;return}
+ if(live.value!==fresh.value)live.value=fresh.value;
+}
+
+function installInPlaceUpdates(){
+ const content=document.getElementById('content');
+ const real=typeof Element==='function'&&content instanceof Element
+   &&'content' in document.createElement('template');
+ if(!real)return;
+ const native=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
+ Object.defineProperty(content,'innerHTML',{configurable:true,
+   get(){return native.get.call(this)},
+   set(html){morphInto(this,String(html))}});
+}
+installInPlaceUpdates();
 
 async function repaint(){
  /* Re-render the current screen without losing where the reader was, or what
