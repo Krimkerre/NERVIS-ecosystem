@@ -1023,7 +1023,7 @@ const APP_CONFIG={
  ravis:{name:'RAVIS',tag:'Runtime-Adaptive Vendor Intelligence System',accent:'#ff6ec7',rgb:'255,110,199',nav:['Dashboard','Routes','Sessions','Spending','Pools','Providers','Credentials','Policies','Evidence','Logs','Diagnostics','Settings']},
  clarvis:{name:'CLARVIS',tag:'Clippy-Like, A Rather Very Intelligent System',accent:'#34e6f2',rgb:'52,230,242',nav:['Workspace','Explorer','Search','Source control','Run & debug','Extensions','Terminal']}
 };
-const state={app:'nervis',view:'Overview'};
+const state={app:'nervis',view:'Overview',item:''};
 
 /* ── EVERYDAY AND ADVANCED ────────────────────────────────────────────────
    One interface, two amounts of it. `APP_CONFIG.nav` stays the canonical list —
@@ -1121,16 +1121,20 @@ function routeFromHash(){
  const hash=(location.hash||'').replace(/^#/,'');
  const path=hash.split('&').find(part=>part.startsWith('/'));
  if(!path)return null;
- const [,app,...rest]=path.split('/');
- if(!app||!rest.length)return null;
- return{app:decodeURIComponent(app),view:decodeURIComponent(rest.join('/'))};
+ const [,app,view,...item]=path.split('/');
+ if(!app||!view)return null;
+ /* A third segment names one thing on the screen — a route decision on RAVIS → Routes
+    (§25.2: "a route decision that can be linked to"). No view name holds a `/`. */
+ return{app:decodeURIComponent(app),view:decodeURIComponent(view),
+   item:item.length?decodeURIComponent(item.join('/')):''};
 }
 
 /* The address for a screen. Views carry spaces and an ampersand — "Runtime
    sets", "Run & debug" — so each segment is encoded; without that, `Run & debug`
    would end at the `&` and read as a second fragment parameter. */
-function hashFor(app,view){
- return ROUTE_PREFIX+encodeURIComponent(app)+'/'+encodeURIComponent(view);
+function hashFor(app,view,item=''){
+ return ROUTE_PREFIX+encodeURIComponent(app)+'/'+encodeURIComponent(view)
+   +(item?'/'+encodeURIComponent(item):'');
 }
 
 /* Whether a route names a screen that exists, and what to do when it does not.
@@ -1139,13 +1143,13 @@ function hashFor(app,view){
    coerces an unknown view to the first one, and a URL somebody pasted deserves
    better than being quietly replaced by the Overview. */
 function resolveRoute(route){
- if(!route)return{app:state.app,view:state.view,note:''};
+ if(!route)return{app:state.app,view:state.view,item:state.item||'',note:''};
  const config=APP_CONFIG[route.app];
  if(!config)return{app:'nervis',view:'Overview',
    note:`no app called “${route.app}” — showing the overview`};
  if(!config.nav.includes(route.view))return{app:route.app,view:config.nav[0],
    note:`${config.name} has no “${route.view}” screen — showing ${config.nav[0]}`};
- return{app:route.app,view:route.view,note:''};
+ return{app:route.app,view:route.view,item:route.item||'',note:''};
 }
 
 /* Where a correction is remembered until a render can show it. A toast fired
@@ -1230,16 +1234,16 @@ async function restoreLastTab(opened){
    Every `state.view=…;render()` in the file went through this, because a
    navigation that does not reach the address bar is exactly the state §25.2
    describes — and there were nine of them, each one a place to forget. */
-function go(app,view,{replace=false}={}){
- const target=resolveRoute({app,view});
+function go(app,view,{replace=false,item=''}={}){
+ const target=resolveRoute({app,view,item});
  /* A draft belongs to the screen it was typed on. Carrying it across a
     navigation would put a half-typed provider name into the next screen's field
     with the same id, and would resurrect it long after the reader had moved on.
     A repaint keeps it; leaving does not. */
  if(target.app!==state.app||target.view!==state.view)TOUCHED.clear();
- state.app=target.app;state.view=target.view;
+ state.app=target.app;state.view=target.view;state.item=target.item||'';
  ROUTE_NOTE=target.note;
- const url=location.pathname+location.search+hashFor(state.app,state.view);
+ const url=location.pathname+location.search+hashFor(state.app,state.view,state.item);
  /* `replace` for a correction, `push` for a navigation: rewriting an address
     the reader never chose should not cost them a press of Back. */
  if(replace)history.replaceState(null,'',url);else history.pushState(null,'',url);
@@ -1260,10 +1264,11 @@ function go(app,view,{replace=false}={}){
    `pushState` raises neither, so `go` cannot re-enter through this. */
 function routeChanged(){
  const target=resolveRoute(routeFromHash());
- if(target.app===state.app&&target.view===state.view&&!target.note)return;
+ if(target.app===state.app&&target.view===state.view&&(target.item||'')===(state.item||'')
+   &&!target.note)return;
  /* Same rule as `go`: a draft belongs to the screen it was typed on. */
  if(target.app!==state.app||target.view!==state.view)TOUCHED.clear();
- state.app=target.app;state.view=target.view;ROUTE_NOTE=target.note;
+ state.app=target.app;state.view=target.view;state.item=target.item||'';ROUTE_NOTE=target.note;
  /* Correct the address *here*, before rendering, and this is load-bearing
     rather than tidiness. An address that stays wrong is re-resolved by the next
     event, which produces the same note, which re-renders — and the second
@@ -1277,7 +1282,7 @@ function routeChanged(){
     Replace rather than push: the reader never chose this address, so undoing it
     should not cost them a press of Back. */
  if(target.note)history.replaceState(null,'',
-   location.pathname+location.search+hashFor(target.app,target.view));
+   location.pathname+location.search+hashFor(target.app,target.view,target.item));
  rememberTab();
  render();
 }
@@ -2222,6 +2227,21 @@ function withSource(value,answered){
    and excludes forty, and pasting both lists into a disclosure is a way of not
    answering the question. Counts, then the first few, then the count of the
    rest. */
+/* ── A route decision, by its own address (§25.2) ──────────────────────────
+   `#/ravis/Routes/<decision id>` opens that decision on the Routes screen — the newest
+   twenty-five from the list, and any older one RAVIS still keeps (thirty days) read by id.
+   Every place a decision id is shown links to it, and the Routes card copies its link. */
+const decisionHref=id=>hashFor('ravis','Routes',id);
+function decisionLink(id,label){
+ if(!id)return escapeHtml(label||'—');
+ return `<a class="mono" href="${escapeHtml(decisionHref(id))}" style="color:inherit" title="Open this decision on RAVIS → Routes">${escapeHtml(label||id)}</a>`;
+}
+async function copyDecisionLink(id){
+ const url=location.origin+location.pathname+decisionHref(id);
+ try{await navigator.clipboard.writeText(url);notify('Link copied')}
+ catch(e){notify('Copy it from the address bar: '+url)}
+}
+
 function decisionDetail(d){
  if(!d)return '';
  const rows=[
@@ -2230,7 +2250,7 @@ function decisionDetail(d){
   ['requested',d.requested],['pool',d.pool],['selected',d.selected],
   ['path',d.execution_path]];
  const facts=rows.filter(([,v])=>v)
-   .map(([k,v])=>`<div class="trace-step"><b>${escapeHtml(k)}</b><span class="mono">${escapeHtml(String(v))}</span></div>`).join('');
+   .map(([k,v])=>`<div class="trace-step"><b>${escapeHtml(k)}</b><span class="mono">${k==='decision'?decisionLink(v):escapeHtml(String(v))}</span></div>`).join('');
  return `<div class="log-detail">${facts}
   ${d.reason?`<p class="mono dim">${escapeHtml(d.reason)}</p>`:''}
   ${listOf('required',d.requirements)}
@@ -3063,9 +3083,21 @@ const API={
      LM Studio reports no tool_use for either — which is the whole argument for
      capability probes over model names: they are the strongest coding builds
      installed here and they still cannot serve a role that needs tools. */
-  /* GET /api/v1/route-decisions — the records RAVIS keeps of its own choices.
-     Newest first, held in memory only: §17's storage model does not list route
-     decisions, so a restart loses them and that is the intended trade. */
+  /* GET /api/v1/route-decisions/{id} — one decision, however old, while RAVIS keeps it.
+     RAVIS's refusal says why it's gone (deleted after its thirty days, or never written). */
+  async decision(id){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/route-decisions/'+encodeURIComponent(id),
+      {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    const d=await r.json().catch(()=>({}));
+    if(r.ok)return{item:d,reason:''};
+    return{item:null,reason:(d.error||{}).message||d.message||`RAVIS answered HTTP ${r.status}`};
+   }catch(e){}
+   return{item:null,reason:'RAVIS is not answering'};
+  },
+
+  /* GET /api/v1/route-decisions — the records RAVIS keeps of its own choices, newest
+     first. Kept thirty days since RAVIS 0.30.0, so a restart no longer empties them. */
   async decisions(limit){
    try{
     const r=await fetch(BASE.ravis+'/api/v1/route-decisions?limit='+(limit||25),
@@ -8692,7 +8724,7 @@ function decisionsCard(items,latest){
  return `<div class="card full live"><h3>Recent routing decisions</h3>${cell(`
    <div class="table-row head six"><span>Decision</span><span>At</span><span>Application</span><span>Pool</span><span>Selected</span><span>Outcome</span></div>
    ${items.map(d=>`<div class="table-row six${d.decision_id===latest.decision_id?' selected':''}">
-     <span class="mono">${escapeHtml(dash(d.decision_id))}</span>
+     <span class="mono">${decisionLink(d.decision_id,dash(d.decision_id))}</span>
      <span class="mono">${escapeHtml(clockOf(d.decided_at))}</span>
      <span>${escapeHtml(dash(d.application_id))}</span>
      <span class="mono" style="opacity:.8">${escapeHtml(d.pool||dash(d.requested))}</span>
@@ -8720,7 +8752,7 @@ function decisionDetailRows(latest){
 }
 
 function latestDecisionCard(latest){
- return `<div class="card wide live"><h3>Decision ${escapeHtml(latest.decision_id||'')} <span class="chip">${escapeHtml(latest.execution_path||'')}</span></h3>${cell(`
+ return `<div class="card wide live"><h3>Decision ${decisionLink(latest.decision_id,latest.decision_id||'')} <span class="chip">${escapeHtml(latest.execution_path||'')}</span></h3>${cell(`
    <div class="trace-step"><b>requested</b><span class="mono">${escapeHtml(dash(latest.requested))}</span></div>
    <div class="trace-step"><b>selected</b><span class="mono">${escapeHtml(latest.selected||'no route')}</span></div>
    ${decisionDetailRows(latest)}
@@ -11735,7 +11767,8 @@ function exclusionSummary(excluded){
 
 function decisionCard(d){
  const reqs=(d.requirements||[]).filter(r=>r&&r!=='none');
- return `<div class="card wide live"><h3>${escapeHtml(d.pool||d.requested||'')} · decision ${escapeHtml((d.decision_id||'').slice(0,12))}</h3>${cell(`
+ const copy=d.decision_id?` <button type="button" class="ghost" onclick="copyDecisionLink('${jsAttr(d.decision_id)}')" title="Copy the address of this decision">Copy link</button>`:'';
+ return `<div class="card wide live"><h3>${escapeHtml(d.pool||d.requested||'')} · decision ${escapeHtml((d.decision_id||'').slice(0,12))}${copy}</h3>${cell(`
    <div class="trace-step"><b>requested</b><span class="mono">${escapeHtml(dash(d.requested))}</span></div>
    <div class="trace-step"><b>selected</b><span class="mono">${escapeHtml(d.selected||'no route')}</span></div>
    <div class="trace-step"><b>path</b><span class="mono">${escapeHtml(dash(d.execution_path))}</span></div>
@@ -11770,19 +11803,45 @@ function attemptsCard(d){
    <small class="mono dim">every entry satisfies the same hard constraints and the same pool invariant — a fallback is a different candidate, never a relaxed one. The attempts below are what actually happened, which is not always the chain above.</small>`,'ravis')}</div>`;
 }
 
-function recentDecisionsCard(items){
+function recentDecisionsCard(items,selected){
  return `<div class="card full live"><h3>Recent decisions</h3>${cell(`
    <div class="table-row head five"><span>At</span><span>Requested</span><span>Selected</span><span>Path</span><span>Outcome</span></div>
-   ${items.map(d=>`<div class="table-row five">
+   ${items.map(d=>`<a class="table-row five${d.decision_id===selected?' selected':''}" href="${escapeHtml(decisionHref(d.decision_id))}" style="color:inherit;text-decoration:none" title="Show this decision">
      <span class="mono">${escapeHtml(clockOf(d.decided_at))}</span>
      <span class="mono">${escapeHtml(dash(d.requested))}</span>
      <span class="mono">${escapeHtml(d.selected||'no route')}</span>
      <span class="mono" style="opacity:.75">${escapeHtml(dash(d.execution_path))}</span>
-     <span class="chip${warnUnless(outcomeOf({selected:d.selected,execution:d.execution})==='succeeded'||Boolean(d.selected))}">${escapeHtml(outcomeOf({selected:d.selected,execution:d.execution}))}</span></div>`).join('')}
-   <small class="mono dim">held in memory only — §17 does not list route decisions as stored state, so a restart loses them and that is the intended trade. <b>NO_ROUTE is a first-class result</b>: it means a hard constraint could not be satisfied and RAVIS refused rather than routing around it.</small>`,'ravis')}</div>`;
+     <span class="chip${warnUnless(outcomeOf({selected:d.selected,execution:d.execution})==='succeeded'||Boolean(d.selected))}">${escapeHtml(outcomeOf({selected:d.selected,execution:d.execution}))}</span></a>`).join('')}
+   <small class="mono dim">each row opens that decision, and the address names it, so it can be sent to somebody or come back to later; RAVIS keeps every decision thirty days. <b>NO_ROUTE is a first-class result</b>: it means a hard constraint could not be satisfied and RAVIS refused rather than routing around it.</small>`,'ravis')}</div>`;
 }
 
-function liveRoutesScreen(decisions,prof){
+/* The decision the address names, from the list or else read by id; or why it can't be shown. */
+async function pickedDecision(decisions){
+ const wanted=state.item||'';
+ if(!wanted)return{wanted,chosen:null,missing:''};
+ const listed=decisions.find(d=>d.decision_id===wanted);
+ if(listed)return{wanted,chosen:listed,missing:''};
+ const one=await API.ravis.decision(wanted);
+ return{wanted,chosen:one.item,missing:one.reason};
+}
+
+/* Why the decision the address named isn't on screen, in RAVIS's own words. */
+function pickNotice(pick,decisions){
+ if(!pick.wanted||pick.chosen)return '';
+ return banner(`Decision ${pick.wanted} can't be shown`,escapeHtml(pick.missing||'')
+   +(decisions.length?'. The newest decision is shown instead.':''),'warn');
+}
+
+function noDecisionsYet(prof){
+ const chosen=prof.items.find(p=>p.default)||prof.items[0];
+ return `<div class="card full live"><h3>Nothing has routed yet</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/route-decisions</span></div>
+   <div class="trace-step"><b>returned</b><span>an empty list — RAVIS is answering</span></div>
+   <div class="trace-step"><b>active profile</b><span>${chosen?escapeHtml(chosen.label):'—'}</span></div>
+   <small class="mono dim">route decisions are kept for thirty days, so this is empty only until something routes. Send a request through <span class="mono">ravis/auto</span> and the funnel, the fallback chain and the candidate snapshot appear here for it.</small>`,'ravis')}</div>`;
+}
+
+function liveRoutesScreen(decisions,prof,pick={}){
  /* **RAVIS answering with nothing is not RAVIS being down**, and this screen
     could not say so: it read `decisions[0]` straight away, so the only thing
     keeping it from throwing was `decisions()` reporting an empty-but-successful
@@ -11790,27 +11849,24 @@ function liveRoutesScreen(decisions,prof){
     RAVIS — whose decision log is in memory and starts empty — render invented
     routes, and the Overview tile beside it say "RAVIS not answering" while
     RAVIS answered every request put to it.
-    The log is bounded and in memory, so empty is the ordinary state after a
-    restart rather than an error worth dressing up. */
- if(!decisions.length){
-  const chosen=prof.items.find(p=>p.default)||prof.items[0];
-  $('#content').innerHTML=`<div class="card full live"><h3>Nothing has routed yet</h3>${cell(`
-   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/route-decisions</span></div>
-   <div class="trace-step"><b>returned</b><span>an empty list — RAVIS is answering</span></div>
-   <div class="trace-step"><b>active profile</b><span>${chosen?escapeHtml(chosen.label):'—'}</span></div>
-   <small class="mono dim">route decisions are kept <b>in memory and bounded</b>, so a restart empties them and that is the intended trade — §17 does not list them as stored state. Send a request through <span class="mono">ravis/auto</span> and the funnel, the fallback chain and the candidate snapshot appear here for it.</small>`,'ravis')}</div>`;
-  return;
- }
- const newest=decisions[0];
+    Since RAVIS 0.30.0 the log is kept thirty days, so empty now means nothing has
+    routed yet; it still isn't an error worth dressing up.
+
+    **Which decision is shown** (§25.2's linkable decision): the one the address names,
+    `#/ravis/Routes/<id>`, else the newest. `pickedDecision` finds it. */
+ const gone=pickNotice(pick,decisions);
+ const shown=pick.chosen||decisions[0];
+ if(!shown){$('#content').innerHTML=gone+noDecisionsYet(prof);return}
  const active=prof.items.find(p=>p.profile_id===CHAT_SESSION.profile)||prof.items.find(p=>p.default)||prof.items[0];
- const considered=(newest.considered||[]).length;
- const eligible=considered-(newest.excluded||[]).length;
+ const considered=(shown.considered||[]).length;
+ const eligible=considered-(shown.excluded||[]).length;
  $('#content').innerHTML=kpis([
    ['Profile',active?active.label:'—',active?active.profile_id:'','ravis',true],
    ['Candidates',`${considered} → ${eligible}`,'after hard constraints','ravis',true],
-   ['Decisions kept',String(decisions.length),'in memory, not persisted','ravis',true],
-   ['Path',dash(newest.execution_path),'transparent vs translated','ravis',true]])
- +decisionCard(newest)+funnelCard(newest)+attemptsCard(newest)+recentDecisionsCard(decisions);
+   ['Recent decisions',String(decisions.length),'the newest; each kept 30 days','ravis',true],
+   ['Path',dash(shown.execution_path),'transparent vs translated','ravis',true]])
+ +gone+decisionCard(shown)+funnelCard(shown)+attemptsCard(shown)
+ +recentDecisionsCard(decisions,shown.decision_id);
 }
 
 async function ravisRoutes(){
@@ -11821,7 +11877,7 @@ async function ravisRoutes(){
     blend: the mock carries per-candidate scores and a phase breakdown that
     RAVIS does not publish, so mixing them would put invented numbers beside
     measured ones on the same screen. */
- if(live.live)return liveRoutesScreen(live.items,prof);
+ if(live.live)return liveRoutesScreen(live.items,prof,await pickedDecision(live.items));
  $('#content').innerHTML=banner('RAVIS has recorded no route decision',
   'Nothing has been routed through RAVIS yet, or it is not answering. Send a request and '
   +'this screen explains exactly which model was chosen and why every other candidate was '
@@ -17001,7 +17057,7 @@ function attemptRows(attempts){
 
 function inspectorRows(items){
  if(!items.length)return banner('No route decision held',
-   'RAVIS keeps decisions in memory, so this is empty after a restart until something routes. '
+   'Nothing has routed since RAVIS started keeping decisions, or nothing at all yet. '
    +'Send a chat message and it appears here.','info');
  return `<div class="table-row head caps" style="grid-template-columns:1fr .8fr 1.4fr 1fr">
    <span>When</span><span>Client</span><span>Selected</span><span>Path</span></div>`
@@ -18347,11 +18403,11 @@ $$('.tab').forEach(t=>t.onclick=()=>{setZen(false);
 (function(){
  const opened=routeFromHash();
  const target=resolveRoute(opened);
- state.app=target.app;state.view=target.view;ROUTE_NOTE=target.note;
+ state.app=target.app;state.view=target.view;state.item=target.item||'';ROUTE_NOTE=target.note;
  /* Written even when the address was empty, so every screen is addressable
     from the moment it is on screen rather than only after the first click. */
  history.replaceState(null,'',location.pathname+location.search
-   +hashFor(state.app,state.view));
+   +hashFor(state.app,state.view,state.item));
  /* After the first paint, and only when the address named nothing. */
  restoreLastTab(opened);
 })();

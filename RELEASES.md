@@ -756,7 +756,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.47
+## NERVIS — 0.34.48
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Every route decision has its own link.** RAVIS → Routes always showed the newest decision.
+  Now each has an address (`#/ravis/Routes/<decision id>`): open it, bookmark it, send it, and
+  it shows that decision for as long as RAVIS keeps it (thirty days) — or says why it can't.
+  Clicking a decision in the list selects it and Back goes to the one before; the decision card
+  has Copy link; and wherever else a decision id appears — Traces, a chat reply's "why this
+  model", the inspector — it links there. The screen also stopped saying decisions are lost on
+  a restart, which hasn't been true since RAVIS 0.30.0.
+
+### 0.34.47
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

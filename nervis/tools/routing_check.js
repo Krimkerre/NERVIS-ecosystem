@@ -93,6 +93,25 @@ if (!carried || carried.app !== "ravis" || carried.view !== "Routes") {
  * a pasted link always beats the memory. Checked here because every one of
  * these failures looks like the router being wrong about something else — a
  * link that opens the wrong screen, or a restart that hides what broke. */
+/* A route decision by its own address (§25.2): `#/ravis/Routes/<decision id>` names the
+   screen and the decision, the id survives encoding, and an address without one names
+   none — so the Routes screen shows the newest. */
+{
+  const id = "dec_7f3a/odd id&x";
+  context.location.hash = run(`hashFor("ravis","Routes",${JSON.stringify(id)})`);
+  const named = run("routeFromHash()");
+  if (!named || named.app !== "ravis" || named.view !== "Routes" || named.item !== id) {
+    failures.push(`a decision's address did not round-trip: ${JSON.stringify(named)}`);
+  }
+  const resolved = run("resolveRoute(routeFromHash())");
+  if (resolved.item !== id) failures.push("resolving a decision's address dropped the decision");
+  context.location.hash = run('hashFor("ravis","Routes")');
+  if (run("routeFromHash()").item !== "") failures.push("an address with no decision named one");
+  if (run("decisionHref('dec_1')") !== "#/ravis/Routes/dec_1") {
+    failures.push(`a decision link points elsewhere: ${run("decisionHref('dec_1')")}`);
+  }
+}
+
 const BOOT = "2026-09-09T10:09:53Z";
 const held = { app: "clarvis", view: "Editor", boot: BOOT };
 const landed = (opened, memory, boot, remember) =>

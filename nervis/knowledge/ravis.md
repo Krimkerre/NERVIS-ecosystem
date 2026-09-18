@@ -783,6 +783,11 @@ before 12 September is not proof that nothing was spent. The Reset to 0 button
 on the dashboard's spend tile makes that tile count from the moment it was
 pressed; no record is deleted, and the monthly budget keeps counting as before.
 
+**Every route decision has a link (NERVIS 0.34.48).** On RAVIS → Routes each decision has its
+own address, `#/ravis/Routes/<decision id>`, that can be bookmarked or sent; clicking one in the
+list selects it, the card has Copy link, and decision ids on Traces and in a chat reply's routing
+detail link there. RAVIS keeps each decision thirty days.
+
 **Budgets, as many as the owner wants (RAVIS 0.30.5, 18 September 2026).** The
 Budgets card on RAVIS → Spending sets a spending limit over everything, over one
 app (Clarvis, NERVIS…) or over one provider (Anthropic, OpenAI…), per rolling day,

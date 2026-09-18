@@ -1734,9 +1734,14 @@ matching rules; each of four deliberate breakages fails it.
 else, so `pushState` would 404 on reload or on a pasted link. All 35 screens are
 addressable and round-trip; back, forward and a hand-edited fragment all work;
 an address naming no screen resolves to one that exists and *says so* rather
-than coercing silently. **Not finished** — this section asks that a route
+than coercing silently. ~~**Not finished** — this section asks that a route
 decision be addressable, and the Routes screen has no selected-decision state to
-address: it renders `decisions[0]` and its rows carry no click handler.
+address: it renders `decisions[0]` and its rows carry no click handler.~~
+**Finished 19 September 2026 (NERVIS 0.34.48):** `#/ravis/Routes/<decision id>` names a
+decision — a third address segment, `state.item` — and the Routes screen shows it, from the list
+or read by id from RAVIS (kept thirty days), or says in RAVIS's words why it can't. Its rows are
+links, so Back and Forward move between decisions; its card has Copy link; every other place a
+decision id shows (Traces, a chat reply's routing detail, the inspector) links to it.
 
 **Authentication.** The 401/403 path exists and is visibly distinct from
 absence: a refused read renders as a refusal, and the status bar no longer calls
