@@ -40,7 +40,7 @@ apply to a stack that runs on one machine is still the owner's decision.
 | RAVIS | 0.30.4 | the same |
 | SIRVIS | 0.19.5 | the same |
 | ecosystem-protocol | 0.2.3 (MEP 1.0.0) | the same |
-| Clarvis | 0.17.19 | `clarvis` at 596ae20 |
+| Clarvis | 0.17.19 | `clarvis` at 596ae20, tagged `ecosystem-rc1` there too |
 
 **The evidence, all on this code or recorded against it:**
 - **The clean-clone gate, 75 of 75,** on 87ec39f cloned from GitHub (`tools/check_clean_clone.sh`):

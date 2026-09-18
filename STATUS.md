@@ -20036,8 +20036,10 @@ driven by hand in the browser — with every read failing it fell back on RAVIS,
 transition repainted live within five seconds — and appears on the page from before today's work
 too; the check waits 60 ms. Not changed in the check.
 
-**The tag is local.** Pushing it makes it visible on GitHub, so that waits for the owner. Clarvis is
-recorded by commit (596ae20) and not tagged in its own repository.
+**Both tags are on GitHub,** pushed on the owner's word ("push the tag, for clarvis too"):
+`ecosystem-rc1` here at 123ebe8, and `ecosystem-rc1` in Clarvis's repository at 596ae20 — the
+commit the gate built, already on its `main`. No Clarvis session was running to tell first; a tag
+changes nothing in its checkout.
 
 
 ## Codex on Linux — 2026-09-18 (RAVIS 0.30.4, NERVIS 0.34.39)
