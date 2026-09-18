@@ -433,3 +433,35 @@ def test_a_type_word_narrows_but_does_not_veto(tmp_path: Path) -> None:
 
     assert newest_readable(place, TYPE_WORDS["pdf"]) is None
     assert newest_readable(place) == "notes.md"
+
+
+# ── What a cleanup may reach ────────────────────────────────────────────────
+
+
+def test_an_id_of_dots_deletes_nothing(tmp_path: Path) -> None:
+    """**The helper that makes an attachment directory refuses `..`; the one
+    that deletes it did not.** The id pattern allows dots, so `..` pointed the
+    cleanup at the room the attachments sit in and unlinked the files there
+    before failing to remove the directory (base review, 17 September 2026,
+    finding 2)."""
+    (tmp_path / ".attachments" / "cv_aaaa").mkdir(parents=True)
+    (tmp_path / "unattached.txt").write_text("the owner's own file", encoding="utf-8")
+
+    for wanted in ("..", ".", "../..", "cv_aaaa/.."):
+        assert forget_attachments(tmp_path, wanted) == 0, wanted
+        assert (tmp_path / "unattached.txt").is_file(), wanted
+
+
+def test_a_symlinked_attachment_directory_is_left_alone(tmp_path: Path) -> None:
+    """A conversation's directory that is really a link out is not this
+    service's to empty — neither when somebody deletes the conversation nor
+    when the fortnightly sweep runs."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "private.txt").write_text("not ours", encoding="utf-8")
+    (tmp_path / ".attachments").mkdir()
+    (tmp_path / ".attachments" / "cv_bbbb").symlink_to(outside, target_is_directory=True)
+
+    assert forget_attachments(tmp_path, "cv_bbbb") == 0
+    assert prune_attachments(tmp_path, now=2_000_000_000.0) == 0
+    assert (outside / "private.txt").is_file()

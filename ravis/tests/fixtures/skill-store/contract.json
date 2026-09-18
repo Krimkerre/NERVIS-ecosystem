@@ -367,7 +367,7 @@
   "error_codes": {
     "FORBIDDEN": {"status": [403], "retryable": false},
     "INVALID_REQUEST_BODY": {"status": [422], "retryable": false},
-    "SKILL_REFUSED": {"status": [422], "retryable": false, "reasons": ["archive_too_large", "description_invalid", "digest_mismatch", "duplicate_path", "encrypted", "field_invalid", "file_too_large", "front_matter", "link", "name_invalid", "name_mismatch", "no_skill_md", "not_archive", "not_one_skill", "skill_md_not_text", "skill_md_too_large", "special_file", "submodule", "too_large", "too_many_files", "unsafe_path"]},
+    "SKILL_REFUSED": {"status": [422], "retryable": false, "reasons": ["archive_too_large", "description_invalid", "digest_mismatch", "duplicate_path", "encrypted", "field_invalid", "file_too_large", "front_matter", "link", "name_invalid", "name_mismatch", "no_skill_md", "not_archive", "not_one_skill", "skill_md_not_text", "skill_md_too_large", "special_file", "staging_differs", "submodule", "too_large", "too_many_files", "unsafe_path"]},
     "SKILL_SOURCE_NOT_FOUND": {"status": [404], "retryable": false},
     "SKILL_SOURCE_REFUSED": {"status": [422], "retryable": false, "reasons": ["host_not_allowed", "not_a_github_link", "not_https", "redirect_elsewhere", "too_large", "too_many_redirects"]},
     "SKILL_SOURCE_UNREACHABLE": {"status": [503], "retryable": true},

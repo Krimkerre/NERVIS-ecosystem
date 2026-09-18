@@ -314,3 +314,32 @@ def test_a_long_skill_md_diff_is_cut_and_says_how_much_more() -> None:
     lines = changes(before, after).skill_md_diff.splitlines()
 
     assert len(lines) == package.MOST_DIFF_LINES + 1 and lines[-1].startswith("… ")
+
+
+# ── Two names, one file ─────────────────────────────────────────────────────
+
+
+def test_two_paths_that_are_one_file_on_this_disk_are_refused() -> None:
+    """**The instructions installed must be the instructions reviewed.** The
+    duplicate check compared exact strings, so `SKILL.md` and `skill.md` both
+    passed — and on a case-insensitive disk (macOS's default) staging wrote both
+    onto one physical file, so the preview showed one text and the install held
+    the other. The update comparison then saw no change to `SKILL.md`, which is
+    what keeps the engine switches on (base review, 17 September 2026, finding 1)."""
+    refused("duplicate_path", check, "pdf",
+            [Incoming("SKILL.md", skill_md("pdf")),
+             Incoming("skill.md", b"# unreviewed replacement")])
+    refused("duplicate_path", check, "pdf",
+            [Incoming("SKILL.md", skill_md("pdf")),
+             Incoming("notes/Guide.md", b"a"), Incoming("notes/guide.md", b"b")])
+
+
+def test_what_was_staged_is_what_the_package_held(tmp_path: Path) -> None:
+    """Checked after writing rather than reasoned about: whatever the filesystem
+    did with those names, the folder RAVIS is about to install must hold the
+    reviewed bytes."""
+    package_ = check("pdf", [Incoming("SKILL.md", skill_md("pdf")),
+                             Incoming("notes/guide.md", b"a guide")])
+    folder = stage(package_, tmp_path)
+
+    assert installed_files(folder) == dict(package_.data)

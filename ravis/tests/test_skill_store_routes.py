@@ -374,6 +374,28 @@ def test_a_discarded_review_goes_at_once_and_at_most_five_wait(store: StoreRig) 
         preview["preview_id"] for preview in previews[2:])
 
 
+def test_an_id_that_names_no_preview_touches_no_file(store: StoreRig) -> None:
+    """**Unknown means do nothing, not delete what the name points at.** The id
+    was accepted for starting `sp_` and being under a hundred characters, and
+    the discard removed `staging/<id>` recursively whether or not a preview of
+    that name existed — so a path climbing out of the staging folder deleted a
+    directory RAVIS can write (base review, 17 September 2026, finding 4)."""
+    with serving(store.rig) as relay:
+        kept = review(relay)
+        # Climbing *through* a staging folder that exists, which is what makes the
+        # path real: `staging/<a real preview>/../../victim`.
+        victim = store.staging.parent / "victim"
+        victim.mkdir(parents=True, exist_ok=True)
+        (victim / "kept.txt").write_text("the owner's own file", encoding="utf-8")
+        climbing = f"{kept['preview_id']}/../../victim"
+        answers = [body_of(call(relay, "POST", DISCARD, {"preview_id": climbing})),
+                   body_of(call(relay, "POST", DISCARD, {"preview_id": "sp_nothing_of_that_name"}))]
+
+    assert answers == [{"discarded": False}, {"discarded": False}]
+    assert (victim / "kept.txt").is_file(), "an unknown id deleted a directory"
+    assert (store.staging / kept["preview_id"]).is_dir(), "the real preview was disturbed"
+
+
 # ── Refusals ─────────────────────────────────────────────────────────────────
 
 

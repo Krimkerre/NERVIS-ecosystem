@@ -44,6 +44,7 @@ import hashlib
 import io
 import os
 import re
+import shutil
 import stat
 import tarfile
 import zipfile
@@ -360,11 +361,28 @@ def front_matter_problem(header: dict[str, Any], folder: str) -> str | None:
 
 def _files(incoming: Iterable[Incoming]) -> dict[str, Incoming]:
     files: dict[str, Incoming] = {}
+    # **Two names the disk cannot tell apart are one file.** macOS and Windows
+    # store `SKILL.md` and `skill.md` in the same place, so a package carrying
+    # both passed the exact-string check here and then staged one over the
+    # other: the preview read the reviewed text and the install held the
+    # replacement, with the update comparison reporting `SKILL.md` unchanged —
+    # which is what leaves the engine switches on (base review, 17 September
+    # 2026, finding 1). Refused for every filesystem rather than only where it
+    # collides: a skill that needs two files differing only in case is not a
+    # thing worth supporting, and a package must mean the same everywhere.
+    same_to_the_disk: dict[str, str] = {}
     total = 0
     for file in incoming:
         path = plain_path(file.path)
         if path in files:
             raise PackageRefusedError("duplicate_path", f"{path} is in the skill twice.")
+        folded = path.casefold()
+        if folded in same_to_the_disk:
+            raise PackageRefusedError(
+                "duplicate_path",
+                f"{path} and {same_to_the_disk[folded]} are the same file on a disk that "
+                "ignores capitals, so which one you would get is not decidable.")
+        same_to_the_disk[folded] = path
         if len(file.data) > MOST_FILE_BYTES:
             raise _file_too_large(path)
         total = _within_total(total + len(file.data))
@@ -506,6 +524,18 @@ def stage(package: Package, folder: Path) -> Path:
         os.chmod(path, 0o755 if file.executable else 0o644)
     for inner in (target, *(p for p in target.rglob("*") if p.is_dir())):
         os.chmod(inner, 0o755)
+    # **Read back rather than assumed.** What is installed has to be what was
+    # reviewed, and only the disk can say what these writes produced — a name
+    # collision, a filesystem that normalises unicode, anything. `_files`
+    # refuses the case that is known; this is the check that does not depend on
+    # knowing the cause.
+    written = installed_files(target)
+    if written != dict(package.data):
+        shutil.rmtree(target, ignore_errors=True)
+        raise PackageRefusedError(
+            "staging_differs",
+            "What was written to disk is not what the skill package held, so it was not "
+            "installed. This happens when two of its paths are one file on this disk.")
     return target
 
 

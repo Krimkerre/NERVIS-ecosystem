@@ -465,3 +465,59 @@ def test_the_share_s_own_top_level_may_be_written_to(tmp_path: Path) -> None:
     assert made.status_code == 201, made.text
     assert (nas / "archive").is_dir()
     assert beside.status_code == 409, "the workspace's own top level stays structural"
+
+
+# ── The trash's own boundary ────────────────────────────────────────────────
+
+
+def test_a_symlinked_trash_cannot_carry_a_delete_out_of_the_workspace(tmp_path: Path) -> None:
+    """**The file is checked; the destination was not.** `mkdir(exist_ok=True)`
+    on a symlink succeeds silently, so a `.trash` planted as a link sent every
+    delete wherever it pointed — and the fortnightly prune then permanently
+    removed whatever was there (base review, 17 September 2026, finding 3)."""
+    root = a_workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / TRASH).symlink_to(outside, target_is_directory=True)
+
+    with an_api(tmp_path) as client:
+        answer = client.request("DELETE", "/api/v1/workspace/entries/library/notes.md",
+                                headers=control(client))
+
+    assert answer.status_code == 409, answer.text
+    assert "symbolic link" in answer.text
+    assert (root / "library" / "notes.md").is_file(), "the file was moved out of the workspace"
+    assert list(outside.iterdir()) == []
+
+
+def test_a_symlinked_trash_is_never_pruned_through(tmp_path: Path) -> None:
+    """The sweep runs on a timer with nobody watching, so it checks the same
+    thing the delete does rather than trusting what it finds."""
+    root = a_workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "1000-not-ours.txt").write_text("private", encoding="utf-8")
+    (root / TRASH).symlink_to(outside, target_is_directory=True)
+
+    assert prune_trash(root, now=1000 + TRASH_SECONDS * 10) == 0
+    assert (outside / "1000-not-ours.txt").is_file()
+
+
+def test_two_files_of_one_name_deleted_in_the_same_second_are_both_recoverable(
+    tmp_path: Path,
+) -> None:
+    """The trashed name carried whole seconds and nothing else, and `move`
+    replaces: deleting `import/same.txt` and `library/same.txt` in one second
+    left one of them (base review, finding 11)."""
+    root = a_workspace(tmp_path)
+    (root / "import" / "same.txt").write_text("FIRST", encoding="utf-8")
+    (root / "library" / "same.txt").write_text("SECOND", encoding="utf-8")
+
+    with an_api(tmp_path) as client:
+        for room in ("import", "library"):
+            answer = client.request("DELETE", f"/api/v1/workspace/entries/{room}/same.txt",
+                                    headers=control(client))
+            assert answer.status_code == 200, answer.text
+
+    kept = sorted(entry.read_text(encoding="utf-8") for entry in (root / TRASH).iterdir())
+    assert kept == ["FIRST", "SECOND"], "one delete overwrote the other's only copy"

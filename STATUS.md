@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4310 tests, no network, no live service
+.venv/bin/pytest                      # part of 4318 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 535 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1740 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1745 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4310 passing across the four, conformance `PASS`.
+Expected: all clean, 4318 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -19703,6 +19703,47 @@ independent preferences, all four tabs, the editor iframe not rebuilt when the s
 draft kept across a toggle, hidden tabs out of keyboard reach, and a technical deep link labelled. All
 44 dashboard gates and `tools/check.py` pass. **Stages two and three — simplifying screen contents and
 plain-language explanations — are not started.**
+
+## A base review, and the four destructive paths it found — 2026-09-18 (NERVIS 0.34.33, RAVIS 0.29.3)
+
+The owner had a second model review the base applications at commit `aa7a0ac`. Eleven findings; every
+one was verified against this repository before anything was changed, and each fix carries a test that
+fails on the code as it stood. This entry covers the first group — the paths that delete or install.
+
+- **An attachment cleanup could be pointed at the room the attachments sit in.** `_SAFE_ID` allows
+  dots, and the delete helper never made the `.`/`..` check or the containment check its sibling
+  `attachment_dir` has always made: `forget_attachments(root, "..")` unlinked the files beside the
+  attachment folder before failing to remove it. Now `attachment_place` answers None for anything that
+  cannot be a conversation's own folder, and a folder that is a symbolic link is neither emptied nor
+  swept (`nervis/src/nervis/documents.py`).
+- **The trash could carry a delete out of the workspace.** The file was validated; the destination was
+  not, and `mkdir(exist_ok=True)` on a symlink succeeds silently — so a `.trash` planted as a link
+  took every delete with it, and `prune_trash` removed what it found there a fortnight later. `trash_dir`
+  refuses a symlinked trash and proves containment for both (`nervis/src/nervis/api/files.py`).
+- **Two files of one name deleted in the same second left one.** The trashed name carried whole seconds
+  and `move` replaces. A counter after the stamp, and the free name is taken by creating it.
+- **A skill could install instructions other than the ones reviewed.** a skill's instruction file and the same name in lower case are one file on macOS; the exact-string
+  duplicate check passed both, staging wrote one over the other, and the update comparison then reported
+  that instruction file unchanged — which is what leaves the engine switches on.
+  Paths that differ only in case are refused, and after staging RAVIS reads the folder back and refuses
+  to install anything that is not what the package held (`ravis/src/ravis/agent/skill_package.py`).
+- **Cancelling a review could delete a directory nobody minted an id for.** The id was accepted for
+  starting `sp_`, and the staging folder it named was removed whether or not that preview existed, so a
+  path climbing through a real preview's folder deleted something else and answered `False`. Discard now
+  acts only on a preview RAVIS holds, using the id it minted, and the removal helper refuses any tree
+  outside RAVIS's own staging root (`ravis/src/ravis/agent/skill_installs.py`).
+
+**Checked:** five new NERVIS tests (1,745 passing) and three new RAVIS ones (1,965 passing, run from a
+snapshot rather than the live checkout), each failing on the previous code — including the attachment
+delete removing the owner's file, the trash redirect, the same-second collision, the case collision
+reproduced on this Mac's own disk, and an unknown preview id deleting a directory. Ruff and strict mypy
+clean on both packages.
+
+**Still open from the same review:** the commit hook runs the dashboard gates without the sandbox the
+clean-clone check uses; a title's fallback can reach a free remote model when the background pool is
+private or local and the chat model is remote; copying follows symbolic links out of the workspace;
+cancelling the only waiter for a model load strands SIRVIS capacity; evidence paging skips records
+sharing a second; and the oldest tool verdict decides eligibility while the newest decides the score.
 
 ## Starting the thing
 

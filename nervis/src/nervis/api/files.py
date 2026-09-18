@@ -396,13 +396,58 @@ async def delete_entry(path: str, request: Request) -> dict[str, Any]:
     if not source.exists():
         raise NotFoundError(f"there is no {source.name} to delete")
 
-    bin_ = base / TRASH
-    bin_.mkdir(parents=True, exist_ok=True)
+    # Said as a refusal rather than an error: a `.trash` that is a link out is
+    # something an operator can fix, and `_inside` words every other refusal
+    # on this route the same way.
+    try:
+        bin_ = trash_dir(base)
+    except OutsideWorkspaceError as refusal:
+        raise RefusedError(str(refusal)) from refusal
     # Stamped, so deleting two files of the same name a week apart does not make
-    # the second one clobber the first one's only remaining copy.
-    resting = bin_ / f"{int(time.time())}-{source.name}"
+    # the second one clobber the first one's only remaining copy — and a counter
+    # after the stamp, because whole seconds are not unique: two files of one
+    # name deleted in the same second sent both to one destination, and `move`
+    # replaces, so the first one's only copy went (base review, 17 September
+    # 2026, finding 11). `exist_ok=False` on the open is what makes the search
+    # for a free name a fact rather than a race.
+    stamp = int(time.time())
+    for attempt in range(1, 1000):
+        resting = bin_ / (f"{stamp}-{source.name}" if attempt == 1
+                          else f"{stamp}-{attempt}-{source.name}")
+        try:
+            with resting.open("xb"):
+                pass
+        except FileExistsError:
+            continue
+        resting.unlink()
+        break
+    else:
+        raise RefusedError("the trash already holds a thousand copies of that name today")
     shutil.move(str(source), str(resting))
     return {"deleted": str(source.relative_to(base)), "recoverable_until_days": 14}
+
+
+def trash_dir(base: Path, make: bool = True) -> Path:
+    """The workspace's own trash, proven to be inside it and not a link out.
+
+    **The file being deleted was checked and its destination was not.**
+    `mkdir(exist_ok=True)` on a symlink succeeds silently, so a `.trash` planted
+    as a link — by a backup tool, by anything with a shell here — sent every
+    delete wherever it pointed, and `prune_trash` then permanently removed what
+    it found there a fortnight later (base review, 17 September 2026, finding 3).
+    `still_inside` is the check the attachment code already makes for the same
+    reason; this is that check, applied to the other destructive path.
+    """
+    bin_ = base / TRASH
+    if bin_.is_symlink():
+        raise OutsideWorkspaceError(
+            f"{TRASH} is a symbolic link, so a delete would land outside the workspace; "
+            "remove the link and let NERVIS keep its own trash"
+        )
+    workspace.still_inside(base, bin_)
+    if make:
+        bin_.mkdir(parents=True, exist_ok=True)
+    return bin_
 
 
 def prune_trash(root: Path, now: float) -> int:
@@ -412,7 +457,12 @@ def prune_trash(root: Path, now: float) -> int:
     same promise: kept long enough to undo a mistake, not long enough to become
     an archive nobody chose to keep.
     """
-    bin_ = root.expanduser().resolve(strict=False) / TRASH
+    try:
+        bin_ = trash_dir(root.expanduser().resolve(strict=False), make=False)
+    except OutsideWorkspaceError:
+        # The sweep runs on a timer with nobody watching, so a trash that is not
+        # where it should be is left entirely alone rather than emptied.
+        return 0
     if not bin_.is_dir():
         return 0
     gone = 0

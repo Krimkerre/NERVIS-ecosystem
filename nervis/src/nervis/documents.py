@@ -516,6 +516,34 @@ def reconcile_attachments(root: Path, source_id: str, target_id: str) -> int:
     return copied
 
 
+def attachment_place(root: Path, conversation_id: str) -> Path | None:
+    """Where a conversation's attachments are, without making anything.
+
+    **The same check `attachment_dir` makes, for the paths that destroy rather
+    than create.** `_SAFE_ID` allows dots, so `..` passed it — and the delete
+    built `<root>/.attachments/..`, which is the room the attachments sit in,
+    and unlinked the owner's files there before failing to remove the directory
+    (base review, 17 September 2026, finding 2). A directory that is really a
+    symbolic link is refused for the reason `attachment_dir` already states: one
+    link is enough to move a whole conversation's files out of the workspace,
+    and emptying what it points at is not this service's to do.
+
+    Returns None for anything that cannot be a conversation's own directory, so
+    a caller deletes nothing rather than deleting somewhere else.
+    """
+    wanted = (conversation_id or "").strip()
+    if not wanted or wanted in {".", ".."} or not _SAFE_ID.match(wanted):
+        return None
+    place = root.expanduser().resolve(strict=False) / ATTACHMENTS / wanted
+    if place.is_symlink():
+        return None
+    try:
+        still_inside(root, place)
+    except OutsideWorkspaceError:
+        return None
+    return place
+
+
 def forget_attachments(root: Path, conversation_id: str) -> int:
     """Delete a conversation's attachments. Returns how many files went.
 
@@ -523,11 +551,8 @@ def forget_attachments(root: Path, conversation_id: str) -> int:
     over for one conversation should not outlive it — and unlike the retention
     sweep, this one is somebody pressing delete.
     """
-    wanted = (conversation_id or "").strip()
-    if not wanted or not _SAFE_ID.match(wanted):
-        return 0
-    place = root.expanduser().resolve(strict=False) / ATTACHMENTS / wanted
-    if not place.is_dir():
+    place = attachment_place(root, conversation_id)
+    if place is None or not place.is_dir():
         return 0
     gone = 0
     for entry in place.iterdir():
@@ -559,7 +584,9 @@ def prune_attachments(root: Path, now: float, days: int = ATTACHMENT_DAYS) -> in
     cutoff = now - days * 86_400
     gone = 0
     for place in base.iterdir():
-        if not place.is_dir():
+        # A link out is neither swept nor followed: the sweep runs on a timer
+        # with nobody watching, and what it would unlink is somebody else's.
+        if place.is_symlink() or not place.is_dir():
             continue
         touched = max(
             [place.stat().st_mtime]

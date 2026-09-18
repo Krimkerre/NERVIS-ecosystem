@@ -709,9 +709,22 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.32
+## NERVIS — 0.34.33
 
-**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.2+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.3+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+Two ways a delete could reach outside the workspace, from a review of the base applications.
+
+- **Deleting a conversation's attachments can no longer be pointed at the room they sit in.** An id
+  of `..` passed the name check and unlinked the files beside the attachment folder. The delete now
+  makes the same check the code that *creates* an attachment folder always made.
+- **The trash cannot carry a delete out of the workspace.** A `.trash` that is a symbolic link is
+  refused rather than followed, for the delete and for the fortnightly sweep; a conversation's
+  attachment folder that is a link is left alone as well.
+- **Two files of one name deleted in the same second both survive.** The trashed name carried whole
+  seconds only, so the second delete replaced the first one's only copy.
+
+### 0.34.32
 
 - **A chat turn that fails says what happened and what to do.** "NERVIS is not answering, so this
   message was not sent. Try again in a moment." instead of `NERVIS is not reachable: load failed` —
@@ -1995,7 +2008,21 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.29.2
+## RAVIS — 0.29.3
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve`
+
+Two ways a skill install could differ from the skill reviewed, from a review of the base applications.
+
+- **A package holding two names one disk cannot tell apart is refused.** `SKILL.md` and `skill.md`
+  are the same file on macOS, so a package with both showed one text in the preview and installed the
+  other — and the update comparison, seeing `SKILL.md` unchanged, left the engine switches on. After
+  staging, RAVIS also reads the folder back and refuses to install anything that is not what the
+  package held.
+- **Cancelling a review deletes only a review RAVIS minted.** An id nobody issued used to delete
+  whatever folder its name pointed at, and answered as though it had done nothing.
+
+### 0.29.2
 
 **Protocol:** MEP 1.0.0 · **Reads:** SIRVIS evidence · **Serves:** OpenAI-compatible chat
 

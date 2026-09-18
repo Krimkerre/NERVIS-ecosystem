@@ -48,6 +48,7 @@ import asyncio
 import ctypes
 import errno
 import functools
+import logging
 import os
 import secrets
 import shutil
@@ -393,10 +394,25 @@ class SkillInstalls:
             self.discard(preview.id)
 
     def discard(self, preview_id: str) -> bool:
-        """Forget a preview and remove its staging; whether there was one."""
+        """Forget a preview and remove its staging; whether there was one.
+
+        **An id nobody minted deletes nothing.** This removed `staging/<id>`
+        whichever id arrived, so one climbing through a real preview's folder —
+        `sp_real/../../somewhere` — deleted a directory RAVIS can write, and
+        answered `False` as if it had done nothing (base review, 17 September
+        2026, finding 4). The staged folder is now taken from the preview
+        record, which holds the path `stage()` actually returned, so an unknown
+        id has nothing to act on.
+        """
         preview = self._previews.pop(preview_id, None)
-        discard_tree(self.staging / preview_id)
-        return preview is not None
+        if preview is None:
+            return False
+        # `preview.id`, not the caller's string: the same characters in the case
+        # that matters, and minted here, so nothing a caller wrote decides which
+        # directory goes. The folder is the preview's own staging root, which
+        # holds the staged skill inside it.
+        discard_tree(self.staging / preview.id)
+        return True
 
     # Confirming, and removing
 
@@ -693,5 +709,16 @@ def trash_words(failure: OSError) -> str:
 
 
 def discard_tree(path: Path) -> None:
-    """Remove RAVIS's own staging or a copy it made; never a skill the owner has."""
-    shutil.rmtree(path, ignore_errors=True)
+    """Remove RAVIS's own staging or a copy it made; never a skill the owner has.
+
+    **Proven to be RAVIS's own, not assumed.** The docstring above was the whole
+    guarantee, and the caller supplied whatever path it had built from a caller's
+    id. A tree outside the staging root is refused rather than removed.
+    """
+    root = (data_directory() / "ravis-skill-store").resolve(strict=False)
+    landed = Path(path).expanduser().resolve(strict=False)
+    if landed != root and not landed.is_relative_to(root):
+        logging.getLogger(__name__).warning(
+            "skills: refused to remove %s — it is not RAVIS's own staging", landed)
+        return
+    shutil.rmtree(landed, ignore_errors=True)
