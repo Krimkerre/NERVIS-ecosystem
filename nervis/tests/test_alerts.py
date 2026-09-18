@@ -192,6 +192,32 @@ def test_a_budget_is_noted_each_time_it_rises_a_band_and_never_as_it_falls() -> 
     assert "Paid models are blocked." in notes[-1]["body"]
 
 
+def test_each_of_several_budgets_is_noted_on_its_own_with_its_name() -> None:
+    """RAVIS 0.30.5 lists every budget; each rises, and is noted, separately."""
+    watch, notes = watched()
+    clarvis = {**budget("NORMAL"), "budget_id": "bud_1", "scope": "application",
+               "target": "clarvis", "label": "clarvis's weekly budget"}
+    anthropic = {**budget("NORMAL"), "budget_id": "bud_2", "scope": "provider",
+                 "target": "anthropic", "label": "anthropic's monthly budget"}
+
+    watch.on_reading(Reading(now=0, budgets=[clarvis, anthropic]))
+    watch.on_reading(Reading(now=0, budgets=[{**clarvis, "band": "PREFER_CHEAPER"}, anthropic]))
+    # The first staying put must not hide the second rising, nor be noted again.
+    watch.on_reading(Reading(now=0, budgets=[{**clarvis, "band": "PREFER_CHEAPER"},
+                                             {**anthropic, "band": "STRONG_PENALTY"}]))
+
+    assert [n["title"] for n in notes] == [
+        "RAVIS: clarvis's weekly budget is 70% spent; RAVIS now prefers cheaper models",
+        "RAVIS: anthropic's monthly budget is 90% spent; anthropic's paid models now rank lowest",
+    ]
+
+
+def test_a_budget_list_replaces_the_single_budget_field() -> None:
+    watch, notes = watched()
+    watch.on_reading(Reading(now=0, budget=budget("EXHAUSTED"), budgets=[]))
+    assert notes == []
+
+
 def test_no_budget_configured_says_nothing() -> None:
     watch, notes = watched()
     watch.on_reading(Reading(now=0, budget=None))

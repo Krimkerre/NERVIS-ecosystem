@@ -55,16 +55,15 @@ from ravis.api.management.decisions import RecordedDecision
 from ravis.api.management.replay import constraints_of
 from ravis.api.openai.agent_backends import agent_backend_refusal
 from ravis.api.openai.serialize import DONE, completion, frame_for, opening_frame
+from ravis.budgets import RequestBudgets
 from ravis.content import check_image_count
 from ravis.core.capabilities import Capability
 from ravis.core.pools import POOL_PREFIX, POOLS_BY_ID, direct_provider
 from ravis.core.requests import NormalizedRequest, normalize
 from ravis.core.responses import NormalizedStreamEvent, Usage
 from ravis.cost import (
-    BudgetBand,
     UsageLedger,
     UsageRecord,
-    band_for,
     estimate,
 )
 from ravis.evidence import EvidenceStore  # noqa: F401 - state typing
@@ -76,6 +75,7 @@ from ravis.policy import (
     effective_policy,
     policy_refusals,
     resold_models,
+    with_budget_pressure,
 )
 from ravis.providers.base import TranslatingAdapter, TranslationError
 from ravis.reliability import (
@@ -694,7 +694,11 @@ async def _route(request: Request, payload: dict[str, Any], body: bytes) -> Rout
     offered = await assemble(request)
     candidates, residency, remote = offered.candidates, offered.residency, offered.remote
     request.state.translated_owners = offered.translated_owners
-    policy = _policy_for(request, payload)
+    # A provider's budget ranks that provider's paid models lower, which takes the candidates to
+    # say — the policy alone knows only the provider (`budgets.py`).
+    policy = with_budget_pressure(
+        _policy_for(request, payload), candidates, provider_of=provider_of(request), remote=remote
+    )
     # §12.1's affinity, and §9.6.1's exemption from it. A background call is
     # explicitly *exempt* from session affinity — it is short, disposable and
     # latency-insensitive, so holding it on a conversation's model would drag a
@@ -1289,21 +1293,25 @@ def _policy_for(request: Request, payload: dict[str, Any]) -> RoutingPolicy:
     configured = policies.for_application(
         identity.application_id if identity else "anonymous"
     )
-    # §14's band, computed from what RAVIS has observed itself spending. It
-    # rides on the policy because both are hard constraints applied in one
-    # place — see `RoutingPolicy.budget_band`.
-    budget = getattr(request.app.state, "budget", None)
+    # §14's budgets, computed from what RAVIS has observed itself spending. They
+    # ride on the policy because both are hard constraints applied in one
+    # place — see `RoutingPolicy.budget_band` and `budgets.py`.
+    book = getattr(request.app.state, "budgets", None)
     ledger = getattr(request.app.state, "usage_ledger", None)
-    band = BudgetBand.NORMAL
-    if budget is not None and ledger is not None:
-        band, _spent, _unpriced = band_for(budget, ledger, time.time())
+    held = RequestBudgets()
+    if book is not None and ledger is not None:
+        held = book.for_request(
+            identity.application_id if identity else "anonymous", ledger, time.time()
+        )
     return effective_policy(
         configured,
         metadata=payload.get("metadata") or {},
         may_declare_background=bool(identity and identity.may_declare_background_calls),
         ceiling=identity.max_privacy_level if identity else PrivacyLevel.NORMAL,
-        budget_band=band,
-        budget_hard=bool(budget and budget.hard),
+        budget_band=held.band,
+        budget_hard=held.hard,
+        budget_labels=held.labels,
+        provider_budgets=held.providers,
     )
 
 

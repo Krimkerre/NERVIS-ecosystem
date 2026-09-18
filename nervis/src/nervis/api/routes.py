@@ -679,6 +679,26 @@ async def set_ravis_pool_members(pool_key: str, request: Request) -> Any:
     return JSONResponse(answered, status_code=status)
 
 
+@router.put("/ravis/budgets", dependencies=[Depends(require_control)])
+async def set_ravis_budgets(request: Request) -> Any:
+    """Replace the owner's RAVIS budgets (§14), with NERVIS's admin credential.
+
+    The whole list travels, with the page's `If-Match` beside it, so an editor that read
+    an older list is refused by RAVIS instead of overwriting a change it never saw.
+    """
+    body = await _json_body(request)
+    match = request.headers.get("if-match")
+    status, answered = await ravis_peer.configure(
+        request.app.state.probe_client,
+        request.app.state.registry.get("ravis"),
+        "PUT", "/api/v1/budgets",
+        request.app.state.settings.ravis_admin_credential,
+        dict(body),
+        headers={"If-Match": match} if match else None,
+    )
+    return JSONResponse(answered, status_code=status)
+
+
 @router.post("/ravis/pools/curate", dependencies=[Depends(require_control)])
 async def curate_ravis_pools(request: Request) -> Any:
     """Hand every pool back to its curated default — a removal, not a write."""

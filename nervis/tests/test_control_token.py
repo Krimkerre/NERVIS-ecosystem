@@ -50,6 +50,8 @@ MUTATIONS = (
     # would have tested the router rather than the gate.
     ("PUT", "/api/v1/ravis/pools/auto/members", {"models": []}),
     ("POST", "/api/v1/ravis/pools/curate", {}),
+    # RAVIS's budgets, from RAVIS → Spending (18 September 2026).
+    ("PUT", "/api/v1/ravis/budgets", {"budgets": []}),
     ("PUT", "/api/v1/ravis/credentials/openai", {"secret": "not-a-real-secret"}),
     ("DELETE", "/api/v1/ravis/credentials/openai", None),
     # A model id with its slash left in, which is how the Diagnostics screen sends

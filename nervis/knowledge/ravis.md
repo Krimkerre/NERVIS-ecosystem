@@ -783,6 +783,19 @@ before 12 September is not proof that nothing was spent. The Reset to 0 button
 on the dashboard's spend tile makes that tile count from the moment it was
 pressed; no record is deleted, and the monthly budget keeps counting as before.
 
+**Budgets, as many as the owner wants (RAVIS 0.30.5, 18 September 2026).** The
+Budgets card on RAVIS → Spending sets a spending limit over everything, over one
+app (Clarvis, NERVIS…) or over one provider (Anthropic, OpenAI…), per rolling day,
+week or 30 days, and each is soft or hard. It shows how far along each budget is.
+From 70 % RAVIS leans toward cheaper models; when a budget is spent, a hard one
+blocks paid models and a soft one keeps routing, cheapest first. A provider's
+budget only affects that provider: its paid models rank lower past 70 %, and a
+hard one at 100 % refuses them while other providers carry on. The figures are
+RAVIS's own estimates, never an invoice, and a call priced in another currency is
+counted, not converted. NERVIS posts a notification when any budget passes 70 %,
+90 % or 100 %. A budget set with `RAVIS_BUDGET_*` still counts and shows as "set in
+configuration". Budgets live in RAVIS's `budgets.json`.
+
 **How often any of this updates, which was worse than it looked.** Until
 9 September 2026 the answer was *never*: prices were read from the file once,
 at startup, and OpenRouter's published rates — the only machine-readable

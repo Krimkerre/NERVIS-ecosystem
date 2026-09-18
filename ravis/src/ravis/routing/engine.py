@@ -1044,6 +1044,11 @@ def _preference_terms(
     # two middle bands), and leads the pool's own cost preference: a budget is a
     # fact about the account, `prefer_cheap` is a fact about what the pool is
     # for.
+    # A provider budget past 70 % ranks that provider's paid models lower (`budgets.py`),
+    # ahead of the request-wide lean below: it names the provider whose money is running out,
+    # which a price comparison across providers doesn't know.
+    if policy.budget_pressure:
+        terms.append(float(policy.budget_pressure.get(model, 0)))
     if policy.prefers_cheap:
         terms.append(_price_rank(candidates.get(model)))
     if pool.prefer_cheap:

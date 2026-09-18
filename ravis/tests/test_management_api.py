@@ -31,6 +31,7 @@ READ_ENDPOINTS = [
     "/api/v1/route-decisions",
     "/api/v1/usage",
     "/api/v1/usage/daily",
+    "/api/v1/budgets",
 ]
 
 
@@ -81,9 +82,9 @@ def test_a_read_endpoint_does_not_accept_a_write() -> None:
 def test_every_write_this_surface_serves_is_one_it_declares() -> None:
     """The mutation surface, asserted rather than described.
 
-    RAVIS serves fifty writes: two on a provider credential, one on a provider's
+    RAVIS serves fifty-one writes: two on a provider credential, one on a provider's
     enabled flag, one on its model filter, one on a pool's membership, one
-    curating every pool, one lifting a tool-refusal suppression, ten for
+    curating every pool, one replacing the budgets, one lifting a tool-refusal suppression, ten for
     Codex (sign-in, its cancellation, sign-out, account confirmation, accepting
     and revoking a build, the file-rules re-test, adding and removing an
     allowed site, and switching a skill), one switching a skill for either engine,
@@ -121,6 +122,10 @@ def test_every_write_this_surface_serves_is_one_it_declares() -> None:
         # pool, applied to every pool at once. It stores nothing a per-pool PUT
         # could not, and its undo is the same endpoint with `{"clear": true}`.
         "POST /api/v1/pools/curate",
+        # Added deliberately, 18 September 2026 (§14, the owner's decision to keep budgets per
+        # day, week, application and provider): replaces the owner's whole list of budgets in
+        # `budgets.json`. Admin credential, `If-Match`, audited; `tests/test_budgets.py`.
+        "PUT /api/v1/budgets",
         # Added deliberately, 12 September 2026: ends a tool-refusal suppression
         # before its half hour is up. Guarded and audited like the pool write;
         # it changes routing state held in memory and nothing on disk.

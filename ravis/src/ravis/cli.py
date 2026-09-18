@@ -18,6 +18,7 @@ from typing import Sequence
 
 from ecosystem_protocol import configure_logging
 
+from ravis.budgets import BudgetBook, BudgetConfigurationError
 from ravis.codex.calibration.command import add_codex_parser, run_calibrate
 from ravis.config import ConfigurationReport, Settings, inspect_configuration
 from ravis.cost import PriceConfigurationError, load_prices
@@ -167,6 +168,7 @@ def _print_provider_map(settings: Settings) -> None:
     _print_shared_names(settings)
     _print_policies()
     _print_prices()
+    _print_budgets()
 
 
 def _print_prices() -> None:
@@ -187,6 +189,25 @@ def _print_prices() -> None:
     print("          OpenRouter and the local runtimes publish their own; OpenAI,")
     print("          Anthropic and Google publish none, so a call to those is")
     print("          costed only if a price is written down here.")
+
+
+def _print_budgets() -> None:
+    """The budgets in force, or that `budgets.json` is unreadable — reported, never raised."""
+    try:
+        book = BudgetBook.load(Settings())
+    except BudgetConfigurationError as failure:
+        print(f"\n  budgets: UNREADABLE — {failure}")
+        print("           `serve` will refuse to start until this is fixed.")
+        return
+    rules = book.rules()
+    if not rules:
+        print("\n  budgets: none — nothing limits what RAVIS spends")
+        return
+    print(f"\n  budgets: {len(rules)}")
+    for rule in rules:
+        where = " (set in configuration)" if rule.configured else ""
+        hard = ", hard" if rule.hard else ""
+        print(f"           {rule.label}: {rule.limit:g} {rule.currency}{hard}{where}")
 
 
 def _print_policies() -> None:

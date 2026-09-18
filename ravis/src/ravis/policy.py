@@ -27,7 +27,7 @@ from __future__ import annotations
 import fnmatch
 import json
 from collections.abc import Callable, Collection, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -105,6 +105,15 @@ class RoutingPolicy:
     # that blocked candidates somewhere else would be a second, quieter policy.
     budget_band: BudgetBand = BudgetBand.NORMAL
     budget_hard: bool = False
+    # Which budgets hold the request at that band ("clarvis's weekly budget"), for §9.7.
+    budget_labels: tuple[str, ...] = ()
+    # §14's per-provider budgets (`budgets.py`), which never move the request's band: they are
+    # facts about one provider's models. `provider_budgets` maps a provider whose budget is past
+    # 70 % to (band, hard, label); a hard one at 100 % refuses that provider's paid models, the
+    # rest rank them lower through `budget_pressure`, model → 1, 2 or 3, which
+    # `with_budget_pressure` fills in once the candidates are known.
+    provider_budgets: Mapping[str, tuple[BudgetBand, bool, str]] = field(default_factory=dict)
+    budget_pressure: Mapping[str, int] = field(default_factory=dict)
     # A marker that was present and *not* honoured, because the identity may not
     # declare one. Recorded rather than discarded so §9.7's explanation can say
     # so — see `describe`. Found live: an anonymous caller marked a request as
@@ -149,6 +158,23 @@ class RoutingPolicy:
         """
         return self.privacy is PrivacyLevel.LOCAL_PREFERRED
 
+    def _budget_lines(self) -> list[str]:
+        """§14's part of the explanation: the request's band, then each provider's budget."""
+        lines = []
+        if self.budget_band is not BudgetBand.NORMAL:
+            lines.append(
+                f"budget band {self.budget_band.value}"
+                + (f" from {' and '.join(self.budget_labels)}" if self.budget_labels else "")
+                + (" — paid providers blocked" if self.over_budget else " (§14)")
+            )
+        for provider, (band, hard, label) in sorted(self.provider_budgets.items()):
+            blocked = band is BudgetBand.EXHAUSTED and hard
+            lines.append(
+                f"{label} at {band.value}: {provider}'s paid models "
+                + ("refused" if blocked else "ranked lower") + " (§14)"
+            )
+        return lines
+
     def describe(self) -> list[str]:
         """The policy as explanation lines (§9.7).
 
@@ -168,11 +194,7 @@ class RoutingPolicy:
             lines.append(f"models excluded: {', '.join(self.excluded_models)}")
         if self.background:
             lines.append("declared a background call (§9.6.1)")
-        if self.budget_band is not BudgetBand.NORMAL:
-            lines.append(
-                f"budget band {self.budget_band.value}"
-                + (" — paid providers blocked" if self.over_budget else " (§14)")
-            )
+        lines += self._budget_lines()
         if self.background_declined:
             lines.append(
                 "background marker ignored: §9.6.1 honours it only from an "
@@ -326,10 +348,17 @@ def _refusals(
     if policy.background and _is_paid(is_remote, known):
         reasons.append(_BACKGROUND_REFUSAL.format(provider=provider))
     if policy.over_budget and _is_paid(is_remote, known):
+        spent = " and ".join(policy.budget_labels) or "the hard budget for this period"
         reasons.append(
-            f"the hard budget for this period is spent, and {provider} is not known to be free "
+            f"{spent} is spent, and {provider} is not known to be free "
             f"(§14) — the figure behind that is an estimate, which is why only a budget "
             f"marked hard blocks"
+        )
+    held = policy.provider_budgets.get(provider)
+    if held and held[0] is BudgetBand.EXHAUSTED and held[1] and _is_paid(is_remote, known):
+        reasons.append(
+            f"{held[2]} is spent and marked hard, so {provider}'s paid models are refused "
+            f"until it has room again (§14); other providers are unaffected"
         )
     return reasons
 
@@ -416,6 +445,8 @@ def effective_policy(
     ceiling: PrivacyLevel,
     budget_band: BudgetBand = BudgetBand.NORMAL,
     budget_hard: bool = False,
+    budget_labels: tuple[str, ...] = (),
+    provider_budgets: Mapping[str, tuple[BudgetBand, bool, str]] | None = None,
 ) -> RoutingPolicy:
     """Combine what the identity carries with what the request asked for.
 
@@ -450,7 +481,36 @@ def effective_policy(
         background_declined=background_marked(metadata) and not may_declare_background,
         budget_band=budget_band,
         budget_hard=budget_hard,
+        budget_labels=budget_labels,
+        provider_budgets=dict(provider_budgets or {}),
     )
+
+
+#: How far down a provider budget pushes that provider's paid models, by band.
+_PRESSURE = {BudgetBand.PREFER_CHEAPER: 1, BudgetBand.STRONG_PENALTY: 2, BudgetBand.EXHAUSTED: 3}
+
+
+def with_budget_pressure(
+    policy: RoutingPolicy,
+    candidates: Mapping[str, ModelCapabilities],
+    *,
+    provider_of: Callable[[str], str],
+    remote: frozenset[str],
+) -> RoutingPolicy:
+    """`policy` with each paid candidate of a provider over its budget's 70 % marked for ranking.
+
+    Only paid models: a provider's free ones cost its budget nothing, so there is no reason to
+    avoid them. A hard budget at 100 % is refused outright in `_refusals`; a soft one at 100 %
+    ranks lowest (3) and still routes, because a soft budget says "avoid", not "stop".
+    """
+    if not policy.provider_budgets:
+        return policy
+    pressure = {}
+    for model, known in candidates.items():
+        held = policy.provider_budgets.get(provider_of(model))
+        if held and _is_paid(model in remote, known):
+            pressure[model] = _PRESSURE[held[0]]
+    return replace(policy, budget_pressure=pressure)
 
 
 def _declared_privacy(metadata: Mapping[str, Any]) -> PrivacyLevel | None:

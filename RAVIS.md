@@ -1316,6 +1316,20 @@ period, and spend within it falls into the bands above at 70, 90 and 100 % (`Bud
 `ravis/src/ravis/cost.py`). A limit of zero means no budget. Budgets per application or per
 provider, and more than one period at a time, are not built.
 
+**As built, 18 September 2026 (0.30.5): all five** (`ravis/src/ravis/budgets.py`). The owner
+sets any number of budgets from NERVIS → RAVIS → Spending, each covering everything, one client
+application or one provider, per rolling day, week or 30 days, soft or hard; they are kept in
+`budgets.json` beside RAVIS's other settings and changed through `GET`/`PUT /api/v1/budgets`
+(admin credential, `If-Match`, audited as `ravis.budgets.changed`). The `RAVIS_BUDGET_*` budget
+still counts, listed as set in configuration and changed only there. **What a budget does depends
+on what it covers:** an overall or application budget sets the request's band, the worst among
+those covering it, exactly as the single budget did; a provider budget never moves the request —
+past 70 % that provider's paid models rank lower, and a hard one at 100 % refuses them while every
+other provider routes as before. Spend is compared in the budget's own currency: a call priced in
+another is counted beside it, never converted. A malformed `budgets.json` refuses to start RAVIS,
+because the permissive reading is the one that spends; `ravis doctor` reports it. `/api/v1/usage`
+lists every budget's standing in `budgets` and keeps `budget` for older readers.
+
 **Gate:** fixture arithmetic, currency, price-version, partial stream, retry, fallback and
 missing-usage tests prevent double counting.
 
@@ -2247,7 +2261,8 @@ comparison over recorded traffic — the dry-run replay stays), M25a and M25b (s
 M27 (more than one SIRVIS), which need hardware or services this stack doesn't have; and, of the
 sections, §15.1's five unbuilt management reads and three writes, §15.4's command line (the
 dashboard covers it) and §9.8's per-step routing timings. Closed as covered: M17 and M26.
-**Kept, to build:** §14's budgets per day, week, application and provider. Not put to the owner,
+**Kept, to build:** §14's budgets per day, week, application and provider — **built the same
+day, in 0.30.5** (see §14). Not put to the owner,
 so still open: §15.2's remaining events and per-stage spans, and §17's SIRVIS model reference.
 The rows stay, struck, so the numbering keeps no holes.
 

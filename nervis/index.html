@@ -3437,6 +3437,17 @@ const API={
    return{items:[],retention_days:null,live:false};
   },
 
+  /* GET /api/v1/budgets — every budget in force, how far along each is, and the names a
+     new one may cover. `live:false` when RAVIS didn't answer: budgets are then neither
+     shown nor editable, because a remembered list could be one RAVIS no longer enforces. */
+  async budgets(){
+   try{
+    const r=await fetch(BASE.ravis+'/api/v1/budgets',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok){const d=await r.json();return{budgets:[],applications:[],providers:[],periods:[],...d,live:true}}
+   }catch(e){}
+   return{budgets:[],applications:[],providers:[],periods:[],revision:'',live:false};
+  },
+
   /* When the dashboard's spend tile last went back to zero: a NERVIS setting, so the
      reset holds across reloads and browsers. Null when it never has, and the tile
      shows the last 24 hours. It moves nothing in RAVIS — no record is removed, and
@@ -12513,8 +12524,8 @@ function spendWeek(days){
    `${calls} call(s)${unpriced?` · ${unpriced} unpriced, not counted`:''}`];
 }
 async function ravisSpending(){
- heading('Spending','What RAVIS spent each day, as far back as it keeps records.');
- const d=await API.ravis.usageDaily();
+ heading('Spending','What RAVIS spent each day, as far back as it keeps records, and the budgets that limit it.');
+ const [d,b]=await Promise.all([API.ravis.usageDaily(),API.ravis.budgets()]);
  const days=d.items;
  const today=days.find(x=>x.day===dayKey(new Date()));
  const costliest=days.filter(x=>x.spend_estimated!=null).sort((a,b)=>b.spend_estimated-a.spend_estimated)[0];
@@ -12524,10 +12535,99 @@ async function ravisSpending(){
    ['Last 7 days',week,weekNote,'ravis',d.live],
    ['Costliest day',costliest?spendOf(costliest):'—',costliest?dayLabel(costliest.day):'nothing priced yet','ravis',d.live],
    ['Days recorded',String(days.length),d.retention_days?`records kept ${d.retention_days} days`:'','ravis',d.live]])
+ +budgetsCard(b)
  +`<div class="card full${escapeHtml(liveClass(d.live))}"><h3>Spend by day</h3>${cell(`
    <div class="table-row head six"><span style="grid-column:1/3">Day</span><span>Spend</span><span>Calls</span><span style="grid-column:5/-1">Tokens</span></div>
    ${days.map(spendDayRow).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">no spending recorded yet</span></div>'}
    <small class="mono dim">Estimated from published and operator-stated prices, never an invoice (§14). A day appears only when RAVIS served a call that day; records survive restarts from 12 September 2026 on, so an earlier day with no row is not a day that cost nothing. Calls that ran unpriced read <b>not measured</b> rather than nought, and a day priced in two currencies shows no total, because RAVIS does not convert between them. Open a day to see its models and applications.</small>`,'ravis')}</div>`;
+}
+
+/* §14's budgets, as many as the owner sets: everything, one application, or one provider,
+   per day, week or month (RAVIS 0.30.5, `ravis/src/ravis/budgets.py`). RAVIS enforces them;
+   this card shows how far along each is and edits the list, the whole list at once with the
+   revision it was read at, so a second open tab can't silently undo a change. */
+const BUDGETS={revision:'',list:[]};
+const BUDGET_BAND_WORDS={NORMAL:'on track',PREFER_CHEAPER:'past 70% · leaning cheaper',
+  STRONG_PENALTY:'past 90% · leaning cheaper'};
+const BUDGET_PERIOD_WORDS={daily:'per day',weekly:'per week',monthly:'per 30 days'};
+
+function budgetsCard(b){
+ if(!b.live)return `<div class="card full${escapeHtml(liveClass(b.live))}"><h3>Budgets</h3>${cell(`
+   <div class="trace-step"><b>endpoint</b><span class="mono">GET /api/v1/budgets</span></div>
+   <small class="mono dim">RAVIS isn't answering, so its budgets can't be read or changed right now. When it's back it enforces the ones it had.</small>`,'ravis')}</div>`;
+ BUDGETS.revision=b.revision||'';
+ BUDGETS.list=b.budgets.filter(x=>!x.configured);
+ return `<div class="card full${escapeHtml(liveClass(b.live))}"><h3>Budgets <span class="chip">estimated</span></h3>${cell(`
+   ${b.budgets.map(budgetRow).join('')||'<div class="table-row"><span style="grid-column:1/-1;opacity:.7">No budget yet. Nothing limits what RAVIS spends.</span></div>'}
+   ${budgetForm(b)}
+   <small class="mono dim">Each budget counts RAVIS's own estimates over a rolling day, week or 30 days, never an invoice. From 70% RAVIS leans toward cheaper models. When a budget is spent, a <b>hard</b> one blocks paid models and a soft one keeps routing, cheapest first. A provider's budget only moves that provider's models; every other provider carries on as before.</small>`,'ravis')}</div>`;
+}
+
+function budgetRow(b){
+ const pct=Math.min(100,Math.round((b.used_fraction||0)*100));
+ const left=(b.calls_unpriced||0)+(b.calls_other_currency||0);
+ const name=b.label.charAt(0).toUpperCase()+b.label.slice(1);
+ const reach=b.scope==='provider'?`${b.target}'s paid models`:b.scope==='application'?`requests from ${b.target}`:'every request';
+ const action=b.configured
+  ?'<span class="chip" title="Set with RAVIS_BUDGET_* where RAVIS is configured, and changed there">set in configuration</span>'
+  :`<button class="btn" onclick="budgetRemove('${jsAttr(b.budget_id)}')">Remove</button>`;
+ return `<div class="table-row five"><span><b>${escapeHtml(name)}</b><small class="dim" style="display:block">${escapeHtml(reach)} · ${b.hard?'hard':'soft'}</small></span>
+  <span style="grid-column:2/4"><span class="mono">${money(b.spent_estimated,b.currency)} of ${money(b.limit,b.currency)}</span><div class="bar"><i style="--w:${pct}%"></i></div>${left?`<small class="dim">${left} call(s) not counted: no price, or priced in another currency</small>`:''}</span>
+  <span>${budgetState(b)}</span><span>${action}</span></div>`;
+}
+
+function budgetState(b){
+ const words=b.band!=='EXHAUSTED'?(BUDGET_BAND_WORDS[b.band]||b.band)
+  :b.hard?'spent · paid models blocked':'spent · still routing, cheapest first';
+ return `<span class="chip${warnUnless(b.band==='NORMAL')}">${escapeHtml(words)}</span>`;
+}
+
+function budgetForm(b){
+ const options=names=>names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+ const currency=(b.budgets[0]||{}).currency||'USD';
+ return `<div class="profile-row">
+   <select id="budgetScope" aria-label="What the budget covers" onchange="budgetScopeChanged()"><option value="all">Everything</option><option value="application">One application</option><option value="provider">One provider</option></select>
+   <select id="budgetApp" aria-label="Application" style="display:none">${options(b.applications||[])}</select>
+   <select id="budgetProvider" aria-label="Provider" style="display:none">${options(b.providers||[])}</select>
+   <input id="budgetLimit" type="number" min="0.01" step="0.01" placeholder="Limit" aria-label="Limit" style="width:90px">
+   <input id="budgetCurrency" value="${escapeHtml(currency)}" maxlength="3" aria-label="Currency" style="width:56px">
+   <select id="budgetPeriod" aria-label="Period">${(b.periods||[]).map(p=>`<option value="${escapeHtml(p)}"${p==='monthly'?' selected':''}>${escapeHtml(BUDGET_PERIOD_WORDS[p]||p)}</option>`).join('')}</select>
+   <label class="mono dim"><input id="budgetHard" type="checkbox"> block paid models when spent</label>
+   <button class="btn primary" onclick="budgetAdd()">Add budget</button></div>`;
+}
+
+function budgetScopeChanged(){
+ const scope=$('#budgetScope').value;
+ $('#budgetApp').style.display=scope==='application'?'':'none';
+ $('#budgetProvider').style.display=scope==='provider'?'':'none';
+}
+
+async function budgetAdd(){
+ const scope=$('#budgetScope').value;
+ const target=scope==='application'?$('#budgetApp').value:scope==='provider'?$('#budgetProvider').value:'';
+ await budgetSave([...BUDGETS.list,{scope,target,limit:Number($('#budgetLimit').value),
+   currency:$('#budgetCurrency').value.trim().toUpperCase(),period:$('#budgetPeriod').value,
+   hard:$('#budgetHard').checked}],'Budget added');
+}
+
+async function budgetRemove(id){
+ await budgetSave(BUDGETS.list.filter(x=>x.budget_id!==id),'Budget removed');
+}
+
+/* The whole list goes back, trimmed to what RAVIS stores, with the revision it was read
+   at. RAVIS's refusal is shown in its own words; a conflict re-reads rather than retries,
+   because the list somebody else saved is the one to look at before changing it again. */
+async function budgetSave(list,done){
+ const kept=['budget_id','scope','target','limit','currency','period','hard'];
+ const budgets=list.map(x=>Object.fromEntries(kept.filter(k=>k in x).map(k=>[k,x[k]])));
+ let r;
+ try{r=await fetch('/api/v1/ravis/budgets',{method:'PUT',
+   headers:{...control_headers(),'if-match':BUDGETS.revision},body:JSON.stringify({budgets})});}
+ catch(e){notify('NERVIS isn\u2019t answering, so nothing was saved');return}
+ const d=await r.json().catch(()=>({}));
+ if(r.ok){notify(done);render();return}
+ if(r.status===412){notify('The budgets changed in another tab; this shows them now. Nothing was saved');render();return}
+ notify(((d.error||{}).message)||('RAVIS refused the change: HTTP '+r.status));
 }
 
 async function ravisPolicies(){

@@ -60,13 +60,13 @@ from ravis.api.openai import (
     models_router,
     responses_router,
 )
+from ravis.budgets import BudgetBook
 from ravis.codex.service import CodexService
 from ravis.config import Settings, resolved_capabilities
 from ravis.cost import (
     PriceBook,
     PriceConfigurationError,
     UsageLedger,
-    budget_from,
     load_prices,
 )
 from ravis.credentials import REFRESH_SECONDS, CredentialStore, credential_for
@@ -368,9 +368,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     for model, price in load_prices().items():
         api.state.prices.state(model, price)
     api.state.usage_ledger = UsageLedger(database=api.state.database)
-    # §14's budget, when one is configured. `None` means unlimited, which is
-    # not the same as a limit of zero and must not route as one.
-    api.state.budget = budget_from(settings)
+    # §14's budgets: the one `RAVIS_BUDGET_*` sets, if any, and the owner's in
+    # `budgets.json`. A malformed file raises here, refusing to serve, for the
+    # reason a malformed `prices.json` does — see `budgets.py`.
+    api.state.budgets = BudgetBook.load(settings)
 
     # Which providers an operator has switched off (M10). Read on every routing
     # pass rather than cached, so a toggle takes effect on the next request

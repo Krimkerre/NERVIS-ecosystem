@@ -24,7 +24,7 @@ State is in memory: a restart forgets what was noted, which at worst files one n
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -59,6 +59,18 @@ BUDGET_WORDS = {
     "STRONG_PENALTY": "90% of the budget is spent; RAVIS now strongly avoids paid models",
     "EXHAUSTED": "the budget is spent",
 }
+# A provider's budget (RAVIS 0.30.5) moves only that provider's paid models, so it reads so.
+PROVIDER_BUDGET_WORDS = {
+    "PREFER_CHEAPER": "is 70% spent; {target}'s paid models now rank lower",
+    "STRONG_PENALTY": "is 90% spent; {target}'s paid models now rank lowest",
+    "EXHAUSTED": "is spent",
+}
+# The same for a budget over everything or one application, which moves the whole request.
+NAMED_BUDGET_WORDS = {
+    "PREFER_CHEAPER": "is 70% spent; RAVIS now prefers cheaper models",
+    "STRONG_PENALTY": "is 90% spent; RAVIS now strongly avoids paid models",
+    "EXHAUSTED": "is spent",
+}
 
 
 @dataclass(frozen=True)
@@ -67,6 +79,9 @@ class Reading:
 
     now: float
     budget: Mapping[str, Any] | None = None
+    # Every budget RAVIS reports (`/api/v1/usage`'s `budgets`, RAVIS 0.30.5 on). When read,
+    # it replaces `budget`, which an older RAVIS carries alone.
+    budgets: Sequence[Mapping[str, Any]] | None = None
     memory_under_pressure: bool | None = None
     memory_detail: str = ""
     swap_used: int | None = None
@@ -84,7 +99,8 @@ class Alerts:
         self._gates: dict[tuple[str, str], tuple[float, str]] = {}
         self._gates_noted: set[tuple[str, str]] = set()
         self._benchmarks_noted: set[str] = set()
-        self._band = "NORMAL"
+        # Each budget's last band, by RAVIS's budget id, so each rises and is noted on its own.
+        self._bands: dict[str, str] = {}
         self._memory_noted = False
         self._swap: deque[tuple[float, int]] = deque()
         self._swap_noted_at: float | None = None
@@ -161,7 +177,10 @@ class Alerts:
     def on_reading(self, reading: Reading) -> None:
         """One probe tick. Each part is skipped when it was not read."""
         self._waiting_gates(reading)
-        if reading.budget is not None:
+        if reading.budgets is not None:
+            for budget in reading.budgets:
+                self._budget(budget)
+        elif reading.budget is not None:
             self._budget(reading.budget)
         if reading.memory_under_pressure is not None:
             self._memory(reading.memory_under_pressure, reading.memory_detail)
@@ -191,15 +210,16 @@ class Alerts:
         band = str(budget.get("band") or "")
         if band not in BUDGET_BANDS:
             return
-        rose = BUDGET_BANDS.index(band) > BUDGET_BANDS.index(self._band)
-        self._band = band
+        key = str(budget.get("budget_id") or "budget")
+        rose = BUDGET_BANDS.index(band) > BUDGET_BANDS.index(self._bands.get(key, "NORMAL"))
+        self._bands[key] = band
         if not rose:
             return
         spent, limit = budget.get("spent_estimated"), budget.get("limit")
         currency = str(budget.get("currency") or "")[:8]
         self._post(
             kind="budget_threshold",
-            title="RAVIS budget: " + BUDGET_WORDS[band],
+            title=_budget_title(budget, band),
             reason=(
                 f"RAVIS's estimated spend is {spent} of {limit} {currency} for its "
                 f"{str(budget.get('period') or '')[:20]} budget, which puts it in band {band}"
@@ -256,3 +276,15 @@ class Alerts:
 
 
 __all__ = ["Alerts", "Reading"]
+
+
+def _budget_title(budget: Mapping[str, Any], band: str) -> str:
+    """"RAVIS budget: …" for the one budget an older RAVIS reports; the budget's own name
+    otherwise, since several can rise at once and each needs telling apart."""
+    label = str(budget.get("label") or "")[:80]
+    if not label:
+        return "RAVIS budget: " + BUDGET_WORDS[band]
+    if budget.get("scope") == "provider":
+        target = str(budget.get("target") or "")[:40]
+        return f"RAVIS: {label} " + PROVIDER_BUDGET_WORDS[band].format(target=target)
+    return f"RAVIS: {label} " + NAMED_BUDGET_WORDS[band]

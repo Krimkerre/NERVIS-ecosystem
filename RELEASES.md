@@ -756,7 +756,18 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.40
+## NERVIS — 0.34.41
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL
+
+- **A Budgets card on RAVIS → Spending.** It shows each budget's spend against its limit and what
+  RAVIS is doing about it, adds one (everything, an app or a provider; per day, week or 30 days;
+  optionally hard) and removes one. An edit made in another tab isn't overwritten: the save is
+  refused and the current list shown. NERVIS now notifies when any budget, not only the
+  configured one, passes 70 %, 90 % or 100 %, naming the budget.
+
+### 0.34.40
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL
@@ -2149,7 +2160,18 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.4
+## RAVIS — 0.30.5
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **As many budgets as you like.** There was one, set in RAVIS's configuration. Now any number
+  can be set from NERVIS, each over everything, one app or one provider, per rolling day, week or
+  30 days, soft or hard. Budgets over everything or an app work as the one budget always did.
+  A provider's budget only affects that provider: its paid models rank lower past 70 %, and a
+  hard one at 100 % refuses them while other providers carry on. Money is compared in each
+  budget's own currency, never converted. The configured budget still counts.
+
+### 0.30.4
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
 

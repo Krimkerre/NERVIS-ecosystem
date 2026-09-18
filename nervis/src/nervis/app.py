@@ -473,13 +473,14 @@ async def _read_for_alerts(api: FastAPI) -> None:
     RAVIS is read only while the registry holds it usable, and each read that fails
     is simply absent this tick — a notice is never built from a guess.
     """
-    budget, memory = await _ravis_readings(api)
+    budget, budgets, memory = await _ravis_readings(api)
     pressure = memory.get("under_pressure")
     _, swap_used = telemetry._swap()
     labels = {one.instance_id: one.label for one in api.state.instances.live("clarvis")}
     api.state.alerts.on_reading(Reading(
         now=time.monotonic(),
         budget=budget,
+        budgets=budgets,
         memory_under_pressure=pressure if isinstance(pressure, bool) else None,
         memory_detail=str(memory.get("detail") or ""),
         swap_used=swap_used,
@@ -487,18 +488,24 @@ async def _read_for_alerts(api: FastAPI) -> None:
     ))
 
 
-async def _ravis_readings(api: FastAPI) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    """RAVIS's budget (or None) and its memory reading (or nothing), from its own reads."""
+async def _ravis_readings(
+    api: FastAPI,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]] | None, dict[str, Any]]:
+    """RAVIS's budget (or None), all its budgets (None from a RAVIS that doesn't list them)
+    and its memory reading (or nothing), from its own reads."""
     entry = api.state.registry.get("ravis")
     if entry is None or not entry.is_usable:
-        return None, {}
+        return None, None, {}
     base = entry.declaration.base_url
     usage = await _json_or_empty(api, base + "/api/v1/usage")
     health = await _json_or_empty(api, base + "/api/v1/health")
     budget = usage.get("budget")
+    budgets = usage.get("budgets")
     load = health.get("load")
     memory = load.get("memory") if isinstance(load, dict) else None
     return (budget if isinstance(budget, dict) else None,
+            [one for one in budgets if isinstance(one, dict)]
+            if isinstance(budgets, list) else None,
             memory if isinstance(memory, dict) else {})
 
 

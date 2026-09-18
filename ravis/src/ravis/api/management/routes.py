@@ -47,23 +47,25 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ravis.api.management import audit
-from ravis.api.management.credentials import _may_write, _refused
+from ravis.api.management.credentials import KNOWN_PROVIDERS, _may_write, _refused
 from ravis.api.management.decisions import DecisionLog
 from ravis.api.management.replay import replay
+from ravis.budgets import CONFIGURED_ID, BudgetBook, BudgetConfigurationError
 from ravis.core.capabilities import Capability
 from ravis.core.pools import DEFAULT_POOLS, POOL_PREFIX, POOLS_BY_ID, size_tier
 from ravis.cost import (
+    PERIOD_SECONDS,
     USAGE_RETENTION_SECONDS,
     PriceBook,
     UsageLedger,
     UsageRecord,
-    band_for,
     price_from_book,
 )
 from ravis.credentials import CredentialStore
 from ravis.errors import NotFoundError
 from ravis.evidence import EvidenceStore
 from ravis.evidence.sirvis import candidates_with_evidence
+from ravis.identity import CLIENT_PREFIX
 from ravis.observations import MINIMUM_SAMPLES
 from ravis.policy import ApplicationPolicies
 from ravis.provider_state import ProviderState
@@ -769,7 +771,9 @@ async def read_pool_members(pool_key: str, request: Request) -> Any:
     }
 
 
-def _if_match_refusal(request: Request, current: str) -> JSONResponse | None:
+def _if_match_refusal(
+    request: Request, current: str, thing: str = "the pool"
+) -> JSONResponse | None:
     """§15.1's `If-Match`, or None when the caller did not ask for one.
 
     Optional by design. A dashboard that has not been taught to send one keeps
@@ -788,7 +792,7 @@ def _if_match_refusal(request: Request, current: str) -> JSONResponse | None:
         return None
     return JSONResponse(
         {"error": {
-            "message": "the pool changed since you read it; re-read and try again",
+            "message": f"{thing} changed since you read it; re-read and try again",
             "type": "conflict",
             "expected": wanted.strip('"'),
             "current": current,
@@ -1239,8 +1243,11 @@ def _spend(request: Request, since: float | None = None) -> dict[str, Any]:
     stated = ledger.currencies(day)
     mixed = len(stated) > 1
     currency = next(iter(stated)) if len(stated) == 1 else None
-    budget = getattr(request.app.state, "budget", None)
-    band, spent, band_unpriced = band_for(budget, ledger, time.time())
+    book: BudgetBook | None = getattr(request.app.state, "budgets", None)
+    statuses = book.statuses(ledger, time.time()) if book is not None else []
+    # `budget`, the one budget this endpoint always carried, is kept for readers that know only
+    # it: the configured one, else the owner's first covering everything. `budgets` has them all.
+    overall = next((status for status in statuses if status.rule.scope == "all"), None)
     return {
         # Named `spend_estimated` rather than `spend`: the field name itself has
         # to carry the claim, because a dashboard reads the key and not this
@@ -1267,20 +1274,84 @@ def _spend(request: Request, since: float | None = None) -> dict[str, Any]:
             else "no call has been priced yet — either none has run, or no provider "
                  "published a price for the models used"
         ),
-        "budget": None if budget is None else {
-            "limit": budget.limit,
-            "currency": budget.currency,
-            "period": budget.period,
-            "hard": budget.hard,
-            "spent_estimated": round(spent, 9),
-            "band": band.value,
+        "budget": None if overall is None else {
+            "limit": overall.rule.limit,
+            "currency": overall.rule.currency,
+            "period": overall.rule.period,
+            "hard": overall.rule.hard,
+            "spent_estimated": round(overall.spent, 9),
+            "band": overall.band.value,
             # §14 requires a budget to fail predictably when a price is
             # unavailable. It cannot do that silently: a band computed while
             # nine calls went unpriced is a band standing on partial evidence,
             # and whoever is about to be throttled by it is owed the number.
-            "calls_unpriced_in_window": band_unpriced,
+            "calls_unpriced_in_window": overall.calls_unpriced,
         },
+        "budgets": [status.as_dict() for status in statuses],
     }
+
+
+class BudgetsInput(BaseModel):
+    """The owner's whole list of budgets, replacing the stored one (`budgets.py`)."""
+
+    budgets: list[dict[str, Any]] = []
+
+
+@router.get("/budgets")
+async def read_budgets(request: Request) -> Any:
+    """Every budget in force, how far along each is, and what a new one may name.
+
+    `applications` and `providers` are the names a budget can cover: the client
+    applications RAVIS holds a credential for or has recorded spending by, and the
+    providers it knows or has recorded spending at. A name outside them is still
+    accepted — an application that hasn't called yet can have a budget waiting for it.
+    """
+    book: BudgetBook = request.app.state.budgets
+    ledger: UsageLedger | None = getattr(request.app.state, "usage_ledger", None)
+    now = time.time()
+    statuses = book.statuses(ledger, now) if ledger is not None else []
+    seen = ledger.since(now - PERIOD_SECONDS["monthly"]) if ledger is not None else []
+    store = getattr(request.app.state, "credentials", None)
+    clients = [name.removeprefix(CLIENT_PREFIX) for name in store.names(CLIENT_PREFIX)] \
+        if store is not None else []
+    return {
+        "budgets": [status.as_dict() for status in statuses],
+        "revision": book.revision(),
+        "applications": sorted({*clients, *(r.application_id for r in seen)} - {""}),
+        "providers": sorted({*KNOWN_PROVIDERS, *(r.provider for r in seen)} - {""}),
+        "periods": list(PERIOD_SECONDS),
+        "note": "each budget is a rolling window over RAVIS's own estimates, never an "
+                "invoice (§14); a call priced in another currency is counted, not converted",
+    }
+
+
+@router.put("/budgets")
+async def replace_budgets(body: BudgetsInput, request: Request) -> Any:
+    """Replace the owner's budgets with `body.budgets`, the whole list.
+
+    The whole list rather than one budget at a time, so the file is always one decision
+    somebody made, and `If-Match` with the read's `revision` keeps two open editors from
+    losing each other's change. The budget `RAVIS_BUDGET_*` sets is never in the list and
+    never touched: it is changed where it was set.
+    """
+    refusal = _may_write(request)
+    if refusal is not None:
+        return _refused(request, refusal)
+    book: BudgetBook = request.app.state.budgets
+    conflict = _if_match_refusal(request, book.revision(), "the budgets")
+    if conflict is not None:
+        return conflict
+    given = [entry for entry in body.budgets if entry.get("budget_id") != CONFIGURED_ID]
+    try:
+        rules = book.replace(given)
+    except BudgetConfigurationError as failure:
+        return JSONResponse(
+            {"error": {"message": str(failure), "type": "invalid_request_error"}},
+            status_code=422,
+        )
+    audit.record(request, audit.ACTION_BUDGETS, budgets=len(rules),
+                 hard=sum(1 for rule in rules if rule.hard))
+    return await read_budgets(request)
 
 
 def _spend_window(since: float | None, now: float) -> tuple[float, str, str]:
