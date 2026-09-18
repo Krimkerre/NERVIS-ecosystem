@@ -117,6 +117,13 @@ class ResourceBusyError(SirvisError):
     status = 409
 
 
+class ModelFilesRefusedError(SirvisError):
+    """Reveal or Delete can't act on a model's files, and says why (`model_files.py`)."""
+
+    code = "MODEL_FILES_REFUSED"
+    status = 409
+
+
 class InvalidConfigurationError(SirvisError):
     """The request is well-formed and asks for something incoherent."""
 

@@ -121,10 +121,20 @@ wanting different cold models used to see an empty table, both pass the check,
 and both load on a manager configured for one — the ceiling failing at exactly
 the moment it exists for.
 
+## Showing and deleting an installed model
+
+Since SIRVIS 0.19.7 each row on SIRVIS → Models has **Show files**, which opens the model's folder
+in Finder (or the Linux file manager, or Windows Explorer under WSL), and **Delete**, which moves
+the model to the Trash after a second click — never erased, so it can be put back. A model LM
+Studio installed from its catalogue is two folders, a small description under `~/.lmstudio/hub`
+and the weights under `~/.lmstudio/models`; both go. Delete is refused while the model is loaded,
+keeps anything another installed model still needs, and refuses a model that came with LM Studio
+itself (the small embedding model), which only uninstalling LM Studio removes.
+
 ## What it will not do
 
-It does not delete a model to make room for another, a failed partial download
-included. It cannot cancel or pause a download either: LM Studio carries the
+It does not delete a model on its own — not to make room for another, and not a failed partial
+download. Only the Delete button does, and only to the Trash. It cannot cancel or pause a download either: LM Studio carries the
 transfer and offers no way to stop it.
 
 It does not load a model because somebody asked a question. Loading is leases

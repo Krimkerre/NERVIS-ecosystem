@@ -10026,7 +10026,37 @@ function buildRow(x,contextLabel){
  /* Only a known advertisement can clash with a measurement; null is not a no. */
  const clash=works!==null&&x.tools_advertised!=null&&works!==x.tools_advertised;
  const size=x.size_gb==null?'—':x.size_gb+' GB';
- return `<div class="table-row seven"><span>${escapeHtml(x.family)}</span><span class="mono">${escapeHtml(dash(x.variant))}</span><span class="mono">${escapeHtml(dash(x.runtime))} · ${escapeHtml(contextLabel(x.runtime_config))}</span><span>${advertisedChip(x)}${x.vision?' <span class="chip">vision</span>':''}</span><span${clash?' style="background:rgba(255,182,72,.08)"':''}>${measured}</span><span class="mono">${size}${escapeHtml(x.resident_gb?' / '+x.resident_gb:'')}</span><span class="chip${warnIf(x.state==='stopped')}">${escapeHtml(x.state)}</span></div>`;
+ return `<div class="table-row seven"><span>${escapeHtml(x.family)}</span><span class="mono">${escapeHtml(dash(x.variant))}</span><span class="mono">${escapeHtml(dash(x.runtime))} · ${escapeHtml(contextLabel(x.runtime_config))}</span><span>${advertisedChip(x)}${x.vision?' <span class="chip">vision</span>':''}</span><span${clash?' style="background:rgba(255,182,72,.08)"':''}>${measured}</span><span class="mono">${size}${escapeHtml(x.resident_gb?' / '+x.resident_gb:'')}</span><span><span class="chip${warnIf(x.state==='stopped')}">${escapeHtml(x.state)}</span>${buildActions(x)}</span></div>`;
+}
+
+/* §8's Reveal and Delete on an installed build (SIRVIS 0.19.7). SIRVIS finds the files from
+   LM Studio's own listing — for a catalogue model that is its description *and* its weights,
+   which live apart — and shows them in the file manager or moves them to the Trash. Delete is
+   the page's two-click confirm, refused while the build is loaded, and never an erase: the
+   Trash gives it back. What SIRVIS kept because another installed model needs it is said. */
+function buildActions(x){
+ if(!x.local_model_id)return '';
+ const id=jsAttr(x.local_model_id),name=jsAttr(x.family||x.model_id||'');
+ const loaded=x.state!=='stopped';
+ return ` <button type="button" class="ghost" onclick="revealBuild('${id}')" title="Show this model's files in the file manager">Show files</button>`
+  +` <button type="button" class="ghost" onclick="deleteBuild('${id}','${name}',${x.size_gb??'null'})"`
+  +(loaded?' disabled title="Unload it first: a loaded model can\u2019t be moved"':' title="Move this model to the Trash"')
+  +`>Delete</button>`;
+}
+
+async function revealBuild(id){
+ const r=await runCommand('sirvis.model.reveal',id);
+ notify(r.error||`Shown in ${((r.reveal||{}).in)||'the file manager'}`);
+}
+
+async function deleteBuild(id,name,gb){
+ const size=gb==null?'':` (${gb} GB)`;
+ if(!armed('delete-model:'+id,`Move ${name}${size} to the Trash? It can be put back from there`))return;
+ const r=await runCommand('sirvis.model.delete',id);
+ if(r.error){notify(r.error);return}
+ const done=r.delete||{},kept=(done.kept||[]).length;
+ notify(`${name} moved to the Trash`+(kept?`; kept ${kept} file(s) another model uses`:''));
+ render();
 }
 
 async function sirvisModels(){

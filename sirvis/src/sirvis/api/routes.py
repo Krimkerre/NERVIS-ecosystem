@@ -13,7 +13,9 @@ to need one.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 from ecosystem_protocol import wire_identifier
@@ -55,6 +57,7 @@ from sirvis.errors import (
     InsufficientMemoryError,
     InvalidConfigurationError,
     LoadFailedError,
+    ModelFilesRefusedError,
     ModelNotFoundError,
     ModelNotInstalledError,
     ResourceBusyError,
@@ -62,6 +65,7 @@ from sirvis.errors import (
     SirvisError,
     UnsupportedParameterError,
 )
+from sirvis.model_files import ModelFiles, ModelFilesError, locate, reveal, to_trash
 from sirvis.resources import ConflictPolicy, ResourceExhaustedError, ResourceManager
 from sirvis.runtimes import (
     LMStudioAdapter,
@@ -92,6 +96,7 @@ from sirvis.storage.runtime_sets import (
 )
 from sirvis.telemetry import detect_system
 
+logger = logging.getLogger("sirvis")
 router = APIRouter(prefix="/api/v1", tags=["sirvis"])
 
 # Moves when the underlying set changes, so a consumer can tell a real change
@@ -320,6 +325,100 @@ async def read_model(request: Request, local_model_id: str) -> dict[str, Any]:
     raise ModelNotFoundError(
         f"no installed build {local_model_id!r}", local_model_id=local_model_id
     )
+
+
+async def _files_of(request: Request, local_model_id: str) -> tuple[Any, ModelFiles, bool]:
+    """One installed build, where its files are, and whether it is loaded. Raises for a build
+    that isn't installed, a runtime nobody could ask, or files SIRVIS won't touch."""
+    try:
+        inventory = await _inventory(request)
+    except RuntimeUnavailableError as failure:
+        raise RuntimeUnreachableError(
+            f"the runtime could not be asked about {local_model_id!r}: {failure}",
+            local_model_id=local_model_id,
+        ) from failure
+    model = next((m for m in inventory.installed.values()
+                  if m.local_model_id == local_model_id), None)
+    if model is None:
+        raise ModelNotFoundError(f"no installed build {local_model_id!r}",
+                                 local_model_id=local_model_id)
+    adapter: LMStudioAdapter = request.app.state.lmstudio
+    listed = await asyncio.to_thread(adapter.listings)
+    if listed is None:
+        raise ModelFilesRefusedError(
+            "LM Studio's own listing couldn't be read here (its `lms` tool is missing, or LM "
+            "Studio runs on another machine), so SIRVIS can't tell where the files are",
+            local_model_id=local_model_id,
+        )
+    models_root = Path(request.app.state.settings.lmstudio_models_path).expanduser()
+    try:
+        files = await asyncio.to_thread(
+            locate, model.runtime_key, *listed, models_root, models_root.parent / "hub" / "models"
+        )
+    except ModelFilesError as refused:
+        raise ModelFilesRefusedError(str(refused), local_model_id=local_model_id) from None
+    return model, files, bool(inventory.instances_of(model.local_model_id))
+
+
+@router.get("/models/{local_model_id}/files")
+async def read_model_files(request: Request, local_model_id: str) -> dict[str, Any]:
+    """Where a build's files are: what Delete would move to the Trash, what it would keep
+    because another installed model needs it, and what Reveal would show (§8)."""
+    _, files, loaded = await _files_of(request, local_model_id)
+    return files.as_dict() | {"local_model_id": local_model_id, "is_loaded": loaded}
+
+
+@router.post("/models/{local_model_id}/reveal")
+async def reveal_model(request: Request, local_model_id: str) -> dict[str, Any]:
+    """Show a build's files in this machine's file manager (§8's Reveal).
+
+    **`admin`**, though nothing is changed: it opens a window on the owner's screen, and no
+    page on the internet that can reach a loopback port should be able to do that.
+    """
+    require(request, Scope.ADMIN)
+    _, files, _ = await _files_of(request, local_model_id)
+    if files.reveal is None:
+        raise ModelFilesRefusedError("there is nothing on disk to show",
+                                     local_model_id=local_model_id)
+    try:
+        shown_in = await asyncio.to_thread(reveal, files.reveal)
+    except ModelFilesError as refused:
+        raise ModelFilesRefusedError(str(refused), local_model_id=local_model_id) from None
+    return {"local_model_id": local_model_id, "revealed": str(files.reveal), "in": shown_in}
+
+
+@router.delete("/models/{local_model_id}")
+async def delete_model(request: Request, local_model_id: str) -> dict[str, Any]:
+    """Move a build's files to the Trash (§8's Delete) — never erased, so it can be restored.
+
+    **`admin`**: its effect outlives the request. Refused while the build is loaded, since
+    moving a model out from under a running instance is a crash, not a deletion; what another
+    installed model also needs is kept and named in the answer.
+    """
+    caller = require(request, Scope.ADMIN)
+    model, files, loaded = await _files_of(request, local_model_id)
+    if loaded:
+        raise ResourceBusyError(f"{model.runtime_key} is loaded; unload it before deleting it",
+                                local_model_id=local_model_id)
+    if not files.targets:
+        raise ModelFilesRefusedError("every file of this build is shared with another installed "
+                                     "model, so nothing would be deleted",
+                                     local_model_id=local_model_id)
+    moved: list[dict[str, str]] = []
+    for target in files.targets:
+        try:
+            where = await asyncio.to_thread(to_trash, target)
+        except ModelFilesError as refused:
+            raise ModelFilesRefusedError(
+                f"{refused}" + (f"; already moved: {', '.join(m['from'] for m in moved)}"
+                                if moved else ""),
+                local_model_id=local_model_id,
+            ) from None
+        moved.append({"from": str(target), "to": where})
+    logger.info("model %s moved to the Trash by %s: %s", model.runtime_key, caller.label,
+                [m["from"] for m in moved])
+    return {"local_model_id": local_model_id, "runtime_key": model.runtime_key, "moved": moved,
+            "kept": files.as_dict()["kept"], "size_bytes": files.size_bytes}
 
 
 def _describe(inventory: Inventory, runtime_key: str) -> dict[str, Any]:

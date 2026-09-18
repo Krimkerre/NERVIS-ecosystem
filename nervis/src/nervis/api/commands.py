@@ -95,6 +95,8 @@ JOBS_CAPABILITY = "sirvis.benchmarks.jobs"
 # SIRVIS M11's downloads, and a longer wait than a submit: SIRVIS reads the model's
 # file list from Hugging Face before it answers.
 DOWNLOADS_CAPABILITY = "sirvis.downloads"
+# §8's Reveal and Delete on an installed model (SIRVIS 0.19.7).
+MODEL_FILES_CAPABILITY = "sirvis.model_files"
 DOWNLOAD_TIMEOUT_SECONDS = 30.0
 
 # **The chosen background pool first, then this one model, then this machine's
@@ -187,6 +189,8 @@ async def run(request: Request) -> dict[str, Any]:
         return await _cancel_benchmark(request, target)
     if operation == "sirvis.result.delete":
         return await _delete_result(request, target, str(body.get("reason") or ""))
+    if operation in ("sirvis.model.reveal", "sirvis.model.delete"):
+        return await _model_files(request, target, operation.rsplit(".", 1)[1])
     return await _submit_benchmark(request, target)
 
 
@@ -509,6 +513,39 @@ async def _delete_result(request: Request, result_id: str, reason: str) -> dict[
     return {"deleted": payload}
 
 
+async def _model_files(request: Request, local_model_id: str, verb: str) -> dict[str, Any]:
+    """Show a model's files, or move them to the Trash, with NERVIS's admin credential (§8).
+
+    Both need SIRVIS's `admin`: Delete because its effect outlives the request, Reveal because
+    it opens a window on the owner's screen. SIRVIS decides what the files are and whether they
+    may go; a refusal — loaded, shared, a model that came with LM Studio — travels in its words.
+    """
+    entry, settings = _peer(request, "admin", MODEL_FILES_CAPABILITY,
+                            "show or delete a model's files", ("model files", "Model files"))
+    path = f"/api/v1/models/{quote(local_model_id, safe='')}"
+    method, path = ("POST", path + "/reveal") if verb == "reveal" else ("DELETE", path)
+    client: httpx.AsyncClient = request.app.state.probe_client
+    try:
+        # An empty JSON body: SIRVIS refuses a change sent as anything else (415), which is
+        # what keeps a page on the internet from triggering one through a loopback port.
+        answered = await client.request(
+            method, entry.declaration.base_url + path, json={},
+            headers={"Authorization": f"Bearer {settings.sirvis_admin_credential}"},
+            timeout=SUBMIT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as failure:
+        _audit(request, local_model_id, "unreachable", type(failure).__name__, f"model {verb}")
+        raise InvalidConfigurationError(f"SIRVIS did not answer: {failure}") from failure
+    payload = _body_of(answered)
+    if answered.status_code >= 400:
+        detail = str((payload.get("error") or {}).get("message") or answered.status_code)
+        _audit(request, local_model_id, "refused", detail, f"model {verb}")
+        raise InvalidConfigurationError(f"SIRVIS refused it: {detail}")
+    _audit(request, local_model_id, "deleted" if verb == "delete" else "revealed",
+           str(payload.get("runtime_key") or payload.get("revealed") or ""), f"model {verb}")
+    return {verb: payload}
+
+
 async def _start_download(
     request: Request, repo_id: str, quantization: str, confirm: bool
 ) -> dict[str, Any]:
@@ -573,7 +610,7 @@ def _body_of(answered: httpx.Response) -> dict[str, Any]:
 
 # The outcomes that mean the operation happened. Anything else — refused,
 # unreachable, malformed — is worth a warning.
-_SUCCEEDED = frozenset({"queued", "cancelled", "deleted", "already_present"})
+_SUCCEEDED = frozenset({"queued", "cancelled", "deleted", "revealed", "already_present"})
 
 # The id an attempt is audited under, where it is not in the benchmark family:
 # `delete` acts on a result and `download` on a model, not on the queue.
@@ -581,6 +618,7 @@ _SUCCEEDED = frozenset({"queued", "cancelled", "deleted", "already_present"})
 # `sirvis.benchmark.hand over` about service `sirvis` until 16 September 2026, so no
 # reader looking for handovers could have found one.
 _AUDITED_AS = {"delete": "sirvis.result.delete", "download": "sirvis.download.start",
+               "model delete": "sirvis.model.delete", "model reveal": "sirvis.model.reveal",
                "hand over": HANDOVER_OPERATION}
 _SUBJECT_OF = {HANDOVER_OPERATION: "clarvis"}
 

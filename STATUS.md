@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4469 tests, no network, no live service
+.venv/bin/pytest                      # part of 4485 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -40,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 552 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1787 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 563 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1792 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4469 passing across the four, conformance `PASS`.
+Expected: all clean, 4485 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -209,7 +209,7 @@ carries an as-built note saying what exists and what does not.
 | 8 | ~~**RAVIS M22, and the rest of M21**~~ | **Struck 18 September 2026**, the same decision: escalation, shadow routing, outcome scoring and routing comparison. M21's dry-run replay and M23 shipped that morning (0.30.0) |
 | 9 | ~~**RAVIS M25a, M25b, M27**~~ | **Struck 18 September 2026**, the same decision: serverless GPUs and more than one SIRVIS need hardware or services this stack doesn't have |
 | 10 | ~~**RAVIS M17 and M26**~~ | **Closed 18 September 2026** as covered: NERVIS's RAVIS screens are M17's dashboard, and `ravis/free-api` (M28) does M26's job |
-| 11 | **SIRVIS — kept, to build** | Reveal and Delete on installed models (§8), and capabilities that turn unavailable when LM Studio or Hugging Face is down (§15.4). **Struck 18 September 2026:** the four unbuilt `/api/v1` paths and sessions list (§4.2), the command line (§18), Discover's extra filters and the installed view's Compare, Inspect and Find variants (§8), and the Playground (§16). **Not yet put to the owner:** randomized run order (§11.7), the fit classes (§14.2), the remaining events and spans (§15.3) |
+| 11 | **SIRVIS — kept, to build** | ~~Reveal and Delete on installed models (§8)~~ — **built 19 September 2026** (SIRVIS 0.19.7, NERVIS 0.34.49), and capabilities that turn unavailable when LM Studio or Hugging Face is down (§15.4). **Struck 18 September 2026:** the four unbuilt `/api/v1` paths and sessions list (§4.2), the command line (§18), Discover's extra filters and the installed view's Compare, Inspect and Find variants (§8), and the Playground (§16). **Not yet put to the owner:** randomized run order (§11.7), the fit classes (§14.2), the remaining events and spans (§15.3) |
 | 12 | **RAVIS — kept, to build** | ~~Budgets per day, week, application and provider (§14)~~ — **built 18 September 2026** (RAVIS 0.30.5, NERVIS 0.34.41; see that day's entry). **Struck 18 September 2026:** five management reads and three writes (§15.1), the command line (§15.4) and per-step routing timings (§9.8). **Not yet put to the owner:** the remaining events and per-stage spans (§15.2) and the SIRVIS model reference (§17). Route decisions survive a restart since 18 September 2026 (migration 15) |
 | 13 | **NERVIS — kept, to build** | ~~A route decision that can be linked to (§25.2)~~ — **built 19 September 2026** (NERVIS 0.34.48). ~~Screens that update in place~~ — **built 19 September 2026** (NERVIS 0.34.46). **Struck 18 September 2026:** most of the command line and a doctor that checks its peers (§17), and benchmark progress streamed rather than polled. Notifications are filed since 16 September 2026 (NERVIS 0.34.12; `nervis/src/nervis/alerts.py`), not yet seen firing live |
 | 14 | **Clarvis — kept, to build: the diagnostics-summary and log-reference capabilities** (owner's decision, 18 September 2026) | **§6.4's events are all emitted since 16 September 2026.** Task events arrived in Clarvis 0.17.14 once the owner decided a Clarvis "task" is a handover from NERVIS: NERVIS 0.34.9 writes an id into the brief and its handover record (which it had been filing as a SIRVIS benchmark operation), Clarvis names it in `clarvis.task.*` with the stage (planning, building, paused) and `built` at the end, and `GET /api/v1/handovers` joins the two across windows for a "Handed over to Clarvis" card on NERVIS → Diagnostics → Clarvis (Clarvis: 9 fast tests, 7 guards caught, the chat and run wiring read rather than tested; NERVIS: `tests/test_handovers.py`, 10 guards caught, `handovers_check.js` failing 13 ways on the old page); **not yet seen live**, which needs a handover opened in an editor window with the Bridge on; after the restart onto NERVIS 0.34.9 the "Handed over to Clarvis" card drew live as "Nothing handed over" (no handover has been made since ids began), with no editor window registered. **Model, tool and diagnostic events arrived the same day** (Clarvis 0.17.11, and 0.17.12 put a model event's request id on the envelope where RAVIS puts its own): only their endings go to NERVIS, to stay inside the flood guard's 120-then-12-a-minute allowance on a 25-call run; a tool call that asked the owner ends as completed either way, so no approval detail leaks; problem counts are paced to at most one update every 30 seconds. Checked by 27 new fast tests, the real runner's tool events and the real `ModelService`'s model events under `test:host` (31 passing), and 16 guards each caught; installed byte-identical in VS Code and code-server, **not yet seen arriving in NERVIS live** (the Bridge needs a window with it switched on); `/v1/status`'s log reference (§6.3; the rest of §6.3's list arrived in Clarvis 0.17.15 and shows on NERVIS 0.34.10's window card, 6 Clarvis tests with 7 guards caught and 5 NERVIS tests with 6 caught; not yet seen live); the diagnostics-summary and log-reference capabilities; ~~fencing what the agent's tools read back (§9)~~ — **fenced since Clarvis 0.17.16 (16 September 2026)**: file contents, listings, search hits, command output, problems and git output reach the model between fence markers as data, with Clarvis's own words and the owner's skills outside (`src/agent/toolFence.ts`; 5 fast tests, a host spec with a planted instruction through the real runner, 6 fast guards and 2 host breaks caught; not yet seen in a live run). *(A direct-provider fallback, E-C2, is not to be built: the owner decided on 16 September 2026 that Clarvis's own direct-provider settings are that fallback.)* **Clarvis 0.17.11's events seen live on 16 September 2026:** after the owner reloaded two code-server windows, NERVIS's hub stored `clarvis.diagnostic.changed` and `clarvis.model.completed` from both, the model events naming `ravis/clarvis-chat` with their request ids |
@@ -20012,6 +20012,35 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Reveal and Delete on installed models — 2026-09-19 (SIRVIS 0.19.7, NERVIS 0.34.49)
+
+The fourth of the six kept things (§8). LM Studio's CLI has no `rm`, so SIRVIS finds a model's
+files itself (`sirvis/src/sirvis/model_files.py`), from LM Studio's own listings rather than the
+model's name. **Found on the owner's Mac first:** a catalogue model's path names an 84 KB
+description under `~/.lmstudio/hub/models` (manifest, README, thumbnail); its 6.7 GB of weights are
+a separate folder under `~/.lmstudio/models`, named after the `@` of the build's
+`indexedModelIdentifier` in `lms ls --variants --json` — and spelled with other capitals than the
+disk has, harmless on a Mac and not on Linux, so names are walked as the disk spells them. Deleting
+the description alone would have left the weights on disk and out of every list. Delete moves both
+to the Trash (`~/.Trash`; `gio trash`, else the freedesktop layout) — the owner's standing rule,
+never an erase; a download takes its repository folder unless another model shares it; shared
+files are kept and named; links, paths outside the models folders, loaded builds and LM Studio's
+bundled embedder are refused. Reveal: `open -R`, `FileManager1.ShowItems` or `xdg-open`, Explorer
+under WSL. Endpoints `GET …/files`, `POST …/reveal`, `DELETE /api/v1/models/{id}` (admin), the
+capability `sirvis.model_files@1`, the code `MODEL_FILES_REFUSED` (both declared in the spec and
+its contract tests). NERVIS: button-only operations `sirvis.model.reveal` and
+`sirvis.model.delete`, relayed with its admin credential; *Show files* and a two-click *Delete* on
+each Models row. **Found by the tests:** SIRVIS refuses a mutation without a JSON body (415), and
+NERVIS's relay sent none — it now sends `{}`.
+
+**Seen live:** SIRVIS located all eight real models' files, each total equal to LM Studio's own
+size, and refused the bundled embedder with the reason; the Models screen drew both buttons on all
+nine rows, and a first Delete click asked "Move exaone-deep-2.4b (1.8 GB) to the Trash? It can be
+put back from there". **Not done live:** a real Delete or Reveal — a Delete moves gigabytes of the
+owner's models, so it waits for the owner. 7 SIRVIS tests on the locating and the Trash, 4 on the
+endpoints, 5 NERVIS tests on the operations; SIRVIS 563 and NERVIS 1,792 pass on the Mac and on
+Linux; every dashboard gate passes.
 
 ## A route decision that can be linked to — 2026-09-19 (NERVIS 0.34.48)
 

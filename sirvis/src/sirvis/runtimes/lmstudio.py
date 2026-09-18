@@ -52,6 +52,7 @@ from sirvis.runtimes.variants import (
     loaded_variants,
 )
 from sirvis.runtimes.variants import installed_paths as cli_installed_paths
+from sirvis.runtimes.variants import listings as cli_listings
 
 RUNTIME_KEY = "lmstudio"
 
@@ -550,6 +551,14 @@ class LMStudioAdapter:
             return None
         binary = self._resolve_lms()
         return cli_installed_paths(binary) if binary else None
+
+    def listings(self) -> tuple[list[object], list[object]] | None:
+        """LM Studio's own two listings of this disk, for Reveal and Delete (`model_files.py`).
+        Local-only, for the reason `_local_builds` gives."""
+        if not _is_local(self.base_url):
+            return None
+        binary = self._resolve_lms()
+        return cli_listings(binary) if binary else None
 
     def _local_builds(self) -> list[InstalledVariant] | None:
         """Installed builds from the CLI — but only for a runtime on this machine.

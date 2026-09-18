@@ -756,7 +756,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.48
+## NERVIS — 0.34.49
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Show files and Delete on SIRVIS → Models.** Each installed model has both: Show files opens
+  its folder, Delete moves it to the Trash after a second click that says how much will go. Delete
+  is greyed out while a model is loaded. Both go through NERVIS with SIRVIS's admin permission,
+  which the page never holds, and neither can be proposed from a chat message.
+
+### 0.34.48
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
@@ -3289,7 +3299,18 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.6
+## SIRVIS — 0.19.7
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
+
+- **Show and delete an installed model.** SIRVIS finds a model's files from LM Studio's own
+  listing — for a model from LM Studio's catalogue that is a small description *and* the weights,
+  which live in separate folders — and shows them in the file manager or moves them to the Trash,
+  never erasing. It refuses while the model is loaded, keeps anything another installed model
+  needs, and says so for a model that came with LM Studio itself. Works on macOS, Linux and
+  Windows under WSL.
+
+### 0.19.6
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
 

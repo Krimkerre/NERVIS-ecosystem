@@ -227,6 +227,16 @@ def installed_paths(binary: str | None = None) -> frozenset[str] | None:
     return frozenset(paths)
 
 
+def listings(binary: str | None = None) -> tuple[list[object], list[object]] | None:
+    """Both CLI listings verbatim — plain, then variants — for `model_files.locate`, or None
+    when neither could be read."""
+    plain = _run(binary, ["ls", "--json"])
+    grouped = _run(binary, ["ls", "--variants", "--json"])
+    if plain is None and grouped is None:
+        return None
+    return plain or [], grouped or []
+
+
 def installed_sizes(binary: str | None = None) -> dict[str, int] | None:
     """Every installed model's size on disk, under the plain key LM Studio lists it by.
 

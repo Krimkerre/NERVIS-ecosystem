@@ -135,6 +135,7 @@ Minimum published capabilities:
 | `sirvis.events@1` | MEP event stream |
 | `sirvis.catalog.read@1` | models this machine could download, with sizes and install state (M11) |
 | `sirvis.downloads@1` | persistent download jobs, disk-checked first (M11) |
+| `sirvis.model_files@1` | an installed model's files shown in the file manager or moved to the Trash (§8, 0.19.7) |
 
 An unavailable capability means absent or explicitly unavailable — **never a stub returning
 plausible data**.
@@ -212,7 +213,8 @@ Cancellation is idempotent. **A successful HTTP request is not a successful benc
 Codes: `MODEL_NOT_FOUND`, `MODEL_NOT_INSTALLED`, `RUNTIME_UNAVAILABLE`,
 `INSUFFICIENT_MEMORY`, `RESOURCE_BUSY`, `INVALID_CONFIGURATION`, `UNSUPPORTED_PARAMETER`,
 `LOAD_FAILED`, `BENCHMARK_NOT_FOUND`, `TIMEOUT`, `DOWNLOAD_FAILED`, and since M11
-`CATALOG_UNAVAILABLE`, `DISK_SPACE` and `DOWNLOAD_NOT_FOUND`, plus the MEP codes.
+`CATALOG_UNAVAILABLE`, `DISK_SPACE` and `DOWNLOAD_NOT_FOUND`, since 0.19.7 `MODEL_FILES_REFUSED`
+(§8's Reveal or Delete can't act on a model's files, and says why), plus the MEP codes.
 
 ## 4.4 SDKs and OpenAPI
 
@@ -479,6 +481,19 @@ release are on the **Runtime** screen and the SIRVIS **Dashboard**, and a benchm
 the **Benchmarks** screen's *New benchmark* rather than from a model. **Compare, Inspect, Find
 Variants, Reveal and Delete are not built**, and neither is the CLI's `sirvis models
 search/download` (§18).
+
+**Reveal and Delete, built 19 September 2026 (0.19.7; the owner kept both when the unbuilt parts
+were struck).** `sirvis/src/sirvis/model_files.py` locates a build's files from LM Studio's own
+listings — `lms ls --json` for each model's path, `lms ls --variants --json` for a catalogue
+model's weights, which live in a folder apart from its 84 KB description under
+`~/.lmstudio/hub/models`, spelled with other capitals than the disk has — and reveals them in the
+file manager (`open -R`; `FileManager1.ShowItems`, else `xdg-open`; Explorer under WSL) or moves
+them to the Trash (`~/.Trash`; `gio trash`, else the freedesktop layout), never erasing. A download
+takes its repository folder unless another installed model lives there; anything shared is kept
+and named; a link, a path outside the models folders, a loaded build and a build that came with
+LM Studio are refused. `GET /api/v1/models/{id}/files`, `POST …/reveal` and `DELETE
+/api/v1/models/{id}` (both `admin`), advertised as `sirvis.model_files@1`; NERVIS's Models rows
+carry *Show files* and a two-click *Delete*.
 
 ---
 

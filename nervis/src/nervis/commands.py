@@ -89,6 +89,21 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="the model {target}",
         action="Download",
     ),
+    # **Button-only too** (SIRVIS 0.19.7, 19 September 2026): §8's Reveal and Delete on an
+    # installed model, from the SIRVIS Models screen's row buttons. Delete moves the files to
+    # the Trash rather than erasing them, and is still not a thing to offer from a sentence.
+    Operation(
+        id="sirvis.model.reveal",
+        service="sirvis",
+        summary="the files of {target}",
+        action="Show",
+    ),
+    Operation(
+        id="sirvis.model.delete",
+        service="sirvis",
+        summary="the model {target}",
+        action="Move to Trash",
+    ),
     # **Writing is an effect, so it is an operation rather than a tool.**
     # Reading a document is a source — NERVIS opens it before the model sees
     # anything and the model chooses nothing. Writing one changes the machine,
@@ -1122,7 +1137,7 @@ def capabilities_line() -> str:
     offerable = sorted(
         operation.action.lower() + " " + operation.summary.replace("{target}", "…")
         for operation in OPERATIONS
-        if operation.id not in ("sirvis.result.delete", "sirvis.download.start")
+        if operation.id not in BUTTON_ONLY
     )
     return (
         "NERVIS can offer these, as buttons under your reply, when the person names "
@@ -1136,6 +1151,11 @@ def capabilities_line() -> str:
         "did not register). Never say NERVIS lacks the ability, and never "
         "send them elsewhere to do it."
     )
+
+
+#: Operations only a screen's own button names: never offered, never matched from a sentence.
+BUTTON_ONLY = frozenset({"sirvis.result.delete", "sirvis.download.start", "sirvis.model.reveal",
+                         "sirvis.model.delete"})
 
 
 def told(proposal: Proposal | None) -> str:

@@ -136,6 +136,14 @@ DECLARED: dict[str, Capability] = {
         reason="persistent download jobs carried out by LM Studio, disk-checked first; "
         "no cancel, because LM Studio publishes none (M11)",
     ),
+    # §8's Reveal and Delete on an installed model (19 September 2026): its files located from
+    # LM Studio's own listing, shown in the file manager, or moved to the Trash.
+    "sirvis.model_files@1": Capability(
+        version="1.0.0",
+        state=AVAILABLE,
+        reason="an installed model's files shown in the file manager or moved to the Trash, "
+        "never erased; refused while loaded or where another model shares them",
+    ),
 }
 
 

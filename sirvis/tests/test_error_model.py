@@ -83,6 +83,8 @@ def test_every_published_code_comes_from_the_closed_list() -> None:
         "DOWNLOAD_FAILED",
         # M11's, added to §4.3 when the model browser and downloads shipped.
         "CATALOG_UNAVAILABLE", "DISK_SPACE", "DOWNLOAD_NOT_FOUND",
+        # §8's Reveal and Delete, added to §4.3 when they shipped (SIRVIS 0.19.7).
+        "MODEL_FILES_REFUSED",
         # MEP codes, which §4.3 admits alongside its own.
         "UNAUTHENTICATED", "FORBIDDEN", "UNSUPPORTED_MEDIA_TYPE", "INTERNAL_ERROR",
     }
