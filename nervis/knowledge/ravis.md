@@ -285,8 +285,11 @@ excludes paid providers unless told otherwise.
 Clarvis will run through RAVIS, and it is not a pool. A chat or embeddings request naming it, or
 any id under ravis/clarvis-codex/, is refused with a 400 that says so before anything runs, whether or
 not Codex is set up. It appears in `/v1/models` only for a Clarvis that asks for it (0.17.0 and
-later) while Codex is installed. RAVIS checks the Codex on this Mac once when it starts — the
-Homebrew build, OpenAI's signature and the pinned version — and writes what it found to its log.
+later) while Codex is installed. RAVIS checks the Codex on this computer once when it starts — where it came
+from, and the pinned version — and writes what it found to its log. On a Mac that's the Homebrew
+build with OpenAI's Apple signature; on Linux (RAVIS 0.30.4) it's Arch's own `openai-codex`
+package, checked with pacman, or OpenAI's npm build in `~/.local/share/nervis/codex`, whose npm
+signature, provenance record and every file RAVIS checks against the package npm serves.
 The id was ravis/codex until 13 September 2026, when the owner renamed it to sit with the
 ravis/clarvis-agent and ravis/clarvis-chat pools (RAVIS 0.23.11); the old name is not kept as an
 alias.

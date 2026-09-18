@@ -11,13 +11,16 @@ says whether the file rules' surface still looks the same (design §4.3):
 
 | # | check | how |
 |---|---|---|
-| 1 | `signature` | `codesign`, OpenAI's team — nothing else runs if this fails |
+| 1 | `signature` | where it came from (`vouched`) — nothing else runs if this fails |
 | 2 | `sha256_installed` | the binary still has the sha256 the startup check read |
 | 3 | `version_parse` | `codex --version` prints `codex-cli <version>` |
 | 4 | `schema_generation` | both schema trees generate, 30 s each |
 | 5 | `used_methods_present` | every method the pin lists is in both combined bundles |
 | 6 | `handshake` | a throwaway app-server answers `initialize` and `model/list` |
 | 7 | `strict_rules` | (a) the surface's definitions hash as pinned; (b) the profile loads |
+
+Check 1 is `codesign` and OpenAI's team on a Mac; on Linux, Arch's package or OpenAI's npm build,
+file by file (`linux_origin.py`).
 
 **Everything runs in a throwaway Codex home** inside `~/.local/share/ravis-codex-scratch/`, deleted
 when the check ends, with `HOME` and `TMPDIR` inside it too. Check 6 starts an app-server there with
@@ -62,7 +65,7 @@ from ravis.codex.runtime import (
     tested_builds,
     throwaway_environment,
     tree_sha256,
-    verified_team,
+    vouched,
 )
 from ravis.codex.schema_report import (
     BundleFacts,
@@ -204,7 +207,7 @@ async def check_version(
 
 def _signature_check(target: Path, settings: Settings, codesign: str) -> Check:
     try:
-        verified_team(target, settings.codex_expected_team_id, codesign)
+        vouched(target, settings, codesign)
     except CodexRuntimeError as refusal:
         return Check("signature", False, refusal.reason)
     return Check("signature", True)

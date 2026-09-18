@@ -754,6 +754,10 @@ These are unchanged in kind. Each checks the control token, then calls `ravis_pe
    - A general "upgrade everything" upgrades Codex too.
    - Must be a regular file, not group- or world-writable. Missing → `not_installed`.
 2. **Signature.** `codesign --verify --strict`, and `TeamIdentifier=2DC432GLL2`. Otherwise `not_available`.
+   - **On Linux (owner decision, 18 September 2026; RAVIS 0.30.4)** no binary carries an Apple signature, so the origin is checked instead (`linux_origin.py`). With no path configured the link is `/usr/bin/codex` when pacman says `openai-codex` owns it, else `~/.local/share/nervis/codex/codex`, which `install.sh` points at the npm package's native binary.
+   - **Arch's package:** `pacman -Qqo` names `openai-codex`, and `pacman -Qkk openai-codex` finds no altered file (pacman checked the package signature at install).
+   - **OpenAI's npm build:** `npm audit signatures` against registry.npmjs.org confirms a registry signature and a provenance attestation for every package in the folder; the lock's entry was fetched from OpenAI's tarball address; `npm pack` serves a tarball with the lock's integrity; that tarball's `package.json` names github.com/openai/codex; and every installed file of the platform package equals the tarball's, no file added or missing, no links — the package ships its own `bwrap`, which Codex runs to fence in commands.
+   - npm is taken only from the installer's private Node, `/usr/bin` or `/usr/local/bin`, never PATH. The check needs the network, so it runs at startup and on a file change like the rest.
 3. **sha256** (`installed_sha256`), cached by `(dev, ino, size, mtime)`, off the event loop.
 4. **Verdict:** `tested` if the sha256 is in `tested_runtimes.json`; `accepted` if it is in the owner's accepted list; else `untested`, with the protocol report computed in the background.
 5. **Running versus installed.** The child records `running_sha256` when it starts. If `installed_sha256 ≠ running_sha256`, **new sessions and new turns are refused** with 409 `CODEX_NOT_READY` ("Codex changed on disk"). Running turns finish, and the child is replaced only when idle (§4.4).

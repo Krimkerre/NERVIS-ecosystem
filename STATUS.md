@@ -20013,6 +20013,55 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## Codex on Linux — 2026-09-18 (RAVIS 0.30.4, NERVIS 0.34.39)
+
+The owner's decision on the open item above: on Arch and its relatives, Arch's own `openai-codex`
+package; everywhere else, OpenAI's npm build, with its signature and provenance checked. The ChatGPT
+desktop app for Linux (preview since 11 August 2026) was looked at and left out: it's a .deb or .rpm
+downloaded by hand, about 400 MB, which dpkg installs without checking any signature, and it has no
+Arch build.
+
+**What RAVIS checks** (`ravis/src/ravis/codex/linux_origin.py`, replacing `codesign` off macOS):
+- **Arch:** `pacman -Qqo` says `openai-codex` owns the file, and `pacman -Qkk openai-codex` finds
+  nothing altered. With no path configured, `/usr/bin/codex` is used when pacman owns it.
+- **npm,** in `~/.local/share/nervis/codex`, where the installer links `codex` to the package's native
+  binary: `npm audit signatures` against registry.npmjs.org shows a registry signature and a
+  provenance attestation on both packages; the lock's platform package was fetched from OpenAI's
+  tarball address; `npm pack` serves a tarball with the lock's integrity, naming
+  github.com/openai/codex; and every installed file equals the tarball's, none added or missing.
+  **Every file, because the package isn't only `codex`:** it ships 46 files, among them its own
+  `bwrap`, which Codex runs to fence in its commands — checking the binary alone would have left the
+  sandbox unchecked. npm is taken from the installer's private Node, `/usr/bin` or `/usr/local/bin`,
+  never PATH.
+
+**The installer** gained a Codex step: Homebrew's cask on macOS, `openai-codex` through pacman when
+Arch's repositories have it, npm otherwise (Arch on ARM included) with the same signature and
+attestation count checked before linking, `--no-codex` and `--update-codex`. **Found on the first
+Ubuntu run:** Ubuntu's umask is 002, so npm left Codex group-writable and RAVIS refused it ("can be
+changed by other users"); npm now runs under umask 022 and the folder is `chmod -R go-w`.
+
+**Proven against the real packages,** in containers as an ordinary user with sudo:
+- **Ubuntu 24.04 (arm64):** the installer fetched Node 22, installed Codex 0.155.0 from npm and
+  checked it; a second run said it was there, and `--update-codex` reinstalled it. RAVIS's startup
+  check located the link, vouched (`source: npm`, no Apple team), ran `--version` and both schema
+  trees in its throwaway home and read `untested_version`, as a build nobody accepted should; the
+  whole check took 8 s. One byte added to `bwrap` → refused, naming that file. `~/.codex` was never
+  made; the scratch folder was left empty.
+- **Arch (x86-64, emulated):** the installer installed `openai-codex` 0.155.0 through pacman; RAVIS
+  vouched (`source: pacman`) and read `untested_version`; one line appended to `/usr/bin/codex` →
+  refused with pacman's "SHA256 checksum mismatch".
+
+17 new RAVIS tests with fake pacman and npm programs (a changed `bwrap`, an added file, a link, a
+missing attestation, an npm too old to check them, a failed audit, another integrity, another
+address, another repository, no npm, a Codex from elsewhere, Arch altered and not). The suite's
+other Codex tests now stand in for a Mac on any system (`CODEX_PLATFORM`), since they hand RAVIS a
+fake `codesign`. RAVIS 2,040 pass on the Mac; on Linux (Docker bench) 2,039 pass and 1 skips.
+
+**Not done, and said so:** no Codex sign-in or task has run on Linux — the owner's go-ahead is needed
+for either, and a real sign-in needs a browser on the Linux side. The Ubuntu VM was not used for
+this; the containers ran the same installer and RAVIS code.
+
+
 ## Starting the thing
 
 Six launchers — start and stop, for macOS, Linux and Windows — each three lines

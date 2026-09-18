@@ -54,7 +54,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ravis.codex.pin import TESTED_RUNTIMES, PinUnreadableError, read_pin
-from ravis.config import Settings, codex_home_refusal, data_directory, names_caskroom_copy
+from ravis.config import (
+    Settings,
+    codex_home_refusal,
+    codex_platform,
+    data_directory,
+    names_caskroom_copy,
+)
 
 logger = logging.getLogger("ravis")
 
@@ -189,6 +195,10 @@ def _configured_or_homebrew_link(settings: Settings) -> Path:
     """
     if settings.codex_executable:
         return Path(settings.codex_executable).expanduser()
+    if codex_platform() != "darwin":
+        from ravis.codex import linux_origin  # it builds on this module's helpers
+
+        return linux_origin.default_link()
     brew = shutil.which("brew")
     if brew is None:
         raise CodexRuntimeError(
@@ -225,14 +235,13 @@ def inspect_executable(
 ) -> RuntimeReport:
     """Everything after finding the file: whether to trust it, which build, whether it may run."""
     _refuse_untrusted_location(target, settings)
-    team = verified_team(target, settings.codex_expected_team_id, codesign)
+    source, team = vouched(target, settings, codesign)
     installed_sha256 = file_sha256(target)
     version, trees = _read_build(target, data_directory() / SCRATCH_FOLDER)
     facts = RuntimeReport(
         state=None,
         reason="",
-        # A cask's copy lives in Homebrew's `Caskroom`; anything else was named by hand.
-        source="homebrew" if "Caskroom" in target.parts else "configured",
+        source=source,
         version=version,
         installed_sha256=installed_sha256,
         team_id=team,
@@ -273,8 +282,23 @@ def _refuse_untrusted_location(target: Path, settings: Settings) -> None:
     # A file other users can rewrite could be swapped between this check and its run.
     if target.stat().st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise CodexRuntimeError(
-            "not_available", f"{target} can be changed by other users of this Mac"
+            "not_available", f"{target} can be changed by other users of this computer"
         )
+
+
+def vouched(target: Path, settings: Settings, codesign: str) -> tuple[str, str | None]:
+    """Refuse a Codex RAVIS can't trace to OpenAI; say where it came from, and the Apple team.
+
+    On a Mac: OpenAI's Apple signature, and the source is `homebrew` for a cask's copy (it lives in
+    Homebrew's `Caskroom`) or `configured` for one named by hand. Elsewhere: `pacman` or `npm`,
+    checked as `linux_origin` describes, and no team.
+    """
+    if codex_platform() == "darwin":
+        team = verified_team(target, settings.codex_expected_team_id, codesign)
+        return ("homebrew" if "Caskroom" in target.parts else "configured"), team
+    from ravis.codex import linux_origin  # it builds on this module's helpers
+
+    return linux_origin.vouched(target, data_directory() / SCRATCH_FOLDER), None
 
 
 def verified_team(target: Path, team: str, codesign: str) -> str:

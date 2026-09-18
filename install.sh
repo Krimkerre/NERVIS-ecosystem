@@ -20,6 +20,9 @@
 #   --no-code-server    skip code-server, and with it Clarvis
 #   --no-clarvis        skip building and installing the Clarvis extension
 #   --no-desktop        skip the applications-menu entry and the tray (Linux) or app (macOS)
+#   --no-codex          skip Codex, the optional coding engine RAVIS runs on your ChatGPT plan
+#   --update-codex      bring Codex's npm install up to OpenAI's latest release (a new build then
+#                       waits for your OK in NERVIS before RAVIS runs it)
 #
 # Environment:
 #   CLARVIS_REPO        where to clone Clarvis from when ../clarvis doesn't exist
@@ -34,7 +37,9 @@ DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
 PRIVATE_NODE="$DATA_DIR/nervis/node"
 
 ASSUME_YES=0 DRY_RUN=0 WANT_OLLAMA=1 WANT_MODELS=1 WANT_PDF_MODEL=0
-WANT_CODE_SERVER=1 WANT_CLARVIS=1 WANT_DESKTOP=1
+WANT_CODE_SERVER=1 WANT_CLARVIS=1 WANT_DESKTOP=1 WANT_CODEX=1 UPDATE_CODEX=0
+CODEX_DIR="$DATA_DIR/nervis/codex"
+CODEX_WAITS="Codex waits for you: sign in to your ChatGPT plan and accept its build in NERVIS before RAVIS runs it"
 
 for argument in "$@"; do
   case "$argument" in
@@ -46,7 +51,9 @@ for argument in "$@"; do
     --no-code-server) WANT_CODE_SERVER=0; WANT_CLARVIS=0 ;;
     --no-clarvis) WANT_CLARVIS=0 ;;
     --no-desktop) WANT_DESKTOP=0 ;;
-    --help|-h) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --no-codex) WANT_CODEX=0 ;;
+    --update-codex) UPDATE_CODEX=1 ;;
+    --help|-h) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $argument (see ./install.sh --help)" >&2; exit 2 ;;
   esac
 done
@@ -345,6 +352,13 @@ fetch_private_node() {
   tar -xJf "$tarball" -C "$PRIVATE_NODE" --strip-components=1
   rm -f "$tarball"
 }
+ensure_node() {  # ensure_node "what it is for"
+  find_node && return 0
+  if [ "$DRY_RUN" = 1 ]; then run "download Node 22 from nodejs.org into $PRIVATE_NODE"; NODE_BIN="$PRIVATE_NODE/bin"; return 0; fi
+  say "$1 needs Node 20 or newer; fetching Node 22 from nodejs.org into $PRIVATE_NODE…"
+  fetch_private_node && find_node || fail "Node couldn't be set up for $1."
+  good "Node $("$NODE_BIN/node" --version): in $PRIVATE_NODE, used only by the installer and RAVIS's Codex check"
+}
 
 step "Clarvis — the coding assistant, installed into code-server"
 if [ "$WANT_CLARVIS" = 0 ]; then
@@ -362,14 +376,7 @@ else
     say "Clarvis isn't beside NERVIS-ecosystem; cloning it from $source_url…"
     run git clone -q "$source_url" "$CLARVIS_DIR"
   fi
-  if ! find_node; then
-    if [ "$DRY_RUN" = 1 ]; then run "download Node 22 from nodejs.org into $PRIVATE_NODE"; NODE_BIN="$PRIVATE_NODE/bin"
-    else
-      say "Building Clarvis needs Node 20 or newer; fetching Node 22 from nodejs.org into $PRIVATE_NODE…"
-      fetch_private_node && find_node || fail "Node couldn't be set up for building Clarvis."
-      good "Node $("$NODE_BIN/node" --version): in $PRIVATE_NODE, used only for building Clarvis"
-    fi
-  fi
+  ensure_node "Building Clarvis"
   version="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$CLARVIS_DIR/package.json" 2>/dev/null | head -1)"
   installed="$(cs --list-extensions --show-versions 2>/dev/null | grep -i '\.clarvis@' | sed 's/.*@//' || true)"
   if [ -n "$version" ] && [ "$installed" = "$version" ]; then
@@ -387,6 +394,87 @@ else
       good "Clarvis ${version:-}: built and installed in code-server"
     fi
   fi
+fi
+
+# ── Codex ─────────────────────────────────────────────────────────────────────
+
+# RAVIS runs Codex only from a source it can check before trusting it (ravis/src/ravis/codex/
+# runtime.py and linux_origin.py): Homebrew's cask on macOS, which Apple's signature vouches for;
+# Arch's own openai-codex package, which pacman checks; or OpenAI's npm build in $CODEX_DIR, whose
+# signatures and provenance npm checks. Whichever it is, RAVIS pauses a build it hasn't seen
+# until the owner accepts it in NERVIS, so installing Codex here never starts it.
+
+# umask 022: Ubuntu gives each user a umask of 002, so npm would leave Codex's files writable by the
+# user's group, and RAVIS refuses a Codex anyone but its owner could change (found on the Ubuntu
+# container test, 18 September 2026). The chmod after installing covers a folder made before.
+npm_codex() {  # npm_codex <npm arguments…>, in Codex's folder, against the public registry only
+  (umask 022 && cd "$CODEX_DIR" && PATH="$NODE_BIN:$PATH" npm "$@" --registry=https://registry.npmjs.org/)
+}
+
+install_codex_from_npm() {
+  local linked="$CODEX_DIR/codex"
+  if [ -e "$linked" ] && [ "$UPDATE_CODEX" = 0 ]; then
+    good "Codex: already installed from npm, in $CODEX_DIR (./install.sh --update-codex brings the latest)"
+    return 0
+  fi
+  ensure_node "Codex's npm install"
+  # RAVIS asks only the private Node's npm, /usr/bin/npm or /usr/local/bin/npm — never PATH, so no
+  # stray npm can vouch for Codex. A Node found anywhere else (nvm's, say) isn't one it would use.
+  case "$NODE_BIN" in
+    /usr/bin|/usr/local/bin|"$PRIVATE_NODE/bin") ;;
+    *) if [ "$DRY_RUN" = 1 ]; then run "download Node 22 from nodejs.org into $PRIVATE_NODE"
+       else fetch_private_node || fail "Node couldn't be set up for Codex's npm install."; fi
+       NODE_BIN="$PRIVATE_NODE/bin" ;;
+  esac
+  if [ "$DRY_RUN" = 1 ]; then
+    run npm install --save-exact @openai/codex@latest "(in $CODEX_DIR)"
+    run npm audit signatures; run ln -sfn "<Codex's Linux binary>" "$linked"
+    return 0
+  fi
+  mkdir -p "$CODEX_DIR"
+  [ -f "$CODEX_DIR/package.json" ] || printf '{\n  "private": true\n}\n' > "$CODEX_DIR/package.json"
+  mkdir -p "$REPO/.run"
+  say "Installing Codex from npm (about 135 MB)…"
+  npm_codex install --save-exact --no-audit --no-fund --loglevel=error @openai/codex@latest >>"$REPO/.run/install.log" 2>&1 \
+    || fail "npm couldn't install Codex. Its output is in $REPO/.run/install.log."
+  chmod -R go-w "$CODEX_DIR"
+  # Every package must carry npm's signature and a verified provenance attestation — two of two.
+  local audit total attested
+  audit="$(npm_codex audit signatures 2>&1)" || { rm -f "$linked"; fail "npm couldn't confirm the Codex packages' signatures:
+$audit"; }
+  total="$(printf '%s\n' "$audit" | sed -n 's/^audited \([0-9]*\) package.*/\1/p' | head -1)"
+  attested="$(printf '%s\n' "$audit" | sed -n 's/^\([0-9]*\) packages\{0,1\} ha[sv]e\{0,1\} .*verified attestation.*/\1/p' | head -1)"
+  if [ -z "$total" ] || [ "$attested" != "$total" ]; then
+    rm -f "$linked"
+    fail "npm didn't confirm OpenAI's provenance for every Codex package (${attested:-0} of ${total:-?}), so Codex
+  wasn't set up. npm said:
+$audit"
+  fi
+  local binaries=("$CODEX_DIR"/node_modules/@openai/codex-linux-*/vendor/*/bin/codex)
+  [ -f "${binaries[0]}" ] || fail "npm installed Codex, but not a Linux build of it for $ARCH."
+  ln -sfn "${binaries[0]}" "$linked"
+  local version
+  version="$(sed -n 's/^  "version": "\(.*\)",\{0,1\}$/\1/p' "$CODEX_DIR/node_modules/@openai/codex/package.json" | head -1)"
+  good "Codex ${version:-}: from npm, its signatures and OpenAI's provenance checked, in $CODEX_DIR"
+  later "$CODEX_WAITS"
+}
+
+step "Codex — the optional coding engine, run on your ChatGPT plan"
+if [ "$WANT_CODEX" = 0 ]; then
+  skipped "Codex: skipped (--no-codex)"
+elif [ "$OS" = macos ]; then
+  if brew list --cask codex >/dev/null 2>&1; then good "Codex: already installed with Homebrew"
+  else
+    mkdir -p "$REPO/.run"
+    run brew install --cask codex >>"$REPO/.run/install.log" 2>&1 \
+      || fail "Homebrew couldn't install Codex. Its output is in $REPO/.run/install.log."
+    good "Codex: installed with Homebrew"; later "$CODEX_WAITS"
+  fi
+elif [ "$PM" = pacman ] && pacman -Si openai-codex >/dev/null 2>&1; then
+  [ -z "$(missing_packages openai-codex)" ] || later "$CODEX_WAITS"
+  install_packages "Codex (Arch's own openai-codex package)" openai-codex
+else
+  install_codex_from_npm
 fi
 
 # ── Opening NERVIS from the desktop ───────────────────────────────────────────

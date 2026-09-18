@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import shutil
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -689,6 +690,16 @@ def codex_home_refusal(settings: Settings) -> str | None:
     return None
 
 
+#: The system whose way of vouching for Codex applies: Apple's signature on a Mac (`darwin`),
+#: Arch's package or OpenAI's npm build anywhere else (`codex/linux_origin.py`). Read through
+#: `codex_platform()` at every check, so a test can say which system it stands in for.
+CODEX_PLATFORM = sys.platform
+
+
+def codex_platform() -> str:
+    return CODEX_PLATFORM
+
+
 def names_caskroom_copy(executable: str) -> bool:
     """Whether a configured executable names Homebrew's versioned copy rather than its link.
 
@@ -722,6 +733,17 @@ def _check_codex(settings: Settings, report: ConfigurationReport) -> None:
 def _codex_executable_problem(settings: Settings) -> str | None:
     """What stops the Codex executable being found or trusted, judged from paths alone."""
     configured = settings.codex_executable
+    if not configured and codex_platform() != "darwin":
+        # Whether Arch's package owns /usr/bin/codex takes pacman to say, which the startup check
+        # asks; from paths alone, only "neither is there" can be said.
+        npm_link = data_directory() / "nervis" / "codex" / "codex"
+        if pathlib.Path("/usr/bin/codex").is_file() or npm_link.exists():
+            return None
+        return (
+            "not set, and neither Arch's openai-codex package nor NERVIS's npm install "
+            f"({npm_link.parent}) is there, so Codex reads as not installed; ./install.sh "
+            "installs it. RAVIS runs without it"
+        )
     if not configured:
         if shutil.which("brew") is None:
             return (

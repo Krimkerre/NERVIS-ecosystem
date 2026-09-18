@@ -68,6 +68,13 @@ without doing any of it.
 | Arch and relatives | pacman | the same | the same |
 | Windows | — | run it inside WSL (`wsl --install`, then Ubuntu), where it is the Linux install | no tray: WSL can't reach Windows' tray; open the dashboard in a Windows browser |
 
+**Codex**, the optional coding engine RAVIS runs on your ChatGPT plan, comes from a place RAVIS can
+check before trusting it: Homebrew on macOS (Apple's signature), Arch's own `openai-codex` package on
+Arch and its relatives (pacman's file check), and elsewhere OpenAI's npm build in
+`~/.local/share/nervis/codex`, whose npm signature, provenance record and every file RAVIS checks.
+`--no-codex` leaves it out; `--update-codex` brings the latest npm build. A build RAVIS hasn't seen
+waits for your OK in NERVIS before it runs.
+
 It asks for sudo only to install system packages, and never runs as root. Ollama gets NERVIS's
 embedding model (`nomic-embed-text`, about 270 MB); the PDF layout model (about 3 GB) is offered,
 not assumed. Building Clarvis needs Node 20 or newer: a system Node that is new enough is used,

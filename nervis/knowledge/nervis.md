@@ -359,7 +359,8 @@ reopens a task so a site the owner just allowed can be reached — with **Stop�
 waiting task. Stop is the only thing the dashboard can do to a task: it takes two clicks, and it
 never approves, answers, steers or starts anything. The card also lists the websites Codex's commands
 may reach, with **Remove** beside the ones the owner allowed (RAVIS's defaults can't be removed),
-and, when Homebrew installs a Codex version RAVIS hasn't tested, **Check this version** and **Use
+and, when a Codex version RAVIS hasn't tested arrives (from Homebrew on a Mac; on Linux from Arch's
+package or `./install.sh --update-codex`), **Check this version** and **Use
 this version…**, which accepts it without starting the file-rules re-test or spending any allowance.
 The Overview's Codex line now counts the tasks and opens the card. The menu bar app gained a Codex
 line under the model runtimes, with **Stop this task…** for each task, **Re-test the file rules…**
@@ -1039,9 +1040,19 @@ one, RAVIS doesn't touch it — touching it is what makes the desktop ask for a 
 its keys in its own private file instead. To have keys kept in the keyring again, unlock it (or make
 its password match the login password in Passwords and Keys) and restart NERVIS.
 
-**What doesn't work on Linux yet: Codex.** RAVIS runs Codex only after checking OpenAI's Apple
-signature on it, and Linux programs carry no Apple signature, so on Linux Codex is reported as not
-available, with that reason. How to vet Codex on Linux instead is a decision for the owner.
+**Codex on Linux** (RAVIS 0.30.4, owner decision 18 September 2026). On a Mac, RAVIS trusts Codex
+because Apple's signature proves OpenAI made it; Linux programs carry no such signature, so RAVIS
+takes Codex from two places it can check instead. On Arch and its relatives (CachyOS, EndeavourOS,
+Manjaro) it's Arch's own `openai-codex` package, and RAVIS asks pacman that the file belongs to it
+and that none of its files changed. Everywhere else — Ubuntu, Debian, Fedora, Windows through WSL —
+the installer puts OpenAI's npm build in `~/.local/share/nervis/codex`, and RAVIS checks npm's
+signature, OpenAI's build record (provenance), and every one of the package's files against the
+package npm serves — Codex's own sandbox program included. A Codex from anywhere else, or one with
+a changed file, is "not available" with the reason. `./install.sh` installs it
+(`--no-codex` skips it); `./install.sh --update-codex` brings the latest npm build, and on Arch a
+normal system update does. A new build waits for the owner's OK in NERVIS, as on a Mac. The ChatGPT
+desktop app for Linux (a preview since August 2026) isn't used: it's a hand-downloaded package whose
+origin nothing on Linux checks.
 On 18 September 2026 every test suite passed on Linux, the installer ran on Debian, Fedora, Arch
 and an Ubuntu desktop, and the tray started the whole stack there; a chat answered by a local model
 and a benchmark have not yet been run on Linux by hand.

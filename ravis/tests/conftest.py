@@ -49,6 +49,17 @@ def _never_the_checkouts_database() -> Any:
 
 
 @pytest.fixture(autouse=True)
+def _codex_checks_stand_in_for_a_mac(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Vouch for Codex the Mac way — the fake `codesign` — on whatever system runs the suite.
+
+    Most Codex tests hand RAVIS a fake `codesign` and a fake `brew`; on Linux the check would ask
+    pacman and npm instead, and those tests would test the wrong thing. The Linux way is tested on
+    its own, where each test says it stands in for Linux (`test_codex_linux_origin.py`).
+    """
+    monkeypatch.setattr("ravis.config.CODEX_PLATFORM", "darwin")
+
+
+@pytest.fixture(autouse=True)
 def _never_the_operators_own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point every on-disk store at a throwaway directory, for every test.
 

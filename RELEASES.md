@@ -709,7 +709,18 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.38
+## NERVIS — 0.34.39
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL
+
+- **The installer installs Codex.** On a Mac from Homebrew; on Arch and its relatives Arch's own
+  `openai-codex` package; everywhere else OpenAI's npm build, in a folder of its own, after npm has
+  confirmed its signatures and OpenAI's build record — and with files only their owner can change,
+  which Ubuntu's default settings wouldn't have given. `--no-codex` leaves it out, and
+  `--update-codex` brings the latest npm build. Installing Codex never starts it.
+
+### 0.34.38
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL
@@ -2078,7 +2089,21 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.3
+## RAVIS — 0.30.4
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **Codex works on Linux.** On a Mac RAVIS trusts Codex because Apple's signature proves OpenAI
+  made it; Linux programs have no such signature, so until now Codex was simply "not available" on
+  Linux. RAVIS now takes it from two places it can check. On Arch and its relatives it's Arch's own
+  `openai-codex` package, and pacman confirms the file is that package's and that none of its files
+  changed. Everywhere else it's OpenAI's npm build, which the installer puts in
+  `~/.local/share/nervis/codex`: RAVIS confirms npm's signature and OpenAI's build record on it, and
+  compares every one of its files — Codex's own sandbox program included — with the package npm
+  serves. A Codex from anywhere else, or with a changed file, stays "not available" and says why. A
+  new build still waits for the owner's OK before it runs, as on a Mac.
+
+### 0.30.3
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
 
