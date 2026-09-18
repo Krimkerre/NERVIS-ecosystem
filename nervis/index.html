@@ -169,6 +169,9 @@
    the same tappable icons `.side-nav button{justify-content:center}` already
    styles for the tablet width, just never let survive down to a phone one. */
 @media(prefers-reduced-motion:reduce){*{animation:none!important}}
+/* Calm mode: what reduced motion does, switched on by the page itself when this machine can't draw
+   the animations smoothly (see `CALM`). */
+html.calm *,html.calm *::before,html.calm *::after{animation:none!important}
 /* Exact supplied avatars run inside isolated srcdoc frames. The frame is scaled,
    not redrawn, so the canonical SVG geometry and animation timing stay intact. */
 .avatar-slot{overflow:hidden}.avatar-frame{width:340px;height:340px;border:0;background:transparent;transform:scale(.32);transform-origin:center;pointer-events:none}.avatar-slot .top-avatar{position:absolute;left:50%;top:50%;margin:-170px}.clarvis-panel{position:relative}.clarvis-panel .avatar-frame{display:block;margin:-112px auto -105px;transform:scale(.30);transform-origin:center}.avatar-source-label{position:absolute;right:5px;bottom:2px;color:#526274;font:8px/1 monospace;letter-spacing:.08em}
@@ -1621,9 +1624,33 @@ const banner=(title,body,tone='warn')=>`<div class="banner" data-tone="${tone}">
    Decorative only: capped node count, no libraries, no interaction capture.
    Real service topology could later replace the random graph via this boundary.
    -------------------------------------------------------------------------- */
+/* ── Calm mode ───────────────────────────────────────────────────────────────
+   Found on an Ubuntu desktop in a VM, 18 September 2026: the dashboard flashed and drew itself in
+   strips while it was on screen, and stopped the moment the desktop asked for reduced motion. The
+   animated background redraws the whole window every frame under panels that blur what is behind
+   them, and the avatars run dozens of endless animations with SVG filters; a real graphics card
+   shrugs that off, and a virtual or software one falls behind and shows half-drawn frames.
+   So the page stills itself — the same stillness reduced motion gives — when the browser draws in
+   software, or when its first seconds of frames arrive too slowly or too unevenly to be smooth.
+   Nothing is lost but movement: every figure and status stays exactly where it was. */
+const CALM={on:false,why:''};
+const CALM_FRAME_STYLE='<style id="nervis-calm">*,*::before,*::after{animation:none!important;transition:none!important}</style>';
+function calmFrame(frame){try{const doc=frame.contentDocument;if(doc&&doc.head&&!doc.getElementById('nervis-calm'))doc.head.insertAdjacentHTML('beforeend',CALM_FRAME_STYLE)}catch(e){/* a frame not yet loaded is calmed at hydration */}}
+function enterCalm(why){if(CALM.on)return;CALM.on=true;CALM.why=why;document.documentElement.classList.add('calm');document.querySelectorAll('iframe[data-avatar]').forEach(calmFrame)}
+/* Software drawing, asked of WebGL: Mesa's llvmpipe and softpipe, Chrome's SwiftShader, and whatever
+   calls itself software. A browser that won't say is judged by its frames instead. */
+function softwareRenderer(){try{const gl=document.createElement('canvas').getContext('webgl');if(!gl)return '';const ext=gl.getExtension('WEBGL_debug_renderer_info');const name=String(gl.getParameter(ext?ext.UNMASKED_RENDERER_WEBGL:gl.RENDERER)||'');return /llvmpipe|softpipe|swiftshader|software/i.test(name)?name:''}catch(e){return ''}}
+/* The frame watch: half a second to settle, then about three seconds of intervals while the page is
+   in view. Smooth is a median under 45 ms (above ~22 frames a second) with nine in ten under 100. */
+const FRAME_WATCH={gaps:[],last:0,began:0};
+function watchFrame(t){if(CALM.on||document.hidden||FRAME_WATCH.gaps.length>=90)return;if(!FRAME_WATCH.began){FRAME_WATCH.began=t;return}if(t-FRAME_WATCH.began<500){FRAME_WATCH.last=t;return}if(FRAME_WATCH.last)FRAME_WATCH.gaps.push(t-FRAME_WATCH.last);FRAME_WATCH.last=t;if(FRAME_WATCH.gaps.length===90)judgeFrames()}
+function judgeFrames(){const gaps=FRAME_WATCH.gaps.slice().sort((a,b)=>a-b);const median=gaps[gaps.length>>1],slow=gaps[Math.floor(gaps.length*.9)];if(median>45||slow>100)enterCalm(`frames every ${Math.round(median)} ms`)}
 function startNetworkField(){
  const canvas=document.createElement('canvas');canvas.id='network-bg';canvas.setAttribute('aria-hidden','true');document.querySelector('.app').appendChild(canvas);
- const ctx=canvas.getContext('2d'),reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;let w=0,h=0,dpr=1,raf=0,pointer={x:-9999,y:-9999},nodes=[],pulses=[];
+ const ctx=canvas.getContext('2d'),reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;let w=0,h=0,dpr=1,raf=0,drawn=0,pointer={x:-9999,y:-9999},nodes=[],pulses=[];
+ /* Still under reduced motion and under calm mode, which can begin after the field has started. */
+ const still=()=>reduced||CALM.on;
+ const software=softwareRenderer();if(software)enterCalm(`software graphics (${software})`);
  const palette=['85,220,255','52,230,242','125,108,255'];
  function resize(){const r=canvas.getBoundingClientRect();dpr=Math.min(devicePixelRatio||1,1.7);w=Math.max(1,r.width);h=Math.max(1,r.height);canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);const count=Math.max(20,Math.min(44,Math.round(w*h/26000)));while(nodes.length<count)nodes.push({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-.5)*.16,vy:(Math.random()-.5)*.16,r:Math.random()*1.4+.7,c:palette[Math.floor(Math.random()*palette.length)],phase:Math.random()*6.28});nodes.length=count}
  /* Split into a step, a link pass and a pulse pass. It was one function at
@@ -1631,7 +1658,7 @@ function startNetworkField(){
     the same reason the compiler does: an exemption for "it is only the
     background" is how the background becomes the thing nobody can change. */
  function stepNode(a){
-  if(reduce)return;
+  if(still())return;
   a.x+=a.vx;a.y+=a.vy;
   if(a.x<0||a.x>w)a.vx*=-1;
   if(a.y<0||a.y>h)a.vy*=-1;
@@ -1658,20 +1685,29 @@ function startNetworkField(){
   }
  }
  function advancePulses(links){
-  if(!reduce&&links.length&&Math.random()<.045){
+  if(!still()&&links.length&&Math.random()<.045){
    const e=links[Math.floor(Math.random()*links.length)];
    pulses.push({a:e[0],b:e[1],p:0,s:.006+Math.random()*.007});
   }
   pulses=pulses.filter(q=>{
-   q.p+=reduce?0:q.s;
+   q.p+=still()?0:q.s;
    const x=q.a.x+(q.b.x-q.a.x)*q.p,y=q.a.y+(q.b.y-q.a.y)*q.p;
-   ctx.beginPath();ctx.arc(x,y,2.2,0,Math.PI*2);
-   ctx.fillStyle='rgba(145,241,255,.96)';ctx.shadowBlur=13;ctx.shadowColor='#55dcff';
-   ctx.fill();ctx.shadowBlur=0;
+   /* A translucent halo rather than `shadowBlur`, which blurs on every pulse on every frame and
+      was the costliest thing drawn here. */
+   ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fillStyle='rgba(85,220,255,.18)';ctx.fill();
+   ctx.beginPath();ctx.arc(x,y,2.2,0,Math.PI*2);ctx.fillStyle='rgba(145,241,255,.96)';ctx.fill();
    return q.p<1;
   });
  }
+ /* Thirty frames a second: a slow drift looks the same at half the work. The watch sees every
+    frame the browser offers, drawn or not, since the offering is what it is judging. */
+ function tick(t){
+  watchFrame(t);
+  if(t-drawn>=32||!drawn)draw(t);
+  if(!still())raf=requestAnimationFrame(tick);
+ }
  function draw(t){
+  drawn=t||1;
   ctx.clearRect(0,0,w,h);
   const links=[];
   for(let i=0;i<nodes.length;i++){
@@ -1681,9 +1717,8 @@ function startNetworkField(){
    glowNode(a,t);
   }
   advancePulses(links);
-  if(!reduce)raf=requestAnimationFrame(draw);
  }
- addEventListener('resize',resize,{passive:true});addEventListener('pointermove',e=>{pointer.x=e.clientX-220;pointer.y=e.clientY-62},{passive:true});addEventListener('pointerleave',()=>pointer={x:-9999,y:-9999},{passive:true});resize();draw(0)
+ addEventListener('resize',resize,{passive:true});addEventListener('pointermove',e=>{pointer.x=e.clientX-220;pointer.y=e.clientY-62},{passive:true});addEventListener('pointerleave',()=>pointer={x:-9999,y:-9999},{passive:true});resize();draw(0);if(!still())raf=requestAnimationFrame(tick)
 }
 startNetworkField();
 /* Canonical avatar sources. These strings are generated mechanically from the
@@ -1701,7 +1736,7 @@ function desiredAvatarState(app=state.app,view=state.view){const maps={
  clarvis:{Workspace:'thinking',Explorer:'neutral',Search:'thinking','Source control':'judging','Run & debug':'talking',Extensions:'neutral',Terminal:'talking'}
  };return maps[app]?.[view]||({nervis:'nominal',sirvis:'loading',ravis:'ranking',clarvis:'thinking',miku:'neutral'})[app]}
 function syncFrameState(frame){const app=frame.dataset.avatar;const wanted=desiredAvatarState(app,app==='clarvis'?state.view:state.view);try{frame.contentWindow.setState(wanted)}catch(e){/* canonical initial state remains until the frame is ready */}}
-function hydrateAvatarFrames(){document.querySelectorAll('iframe[data-avatar]:not([data-ready])').forEach(frame=>{const app=frame.dataset.avatar;const presentation='<style>html,body{width:340px!important;height:340px!important;min-height:0!important;margin:0!important;padding:0!important;display:block!important;overflow:hidden!important;background:transparent!important}.stage{width:340px!important;height:340px!important;margin:0!important}.controls,.status,.quip{display:none!important}</style>';frame.onload=()=>syncFrameState(frame);frame.srcdoc=atob(AVATAR_SOURCE_B64[app]).replace('</head>',presentation+'</head>');frame.dataset.ready='true'})}
+function hydrateAvatarFrames(){document.querySelectorAll('iframe[data-avatar]:not([data-ready])').forEach(frame=>{const app=frame.dataset.avatar;const presentation='<style>html,body{width:340px!important;height:340px!important;min-height:0!important;margin:0!important;padding:0!important;display:block!important;overflow:hidden!important;background:transparent!important}.stage{width:340px!important;height:340px!important;margin:0!important}.controls,.status,.quip{display:none!important}</style>';frame.onload=()=>{if(CALM.on)calmFrame(frame);syncFrameState(frame)};frame.srcdoc=atob(AVATAR_SOURCE_B64[app]).replace('</head>',presentation+'</head>');frame.dataset.ready='true'})}
 /* The Clarvis extension panel uses the same canonical avatar as the header. */
 /* Embedded, the extension renders its chat panel WITHOUT an avatar: one butler
    per screen, and he lives in the header with the other three. Standalone VS Code

@@ -1029,6 +1029,16 @@ tray-icon extension for the icon to show (Ubuntu has it; the installer switches 
 and back in may be needed once). On Windows (WSL) there is no tray: start with `./start-linux.sh`
 and open http://127.0.0.1:8790 in a Windows browser.
 
+**On a computer with weak graphics the dashboard goes still** (NERVIS 0.34.38). If the browser
+draws in software, or its first few seconds on screen are jerky, the dashboard stops its animations
+— the moving background, the avatars, the small spinners — exactly as the system's "reduce motion"
+setting would, so a virtual machine's screen doesn't flash. Nothing else changes.
+
+**No keyring prompts on Linux** (RAVIS 0.30.3). If the desktop's keyring is locked, or there isn't
+one, RAVIS doesn't touch it — touching it is what makes the desktop ask for a password — and keeps
+its keys in its own private file instead. To have keys kept in the keyring again, unlock it (or make
+its password match the login password in Passwords and Keys) and restart NERVIS.
+
 **What doesn't work on Linux yet: Codex.** RAVIS runs Codex only after checking OpenAI's Apple
 signature on it, and Linux programs carry no Apple signature, so on Linux Codex is reported as not
 available, with that reason. How to vet Codex on Linux instead is a decision for the owner.

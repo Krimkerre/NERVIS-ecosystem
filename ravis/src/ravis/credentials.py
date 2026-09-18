@@ -51,6 +51,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -84,6 +85,68 @@ KEYRING_SWITCH = "RAVIS_CREDENTIAL_KEYRING"
 # A lookup must not be able to hang startup. The Keychain can prompt when a
 # item's ACL demands it, and a prompt on a headless box waits forever.
 LOOKUP_TIMEOUT_SECONDS = 5.0
+
+#: GLib's command-line D-Bus client, which every GNOME and KDE desktop has. Reading an alias or a
+#: property through it never prompts; touching the collection behind it can.
+GDBUS_BIN = "gdbus"
+#: How long the answer is reused. Every provider's lookup asks, and a refresh looks them all up at
+#: once; the answer changes when somebody unlocks or makes a keyring, which a minute absorbs.
+LOCK_CACHE_SECONDS = 60.0
+_LOCK_SEEN: list[tuple[float, bool]] = []
+
+
+def _gdbus(*arguments: str) -> str:
+    """One `gdbus call` on the session bus to the Secret Service; its output, or "" on failure."""
+    gdbus = shutil.which(GDBUS_BIN)
+    if not gdbus:
+        return ""
+    try:
+        answer = subprocess.run(
+            [gdbus, "call", "--session", "--dest", "org.freedesktop.secrets", *arguments],
+            capture_output=True, text=True, timeout=LOOKUP_TIMEOUT_SECONDS, check=False,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return answer.stdout if answer.returncode == 0 else ""
+
+
+def keyring_would_prompt(clock: Callable[[], float] = time.monotonic) -> bool:
+    """Whether using the Linux keyring now would put a password prompt on the desktop.
+
+    **Two ways it does, both found on an Ubuntu desktop on 18 September 2026.** Reading from or
+    writing to a *locked* keyring asks the desktop to unlock it — and RAVIS looks up every
+    provider's key when it starts, while the launcher stores four of the stack's own credentials.
+    And writing when there is *no* default keyring at all makes the Secret Service create one,
+    which asks for a new keyring's password: that VM had no login keyring, so opening NERVIS
+    produced prompt after prompt, and answering one created `Default_keyring` holding one of
+    RAVIS's credentials. The Mac half already holds the rule that a lookup must not prompt; this
+    is it on Linux. A keyring that would prompt is left alone — lookups find nothing there and
+    the other stores are tried, and a credential stored meanwhile goes to RAVIS's 0600 file, as on
+    a machine with no keyring.
+
+    Asked without prompting: the service's `default` alias names the collection a write would
+    use, "/" when there is none, and its `Locked` property says the rest. False when nobody can
+    say — no `gdbus`, no session bus, no Secret Service — because then there is either no keyring
+    to prompt for or no way to know, and `secret-tool` answers quickly on its own.
+    """
+    now = clock()
+    if _LOCK_SEEN and now - _LOCK_SEEN[0][0] < LOCK_CACHE_SECONDS:
+        return _LOCK_SEEN[0][1]
+    alias = _gdbus("--object-path", "/org/freedesktop/secrets",
+                   "--method", "org.freedesktop.Secret.Service.ReadAlias", "default")
+    found = re.search(r"objectpath '([^']*)'", alias)
+    if not alias or not found:
+        prompts = False
+    elif found.group(1) == "/":
+        prompts = True
+    else:
+        locked = _gdbus("--object-path", found.group(1),
+                        "--method", "org.freedesktop.DBus.Properties.Get",
+                        "org.freedesktop.Secret.Collection", "Locked")
+        prompts = "true" in locked
+    _LOCK_SEEN[:] = [(now, prompts)]
+    return prompts
 
 # How long a looked-up credential is reused before it is looked up again.
 #
@@ -509,7 +572,7 @@ class CredentialStore:
         the caller — look somewhere else.
         """
         tool = shutil.which(SECRET_TOOL_BIN)
-        if not tool:
+        if not tool or keyring_would_prompt():
             return None
         try:
             completed = subprocess.run(
@@ -542,6 +605,13 @@ class CredentialStore:
         ordinary case on a server and on Windows.
         """
         if not self._keychain or not self._keyring_allowed:
+            return False
+        # A locked Linux keyring is not written to either: the write is what prompts, and the
+        # launcher stores four of the stack's own credentials on every start — so on a machine
+        # whose keyring wasn't unlocked at login, opening NERVIS asked for a password four times
+        # (seen on the Ubuntu desktop, 18 September 2026: 8 CreateItem calls, 4 prompts). `store`
+        # then keeps the credential in RAVIS's 0600 file, as on a machine with no keyring at all.
+        if sys.platform != "darwin" and keyring_would_prompt():
             return False
         if not self._write_command(name, secret):
             return False
@@ -613,7 +683,8 @@ class CredentialStore:
                 command.append(self._keychain_path)
         else:
             tool = shutil.which(SECRET_TOOL_BIN)
-            if not tool:
+            # Nor is a locked one cleared, for the same reason: clearing asks it to unlock.
+            if not tool or keyring_would_prompt():
                 return
             command = [tool, "clear", "service", self._service, "account", name]
         with contextlib.suppress(OSError, subprocess.SubprocessError):

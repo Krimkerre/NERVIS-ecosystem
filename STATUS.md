@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4397 tests, no network, no live service
+.venv/bin/pytest                      # part of 4402 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1774 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4397 passing across the four, conformance `PASS`.
+Expected: all clean, 4402 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -19981,6 +19981,37 @@ containers.
 - **Ubuntu 22.04 and Debian 11 are refused** with a sentence: their Python is 3.10, and every service
   needs 3.11.
 
+
+## The dashboard's flashing and Linux's keyring prompts — 2026-09-18 (NERVIS 0.34.38, RAVIS 0.30.3)
+
+The owner unlocked the Ubuntu VM and opened NERVIS: the tray icon showed in GNOME's top bar, the
+dashboard flashed while it was on screen, and a keyring prompt appeared at every start.
+
+**The flashing** stopped the moment the VM's desktop animations were switched off, which also
+switches on the page's reduced-motion rules — so the page's animation was the cause: a full-window
+canvas redrawn every frame under `backdrop-filter` panels, and avatar frames running dozens of
+endless SVG-filtered animations, on a virtio-gpu adapter. Now a **calm mode** (`CALM` in
+`nervis/index.html`) applies the reduced-motion stillness itself — `html.calm` stops CSS animations,
+the avatar frames get the same rule, the canvas draws once — when WebGL names a software renderer
+or when about three seconds of frames drawn while the page is visible have a median over 45 ms or
+a tenth over 100 ms. The canvas is also capped at 30 frames a second and lost its `shadowBlur`
+pulses. **Seen by the owner in the VM:** no flashing. On this Mac the renderer reads as Apple M5
+through Metal, so the software check stays off; the frame half could not be measured here, because
+the app's browser pane reports itself hidden and the watch judges visible frames only.
+
+**The prompts** were RAVIS. Its lookups, and the launcher's four credential stores at every start,
+went to `secret-tool`, and on a keyring that is locked — or absent, as on this VM, which had no
+login keyring — each one prompted: to unlock, or to create a keyring. Answering one created
+`Default_keyring` holding one of RAVIS's credentials. The first fix checked only the default alias's
+`Locked` property and missed the absent case; watching the session bus during a start showed
+`CreateItem` → `CreateCollection` → `Prompt`. Now `keyring_would_prompt` reads the `default` alias
+(`"/"` when there is none) and the collection's `Locked` property — neither prompts — and reads,
+stores and clears all leave the keyring alone when it would prompt; stores fall back to RAVIS's 0600
+file. **Seen in the VM** with its keyring locked on purpose: during a start, only `ReadAlias`, `Get`
+and `Introspect` reached the Secret Service — no search, save, unlock or prompt — and all four
+credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
+**The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
+keyring each failing on the code before.
 
 ## Starting the thing
 

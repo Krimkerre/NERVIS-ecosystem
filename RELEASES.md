@@ -709,7 +709,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.37
+## NERVIS — 0.34.38
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL
+
+- **The dashboard no longer flashes on a computer with weak graphics.** In a Linux VM it drew
+  itself in strips while it was on screen: the animated background redraws the whole window every
+  frame under panels that blur what is behind them, and the avatars run dozens of endless
+  animations, which a virtual graphics card couldn't keep up with. The dashboard now watches its
+  first few seconds on screen and, if frames come too slowly or the browser is drawing in software,
+  goes still — the same stillness the system's reduced-motion setting gives. Every figure and status
+  stays where it was. On a normal computer nothing changes except that the background draws at 30
+  frames a second and its travelling pulses have a plain halo instead of a blurred glow.
+
+### 0.34.37
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL
@@ -2064,7 +2078,19 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.2
+## RAVIS — 0.30.3
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **Opening NERVIS on Linux no longer asks for a password.** RAVIS looks up provider keys and the
+  launcher saves four of the stack's own passes every time the stack starts, and on a desktop whose
+  keyring is locked — or which has none — each of those made the desktop ask for a password, or
+  offer to create a keyring. RAVIS now asks first whether using the keyring would show a prompt, a
+  question that never prompts itself, and if so leaves the keyring alone: lookups try the other
+  places, and passes go to RAVIS's private file, as on a computer with no keyring. The Mac's
+  Keychain is unaffected.
+
+### 0.30.2
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
 

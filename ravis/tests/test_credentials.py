@@ -780,3 +780,98 @@ async def test_the_app_renews_credentials_off_the_event_loop(
 
     assert len(renewed_on_loop_thread) >= 2, "renewed at startup and again on the timer"
     assert not any(renewed_on_loop_thread), "a Keychain lookup must never run on the loop"
+
+
+# ── A locked Linux keyring is never asked (18 September 2026) ────────────────
+
+
+LOGIN = "/org/freedesktop/secrets/collection/login"
+
+
+def _linux_keyring(monkeypatch: pytest.MonkeyPatch, locked: bool,
+                   collection: str = LOGIN) -> list[list[str]]:
+    """A Linux store whose Secret Service has this default collection ("/" for none), locked or
+    not; returns every command run."""
+    import subprocess
+
+    from ravis import credentials as module
+
+    ran: list[list[str]] = []
+
+    def run(argv: list[str], **_: object) -> object:
+        ran.append(list(argv))
+        if "org.freedesktop.Secret.Service.ReadAlias" in argv:
+            return _Completed(0, f"(objectpath '{collection}',)\n")
+        if "Locked" in argv:
+            return _Completed(0, f"(<{'true' if locked else 'false'}>,)\n")
+        return _Completed(0, "from-the-keyring")
+
+    monkeypatch.setattr(module.sys, "platform", "linux")
+    monkeypatch.setattr(module.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(subprocess, "run", run)
+    module._LOCK_SEEN.clear()
+    return ran
+
+
+def test_a_locked_linux_keyring_is_never_asked_so_nothing_prompts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Asking a locked keyring for a key makes the desktop pop an unlock prompt — which opening
+    NERVIS did, unexplained, on an Ubuntu desktop whose keyring wasn't unlocked at login."""
+    ran = _linux_keyring(monkeypatch, locked=True)
+    store = _store(keychain=True, environment={"RAVIS_ANTHROPIC_API_KEY": VALUE})
+
+    secret = store.resolve("anthropic")
+
+    assert not any(argv[0].endswith("secret-tool") for argv in ran), ran
+    assert secret.source is CredentialSource.ENVIRONMENT
+
+
+def test_an_unlocked_linux_keyring_is_still_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The falsifier: a check that always said "locked" would pass the test above."""
+    ran = _linux_keyring(monkeypatch, locked=False)
+    store = _store(keychain=True, environment={})
+
+    secret = store.resolve("anthropic")
+
+    assert secret.reveal() == "from-the-keyring"
+    assert any(argv[0].endswith("secret-tool") for argv in ran)
+
+
+def test_the_lock_is_asked_once_for_many_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    ran = _linux_keyring(monkeypatch, locked=True)
+    store = _store(keychain=True, environment={})
+
+    for name in ("anthropic", "google", "openai", "openrouter"):
+        store.resolve(name)
+
+    assert sum(1 for argv in ran if "ReadAlias" in " ".join(argv)) == 1
+
+
+def test_a_locked_linux_keyring_is_not_written_and_the_file_keeps_the_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The launcher stores the stack's own credentials on every start; each write to a locked
+    keyring was an unlock prompt — four of them, on an Ubuntu desktop, for opening NERVIS."""
+    ran = _linux_keyring(monkeypatch, locked=True)
+    store = _store(keychain=True, environment={})
+
+    store.store("admin.launcher", "minted-by-the-launcher")
+
+    assert not any(argv[0].endswith("secret-tool") for argv in ran), ran
+    assert store.resolve("admin.launcher").reveal() == "minted-by-the-launcher"
+
+
+def test_no_keyring_at_all_is_left_alone_rather_than_created(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no default keyring, a write makes the Secret Service *create* one — a prompt for a new
+    keyring's password. On an Ubuntu desktop with no login keyring, answering it created
+    `Default_keyring` holding one of RAVIS's credentials (18 September 2026)."""
+    ran = _linux_keyring(monkeypatch, locked=False, collection="/")
+    store = _store(keychain=True, environment={})
+
+    store.store("admin.launcher", "minted-by-the-launcher")
+
+    assert not any(argv[0].endswith("secret-tool") for argv in ran), ran
+    assert store.resolve("admin.launcher").reveal() == "minted-by-the-launcher"
