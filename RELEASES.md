@@ -2041,7 +2041,19 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.0
+## RAVIS — 0.30.1
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve`
+
+- **Route explanations are stored packed, and the limit is smaller.** Driving the new surfaces
+  against a real catalogue showed what a stored explanation actually costs: 87 KB, because it names
+  every one of 538 candidates and 537 exclusions with its reason. Yesterday's limit of fifty
+  thousand of those would have been several gigabytes. They are compressed now — about 7 KB each —
+  and the limit is twenty thousand, so the most this can take is roughly 140 MB. **Upgrading
+  applies migration 16**, which rebuilds the table and drops whatever it held; only route decisions
+  recorded in the last day are affected, and the launcher backs the database up first.
+
+### 0.30.0
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Adds:** `POST /v1/responses` and a route-decision replay
 
@@ -2051,8 +2063,11 @@ Four decisions the owner took after the base review, built.
   decision used to stop working after two hundred requests, and a restart emptied the list. The
   whole explanation is stored now — every candidate considered, every exclusion and its reason, and
   what the request required — so a question about yesterday has an answer. There is a limit of
-  thirty days and fifty thousand records, whichever comes first, so it cannot grow forever.
-  **Upgrading applies migration 15**, which the launcher backs the database up before running.
+  thirty days and twenty thousand records, whichever comes first, so it cannot grow forever —
+  about 140 MB, measured against this machine's own catalogue rather than guessed at.
+  **Upgrading applies migrations 15 and 16**, and the launcher backs the database up first. The
+  second rebuilds the table the first created, so any decisions recorded in between are dropped;
+  nothing else is touched.
 - **A busy provider is ranked lower.** RAVIS has been reading what providers say about their own
   limits and doing nothing with it. Now a provider that refused a request in the last minute, or
   that states it has almost no allowance left, loses its place to an equally suitable model

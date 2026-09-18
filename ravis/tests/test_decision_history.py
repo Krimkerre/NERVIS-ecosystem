@@ -9,6 +9,8 @@ time and under a ceiling so the cost stays finite.
 
 from __future__ import annotations
 
+import json
+
 from ravis.api.management.decisions import DecisionLog
 from ravis.routing.explain import ExcludedCandidate, RouteDecision
 from ravis.storage import prepare_database
@@ -128,6 +130,31 @@ def test_decisions_are_deleted_at_the_end_of_the_window(tmp_path) -> None:
                          clock=lambda: now[0])
     assert reader.find(old.decision_id) is None
     assert reader.find(fresh.decision_id) is not None
+
+
+def test_an_explanation_is_stored_packed(tmp_path) -> None:
+    """Measured, not assumed: a real explanation is 87 KB of repeated ids.
+
+    The first ceiling this table shipped with allowed several gigabytes, because
+    nobody had looked at a row. Deflate takes the measured rows twelve to one,
+    and the column holds bytes so that saving cannot quietly stop happening.
+    """
+    path = str(tmp_path / "ravis.db")
+    log = DecisionLog(database=prepare_database(path))
+    wide = _decision()
+    wide.considered = [f"vendor/model-{number}" for number in range(500)]
+    made = log.record(wide, application_id="clarvis", request_id="req-1")
+
+    stored = prepare_database(path).connection.execute(
+        "SELECT explanation FROM route_decision WHERE decision_id = ?", (made.decision_id,)
+    ).fetchone()["explanation"]
+    assert isinstance(stored, bytes), "the explanation was written as text"
+    assert len(stored) * 4 < len(json.dumps(wide.as_dict())), "packing bought almost nothing"
+
+    # And it is still the decision it was.
+    found = DecisionLog(database=prepare_database(path)).find(made.decision_id)
+    assert found is not None
+    assert found.decision.considered == wide.considered
 
 
 def test_a_busy_night_is_bounded_by_the_row_ceiling(tmp_path) -> None:

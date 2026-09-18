@@ -455,9 +455,10 @@ be held in memory only — 200 of them — so a decision fell off the end after 
 requests and a restart emptied the list. Now the whole explanation is written
 down: every candidate considered, every one excluded and why, and what the
 request itself needed. Old records are deleted after thirty days, or sooner if
-there are more than fifty thousand, so it cannot grow forever. The most recent
-200 are still kept in memory as well, so looking at the dashboard doesn't touch
-the database.
+there are more than twenty thousand, so it cannot grow forever — about 140 MB at
+the size a decision actually takes on this machine, which was measured rather
+than guessed at. The most recent 200 are still kept in memory as well, so looking
+at the dashboard doesn't touch the database.
 
 **You can ask what RAVIS would choose today.** Any stored decision can be routed
 again against the models, prices and health of right now, and RAVIS says whether

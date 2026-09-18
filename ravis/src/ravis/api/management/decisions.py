@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+import zlib
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -60,7 +61,13 @@ DECISION_RETENTION_SECONDS = 30 * 24 * 3600.0
 # ordinary month; it does not bound a runaway loop, and the four-hour soak test
 # makes 28,000 requests in a night. The ceiling is what stops a disk filling
 # between one look at the dashboard and the next.
-DECISION_ROW_CEILING = 50_000
+#
+# **Twenty thousand because it was measured, not because it is round.** Against
+# this machine's real catalogue an explanation is 87 KB of text — 538 candidates
+# and 537 exclusions, each with its reason — which `zlib` takes to about 7 KB.
+# So this ceiling is roughly 140 MB of database, and the first number tried,
+# fifty thousand, was several gigabytes before anyone measured a row.
+DECISION_ROW_CEILING = 20_000
 
 
 @dataclass
@@ -314,15 +321,36 @@ def _decision_row(recorded: RecordedDecision) -> tuple[Any, ...]:
         decision.pool_id,
         decision.selected,
         decision.reason,
-        json.dumps(_stored_body(recorded)),
+        _packed(_stored_body(recorded)),
         None if recorded.attempts is None else json.dumps(recorded.attempts),
         recorded.execution_path,
     )
 
 
+def _packed(body: dict[str, Any]) -> bytes:
+    """One explanation as it is stored: deflated JSON.
+
+    Level 6, `zlib`'s default, because the measurement that justified this said
+    nothing about the levels either side of it and a number chosen for being
+    higher is not a measurement.
+    """
+    return zlib.compress(json.dumps(body).encode(), 6)
+
+
+def _unpacked(stored: Any) -> dict[str, Any]:
+    """A stored explanation, however it was written.
+
+    Tolerant of plain text, which is what a row written by hand looks like —
+    `zlib` is how this writes them, not a claim about how they must arrive.
+    """
+    raw = zlib.decompress(stored) if isinstance(stored, bytes | bytearray) else stored
+    loaded: dict[str, Any] = json.loads(raw)
+    return loaded
+
+
 def _from_row(row: Any) -> RecordedDecision:
     """A stored row as the record it was."""
-    body = json.loads(row["explanation"])
+    body = _unpacked(row["explanation"])
     resting = set(body.get("resting", ()))
     decision = RouteDecision(
         requested=body.get("requested", ""),

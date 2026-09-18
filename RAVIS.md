@@ -2025,8 +2025,14 @@ Operator configuration is JSON in RAVIS's configuration directory (`providers.js
 `models.json`, `pools.json`, `policies.json`, `prices.json`, `observations.json`), with
 credentials in the keyring or the credential file (§14). **`RouteDecision` is stored since
 18 September 2026** (0.30.0, migration 15's `route_decision`): the whole explanation, plus the
-constraints the route was decided under, kept for thirty days and under a ceiling of fifty thousand
-rows. The most recent two hundred stay in memory as the working set, exactly as `usage_record`'s do,
+constraints the route was decided under, kept for thirty days and under a ceiling of twenty thousand
+rows. The explanation is stored deflated, and both numbers come from a measurement rather than
+from a guess: against this machine's real catalogue one explanation is 87 KB of text — 538
+candidates considered and 537 excluded, each with its reason — which `zlib` takes to about 7 KB,
+so the ceiling is roughly 140 MB. It shipped for an afternoon at fifty thousand rows of plain text,
+which was several gigabytes, and nobody had looked at a row until the surface was driven live.
+
+The most recent two hundred stay in memory as the working set, exactly as `usage_record`'s do,
 so an ordinary dashboard read touches no table. It was in memory alone until then, and the trade
 went bad in two ways: a link to a decision rotted after two hundred requests, and a table this
 model lists in as many words was being deviated from rather than applied. `RouteCandidate` and

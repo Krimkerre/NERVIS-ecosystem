@@ -455,6 +455,43 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX IF NOT EXISTS route_decision_trace ON route_decision (trace_id);
         """,
     ),
+    (
+        16,
+        "route explanations stored packed, measured against a real catalogue",
+        """
+        -- Migration 15 shipped hours before this one and stored the explanation as text.
+        -- Against this machine's real catalogue that is **87 KB a decision** — 538 candidates
+        -- considered and 537 excluded, each with its reason — so the row ceiling meant for
+        -- "bounded" allowed several gigabytes. Deflate turns 126 KB into 7 KB on the measured
+        -- rows, twelve to one, because the text is mostly repeated model ids and reasons.
+        --
+        -- The table is rebuilt rather than added to: SQLite cannot change a column's type in
+        -- place, and two columns meaning the same thing in different encodings would have to be
+        -- read and written both ways forever. The rows go with it, which is a cost this table
+        -- can pay and few others could — route decisions are diagnostic, kept thirty days, and
+        -- this migration follows the one that created the table by an afternoon, so the only
+        -- database it has ever run on is the one it was developed against.
+        DROP TABLE IF EXISTS route_decision;
+        CREATE TABLE route_decision (
+            decision_id    TEXT PRIMARY KEY,
+            decided_at     REAL NOT NULL,
+            application_id TEXT NOT NULL DEFAULT '',
+            request_id     TEXT NOT NULL DEFAULT '',
+            trace_id       TEXT NOT NULL DEFAULT '',
+            requested      TEXT NOT NULL DEFAULT '',
+            pool           TEXT,
+            selected       TEXT,
+            reason         TEXT NOT NULL DEFAULT '',
+            -- Deflated JSON. Read back through `zlib`, never by a human with a SQL client —
+            -- `GET /api/v1/route-decisions/{id}` is how a person reads one.
+            explanation    BLOB NOT NULL,
+            execution      TEXT,
+            execution_path TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS route_decision_recent ON route_decision (decided_at DESC);
+        CREATE INDEX IF NOT EXISTS route_decision_trace ON route_decision (trace_id);
+        """,
+    ),
 ]
 
 

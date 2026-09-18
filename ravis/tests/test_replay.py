@@ -8,6 +8,7 @@ does not keep. So these tests are about two things — that the answer is about
 
 from __future__ import annotations
 
+import zlib
 from typing import Any
 
 from tests.test_fallback import (
@@ -153,4 +154,6 @@ def test_a_stored_decision_carries_no_message() -> None:
         ).fetchall()
 
     assert rows, "nothing was stored to check"
-    assert all(secret not in row["explanation"] for row in rows)
+    # Unpacked before looking: an explanation is deflated on the way in, and a
+    # search of the compressed bytes would pass for a prompt that was stored.
+    assert all(secret not in zlib.decompress(row["explanation"]).decode() for row in rows)
