@@ -1,4 +1,4 @@
-"""`run.py clarvis-settings`: Clarvis connected to RAVIS and NERVIS, and its theme, on a fresh machine.
+"""`run.py clarvis-settings`: Clarvis connected to RAVIS and NERVIS, with its theme, anywhere.
 
 Found on the Ubuntu VM on 18 September 2026: the installer put Clarvis into code-server and wrote
 none of the settings that make it part of the ecosystem, so the theme was missing and, less
