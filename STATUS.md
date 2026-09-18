@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4451 tests, no network, no live service
+.venv/bin/pytest                      # part of 4454 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 539 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1782 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1785 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4451 passing across the four, conformance `PASS`.
+Expected: all clean, 4454 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20028,10 +20028,19 @@ installer runs it after Clarvis, whether Clarvis was just installed or already t
 read-only against the Mac first: all nine present with exactly these values, so nothing there
 changes. Three tests in `nervis/tests/test_launcher_clarvis_settings.py`.
 
-**Also open, from the same VM session:** code-server asks for a password there, which the launcher
-generated and keeps in the checkout's `.run/code-server.password`; the tray, the menu bar and the
-installer never show it. The owner has been asked whether to add a "copy code-server password"
-item or have NERVIS sign in for them.
+**The password, from the same VM session, decided the same night:** code-server asked for one the
+launcher had generated into `.run/code-server.password`, which nothing ever showed. Offered a
+"copy password" item or NERVIS signing in, the owner chose neither: **the installer asks for it**
+(NERVIS 0.34.44). Twice, hidden, 8 characters or more, no spaces at either end; Enter — or `--yes`,
+or no terminal — makes one up and prints it once at the end; a re-run offers to change it; a
+`~/.config/code-server/config.yaml` of one's own wins and nothing is asked. **Found on the way:**
+the launcher wrote the password into YAML unquoted, so `abc#de f!1` would have reached code-server
+as `abc`; it is now a JSON string, a valid YAML scalar. Checked against a real code-server 4.137.0
+on a spare port with throwaway folders: the whole password logged in (302), `abc` didn't (200).
+The prompt was driven with scripted answers — too short, mismatched, special characters, Enter —
+and the file came out right and mode 0600 each time; 3 tests in
+`nervis/tests/test_launcher_code_server_password.py`. The installer's prompt has not been typed
+into by a person yet.
 
 ## The intermittent Linux test, named and fixed — 2026-09-18
 

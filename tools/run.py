@@ -235,14 +235,17 @@ def _written_config() -> Path:
         out.write(
             f"bind-addr: 127.0.0.1:{CODE_SERVER_PORT}\n"
             "auth: password\n"
-            f"password: {_generated_password()}\n"
+            # Quoted: the owner chooses this password in the installer since 19 September
+            # 2026, and unquoted YAML would read a `#` in it as a comment and a leading `&`,
+            # `*` or `!` as syntax. A JSON string is a valid YAML scalar, escapes included.
+            f"password: {json.dumps(_generated_password())}\n"
             "cert: false\n"
         )
     return config
 
 
 def _generated_password() -> str:
-    """A password for a machine with no code-server config, minted once and kept.
+    """A password for a machine with no code-server config: chosen in the installer, or minted.
 
     Same idiom as `dashboard_token`, and for the same reason: the manual step
     nobody exercises is the step whose instructions go stale. Never consulted

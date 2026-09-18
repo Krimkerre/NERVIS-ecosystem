@@ -80,6 +80,10 @@ reports to NERVIS, and code-server wears its theme. Only settings that are missi
 anything you set yourself stays. On a machine installed before 19 September 2026, run
 `python3 tools/run.py clarvis-settings` once.
 
+It asks you to choose a password for the editor (code-server asks for it once per browser); press
+Enter and it makes one up and shows it at the end. Running it again offers to change it. A
+`~/.config/code-server/config.yaml` of your own takes precedence, and then it asks nothing.
+
 It asks for sudo only to install system packages, and never runs as root. Ollama gets NERVIS's
 embedding model (`nomic-embed-text`, about 270 MB); the PDF layout model (about 3 GB) is offered,
 not assumed. Building Clarvis needs Node 20 or newer: a system Node that is new enough is used,

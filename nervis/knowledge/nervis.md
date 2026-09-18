@@ -1017,8 +1017,11 @@ script installs it: `./install.sh`, run from a checkout of NERVIS-ecosystem. It 
 system it is on (macOS with Homebrew; Linux with apt, dnf or pacman — Ubuntu, Debian, Fedora, Arch
 and their relatives), installs the system packages, creates the services' Python environment,
 installs Ollama with NERVIS's embedding model and code-server, builds Clarvis and installs it into
-code-server, and adds NERVIS to the desktop. It starts nothing and never runs as root; it asks for
-the password only to install system packages. `./install.sh --help` lists its options, and
+code-server, connects Clarvis to RAVIS and NERVIS with its theme, and adds NERVIS to the desktop.
+It asks you to choose the editor's (code-server's) password — Enter makes one up and shows it at
+the end, a re-run offers to change it, and it's kept in the checkout's `.run/code-server.password`;
+a `~/.config/code-server/config.yaml` of your own wins instead. It starts nothing and never runs as
+root; it asks for the system password only to install system packages. `./install.sh --help` lists its options, and
 `--dry-run` shows the plan without doing any of it. Run again, it skips whatever is already there.
 
 **On a Mac, NERVIS lives in the menu bar; on Linux, in the tray.** On Linux the installer adds

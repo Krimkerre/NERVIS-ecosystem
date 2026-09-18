@@ -344,6 +344,60 @@ else
   [ "$PM" = pacman ] || later "code-server's installer mentions 'systemctl enable code-server' — not needed: NERVIS starts it"
 fi
 
+# code-server asks for a password in the browser. With a config of your own
+# (~/.config/code-server/config.yaml) that file's password is the one in effect, and the launcher
+# never touches it (tools/run.py, code_server_settings). Otherwise the launcher reads the password
+# from .run/code-server.password at every start, and it's chosen here — asked for twice, never
+# shown while typed, kept readable only by you. Nobody to ask (--yes, or no terminal) makes one up.
+CODE_SERVER_PASSWORD_FILE="$REPO/.run/code-server.password"
+MADE_UP_PASSWORD=""
+choose_code_server_password() {
+  local first="" second
+  while :; do
+    read -r -s -p "  Choose a password for the editor (8 characters or more; Enter makes one up): " first; echo
+    [ -z "$first" ] && break
+    if [ "${#first}" -lt 8 ]; then say "That's shorter than 8 characters. Try again."; continue; fi
+    if [ "$first" != "$(printf '%s' "$first" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')" ]; then
+      say "It can't start or end with a space. Try again."; continue
+    fi
+    read -r -s -p "  The same password again: " second; echo
+    [ "$first" = "$second" ] && break
+    say "Those two didn't match. Try again."
+  done
+  if [ -z "$first" ]; then
+    first="$("$PYTHON" -c 'import secrets; print(secrets.token_urlsafe(15))')"
+    MADE_UP_PASSWORD="$first"
+  fi
+  mkdir -p "$REPO/.run"
+  (umask 077 && printf '%s\n' "$first" > "$CODE_SERVER_PASSWORD_FILE")
+  chmod 600 "$CODE_SERVER_PASSWORD_FILE"
+}
+
+if [ "$WANT_CODE_SERVER" = 1 ]; then
+  if [ -f "$HOME/.config/code-server/config.yaml" ]; then
+    good "code-server password: the one in your own ~/.config/code-server/config.yaml"
+  elif [ "$DRY_RUN" = 1 ]; then
+    run "ask for code-server's password, and keep it in $CODE_SERVER_PASSWORD_FILE"
+  elif [ -s "$CODE_SERVER_PASSWORD_FILE" ]; then
+    if ask "Change the editor's (code-server's) password?" n; then
+      choose_code_server_password
+      good "code-server password: changed"
+      later "code-server's new password takes effect the next time NERVIS starts"
+    else
+      good "code-server password: unchanged"
+    fi
+  else
+    if [ "$ASSUME_YES" = 1 ] || [ ! -t 0 ]; then
+      MADE_UP_PASSWORD="$("$PYTHON" -c 'import secrets; print(secrets.token_urlsafe(15))')"
+      mkdir -p "$REPO/.run"
+      (umask 077 && printf '%s\n' "$MADE_UP_PASSWORD" > "$CODE_SERVER_PASSWORD_FILE")
+    else
+      choose_code_server_password
+    fi
+    good "code-server password: set"
+  fi
+fi
+
 # Node 20 or newer, for building Clarvis's package only. A system Node that is new enough is used
 # as it is; otherwise nodejs.org's own build goes into a private folder, checked against the
 # checksums nodejs.org publishes, so no package repository is added to the system for it.
@@ -588,6 +642,11 @@ if [ "$OS" = macos ]; then say "  open /Applications/NERVIS.app   (or ./start-ma
 elif [ "$WSL" = 2 ] || [ "$WANT_DESKTOP" = 0 ]; then say "  ./start-linux.sh"
 else say "  open NERVIS from the applications menu   (or ./start-linux.sh)"; fi
 say "  the dashboard is at http://127.0.0.1:8790"
+if [ -n "$MADE_UP_PASSWORD" ]; then
+  printf '\n  code-server password (made up for you; the editor asks for it once per browser):\n'
+  say "  $MADE_UP_PASSWORD"
+  say "  kept in $CODE_SERVER_PASSWORD_FILE; run ./install.sh again to choose your own"
+fi
 if [ ${#LATER_LINES[@]} -gt 0 ]; then
   printf '\n  Worth knowing:\n'; printf '    · %s\n' "${LATER_LINES[@]}"
 fi

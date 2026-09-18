@@ -756,7 +756,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.43
+## NERVIS — 0.34.44
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **The installer asks you to choose the editor's password.** code-server asks for a password in
+  the browser, and on a fresh machine it was one the launcher made up and kept in a hidden file
+  nothing ever showed. The installer now asks for one, twice and hidden as you type; pressing
+  Enter, or installing with `--yes`, makes one up and shows it once at the end. Running the
+  installer again offers to change it. A code-server config of your own still wins, and then
+  nothing is asked. A password with `#` or quotes in it now reaches code-server whole: the
+  launcher wrote it unquoted, which would have cut it at the `#`.
+
+### 0.34.43
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
