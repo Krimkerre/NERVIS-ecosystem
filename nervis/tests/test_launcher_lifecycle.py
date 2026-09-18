@@ -718,6 +718,32 @@ def test_a_record_without_a_marker_is_never_signalled(
     assert "Still answering after stop: SIRVIS, RAVIS" in out
 
 
+def test_a_runtime_this_launcher_did_not_start_is_left_running_without_failing_the_stop(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Ollama as a Linux system service: answering before the stack started, and after it stopped.
+
+    Nothing recorded it, so nothing signalled it, and it is meant to keep running — every stop on
+    an Ubuntu desktop ended "Still answering after stop: Ollama" with exit 1 until this
+    (18 September 2026). It is still named, as left running.
+    """
+    machine = FakeMachine([SIRVIS, RAVIS, CODE_SERVER])
+    run = _launcher(monkeypatch, tmp_path, machine)
+    _record(run, {"SIRVIS": {"pid": 802, "marker": "sirvis"}})
+    monkeypatch.setattr(run, "_services", lambda: [
+        ("SIRVIS", [], "sirvis", "", "http://127.0.0.1:8721/ecosystem/health"),
+        ("Ollama", [], "ollama serve", "", "http://127.0.0.1:11434/api/version"),
+    ])
+    monkeypatch.setattr(run, "responds", lambda url, _timeout=1.0: "11434" in url)
+
+    assert run.stop() == 0
+
+    out = capsys.readouterr().out
+    assert "Ollama left running: this launcher didn't start it" in out
+    assert "Still answering after stop" not in out
+    assert "Stopped." in out
+
+
 def test_the_first_stop_after_upgrading_checks_old_records_against_todays_markers(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

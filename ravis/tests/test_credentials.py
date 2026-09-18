@@ -302,11 +302,19 @@ def test_the_config_directory_follows_the_platform() -> None:
 
 
 def _keychain_that(behaviour: object, monkeypatch: pytest.MonkeyPatch) -> CredentialStore:
-    """A store whose Keychain lookup does whatever `behaviour` does."""
+    """A store whose Keychain lookup does whatever `behaviour` does.
+
+    **The macOS Keychain, on whatever system the suite runs on.** The answers faked here are
+    `security`'s — which ends a password with a newline — and without pinning the platform a
+    Linux run takes the `secret-tool` path instead, where no newline is ever written to a pipe, so
+    the store rightly kept the fake's newline and the test failed. Found on the first Linux run,
+    18 September 2026.
+    """
     import subprocess
 
     from ravis import credentials as module
 
+    monkeypatch.setattr(module.sys, "platform", "darwin")
     monkeypatch.setattr(module.shutil, "which", lambda _: "/usr/bin/security")
 
     def run(*_: object, **__: object) -> object:

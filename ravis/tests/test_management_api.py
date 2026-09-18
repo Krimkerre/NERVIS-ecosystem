@@ -421,7 +421,10 @@ def test_a_shared_name_does_not_give_one_provider_another_s_catalogue() -> None:
     """
     settings = Settings(
         database_path=":memory:",
-        upstreams='[{"name": "google", "kind": "google"}]',
+        # A dead address: with Google's default the app listed Google's real models at start-up,
+        # which the off-the-machine guard caught (18 September 2026). The row still carries a
+        # catalogue size — of nothing — which is what the test is about.
+        upstreams='[{"name": "google", "kind": "google", "base_url": "http://127.0.0.1:9"}]',
         _env_file=None,  # type: ignore[call-arg]
     )
     app = create_app(settings)

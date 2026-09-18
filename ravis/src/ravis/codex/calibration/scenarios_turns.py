@@ -39,6 +39,7 @@ import asyncio
 import contextlib
 import os
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -65,9 +66,16 @@ from ravis.codex.rpc import CodexRpcError, CodexUnavailableError
 
 #: K6's long-runners: a plain background process, one under a terminal of its own, and a
 #: script-language one. No listener: the sandbox refuses to let a command bind a socket.
+#:
+#: **`script` is spelt per system.** The BSD `script` on macOS takes the command after the file;
+#: util-linux's `script` refuses that ("unexpected number of arguments") and takes it with `-c`.
+#: Written the macOS way only, K6 on Linux lost one long-runner the moment it started and could
+#: never see its five processes — found on the first Linux run, 18 September 2026. Either form
+#: leaves `script` and the `sleep` it runs, so the count below holds on both.
 K6_LONG_RUNNERS = (
     "sleep 600",
-    "script -q /dev/null sleep 600",
+    "script -q /dev/null sleep 600" if sys.platform == "darwin"
+    else "script -q -c 'sleep 600' /dev/null",
     "python3 -c 'import time; time.sleep(600)'",
 )
 #: The one listed command each project runs: every long-runner in the background, then `wait`, so

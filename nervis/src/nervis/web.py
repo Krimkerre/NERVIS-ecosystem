@@ -41,14 +41,20 @@ def register_dashboard(api: FastAPI) -> None:
     configuration, and it should still get a working API.
     """
 
-    @api.get("/", include_in_schema=False)
+    # **GET and HEAD, both.** A HEAD is how a Linux desktop decides what a link is before opening
+    # it — `gio open`, which Python's `webbrowser` uses under GNOME, asks for the page's type
+    # first — and a 405 to that meant the launcher's "open the dashboard" opened nothing on Linux,
+    # while gio's error printed the address, token and all, into the launcher's log. Found on the
+    # Ubuntu desktop test, 18 September 2026. HTTP has HEAD answer as GET does, without the body;
+    # the server drops the body, so the token in it goes nowhere.
+    @api.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     async def root() -> RedirectResponse:
         # A redirect rather than serving the page at both paths, so the
         # dashboard has one address. Two URLs for one page is two cache
         # entries, two bookmarks, and one of them going stale.
         return RedirectResponse("/index.html")
 
-    @api.get("/index.html", include_in_schema=False)
+    @api.api_route("/index.html", methods=["GET", "HEAD"], include_in_schema=False)
     async def dashboard(request: Request) -> Response:
         if not DASHBOARD.is_file():
             return Response(

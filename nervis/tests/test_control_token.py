@@ -182,6 +182,20 @@ def test_the_token_is_in_the_page_and_nowhere_else(client: Any) -> None:
         assert token_of(client) not in client.get(path).text
 
 
+def test_a_head_request_for_the_page_is_answered_and_carries_no_token(client: Any) -> None:
+    """How a Linux desktop opens a link: `gio open` asks the page's type with a HEAD first.
+
+    A 405 there meant the launcher's "open the dashboard" opened nothing on Linux — and gio's
+    error line printed the address, token and all, into the launcher's log (18 September 2026).
+    The answer is GET's headers with no body, so the token goes nowhere.
+    """
+    for path in ("/index.html", "/"):
+        answer = client.head(path, follow_redirects=False)
+        assert answer.status_code in (200, 307), (path, answer.status_code)
+        assert answer.content == b""
+    assert client.head("/index.html").headers["content-type"].startswith("text/html")
+
+
 def test_two_processes_do_not_share_a_token(tmp_path: Any) -> None:
     """Minted per process, so a token learned once does not keep working.
 

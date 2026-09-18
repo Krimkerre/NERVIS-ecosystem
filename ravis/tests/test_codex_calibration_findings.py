@@ -25,6 +25,7 @@ outside host. The rules held:
 from __future__ import annotations
 
 import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -203,6 +204,15 @@ def test_k3_fails_saying_overridden_when_the_launch_flags_carry_sites_again(
 
 
 # ── K6: one command per project, every long-runner alive at once ────────────
+
+
+def test_the_fake_codex_runs_the_command_k6_sends_on_this_system() -> None:
+    """The fake recognises K6's command by its exact text, so the two must agree — including how
+    `script` is spelt, which differs between macOS and Linux (18 September 2026)."""
+    from tests import fake_codex_calibration as fake
+
+    assert (fake.K6_COMMAND,) == K6_COMMANDS
+    assert ("-c" in fake.K6_SCRIPT) is (sys.platform != "darwin")
 
 
 def test_k6_waits_for_no_more_processes_than_its_one_command_starts() -> None:

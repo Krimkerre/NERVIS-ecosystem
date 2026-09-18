@@ -73,7 +73,11 @@ CREATE = re.compile(r"Create the file (\S+) containing the line (\S+),")
 REMEMBER = re.compile(r"Remember the word (\S+)\.")
 #: K6's one listed command per project (`scenarios_turns.K6_COMMAND`), and the process tree the fake
 #: runs for it: a waiting shell over two `sleep`s and a shell with its own `sleep`, like `script`.
-K6_COMMAND = ("sleep 600 & script -q /dev/null sleep 600 & "
+#: `script` spelt per system, as the real command is: BSD's takes the command after the file,
+#: util-linux's with `-c`.
+K6_SCRIPT = ("script -q /dev/null sleep 600" if sys.platform == "darwin"
+             else "script -q -c 'sleep 600' /dev/null")
+K6_COMMAND = (f"sleep 600 & {K6_SCRIPT} & "
               "python3 -c 'import time; time.sleep(600)' & wait")
 K6_TREE = "sleep 600 & /bin/sh -c 'sleep 600; true' & sleep 600 & wait"
 PROCESSES: list[dict[str, Any]] = []

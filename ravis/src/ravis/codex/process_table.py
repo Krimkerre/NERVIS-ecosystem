@@ -49,6 +49,7 @@ import asyncio
 import os
 import re
 import signal
+import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -66,8 +67,22 @@ RULE_ORDER: tuple[Attribution, ...] = (
 CONFIRM_POLL_SECONDS = 0.1
 #: `ps -o lstart=` in the C locale.
 LSTART = "%a %b %d %H:%M:%S %Y"
-#: `lstart` has whole seconds, so a process started in the turn's first second may read one early.
-START_SLACK = timedelta(seconds=1)
+#: How early a process's `lstart` may read against the real clock.
+#:
+#: **One second on macOS, two on Linux, and both were measured.** `lstart` has whole seconds, so a
+#: process started in the turn's first second may read one early — that was the whole story on
+#: macOS, where the kernel keeps a process's start to the microsecond. Linux keeps it as clock ticks
+#: since boot and publishes the boot time itself in whole seconds (`btime` in `/proc/stat`), so `ps`
+#: works a start out as a truncated boot time plus ticks and then truncates the sum: two roundings
+#: down, up to two seconds early. Found on the first Linux run, 18 September 2026: a turn began at
+#: 15:29:28.2 and its command shells, started after it, read 15:29:27 — so neither project claimed
+#: them and calibration's K6 could not see a single process.
+#:
+#: The cost of the second second is the window in which a command root started just *before* a
+#: turn could be taken for one of its own, which needs a process in that task's folder, begun in
+#: those two seconds, with no task of its own already. Only comparisons against the real clock use
+#: this; `ps` against `ps` carries the same error on both sides and needs none.
+START_SLACK = timedelta(seconds=1 if sys.platform == "darwin" else 2)
 
 #: A process's identity: its pid and its start time. A pid alone is reused; the pair is not.
 Identity = tuple[int, str]

@@ -155,8 +155,14 @@ def code_server_binary() -> str:
     Looked up on PATH rather than at a fixed location, because Homebrew, the
     official install script and npm each put it somewhere different and all
     three put it on PATH. An empty answer is a normal outcome, not an error.
+
+    **And in `~/.local/bin`, when PATH doesn't reach it.** The official script's
+    standalone install — what `install.sh` uses on Arch, where the other way is a
+    build from source — lands there, and Arch's default shell doesn't put that
+    folder on PATH. Found installing on Arch, 18 September 2026.
     """
-    return shutil.which("code-server") or ""
+    local = Path.home() / ".local" / "bin" / "code-server"
+    return shutil.which("code-server") or (str(local) if os.access(local, os.X_OK) else "")
 
 
 def ollama_binary() -> str:
@@ -1528,9 +1534,17 @@ def mount_share(url: str) -> str:
     `osascript` rather than `mount_smbfs`: it uses the Keychain, so the
     password stays where the operator already put it instead of in a launcher,
     a plist, or a file under `/etc`.
+
+    **On Linux, `gio mount`**, for the same reason: it is the desktop's own
+    mounter, and GVfs takes the password from the keyring the desktop's file
+    manager saved it in when the share was first opened there with "remember".
+    Nothing here ever holds one. A launcher started from a plain SSH shell has no
+    session bus to reach GVfs through, and says so rather than guessing.
     """
+    if sys.platform.startswith("linux"):
+        return _mount_share_with_gio(url)
     if sys.platform != "darwin":
-        return f"{url}: mounting is only wired for macOS"
+        return f"{url}: mounting is wired for macOS and Linux, not {sys.platform}"
     where = Path("/Volumes") / url.rstrip("/").rsplit("/", 1)[-1]
     if os.path.ismount(where):
         return ""
@@ -1544,6 +1558,58 @@ def mount_share(url: str) -> str:
     # for a `try` block that swallowed the failure, and what matters is whether
     # something is mounted there now.
     return "" if os.path.ismount(where) else f"{url} did not mount"
+
+
+def install_hint(name: str) -> str:
+    """How to install one of the two runtimes the launcher starts, on this system.
+
+    `./install.sh` does it on either system and is named first; the one command it would run is
+    beside it for somebody who installs things by hand. Until 18 September 2026 this said
+    `brew install` everywhere, which on Linux is an instruction that cannot be followed.
+    """
+    if sys.platform == "darwin":
+        manual = {"ollama": "brew install ollama && ollama pull nomic-embed-text",
+                  "code-server": "brew install code-server"}[name]
+    else:
+        manual = {"ollama": "curl -fsSL https://ollama.com/install.sh | sh && "
+                            "ollama pull nomic-embed-text",
+                  "code-server": "curl -fsSL https://code-server.dev/install.sh | sh"}[name]
+    return f"./install.sh, or: {manual}"
+
+
+def _gio_local_path(gio: str, url: str) -> str:
+    """Where GVfs has `url` mounted, or "" when it isn't — asked, never worked out, because the
+    folder's name (`smb-share:server=…,share=…`) is GVfs's own business."""
+    try:
+        answer = subprocess.run([gio, "info", url], capture_output=True, text=True,
+                                timeout=10, check=False, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    found = re.search(r"^local path:\s*(.+)$", answer.stdout, re.MULTILINE)
+    return found.group(1).strip() if found and os.path.isdir(found.group(1).strip()) else ""
+
+
+def _mount_share_with_gio(url: str) -> str:
+    """The Linux half of `mount_share`: GVfs, through `gio`, with the keyring's password."""
+    gio = shutil.which("gio")
+    if gio is None:
+        return f"{url}: mounting needs `gio` (GLib's tools), which isn't installed"
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        return f"{url}: no desktop session to mount it in; open NERVIS from the desktop"
+    if _gio_local_path(gio, url):
+        return ""
+    try:
+        # Stdin closed: a share whose password isn't in the keyring fails here rather than
+        # waiting for a terminal nobody is watching.
+        done = subprocess.run([gio, "mount", url], capture_output=True, text=True,
+                              timeout=45, check=False, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as failure:
+        return f"{url} could not be mounted: {failure}"
+    if _gio_local_path(gio, url):
+        return ""
+    said = (done.stderr or done.stdout).strip().splitlines()
+    return f"{url} did not mount" + (f": {said[-1]}" if said else "") + (
+        " — open it once in the file manager and let it remember the password")
 
 
 #: The order `start` brings services up in, from runbook §12.1: SIRVIS, then the local
@@ -1746,7 +1812,7 @@ def start() -> int:
                       f" run: ollama pull {EMBEDDING_MODEL}")
     else:
         print("\nOllama is not installed, so RAVIS's /v1/embeddings has nothing to use.")
-        print("  brew install ollama && ollama pull nomic-embed-text   (then run this again)")
+        print(f"  {install_hint('ollama')}   (then run this again)")
 
     if code_server_binary():
         extra, port, source = code_server_settings()
@@ -1765,7 +1831,7 @@ def start() -> int:
         # a fact somebody needs, and a launcher that simply omitted the line
         # would look identical to one where it had started.
         print("\ncode-server is not installed, so it was not started.")
-        print("  brew install code-server        (then run this again)")
+        print(f"  {install_hint('code-server')}   (then run this again)")
 
     print("\nRuntimes this ecosystem uses but does not start:")
     for name, url in EXTERNAL:
@@ -1861,7 +1927,16 @@ def stop() -> int:
     # line, and in the second case this printed "Stopped." over a service still
     # holding its port. Observed, not imagined: it is what a stub code-server did
     # the first time this path ran.
-    still = [name for name, _, _, _, url in services if responds(url, 1.0)]
+    answering = [name for name, _, _, _, url in services if responds(url, 1.0)]
+    # **Only what this launcher started can fail its stop.** A runtime that was already answering
+    # when the stack started was never recorded, never signalled, and is meant to go on running —
+    # on Linux, Ollama's official installer makes it a system service, so every stop there used to
+    # end "Still answering after stop: Ollama" with a failing exit (found on the Ubuntu desktop
+    # test, 18 September 2026). It is said, not hidden.
+    for name in answering:
+        if name not in recorded:
+            print(f"  {name} left running: this launcher didn't start it")
+    still = [name for name in answering if name in recorded]
     if still:
         print("\nStill answering after stop: " + ", ".join(still))
         print("  Something is holding those ports that this launcher did not start,")
@@ -2691,6 +2766,19 @@ def _run_unload() -> int:
     return _answer(unload_model(sys.argv[2] if len(sys.argv) > 2 else ""))
 
 
+def _run_setup() -> int:
+    """Create the virtual environment and install the four packages, and start nothing.
+
+    What `start` does first on a fresh checkout, on its own, for `install.sh`: an installer that
+    had to start the whole stack to get its packages installed would leave services running on a
+    machine whose owner has not opened NERVIS yet. A checkout that already has its environment is
+    left as it is.
+    """
+    ensure_venv()
+    print(f"Virtual environment ready: {VENV}")
+    return 0
+
+
 def _run_renew() -> int:
     return _answer(renew_models())
 
@@ -2704,7 +2792,7 @@ def _run_status() -> int:
 
 
 COMMANDS = {
-    "start": start, "stop": stop, "status": _run_status,
+    "start": start, "stop": stop, "status": _run_status, "setup": _run_setup,
     "models": _run_models, "load": _run_load, "unload": _run_unload, "renew": _run_renew,
     "codex": _run_codex,
 }
@@ -2713,7 +2801,7 @@ if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "start"
     if action not in COMMANDS:
         print(
-            f"usage: {Path(__file__).name} [start|stop|status [--json]|models|load KEY|unload KEY"
+            f"usage: {Path(__file__).name} [setup|start|stop|status [--json]|models|load KEY|unload KEY"
             "|renew|codex sign-in|codex cancel-sign-in|codex stop ID --project NAME --turn TURN"
             "|codex reprove|codex calibrate --project-a PATH --project-b PATH]",
             file=sys.stderr,

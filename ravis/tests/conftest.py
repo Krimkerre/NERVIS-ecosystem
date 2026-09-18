@@ -92,6 +92,19 @@ def _never_the_operators_own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     # **And no test reaches the internet through the skill store** (RAVIS 0.28.0): a `Web` built
     # without a transport of the test's own gets one that fails the test at its first request.
     monkeypatch.setattr(skill_web, "live_transport", _no_network)
+    # **Nor through a provider** (18 September 2026). Anthropic and Google are registered in every
+    # app this suite builds, pointed at their real addresses, so every test that entered the
+    # lifespan asked both for their model lists — 167 tests, found when the guard below learned to
+    # see connections off the machine. No key went with them: the keyring is switched off for the
+    # whole session (`KEYRING_SWITCH`, below) and the credential file is a throwaway. But a request
+    # to a real provider from a test is a request, keyless or not, and a provider key the shell
+    # happened to export would have been picked up from the environment. So both addresses are
+    # dead ones, and no `…_API_KEY` from the environment reaches a test. A test of a provider
+    # adapter hands it a fake transport and settings of its own.
+    monkeypatch.setenv("RAVIS_ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("RAVIS_GOOGLE_BASE_URL", "http://127.0.0.1:9")
+    for name in [name for name in os.environ if name.endswith("_API_KEY")]:
+        monkeypatch.delenv(name)
 
 
 def _no_network() -> httpx.AsyncBaseTransport:
@@ -176,14 +189,28 @@ def as_administrator(store: Any) -> dict[str, str]:
 LIVE_PORTS = frozenset({8721, 8731, 8790, 7071, 8080, 1234, 11434})
 _LIVE_CONNECTIONS: list[int] = []
 
+# ── …and no test reaches the internet (18 September 2026) ────────────────────
+#
+# The first Linux run printed a real `GET https://generativelanguage.googleapis.com/v1beta/models`
+# answered 403: a test had called Google. On Linux there was no key to send; on the owner's Mac a
+# key resolved from the Keychain would have gone with it. Every connection off this machine now
+# fails the test that made it, by address, whatever the test was about.
+LOOPBACK = ("127.", "::1", "localhost", "0.0.0.0")
+_OUTSIDE_CONNECTIONS: list[str] = []
+
 
 def _watch_connections(event: str, args: tuple[Any, ...]) -> None:
     if event != "socket.connect" or len(args) < 2:
         return
     address = args[1]
-    if (isinstance(address, tuple) and len(address) >= 2
-            and address[0] in ("127.0.0.1", "::1", "localhost") and address[1] in LIVE_PORTS):
-        _LIVE_CONNECTIONS.append(int(address[1]))
+    if not (isinstance(address, tuple) and len(address) >= 2):
+        return  # a Unix socket: nothing leaves the machine
+    host, port = str(address[0]), address[1]
+    if host.startswith(LOOPBACK):
+        if port in LIVE_PORTS:
+            _LIVE_CONNECTIONS.append(int(port))
+        return
+    _OUTSIDE_CONNECTIONS.append(f"{host}:{port}")
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -193,8 +220,16 @@ def _live_connection_watch() -> None:
 
 @pytest.fixture(autouse=True)
 def no_live_service_ports(_live_connection_watch: None) -> Iterator[None]:
-    before = len(_LIVE_CONNECTIONS)
+    before, outside_before = len(_LIVE_CONNECTIONS), len(_OUTSIDE_CONNECTIONS)
     yield
+    outside = sorted(set(_OUTSIDE_CONNECTIONS[outside_before:]))
+    if outside:
+        pytest.fail(
+            f"this test connected off this machine, to {outside}; a test must never reach the "
+            "internet — give its client a fake transport or a dead address such as "
+            "http://127.0.0.1:9",
+            pytrace=False,
+        )
     reached = sorted(set(_LIVE_CONNECTIONS[before:]))
     if reached:
         pytest.fail(

@@ -134,6 +134,11 @@ def test_a_reused_pid_is_not_the_same_process(on: Any) -> None:
     check on PID alone cannot see.
     """
     record = supervision.start(on, "demo", "nervis_managed", SLEEP, ["30"])
+    # Started a clock tick later, as a reused PID always is. Linux states a process's start in
+    # 10 ms steps (1/CLK_TCK), so an imposter launched in the same step as the original has the
+    # same start time *to the kernel* — found on the first Linux run, 18 September 2026. That
+    # can't happen to a real reused PID, which needs the original to have died first.
+    time.sleep(0.05)
     imposter = subprocess.Popen([SLEEP, "30"])  # noqa: S603 - fixed argv, test
     try:
         # The record now points at the imposter's PID, with the create time of

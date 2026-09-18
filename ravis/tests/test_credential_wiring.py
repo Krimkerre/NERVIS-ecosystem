@@ -188,7 +188,12 @@ def test_the_credentials_screen_says_which_providers_can_be_reached() -> None:
 
     from ravis.app import create_app
 
-    settings = Settings(upstreams='[{"name": "gemini", "kind": "google"}]')
+    # A dead address of its own: with Google's default, the app listed Google's real models at
+    # startup — found by the off-the-machine guard (18 September 2026). What makes a provider
+    # "routable" is being declared, not being reachable.
+    settings = Settings(
+        upstreams='[{"name": "gemini", "kind": "google", "base_url": "http://127.0.0.1:9"}]'
+    )
     with TestClient(create_app(settings)) as client:
         items = client.get("/api/v1/providers/credentials").json()["items"]
 

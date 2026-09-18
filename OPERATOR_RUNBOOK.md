@@ -69,6 +69,32 @@ A model loaded any other way — by RAVIS, a benchmark or LM Studio itself — i
 not the menu's to unload. SIRVIS loads at most two models at once and says so when asked for a third. Opening a second copy does nothing, and quitting it
 stops the stack first however the quit arrives, an ordinary `kill` included.
 
+**On Linux, the tray icon does the same, with the same menu.** `./install.sh` adds **NERVIS** to
+the applications menu; opening it starts the stack and puts the NERVIS mark in the tray. The menu
+is the Mac's line for line — the same headline, services, LM Studio submenu with loads through
+SIRVIS, Codex's line with its tasks, **Stop this task…**, **Re-test the file rules…** and **Sign in
+to Codex…**, the same dialogs and sentences — with three differences a Linux panel forces:
+
+- **Colours become symbols.** A tray menu reaches the panel over D-Bus as plain text, so a
+  service's dot is a coloured circle (🟢 running, 🔴 not, ⚪ CLARVIS with no editor open, 🟠 Codex
+  needs you, 🔵 Codex working) and a CPU or GPU figure above 85% carries ⚠ where the Mac turns it red.
+- **GPU use appears only where a driver states it** — NVIDIA's `nvidia-smi`, or `gpu_busy_percent`
+  from AMD's and Intel's newer drivers. Anything else shows no GPU line rather than a zero.
+- **The section is "This computer"**, and LM Studio is found by its applications-menu entry
+  rather than a Mac bundle id; **Quit LM Studio** asks it to close the way a logout does.
+
+It runs `nervis/packaging/linux/nervis-tray` with the system's Python, because its GTK and
+AppIndicator libraries are the distribution's (`install.sh` installs them). Its log is
+`.run/tray.log`, kept across launches in the same way as the Mac's. A desktop with nothing to show
+tray icons — GNOME without its AppIndicator extension, or a locked screen, where GNOME switches
+extensions off — gets a dialog saying so, and the stack starts anyway. `python3 -m nervis_tray
+--print-menu` (from `nervis/packaging/linux`) prints the menu as text, as the Mac app's
+`--print-menu` does.
+
+**Windows runs the Linux install inside WSL**, without the tray: WSL can't reach Windows' tray.
+Start with `./start-linux.sh` in the WSL terminal and open `http://127.0.0.1:8790` in a Windows
+browser; WSL forwards the address.
+
 ---
 
 ## Reading health

@@ -63,9 +63,17 @@ def fake(pip: Any, npm: Any, npm_shipped: Any = NPM_CLEAN) -> Any:
 
 
 @pytest.fixture()
-def check(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+def check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ModuleType:
     module = load()
     monkeypatch.setattr(module.shutil, "which", lambda _: "/bin/pip-audit")
+    # A Clarvis checkout of the test's own. The check looks for one beside this repository, and
+    # these tests passed only on machines that happened to have one there — found on a clean
+    # Linux clone, 18 September 2026, where two of them failed for want of it. What npm says about
+    # it is faked like everything else here; only its lockfile has to exist.
+    clarvis = tmp_path / "clarvis"
+    clarvis.mkdir()
+    (clarvis / "package-lock.json").write_text("{}")
+    monkeypatch.setattr(module, "CLARVIS", clarvis)
     return module
 
 

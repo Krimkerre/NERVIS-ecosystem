@@ -36,7 +36,10 @@ then actually gone.
 from __future__ import annotations
 
 import json
+import re
 import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -96,10 +99,40 @@ def stored_share(database: Any) -> dict[str, str]:
     if not url:
         return {}
     name = str(held.get("name") or "").strip() or "nas"
-    # The mountpoint macOS will use, unless somebody said otherwise: the share's
-    # last segment under `/Volumes`.
-    where = str(held.get("path") or "").strip() or f"/Volumes/{url.rstrip('/').rsplit('/', 1)[-1]}"
+    where = str(held.get("path") or "").strip() or share_mountpoint(url)
     return {"url": url, "name": name, "path": where}
+
+
+#: How long `gio info` may take to say where a share is mounted. It answers from GVfs's own
+#: table in milliseconds; a share that is asleep is a share that is not mounted.
+GIO_TIMEOUT_SECONDS = 5.0
+
+
+def share_mountpoint(url: str) -> str:
+    """Where this system mounts `url`, unless somebody said otherwise.
+
+    On macOS, the share's last segment under `/Volumes` — where `mount volume` puts it, and
+    where it has always been looked for. On Linux the desktop mounts shares through GVfs, under a
+    folder whose name is GVfs's own business (`/run/user/<uid>/gvfs/smb-share:server=…,share=…`),
+    so it is **asked rather than worked out**: `gio info` names the local path of a mounted
+    share, and says nothing for one that is not mounted — which is "not there", exactly as an
+    empty `/Volumes/<name>` is on a Mac.
+
+    Empty when nobody can say: no `gio`, no session bus, or not mounted. `places` leaves a place
+    it cannot find out rather than inventing one.
+    """
+    if sys.platform == "darwin":
+        return f"/Volumes/{url.rstrip('/').rsplit('/', 1)[-1]}"
+    gio = shutil.which("gio")
+    if gio is None:
+        return ""
+    try:
+        answer = subprocess.run([gio, "info", url], capture_output=True, text=True,
+                                timeout=GIO_TIMEOUT_SECONDS, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    found = re.search(r"^local path:\s*(.+)$", answer.stdout, re.MULTILINE)
+    return found.group(1).strip() if found else ""
 
 
 def places(settings: Any, database: Any = None) -> dict[str, Path]:

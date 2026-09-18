@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4372 tests, no network, no live service
+.venv/bin/pytest                      # part of 4397 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 539 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1750 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1774 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4372 passing across the four, conformance `PASS`.
+Expected: all clean, 4397 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -19884,6 +19884,102 @@ place: ahead of the privacy lean, a `LOCAL_PREFERRED` request left the machine; 
 affinity, a conversation moved mid-flight. One test asserts what the dry run must never do, by
 counting what reached the upstream, and one asserts that no message reaches the decision table.
 Ruff and strict mypy clean.
+
+
+## Linux, for real: an installer, a tray, and what the first runs found — 2026-09-18 (NERVIS 0.34.37, RAVIS 0.30.2)
+
+The owner has always required the ecosystem to be OS-agnostic. The services were written that way —
+Linux branches for memory, thermal state, the Codex lock rule, credentials — and **none of it had
+ever run on Linux**, which this file said in its own words more than once. Everything the owner
+touches was Mac-only: the menu bar app, Homebrew install hints, the AppleScript share mount. This
+entry is the first time the whole of it ran on Linux, and what that found.
+
+**Built.** `install.sh`, run from a checkout: it detects macOS (Homebrew), Linux with apt, dnf or
+pacman, and WSL; installs the system packages; creates the services' environment through a new
+`tools/run.py setup`, which starts nothing; installs Ollama with `nomic-embed-text`, offering the 3 GB PDF
+model rather than assuming it; installs code-server through its official script (standalone on Arch,
+where the script would otherwise build from the AUR); builds Clarvis — cloning it beside the checkout
+when it isn't there — with a system Node ≥ 20 or nodejs.org's own build fetched privately and checked
+against nodejs.org's published checksums, no package repository added; installs it into code-server;
+and puts NERVIS on the desktop — `NERVIS.app` on a Mac, an applications-menu entry and the tray on
+Linux, nothing on WSL, which can't reach Windows' tray. It never runs as root, asks for sudo only for
+packages, and each step looks first. **The tray** (`nervis/packaging/linux/nervis_tray/`) is the Mac
+app's menu, line for line: `nervis/packaging/linux/nervis_tray/menu.py` decides every word from
+`tools/run.py status --json` and `models --json` — standard library only, testable anywhere, `--print-menu` like the Mac's — and
+`nervis/packaging/linux/nervis_tray/app.py` draws it with GTK and an AppIndicator, carries out the clicks through `tools/run.py`, blinks for
+unread notifications, and stops the stack on quit or SIGTERM. Colours become circles and a busy figure
+carries ⚠, because a D-Bus menu carries plain text. Printed from the same status answer, the Linux menu
+and the Mac app's `--print-menu` agreed line for line.
+
+**What the Linux runs found** — each on a clean clone, the suites as an ordinary user:
+- **Codex tasks couldn't find their own processes on Linux.** Linux states a process's start as a
+  whole-second boot time plus clock ticks, and `ps` rounds the sum down again: up to two seconds
+  early, where the Mac's is at most one. The rule giving a command's shell to a task allowed one, so
+  on Linux a task's commands looked older than the task and belonged to nobody — measured: a turn at
+  15:29:28.2, its shells reading 15:29:27. `START_SLACK` is two seconds on Linux. Three intermittent
+  RAVIS failures were this; eight repeated rounds on Linux came back clean afterwards.
+- **Calibration's K6 used the Mac's spelling of `script`,** which util-linux refuses ("unexpected
+  number of arguments"), so one of its three long-runners died at once on Linux. Spelt per system
+  now, with the test fake pinned to the same text.
+- **NERVIS refused `HEAD` for the dashboard,** which is how GNOME's `gio open` decides what a link is
+  before opening it: the launcher opened no browser on Linux, and gio's error printed the dashboard's
+  address, token and all, into the tray's log. GET and HEAD both now; the test fails on the old code.
+- **167 RAVIS tests reached the internet**, found by teaching the suite's connection guard to see
+  more than the local stack's ports: every app a test built listed Anthropic's and Google's models at
+  start-up. Not with the owner's keys — the suite has switched the keyring off since the incident
+  recorded at its conftest — but a request is a request; both providers get dead addresses in tests,
+  provider keys are scrubbed from the environment, and every test now fails that connects off the
+  machine, naming the address.
+- **Four tests assumed a Mac or a particular machine** and are fixed: supervision's reused-PID test
+  (Linux start times come in 10 ms steps, so an impostor launched in the same step is identical to
+  the kernel — a real reused PID never is), two dependency-check tests that needed a Clarvis checkout
+  beside the repository, and the Keychain tests, which faked `security`'s output without pinning the
+  macOS path (Linux's `secret-tool` writes no newline to a pipe, per libsecret's source, so the Linux
+  reader was right).
+- **The installer itself:** asking code-server its version wrote a default
+  `~/.config/code-server/config.yaml`, which the launcher then took for the owner's own config and
+  obeyed — every code-server call in the installer now gets a throwaway config folder; Ubuntu names
+  its tray extension `ubuntu-appindicators@ubuntu.com`, not upstream's; no distribution needs system
+  `pip`; and on Arch `pacman -Sy` with a package list is a partial upgrade, so it isn't used.
+- **Quitting the tray with a dialog open left it running.** GTK's quit ends only the innermost event
+  loop, and a dialog waiting for an answer is one: a SIGTERM stopped the stack, logged "exiting",
+  and the process stayed. Open dialogs are answered first now, and informational ones don't wait.
+- **Every stop on Linux failed**, because Ollama's official installer makes it a system service the
+  launcher never started, and the stop's final check counted it: "Still answering after stop:
+  Ollama", exit 1. Only what this launcher recorded can fail its stop now; anything else still
+  answering is named as left running.
+- **A network share mounts on Linux** through `gio mount`, the desktop's own mounter, with the
+  password its keyring holds — the Mac's Keychain-backed `mount volume`, ported — and NERVIS asks
+  `gio info` where GVfs put it rather than guessing the folder name.
+
+**Checked.** Protocol 66, SIRVIS 539, NERVIS 1,774 and RAVIS 2,018 on Ubuntu 24.04, as an ordinary
+user (root passes things a real user can't, which is how the first run's SIRVIS "failures" happened);
+the same suites on the Mac. The installer end to end on Debian 12, Fedora (Python 3.14) and Arch
+(x86-64, emulated; code-server as its standalone install) in containers, and on an Ubuntu 24.04 desktop VM as its desktop user; on the Ubuntu desktop the
+applications-menu entry opened the tray, the tray started the stack, and its menu — read off the
+session bus, since the VM's screen was locked — showed SIRVIS, RAVIS, NERVIS, code-server and Ollama
+running; the dashboard served, RAVIS answered an embedding through Ollama (768 dimensions), and
+code-server answered with Clarvis 0.17.19 installed. On the final code the whole cycle ran again
+there: opened from the applications menu, the stack came up (SIRVIS 0.19.5, RAVIS 0.30.2, NERVIS
+0.34.37), the page answered GET and HEAD, and a SIGTERM — what a logout sends — made the tray stop the
+stack ("Ollama left running: this launcher didn't start it", "Stopped.", status 0) and exit. On
+this Mac, `./install.sh --dry-run` walked the macOS path and found everything already there. The
+VM's sudo needs a password, so its admin
+installed the packages the installer would have asked sudo for; the sudo path itself ran in the
+containers.
+
+**Not done, and said so:**
+- **Codex on Linux.** RAVIS runs Codex only after `codesign` confirms OpenAI's Apple signature, which
+  no Linux binary has, so on Linux Codex is `not_available` with that reason. What replaces the check
+  there — a pinned SHA-256 of the release, the npm package's provenance, or something else — is a
+  security decision for the owner.
+- **The tray icon itself has not been seen on screen.** The VM's session is locked, GNOME switches
+  extensions off on the lock screen, and unlocking needs the owner's password. Everything behind the
+  icon is proven; the icon on a panel is not.
+- **A chat answered by a local model and a benchmark have not been run on Linux by hand**; the VM has
+  no chat model and no hosted keys, and loading one was not asked for.
+- **Ubuntu 22.04 and Debian 11 are refused** with a sentence: their Python is 3.10, and every service
+  needs 3.11.
 
 
 ## Starting the thing

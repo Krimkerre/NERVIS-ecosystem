@@ -46,6 +46,39 @@ the template reads them from one directory up.
 | **[RAVIS.md](./RAVIS.md)** | Full RAVIS build plan and contracts — the two execution paths, the Clarvis Compatibility Contract, routing pipeline, sessions, cost, management API, 30 milestones. | You are building RAVIS, or debugging why a stream broke. |
 | **[NERVIS.md](./NERVIS.md)** | Full NERVIS build plan and contracts — registry and capability negotiation, dashboard, general chat, event hub, tracing, diagnostics, supervision, the Code tab, 30 milestones. | You are building NERVIS, or deciding what a control plane is allowed to do. |
 
+## Installing it
+
+From a checkout of this repository, on macOS or Linux:
+
+```bash
+./install.sh
+```
+
+It works out which system it is on, installs what the ecosystem needs, builds Clarvis and puts it
+into code-server, and adds NERVIS to the desktop — then stops; it starts nothing. Everything it
+installs, and what it leaves out, is in its closing lines. Safe to run again: each step looks first
+and skips what is there. `./install.sh --help` lists the options, and `--dry-run` shows the plan
+without doing any of it.
+
+| | Packages from | Also installs | Desktop |
+|---|---|---|---|
+| macOS | Homebrew | code-server, Ollama | builds `NERVIS.app` (the menu bar app) and copies it to Applications |
+| Ubuntu, Debian and relatives | apt | code-server and Ollama through their official installers | an applications-menu entry and the tray icon |
+| Fedora and relatives | dnf | the same | the same |
+| Arch and relatives | pacman | the same | the same |
+| Windows | — | run it inside WSL (`wsl --install`, then Ubuntu), where it is the Linux install | no tray: WSL can't reach Windows' tray; open the dashboard in a Windows browser |
+
+It asks for sudo only to install system packages, and never runs as root. Ollama gets NERVIS's
+embedding model (`nomic-embed-text`, about 270 MB); the PDF layout model (about 3 GB) is offered,
+not assumed. Building Clarvis needs Node 20 or newer: a system Node that is new enough is used,
+and otherwise nodejs.org's own build goes into `~/.local/share/nervis/node`, checked against the
+checksums nodejs.org publishes — no package repository is added for it. Clarvis is looked for beside
+this checkout (`../clarvis`) and cloned there from the same GitHub account when it isn't.
+
+**Verified on 18 September 2026** on Debian 12, Fedora (Python 3.14) and Arch (x86-64) in containers, and on
+an Ubuntu 24.04 desktop in a VM, where the tray was opened from the applications menu and started
+the whole stack. See STATUS.md for what each run found.
+
 ## Running it
 
 One file per platform, next to this README. Double-click on macOS or Windows, or
@@ -70,11 +103,15 @@ six launchers are three lines calling `tools/run.py`, which also takes
 python3 tools/run.py status
 ```
 
-**On a Mac there is also a menu bar app.** `nervis/packaging/macos/build_app.sh` builds
-`NERVIS.app` into `nervis/packaging/macos/build/`. Open it and it starts the stack, shows what is
-running and how busy the Mac is, opens the dashboard, and stops everything when it quits. It
-carries no service code — it runs `tools/run.py` — so it never needs rebuilding after an update;
-`OPERATOR_RUNBOOK.md` describes its menu.
+**On a Mac there is also a menu bar app, and on Linux a tray icon with the same menu.**
+`nervis/packaging/macos/build_app.sh` builds `NERVIS.app` into `nervis/packaging/macos/build/`;
+on Linux `install.sh` adds an applications-menu entry that opens `nervis/packaging/linux/nervis-tray`.
+Either one starts the stack, shows what is running and how busy the machine is, loads models
+through SIRVIS, looks after Codex's tasks, opens the dashboard, and stops everything when it quits.
+Neither carries service code — both run `tools/run.py` — so neither needs rebuilding after an
+update; `OPERATOR_RUNBOOK.md` describes the menu. The tray needs a desktop that shows tray icons:
+KDE, XFCE, Cinnamon, MATE and Budgie do; GNOME does through its AppIndicator extension, which
+Ubuntu ships and `install.sh` switches on.
 
 **It does not start LM Studio or Clarvis.** Those are separate applications
 with their own lifecycles, and §9 puts model loading behind SIRVIS's Resource
@@ -88,7 +125,7 @@ route needs a local embedding model to answer NERVIS chat's own knowledge
 lookups, which makes Ollama load-bearing for chat rather than an optional
 runtime choice — `nomic-embed-text` is warmed once at startup if Ollama is
 installed, and the launcher says plainly when it is not
-(`brew install ollama && ollama pull nomic-embed-text`). code-server hosts
+(`./install.sh` installs it). code-server hosts
 Clarvis for NERVIS's Code tab; the launcher prints its address and the command
 that installs Clarvis into it, and says so when code-server is not installed.
 

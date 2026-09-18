@@ -1008,6 +1008,34 @@ named in the result. An empty pool refuses every request to it, so a button
 whose worst outcome is "your editor stopped answering" would be a trap. On this
 machine `ravis/draw` is the real case.
 
+## Installing it, and which systems it runs on
+
+NERVIS runs on **macOS and Linux**, and on **Windows inside WSL**. Since 18 September 2026 one
+script installs it: `./install.sh`, run from a checkout of NERVIS-ecosystem. It works out which
+system it is on (macOS with Homebrew; Linux with apt, dnf or pacman — Ubuntu, Debian, Fedora, Arch
+and their relatives), installs the system packages, creates the services' Python environment,
+installs Ollama with NERVIS's embedding model and code-server, builds Clarvis and installs it into
+code-server, and adds NERVIS to the desktop. It starts nothing and never runs as root; it asks for
+the password only to install system packages. `./install.sh --help` lists its options, and
+`--dry-run` shows the plan without doing any of it. Run again, it skips whatever is already there.
+
+**On a Mac, NERVIS lives in the menu bar; on Linux, in the tray.** On Linux the installer adds
+**NERVIS** to the applications menu; opening it starts the stack and puts the NERVIS mark in the
+tray, with the same menu as the Mac: the services and whether they answer, LM Studio's models
+loaded through SIRVIS, Codex and its tasks, the computer's CPU, memory and disk, **Open NERVIS
+dashboard**, and **Quit NERVIS and stop the stack**. A Linux menu can't colour text, so the status
+dots are coloured circles and a busy CPU carries ⚠ instead of turning red. GNOME needs its
+tray-icon extension for the icon to show (Ubuntu has it; the installer switches it on — a log-out
+and back in may be needed once). On Windows (WSL) there is no tray: start with `./start-linux.sh`
+and open http://127.0.0.1:8790 in a Windows browser.
+
+**What doesn't work on Linux yet: Codex.** RAVIS runs Codex only after checking OpenAI's Apple
+signature on it, and Linux programs carry no Apple signature, so on Linux Codex is reported as not
+available, with that reason. How to vet Codex on Linux instead is a decision for the owner.
+On 18 September 2026 every test suite passed on Linux, the installer ran on Debian, Fedora, Arch
+and an Ubuntu desktop, and the tray started the whole stack there; a chat answered by a local model
+and a benchmark have not yet been run on Linux by hand.
+
 ## Starting and stopping services
 
 NERVIS can start and stop services — but only ones it started itself, and only

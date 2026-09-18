@@ -709,7 +709,30 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.36
+## NERVIS — 0.34.37
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL
+
+- **NERVIS runs on Linux, and has a tray icon there.** It had Linux code paths from the start and
+  had never been run on Linux. Now it has: every test suite passes on Ubuntu, and on an Ubuntu
+  desktop the new tray icon — opened from the applications menu — started the whole stack. The tray
+  has the Mac menu bar app's menu line for line: the services, LM Studio's models loaded through
+  SIRVIS, Codex and its tasks, the machine's figures, the dashboard, and Quit. A Linux menu can't
+  colour text, so the dots are coloured circles and a busy figure carries ⚠.
+- **`./install.sh` installs everything**, on macOS and on Linux with apt, dnf or pacman: system
+  packages, the services' environment, Ollama with its embedding model, code-server, Clarvis built
+  and installed into code-server, and NERVIS on the desktop. Tried on Debian 12, Fedora, Arch and an
+  Ubuntu desktop. On Windows it runs inside WSL.
+- **The launcher opens the dashboard on Linux.** NERVIS refused the `HEAD` request a Linux desktop
+  sends before opening a link, so the browser never opened — and the error printed the dashboard's
+  address, token included, into the launcher's log. The page answers `HEAD` now.
+- **A network share mounts on Linux too**, through the desktop's own mounter and the password its
+  keyring already holds, as the Mac uses the Keychain.
+- **Codex is not available on Linux yet**, and says why: RAVIS runs Codex only after checking
+  OpenAI's Apple signature, which Linux programs don't carry.
+
+### 0.34.36
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 
@@ -2041,7 +2064,21 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.1
+## RAVIS — 0.30.2
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **On Linux, a Codex task can find its own processes.** Linux reports when a process started up to
+  two seconds early — it rounds down twice — and the rule that gives a process to a task allowed
+  one, so on Linux a task's commands looked older than the task and belonged to nobody. A Stop would
+  then have had nothing to stop. The allowance is two seconds on Linux, one on the Mac.
+- **Codex's calibration works on Linux.** One of its test commands used the Mac's spelling of
+  `script`, which Linux's refuses, so the check could never pass there.
+- **No test contacts a real provider any more.** 167 tests asked Anthropic and Google for their model
+  lists at start-up — without a key, since the test suite has kept the Keychain switched off since an
+  earlier incident — and now every test fails that connects anywhere off the machine.
+
+### 0.30.1
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve`
 

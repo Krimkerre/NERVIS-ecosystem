@@ -68,6 +68,15 @@ READY_SECONDS = 30.0
 #: The kernel's start time for a given process does not move between reads, so
 #: the tolerance is only absorbing float representation, and a millisecond is
 #: several orders of magnitude more than that needs.
+#:
+#: **On Linux the kernel's own resolution is coarser than this**: a start time
+#: is counted in clock ticks, 10 ms at the usual 100 Hz, so two processes begun
+#: in the same tick carry the same time and this check cannot tell them apart.
+#: It does not need to. A PID is reused only after its first owner has died and
+#: the counter has come round, which is never within one tick of that first
+#: owner's start — the case this guards is always a later process, and a later
+#: process always lands in a later tick. Measured 18 September 2026: three
+#: `sleep`s started 50 ms and 300 ms apart read .65, .71 and .01 of a second.
 CREATED_TOLERANCE = 0.001
 
 #: §12's crash-loop limit. Three failed control attempts against one service

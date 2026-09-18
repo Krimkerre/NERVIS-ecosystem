@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# NERVIS in the tray: what the applications-menu entry runs. See nervis_tray/app.py.
+#
+# The system's Python, never the stack's virtual environment: the tray's GTK and AppIndicator
+# bindings come from the distribution's packages, which a virtual environment cannot see.
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+export PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"
+exec /usr/bin/env python3 -m nervis_tray "$@"
