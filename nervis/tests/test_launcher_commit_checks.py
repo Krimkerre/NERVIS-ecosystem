@@ -79,3 +79,49 @@ def test_every_start_asks_even_with_the_environment_already_built(
     monkeypatch.setattr(run, "venv_bin", lambda name: tmp_path / name)
     run.ensure_venv()
     assert asked == ["asked"]
+
+
+# ── What the hook lets a gate do ────────────────────────────────────────────
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def test_the_hook_runs_the_dashboard_gates_under_the_shared_containment() -> None:
+    """**The gates execute `index.html` in Node's VM, and this hook runs on every
+    commit.** `tools/check_clean_clone.sh` wrapped them from the day that was
+    written up; the hook ran the same gates with bare `node`, so the path taken
+    most often was the unprotected one (base review, 17 September 2026, finding
+    5). `tools/sandbox_check.js` proves the wrapper contains — it does not prove
+    the hook uses it, which is what this asserts.
+    """
+    hook = (REPO / "tools" / "githooks" / "pre-commit").read_text(encoding="utf-8")
+    policy = (REPO / "tools" / "node_guard.sh").read_text(encoding="utf-8")
+
+    assert "node_guard.sh" in hook, "the hook does not source the shared containment policy"
+    gate_line = next(line for line in hook.splitlines()
+                     if "_check.js" in line and "${gate}" in line)
+    assert '"${NODE_GUARD[@]}"' in gate_line, gate_line
+    assert " node " not in gate_line, f"the gates still run bare node: {gate_line}"
+    # The sandbox gate is the one exception, and stays bare on purpose: it spawns
+    # the processes and makes the call the wrapper is meant to stop.
+    assert 'check "dashboard sandbox" node' in hook
+    # One policy, both callers: the drift this shares a file to prevent.
+    clean_clone = (REPO / "tools" / "check_clean_clone.sh").read_text(encoding="utf-8")
+    assert "node_guard.sh" in clean_clone
+    assert "--permission" in policy and "sandbox-exec" in policy
+
+
+def test_the_shared_policy_denies_writes_and_the_network_on_this_machine() -> None:
+    """What the policy resolves to here, rather than what it says: read back from
+    the shell that will run it."""
+    profile = REPO / "tools" / "no-network.sb"
+    assert profile.is_file()
+    script = (f'. "{REPO}/tools/node_guard.sh"; node_guard "{profile}"; '
+              'printf "%s " "${NODE_GUARD[@]}"')
+    shown = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=True,
+    ).stdout
+    assert "--permission" in shown and '--allow-fs-read=*' in shown, shown
+    import platform
+    if platform.system() == "Darwin":
+        assert "sandbox-exec" in shown and str(profile) in shown, shown

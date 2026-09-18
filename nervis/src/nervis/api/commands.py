@@ -276,22 +276,23 @@ async def _suggest_folder_name(request: Request, task: str) -> str:
     entry: RegistryEntry | None = request.app.state.registry.get("ravis")
     if not settings.ravis_client_credential or entry is None or not entry.is_usable:
         return ""
-    for model in background.route(background.settings(request.app.state.database)):
-        name = await _folder_name_by(request, entry, model, task)
+    config = background.settings(request.app.state.database)
+    for model in background.route(config):
+        name = await _folder_name_by(request, entry, model, task, background.marker(config))
         if name:
             return name
     return ""
 
 
 async def _folder_name_by(
-    request: Request, entry: RegistryEntry, model: str, task: str
+    request: Request, entry: RegistryEntry, model: str, task: str, said: dict[str, object],
 ) -> str:
     """One model's folder name for a task, or nothing when it had none to give."""
     client: httpx.AsyncClient = request.app.state.probe_client
     payload = {
         "model": model,
         "max_tokens": FOLDER_NAME_MAX_TOKENS,
-        "metadata": {"background": True},
+        "metadata": said,
         "messages": [{"role": "user", "content": FOLDER_NAME_PROMPT + task[:600]}],
     }
     try:
@@ -919,14 +920,16 @@ async def _visual_defect(request: Request, pdf_bytes: bytes) -> str | None:
         return None
     config = background.settings(request.app.state.database)
     for model in background.route(config, VISUAL_CHECK_MODEL):
-        answered, defect = await _looked_over(request, entry, snapshot, model)
+        answered, defect = await _looked_over(request, entry, snapshot, model,
+                                              background.marker(config))
         if answered:
             return defect
     return None
 
 
 async def _looked_over(
-    request: Request, entry: RegistryEntry, snapshot: visual_check.Snapshot, model: str
+    request: Request, entry: RegistryEntry, snapshot: visual_check.Snapshot, model: str,
+    said: dict[str, object],
 ) -> tuple[bool, str | None]:
     """One glance, by one model: whether it answered at all, and what it saw.
 
@@ -941,7 +944,7 @@ async def _looked_over(
     payload = {
         "model": model,
         "max_tokens": VISUAL_CHECK_MAX_TOKENS,
-        "metadata": {"background": True},
+        "metadata": said,
         "messages": [{
             "role": "user",
             "content": [

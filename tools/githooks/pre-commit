@@ -75,11 +75,23 @@ check() {
   fi
 }
 
+# **The same containment the clean-clone check uses, for the same reason.** These
+# gates execute `index.html`'s inline script in Node's VM, so what is being
+# committed runs here with the committer's own privileges; this hook ran them
+# with bare `node`, which left the path taken on *every commit* the unprotected
+# one (base review, 17 September 2026, finding 5). One policy, sourced from
+# `tools/node_guard.sh`, so the two cannot drift apart.
+. "$snapshot/tools/node_guard.sh"
+node_guard "$snapshot/tools/no-network.sb"
+
 cd "$snapshot/nervis" || exit 1
 check "page checks (tools/check.py)" python3 tools/check.py
 for gate in $(grep -Ev '^[[:space:]]*(#|$)' tools/dashboard_gates.txt); do
-  check "dashboard $gate" node "tools/${gate}_check.js"
+  check "dashboard $gate" "${NODE_GUARD[@]}" "tools/${gate}_check.js"
 done
+# Bare, and deliberately: this one proves the wrapper above actually contains,
+# so it spawns its own child processes and makes its own network call — running
+# it wrapped would deny it the capability its job is to test with.
 check "dashboard sandbox" node tools/sandbox_check.js
 cd "$snapshot" || exit 1
 check "knowledge files" python3 tools/knowledge_check.py

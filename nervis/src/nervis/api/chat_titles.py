@@ -199,7 +199,8 @@ async def _generate_title(
     if not config.titles:
         return
     for model in background.route(config, served):
-        title = await _title_by(request, entry, model, opening, trace_id)
+        title = await _title_by(request, entry, model, opening, trace_id,
+                                background.marker(config))
         if title:
             break
     else:
@@ -209,7 +210,8 @@ async def _generate_title(
 
 
 async def _title_by(
-    request: Request, entry: RegistryEntry, model: str, opening: str, trace_id: str
+    request: Request, entry: RegistryEntry, model: str, opening: str, trace_id: str,
+    said: dict[str, object],
 ) -> str:
     """One model's title for a conversation, or nothing when it had none to give."""
     client: httpx.AsyncClient = request.app.state.probe_client
@@ -217,7 +219,9 @@ async def _title_by(
         "model": model,
         "max_tokens": TITLE_MAX_TOKENS,
         "messages": [{"role": "user", "content": TITLE_PROMPT + opening[:600]}],
-        "metadata": {"background": True},
+        # The opening of somebody's conversation travels in this body, so what
+        # may serve it is declared rather than left to the chain (`background.marker`).
+        "metadata": said,
     }
     headers = _forwarded(
         new_request_id(), trace_id, request.app.state.settings.ravis_client_credential

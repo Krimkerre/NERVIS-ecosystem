@@ -146,6 +146,35 @@ def settings(database: Database) -> Settings:
 #: overruled by the fallback.
 LOCAL_POOL = "ravis/local"
 
+#: The pools whose whole point is that the work stays on this machine.
+#:
+#: `ravis/private` is RAVIS's strictest level and `ravis/local` says it in its
+#: name; both are published with `locality="local"`, so a route that leaves one
+#: of them has ignored the choice rather than fallen back within it.
+ON_THIS_MACHINE = (LOCAL_POOL, "ravis/private")
+
+
+def stays_here(config: Settings) -> bool:
+    """Whether the chosen pool is one that must not leave this machine."""
+    return config.pool.strip() in ON_THIS_MACHINE
+
+
+def marker(config: Settings) -> dict[str, object]:
+    """What every background request tells RAVIS about itself.
+
+    **`background` is a price, not a boundary.** RAVIS reads it as "must be
+    free", which a free *remote* model satisfies — so on its own it never kept a
+    private choice. When the chosen pool is one that stays here, the request also
+    declares `LOCAL_ONLY`, which RAVIS's policy may only tighten with
+    (`ravis/src/ravis/policy.py`, `_declared_privacy`), so the constraint holds
+    for every attempt in the chain rather than for the first one alone (base
+    review, 17 September 2026, finding 6).
+    """
+    said: dict[str, object] = {"background": True}
+    if stays_here(config):
+        said["privacy"] = "LOCAL_ONLY"
+    return said
+
 
 def route(config: Settings, *between: str) -> tuple[str, ...]:
     """The models a background call tries, in order, each once.
@@ -157,7 +186,14 @@ def route(config: Settings, *between: str) -> tuple[str, ...]:
     goes through here: unattended thinking, conversation titles, a handed-over
     task's folder name, and the layout glance on a saved PDF.
     """
-    return tuple(dict.fromkeys(m for m in (config.pool, *between, LOCAL_POOL) if m))
+    # **Nothing is borrowed when the pool must stay here.** `between` is
+    # whatever the caller already has in memory — for a title, the model that
+    # answered the conversation, which is remote whenever the chat is — and
+    # NERVIS cannot tell from the id whether a model is on this machine. So a
+    # private or local choice drops the borrowed step rather than guessing, and
+    # `marker` sends the constraint with the request besides.
+    borrowed = () if stays_here(config) else between
+    return tuple(dict.fromkeys(m for m in (config.pool, *borrowed, LOCAL_POOL) if m))
 
 
 #: The settings that are one stored value each, and how each is stored.

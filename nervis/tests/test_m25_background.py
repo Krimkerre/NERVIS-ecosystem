@@ -327,6 +327,31 @@ def test_the_route_is_the_chosen_pool_then_this_machine(database: Any) -> None:
     assert background.route(background.settings(database)) == ("ravis/local",)
 
 
+def test_a_private_pool_borrows_no_remote_model_and_says_so_to_ravis(database: Any) -> None:
+    """**The middle step was the hole.** Between the chosen pool and this
+    machine sat "whatever the caller already has in memory" — for a title, the
+    model that answered the conversation, which is remote whenever the chat is.
+    So an owner who set unattended work to `ravis/private` could have a
+    conversation's opening posted to a free remote model, because the only
+    constraint that travelled was the background marker, and that one means
+    "must be free" rather than "must stay here" (base review, 17 September
+    2026, finding 6)."""
+    remote = "anthropic/claude-haiku-4-5"
+    for private in ("ravis/private", "ravis/local"):
+        background.configure(database, pool=private)
+        config = background.settings(database)
+        assert remote not in background.route(config, remote), private
+        assert background.route(config, remote)[0] == private, private
+        # And the constraint travels with every attempt, rather than being a
+        # property of the first one.
+        assert background.marker(config) == {"background": True, "privacy": "LOCAL_ONLY"}
+
+    background.configure(database, pool="ravis/free-api")
+    config = background.settings(database)
+    assert background.route(config, remote) == ("ravis/free-api", remote, "ravis/local")
+    assert background.marker(config) == {"background": True}
+
+
 def test_unattended_thinking_falls_back_to_this_machine() -> None:
     """A free tier that is rate-limited should cost a slower note, not no note."""
     from nervis.app import _ask_ravis

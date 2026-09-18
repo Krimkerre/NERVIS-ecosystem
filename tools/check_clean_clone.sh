@@ -252,31 +252,11 @@ fi
 # logic; the fuller fix it also names — stop executing index.html at all, in
 # favour of static parsing — is the repository owner's call, not a change this
 # script makes for them.
-case "$(uname -s)" in
-  Darwin)
-    PROFILE="$(pwd)/nervis-eco/tools/no-network.sb"
-    NODE_GUARD=(sandbox-exec -f "$PROFILE" node --permission --allow-fs-read="*")
-    ;;
-  Linux)
-    # Probed rather than assumed: unprivileged user namespaces (what
-    # `--map-root-user` needs to unshare the network namespace without real
-    # root) are disabled on some hardened or older distributions. `true` costs
-    # nothing to run and fails exactly the way the real invocation would if
-    # this is one of them.
-    if unshare --net --map-root-user -- true >/dev/null 2>&1; then
-      NODE_GUARD=(unshare --net --map-root-user -- node --permission --allow-fs-read="*")
-    else
-      echo "  (Linux, but 'unshare --net --map-root-user' is not usable here — unprivileged" \
-           "user namespaces may be disabled; network is not sandboxed for these gates," \
-           "fs/child-process still are)"
-      NODE_GUARD=(node --permission --allow-fs-read="*")
-    fi
-    ;;
-  *)
-    echo "  (neither macOS nor Linux — network is not sandboxed for these gates; fs/child-process still are)"
-    NODE_GUARD=(node --permission --allow-fs-read="*")
-    ;;
-esac
+# The policy itself lives in `tools/node_guard.sh`, which the pre-commit hook
+# sources too, so the every-commit path and this one cannot drift apart — the
+# same reason the gate list is one file.
+. nervis-eco/tools/node_guard.sh
+node_guard "$(pwd)/nervis-eco/tools/no-network.sb"
 # The list lives in nervis/tools/dashboard_gates.txt, which the pre-commit hook
 # (tools/githooks/pre-commit) reads too, so this gate and the every-commit one
 # cannot drift apart. A `for` over the file's words rather than `while read`,

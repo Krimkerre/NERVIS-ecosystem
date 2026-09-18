@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4318 tests, no network, no live service
+.venv/bin/pytest                      # part of 4321 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 535 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1745 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1748 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4318 passing across the four, conformance `PASS`.
+Expected: all clean, 4321 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -19739,9 +19739,18 @@ delete removing the owner's file, the trash redirect, the same-second collision,
 reproduced on this Mac's own disk, and an unknown preview id deleting a directory. Ruff and strict mypy
 clean on both packages.
 
-**Still open from the same review:** the commit hook runs the dashboard gates without the sandbox the
-clean-clone check uses; a title's fallback can reach a free remote model when the background pool is
-private or local and the chat model is remote; copying follows symbolic links out of the workspace;
+**The second group followed the same day (NERVIS 0.34.34).** The commit hook now runs the dashboard
+gates under the containment `tools/check_clean_clone.sh` has used since that finding was first
+written up: one policy in `tools/node_guard.sh`, sourced by both, with `node --permission
+--allow-fs-read="*"` plus the platform's network denial, and the sandbox gate still run bare because
+it is the thing that proves the wrapper holds. All 44 gates pass inside it on this machine. And a
+background request now carries its own privacy: `background.marker` declares `LOCAL_ONLY` when the
+chosen pool is `ravis/private` or `ravis/local`, and `background.route` no longer borrows the model
+that answered the conversation for those pools — the borrowed step was how a private choice could put
+an opening in front of a free remote model, since the background marker means "must be free" and
+never meant "must stay here". Two tests, both failing on the previous code.
+
+**Still open from the same review:** copying follows symbolic links out of the workspace;
 cancelling the only waiter for a model load strands SIRVIS capacity; evidence paging skips records
 sharing a second; and the oldest tool verdict decides eligibility while the newest decides the score.
 

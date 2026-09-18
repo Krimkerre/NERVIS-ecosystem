@@ -709,9 +709,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.33
+## NERVIS — 0.34.34
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.29.3+, SIRVIS 0.19.4+, Clarvis Bridge, code-server
+
+- **A private choice for unattended work is kept by every step of the fallback.** Titles, folder
+  names and the PDF glance used to try the model that had just answered your chat before falling
+  back to this machine — so with unattended work set to Private or Local and a remote chat model, a
+  conversation's opening could reach a free remote model. The borrowed step is dropped for those two
+  settings, and the request now tells RAVIS the work must stay on this machine rather than only that
+  it must be free.
+- **The commit hook runs the dashboard checks with the same containment the clean-clone check uses.**
+  Those checks execute the dashboard's own script, and the hook — the path taken on every commit —
+  was running them unrestricted. One policy file now serves both, with a test that the hook uses it.
+
+### 0.34.33
 
 Two ways a delete could reach outside the workspace, from a review of the base applications.
 
