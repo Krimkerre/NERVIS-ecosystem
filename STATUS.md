@@ -20013,6 +20013,19 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## The intermittent Linux test, named and fixed — 2026-09-18
+
+Owner's request. RAVIS's suite ran eleven times on the Linux bench, three at a time for load:
+one failure, `test_agent_reconcile.py::test_a_superseded_lock_is_ravis_again_once_the_window_lets_go_of_its_file`
+(`['superseded', 'superseded'] != ['superseded', 'running']`). **The cause is the test, not
+RAVIS:** a superseded lock is re-checked on the heartbeat, every 15 s, and the background tick loop
+`start()` begins could take that heartbeat just before the test removed the window's lock file;
+the test's own tick a moment later then skipped the recheck. In use that means the lock comes back
+on the next heartbeat, as designed. **Proven before fixing:** forcing a tick before the removal
+failed three times out of three with the same assertion. The test now sets the heartbeat to zero,
+as its sibling in `test_agent_orphaned.py` does for retention; with the ordering still forced it
+passes, and the file passed 20 runs on the Mac and 10 on Linux.
+
 ## WSL 1 refused by the installer — 2026-09-18 (NERVIS 0.34.42)
 
 The owner asked whether the installer made WSL 2 the default on Windows, remembering that the

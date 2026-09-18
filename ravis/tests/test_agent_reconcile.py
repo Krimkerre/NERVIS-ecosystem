@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import json
 import os
 import subprocess
@@ -195,14 +196,14 @@ Emitted = list[tuple[str, dict[str, Any]]]
 
 
 def restart(path: Path, settings: Settings, table: FakeTable, host: FakeHost | None = None,
-            events: Emitted | None = None) -> AgentSessions:
+            events: Emitted | None = None, timings: AgentTimings = FAST) -> AgentSessions:
     def emit(event: str, *, trace_id: str, data: Any = None, **_: Any) -> None:
         assert trace_id
         if events is not None:
             events.append((event, dict(data or {})))
 
     return AgentSessions(host or FakeHost(), prepare_database(str(path)), settings, emit=emit,
-                         timings=FAST, take_snapshot=table.snapshot, kill=table.kill)
+                         timings=timings, take_snapshot=table.snapshot, kill=table.kill)
 
 
 def run(sessions: AgentSessions, then: Callable[[], Awaitable[None]] | None = None) -> None:
@@ -435,7 +436,12 @@ def test_a_superseded_lock_is_ravis_again_once_the_window_lets_go_of_its_file(
         store.insert_session(session_row("as_1", root, git_dir, "idle")),
         store.insert_lock(lock_row("pl_1", "as_1", root))))
     window_file(root, git_dir, 999_993, "Sun Sep 13 03:00:00 2026")
-    sessions = restart(path, settings_for(tmp_path), FakeTable([]))
+    # **A heartbeat due on every tick.** The recheck runs on the heartbeat, every 15 s, and the
+    # background tick loop `start()` begins could take that heartbeat just before the file below
+    # is removed — the explicit tick then skips the recheck and the lock reads superseded. It did,
+    # once in eleven full Linux runs on 18 September 2026; forcing that ordering failed every time.
+    sessions = restart(path, settings_for(tmp_path), FakeTable([]),
+                       timings=dataclasses.replace(FAST, heartbeat_seconds=0.0))
     states: list[str] = []
 
     async def check() -> None:
