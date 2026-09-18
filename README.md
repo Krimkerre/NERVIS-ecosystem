@@ -66,7 +66,7 @@ without doing any of it.
 | Ubuntu, Debian and relatives | apt | code-server and Ollama through their official installers | an applications-menu entry and the tray icon |
 | Fedora and relatives | dnf | the same | the same |
 | Arch and relatives | pacman | the same | the same |
-| Windows | — | run it inside WSL (`wsl --install`, then Ubuntu), where it is the Linux install | no tray: WSL can't reach Windows' tray; open the dashboard in a Windows browser |
+| Windows | — | run it inside WSL 2 (`wsl --install`, then Ubuntu), where it is the Linux install. WSL 1 is refused with the commands that convert it: its sandboxes need a real Linux kernel | no tray: WSL can't reach Windows' tray; open the dashboard in a Windows browser |
 
 **Codex**, the optional coding engine RAVIS runs on your ChatGPT plan, comes from a place RAVIS can
 check before trusting it: Homebrew on macOS (Apple's signature), Arch's own `openai-codex` package on

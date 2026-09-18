@@ -1011,7 +1011,8 @@ machine `ravis/draw` is the real case.
 
 ## Installing it, and which systems it runs on
 
-NERVIS runs on **macOS and Linux**, and on **Windows inside WSL**. Since 18 September 2026 one
+NERVIS runs on **macOS and Linux**, and on **Windows inside WSL 2** (not WSL 1: the sandboxes need
+a real Linux kernel, and the installer stops on WSL 1 with the PowerShell commands that convert it). Since 18 September 2026 one
 script installs it: `./install.sh`, run from a checkout of NERVIS-ecosystem. It works out which
 system it is on (macOS with Homebrew; Linux with apt, dnf or pacman — Ubuntu, Debian, Fedora, Arch
 and their relatives), installs the system packages, creates the services' Python environment,

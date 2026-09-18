@@ -20013,6 +20013,21 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## WSL 1 refused by the installer — 2026-09-18 (NERVIS 0.34.42)
+
+The owner asked whether the installer made WSL 2 the default on Windows, remembering that the
+sandboxing needs it. It didn't, and it couldn't: the default is a Windows setting
+(`wsl --set-default-version 2`), and a distribution inside WSL 1 can't convert itself. What it
+did was worse than nothing: `grep -i microsoft` matched both kernels, so WSL 1 installed as if it
+were WSL 2, and would then have failed where a sandbox starts — `unshare --net` for the
+dashboard's checks (said on 5 September 2026), and Codex's `bwrap`, both needing namespaces WSL 1
+lacks. `wsl_version` now reads the kernel release — WSL 2's say `microsoft-standard` or `WSL2`,
+WSL 1's end `-Microsoft` — and on WSL 1 the installer stops with both PowerShell commands,
+naming the distribution from `WSL_DISTRO_NAME`. Checked against six kernel strings (two WSL 2,
+one older WSL 2 without the suffix, one WSL 1, two ordinary Linux) and a macOS dry run; not run
+on a Windows machine, which there isn't one of here. `wsl --install` has installed WSL 2 by
+default since 2021, so this catches older setups.
+
 ## Budgets over everything, an app or a provider — 2026-09-18 (RAVIS 0.30.5, NERVIS 0.34.41)
 
 The first of the six things the owner kept when striking the unbuilt specs, and the one picked

@@ -756,7 +756,18 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.41
+## NERVIS — 0.34.42
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **The installer stops on WSL 1, and says how to move to WSL 2.** NERVIS's sandboxes — the one
+  the dashboard's checks run in, and Codex's — need a real Linux kernel, which WSL 2 has and WSL 1
+  doesn't. The installer used to treat both as "Windows through WSL". It now tells them apart by
+  the kernel and, on WSL 1, prints the two PowerShell commands that convert this distribution and
+  make WSL 2 the default. It can't change that itself: it's a Windows setting.
+
+### 0.34.41
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL

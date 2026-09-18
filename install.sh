@@ -7,7 +7,7 @@
 #
 #   macOS                     Homebrew for the packages; builds the menu bar app
 #   Linux: apt, dnf, pacman   Ubuntu, Debian, Fedora, Arch and their relatives; adds the tray app
-#   Windows                   run it inside WSL — it is then the Linux install, without the tray
+#   Windows                   run it inside WSL 2 — it is then the Linux install, without the tray
 #
 # Safe to run again: every step looks first and skips what is already there. Nothing is removed.
 #
@@ -91,12 +91,23 @@ ask() {  # ask "Question?" default(y|n) → 0 for yes
 
 # ── Which system is this ──────────────────────────────────────────────────────
 
+# Which WSL a kernel release belongs to: 2, 1, or nothing outside WSL. WSL 2 runs a real Linux
+# kernel ("5.15.153.1-microsoft-standard-WSL2"); WSL 1 translates Linux calls into Windows ones
+# ("4.4.0-22621-Microsoft") and has no namespaces, so the sandboxes NERVIS relies on — the
+# dashboard checks' network-free run and Codex's bwrap — cannot work there.
+wsl_version() {
+  case "$1" in
+    *[Mm]icrosoft-standard*|*WSL2*) echo 2 ;;
+    *[Mm]icrosoft*) echo 1 ;;
+  esac
+}
+
 OS="" DISTRO="" PM="" WSL=0 ARCH="$(uname -m)"
 case "$(uname -s)" in
   Darwin) OS=macos; PM=brew ;;
   Linux)
     OS=linux
-    if grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then WSL=1; fi
+    WSL="$(wsl_version "$(cat /proc/sys/kernel/osrelease 2>/dev/null)")"; WSL="${WSL:-0}"
     if [ -r /etc/os-release ]; then
       # shellcheck disable=SC1091
       . /etc/os-release
@@ -116,10 +127,17 @@ esac
 
 printf '%sNERVIS installer%s — %s\n' "$BOLD" "$OFF" "$REPO"
 if [ "$OS" = macos ]; then say "macOS $(sw_vers -productVersion) on $ARCH"
-else say "${DISTRO:-Linux} on $ARCH$([ "$WSL" = 1 ] && echo ' (inside WSL)')"; fi
+else say "${DISTRO:-Linux} on $ARCH$([ "$WSL" = 2 ] && echo ' (inside WSL 2)')"; fi
 [ "$DRY_RUN" = 1 ] && say "${YELLOW}Dry run: nothing will be changed.${OFF}"
 
 [ -f "$REPO/tools/run.py" ] || fail "Run this from a checkout of NERVIS-ecosystem: $REPO/tools/run.py isn't there."
+if [ "$WSL" = 1 ]; then
+  fail "This is WSL 1, and NERVIS needs WSL 2: its sandboxes — the dashboard's checks and
+  Codex's — need a real Linux kernel, which WSL 1 doesn't have. In PowerShell on Windows:
+      wsl --set-version ${WSL_DISTRO_NAME:-<this distribution>} 2    (converts this one, in a few minutes)
+      wsl --set-default-version 2    (so any new one starts on WSL 2)
+  Then open it again and run ./install.sh."
+fi
 [ "$(id -u)" != 0 ] || fail "Run this as yourself, not as root. It asks for your password
   when it needs to install system packages, and everything else belongs in your home folder."
 if [ "$OS" = linux ] && [ -z "$PM" ]; then
@@ -491,7 +509,7 @@ elif [ "$OS" = macos ]; then
     run rm -rf /Applications/NERVIS.app && run cp -R "$built" /Applications/
     good "NERVIS.app: in /Applications — open it to start the stack"
   fi
-elif [ "$WSL" = 1 ]; then
+elif [ "$WSL" = 2 ]; then
   step "Desktop"
   skipped "Tray and applications-menu entry: not on WSL, which can't put an icon in Windows' tray"
   later "Start with ./start-linux.sh, then open http://127.0.0.1:8790 in your Windows browser"
@@ -563,7 +581,7 @@ if [ ${#SKIPPED_LINES[@]} -gt 0 ]; then
 fi
 printf '\n  To start NERVIS:\n'
 if [ "$OS" = macos ]; then say "  open /Applications/NERVIS.app   (or ./start-macos.command)"
-elif [ "$WSL" = 1 ] || [ "$WANT_DESKTOP" = 0 ]; then say "  ./start-linux.sh"
+elif [ "$WSL" = 2 ] || [ "$WANT_DESKTOP" = 0 ]; then say "  ./start-linux.sh"
 else say "  open NERVIS from the applications menu   (or ./start-linux.sh)"; fi
 say "  the dashboard is at http://127.0.0.1:8790"
 if [ ${#LATER_LINES[@]} -gt 0 ]; then
