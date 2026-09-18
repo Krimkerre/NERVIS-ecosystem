@@ -1,9 +1,0 @@
-failed: lms load lfm2.5-2.6b-mlx --yes: Error: Error loading model. 
-
-
- (!) SUGGESTION 
-
-
-   (X) CAUSE  
-
-(Exit code: null). Please check settings and try loading the model again.

@@ -237,7 +237,7 @@ carries an as-built note saying what exists and what does not.
 - ~~whether route decisions should survive a restart~~ — **decided 18 September 2026: yes**, the whole explanation, thirty days, under a row ceiling;
 - ~~whether the page checks should stop executing the page's code in Node's `vm` and parse it instead (F1)~~ — **decided 18 September 2026: keep executing, contained**; the reasoning is at the top of `nervis/tools/page_context.js`;
 - whether the SIRVIS, RAVIS, NERVIS and Clarvis lists in rows 11 to 14 of Next are still wanted, or should be struck from the specifications;
-- what to do with artefacts tracked in git that nothing reads: `results/` (65 files, against `.gitignore`'s own rule), two `sirvis.db.v8.bak` companion files, `AUDIT-REPORT.html` and its PDF, and `nervis-build-ladder.html`.
+- ~~what to do with artefacts tracked in git that nothing reads~~ — **decided 18 September 2026: removed.** `results/` (65 files from August's first benchmarks; SIRVIS only shows a stored path's last two segments and never reads the files, and the launcher has written to `sirvis/results/` since), the two `sirvis.db.v8.bak` companions (the `-wal` empty, so nothing of the backup was in them; the backup itself was never tracked and stays), `AUDIT-REPORT.html` and its PDF, and `nervis-build-ladder.html` — all in the Trash under `NERVIS-ecosystem-old-files-2026-09-18`, not deleted.
 
 ### The protocol package, extracted when the second consumer arrived
 
