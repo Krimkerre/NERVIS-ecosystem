@@ -170,6 +170,41 @@ def test_a_model_too_big_for_free_memory_asks_first() -> None:
     assert menu.fit_warning(MODELS["models"][0], _report()) is None
 
 
+LINKED = {"available": True, "max_loaded": 2, "models": [
+    *MODELS["models"],
+    {"key": "q", "name": "qwen3.5-9b", "format": "mlx", "quantization": "4bit",
+     "size_bytes": 64 * menu.GIBIBYTE, "loaded": True, "held_by_menu": False,
+     "linked_device": "93c2", "linked_device_name": "Govert.local"},
+    {"key": "g", "name": "gemma-4-e2b", "format": "mlx", "quantization": "4bit",
+     "size_bytes": 64 * menu.GIBIBYTE, "loaded": False, "held_by_menu": False,
+     "linked_device": "93c2", "linked_device_name": None},
+]}
+
+
+def test_lm_link_models_sit_below_a_divider_under_their_machine_s_name() -> None:
+    """The owner's ThinkPad, 19 September 2026: a Mac-hosted model read as loaded here."""
+    items = menu.lm_studio_menu(LINKED, menu.Context())
+    texts = [item.text for item in items]
+    at = texts.index("On Govert.local (LM Link)")
+
+    assert items[at].kind == "header" and items[at - 1].kind == "separator"
+    loaded_there_at = texts.index("– qwen3.5-9b   MLX · 4bit · 64.0 GB")
+    assert texts.index("llama   GGUF · Q8") < at < loaded_there_at
+    loaded_there = items[loaded_there_at]
+    assert loaded_there.tooltip == "Loaded on Govert.local, which this menu leaves alone."
+    # Still loadable from here: LM Link loads it on the other machine.
+    elsewhere = items[texts.index("gemma-4-e2b   MLX · 4bit · 64.0 GB")]
+    assert elsewhere.action == ("load", "g")
+    assert elsewhere.tooltip == ("Load through SIRVIS. It runs on another device, "
+                                 "in that machine's memory."), "no name from LM Studio for it"
+    assert texts.count("On Govert.local (LM Link)") == 1, "one header per device"
+
+
+def test_a_linked_model_is_not_judged_against_this_machine_s_memory() -> None:
+    report = _report(system={"memory_available_bytes": 3 * menu.GIBIBYTE})
+    assert menu.fit_warning(LINKED["models"][3], report) is None
+
+
 # ── Codex ────────────────────────────────────────────────────────────────────
 
 

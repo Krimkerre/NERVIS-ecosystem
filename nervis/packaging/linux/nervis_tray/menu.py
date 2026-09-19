@@ -209,7 +209,15 @@ def lm_studio_menu(models: dict[str, Any] | None, context: Context,
     listed = models.get("models") or []
     if not listed:
         items.append(note("No models installed"))
-    items.extend(model_item(model, context) for model in listed)
+    shown_device: object = None
+    for model in listed:
+        # LM Link: another machine's models, after this one's, under that machine's name.
+        device = model.get("linked_device")
+        if device and device != shown_device:
+            items.append(separator())
+            items.append(header(f"On {device_name(model)} (LM Link)"))
+            shown_device = device
+        items.append(model_item(model, context))
     items.append(separator())
     items.append(note("✓ loaded from this menu, click to unload · – loaded by something else"))
     return items
@@ -232,16 +240,27 @@ def model_item(model: dict[str, Any], context: Context) -> Item:
         return Item(f"✓ {label}", action=("unload", model["key"]),
                     tooltip="Loaded from this menu. Click to unload it.")
     if model.get("loaded"):
+        where = (f"Loaded on {device_name(model)}" if model.get("linked_device")
+                 else "Loaded by something else")
         return Item(f"– {label}", enabled=False,
-                    tooltip="Loaded by something else, which this menu leaves alone.")
+                    tooltip=f"{where}, which this menu leaves alone.")
+    runs_there = (f" It runs on {device_name(model)}, in that machine's memory."
+                  if model.get("linked_device") else "")
     return Item(label, action=("load", model["key"]), enabled=context.model_busy is None,
-                tooltip="Load through SIRVIS.")
+                tooltip="Load through SIRVIS." + runs_there)
+
+
+def device_name(model: dict[str, Any]) -> str:
+    """The LM Link device a model is on, by the name its owner gave it when LM Studio says."""
+    return str(model.get("linked_device_name") or "another device")
 
 
 def fit_warning(model: dict[str, Any], report: dict[str, Any] | None) -> tuple[str, str] | None:
     """"Ask me first", as the owner chose: a model whose file, with room to work, is larger than
     the memory free right now loads only after a dialog says so. Unknown size or unknown free
     memory loads without asking — there is nothing to judge with."""
+    if model.get("linked_device"):
+        return None  # it loads into the other machine's memory, which this one can't see
     size = model.get("size_bytes")
     free = ((report or {}).get("system") or {}).get("memory_available_bytes")
     if not isinstance(size, (int, float)) or not isinstance(free, (int, float)):

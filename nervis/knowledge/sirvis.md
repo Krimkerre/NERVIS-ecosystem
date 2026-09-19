@@ -131,6 +131,21 @@ and the weights under `~/.lmstudio/models`; both go. Delete is refused while the
 keeps anything another installed model still needs, and refuses a model that came with LM Studio
 itself (the small embedding model), which only uninstalling LM Studio removes.
 
+## Models on another machine through LM Link
+
+LM Studio's **LM Link** lets one machine use models installed on another (say, a model hosted on
+the Mac used from a Linux laptop). Since SIRVIS 0.19.9 those models are listed apart: SIRVIS →
+Models and SIRVIS's front page show this machine's models first, then a heading "On <other
+machine> · LM Link" with the other machine's. They have no Show files or Delete (their files are on
+that machine) and SIRVIS won't benchmark them here (the numbers would be that machine's). The
+counts at the top of the pages are this machine's alone. The menu bar app and the Linux tray do the
+same: a divider, "On <other machine> (LM Link)", and a model loaded there reads "Loaded on <other
+machine>" rather than as loaded here. Loading one from here works — it loads into the other
+machine's memory. Before 19 September 2026 LM Studio's listing gave these models no mark, so a
+model loaded on the Mac showed as loaded on the laptop. Still open: a linked model loaded through
+SIRVIS counts toward this machine's limit on loaded models, and RAVIS still treats a linked model
+as local when a request must stay private or local.
+
 ## When LM Studio or Hugging Face is down
 
 SIRVIS checks every ten seconds whether LM Studio is answering (a read that loads nothing).

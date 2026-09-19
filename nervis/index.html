@@ -760,6 +760,9 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvet
    provenance quietly disappears. Six and seven tracks, same rhythm as .five. */
 .table-row.six{grid-template-columns:1.15fr .8fr .8fr .5fr .5fr .6fr}
 .table-row.seven{grid-template-columns:1.15fr .7fr .6fr .45fr .45fr .5fr .55fr}
+/* A group's heading inside a table or a build list: another machine's builds under LM Link. */
+.table-row.group{grid-template-columns:1fr;color:#617286;font-size:9px;text-transform:uppercase;letter-spacing:.08em;padding-top:14px}
+.model-group{display:block;margin:12px 2px 6px;text-transform:uppercase;letter-spacing:.08em}
 /* Each .table-row is its own grid, so a grid item's default min-width:auto let
    one long identifier widen its track and knock that row out of line with the
    rows above it — the columns stopped being columns. min-width:0 restores the
@@ -2588,7 +2591,12 @@ const API={
      resident_gb:null,
      measured:null,
      tools_advertised:null,
-     vision:null}})}))},
+     vision:null,
+     /* Another machine's build, reached through LM Studio's LM Link (SIRVIS 0.19.9, 19
+        September 2026), and that machine's name when LM Studio gives one. Null for this
+        machine's own; absent from a SIRVIS before that, which reads the same. */
+     linked_device:m.linked_device,
+     linked_device_name:m.linked_device_name}})}))},
 
   async _modelsMock(){return{snapshot_revision:null,items:[]}},
 
@@ -9978,8 +9986,12 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
     same question put this function over the complexity gate, which is the gate
     doing its job: the condition is one fact about the screen, not four. */
  const fromSirvis=SOURCE.sirvis==='live'?' live':'';
- const builds=[...mdl.items].sort((a,b)=>(a.state==='stopped')-(b.state==='stopped'));
- const loaded=builds.filter(m=>m.state!=='stopped');
+ /* This machine's builds, loaded first, then LM Link's under their device (`byMachine`). The
+    counts are this machine's: another device's build holds none of its memory, and SIRVIS
+    won't benchmark it here. */
+ const {here,linked}=byMachine(mdl.items);
+ const builds=[...here.sort((a,b)=>(a.state==='stopped')-(b.state==='stopped')),...linked];
+ const loaded=here.filter(m=>m.state!=='stopped');
  const resident=loaded.reduce((n,m)=>n+(m.resident_gb||0),0);
  const measured=builds.filter(m=>m.measured);
  /* Seeded with null AND guarded on it, which are two separate requirements
@@ -10011,18 +10023,18 @@ async function sirvis(){const v=SIRVIS_VIEWS[state.view];if(v)return v();
   const clash=m.tools_advertised!=null&&works!==m.tools_advertised;
   return `<span class="chip${warnUnless(works)}">${ok}/${n} tools</span>${clash?` <span class="prov" data-kind="ESTIMATED">claim says ${escapeHtml(m.tools_advertised?'yes':'no')}</span>`:''}`};
  $('#content').innerHTML=kpis([
-   ['Loaded',`${loaded.length} / ${builds.length}`,'builds resident now'],
+   ['Loaded',`${loaded.length} / ${here.length}`,linked.length?`builds here · ${linked.length} more over LM Link`:'builds resident now'],
    ['Memory',resident.toFixed(1)+' GB',mc.model_budget_gb==null?'resident now · budget not detected':`of a ${mc.model_budget_gb} GB budget · ${mc.system_baseline_gb} GB baseline`],
    ['Fastest measured',fastest?String(fastest.measured.gen_tok_s):'—',
      fastest?`tok/s · ${fastest.family}`:'no throughput on this endpoint — see Results'],
-   ['Evidence',`${measured.length} / ${builds.length}`,
+   ['Evidence',`${measured.length} / ${here.length}`,
      safe(`${prov('MEASURED')} n=${escapeHtml(rn.samples)} each`)]],'sirvis')
  /* `fromSirvis`, like the sibling cards on this screen. These two hardcoded
     ` live` and so rendered the eleven mock builds — a fictional catalogue — as
     a live read of what is installed on this machine. */
  +`<div class="card wide${fromSirvis}"><h3>Installed builds <span class="chip">${escapeHtml(loaded.length)} loaded</span></h3>${cell(`
    <div class="scroller" style="--rows:4;--row-h:74px" tabindex="0">
-   ${builds.map((m,i)=>`<div class="model ${i?'':'selected'}" onclick="BUILD.select(this,'${jsAttr(m.local_model_id||'')}','${jsAttr(m.variant_id||'')}')"><b>${escapeHtml(m.family)}</b> · ${escapeHtml(m.variant)} ${m.source?` · <span class="mono" style="opacity:.6">${escapeHtml(m.source)}</span>`:''} <span class="chip${warnIf(m.state==='stopped')}">${escapeHtml(m.state)}</span> ${toolCell(m)}<small class="mono"> ${escapeHtml(dash(m.runtime))} · ${ctx(m.runtime_config)}${escapeHtml(m.size_gb==null?'':' · '+m.size_gb+' GB')}${escapeHtml(m.resident_gb?' resident':'')}${escapeHtml(m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':'')}</small><div class="bar"><i style="--w:${escapeHtml(fastest&&m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0)}%"></i></div></div>`).join('')}
+   ${builds.map((m,i)=>linkedHeading(builds,i,'small')+`<div class="model ${i?'':'selected'}" onclick="BUILD.select(this,'${jsAttr(m.local_model_id||'')}','${jsAttr(m.variant_id||'')}')"><b>${escapeHtml(m.family)}</b> · ${escapeHtml(m.variant)} ${m.source?` · <span class="mono" style="opacity:.6">${escapeHtml(m.source)}</span>`:''} <span class="chip${warnIf(m.state==='stopped')}">${escapeHtml(m.state)}</span> ${toolCell(m)}<small class="mono"> ${escapeHtml(dash(m.runtime))} · ${ctx(m.runtime_config)}${escapeHtml(m.size_gb==null?'':' · '+m.size_gb+' GB')}${escapeHtml(m.resident_gb?' resident':'')}${escapeHtml(m.measured&&m.measured.gen_tok_s?' · '+m.measured.gen_tok_s+' tok/s':'')}</small><div class="bar"><i style="--w:${escapeHtml(fastest&&m.measured&&m.measured.gen_tok_s?Math.round(m.measured.gen_tok_s/fastest.measured.gen_tok_s*100):0)}%"></i></div></div>`).join('')}
    </div>
    <small class="mono dim">four rows deep by default — drag the bottom edge to see more. Loaded builds sort to the top. ${fastest
      ?`The bar is generation rate against the fastest build measured here, which is not the same as the best: <b>${escapeHtml(fastest.family)}</b> tops it at ${escapeHtml(fastest.measured.gen_tok_s)} tok/s${escapeHtml(fastest.measured.caveat?' — and '+fastest.measured.caveat.charAt(0).toLowerCase()+fastest.measured.caveat.slice(1).split('.')[0]:'')}.`
@@ -10073,7 +10085,7 @@ function buildRow(x,contextLabel){
  /* Only a known advertisement can clash with a measurement; null is not a no. */
  const clash=works!==null&&x.tools_advertised!=null&&works!==x.tools_advertised;
  const size=x.size_gb==null?'—':x.size_gb+' GB';
- return `<div class="table-row seven"><span>${escapeHtml(x.family)}</span><span class="mono">${escapeHtml(dash(x.variant))}</span><span class="mono">${escapeHtml(dash(x.runtime))} · ${escapeHtml(contextLabel(x.runtime_config))}</span><span>${advertisedChip(x)}${x.vision?' <span class="chip">vision</span>':''}</span><span${clash?' style="background:rgba(255,182,72,.08)"':''}>${measured}</span><span class="mono">${size}${escapeHtml(x.resident_gb?' / '+x.resident_gb:'')}</span><span><span class="chip${warnIf(x.state==='stopped')}">${escapeHtml(x.state)}</span>${buildActions(x)}</span></div>`;
+ return `<div class="table-row seven"><span>${escapeHtml(x.family)}</span><span class="mono">${escapeHtml(dash(x.variant))}</span><span class="mono">${escapeHtml(dash(x.runtime))} · ${escapeHtml(contextLabel(x.runtime_config))}</span><span>${advertisedChip(x)}${x.vision?' <span class="chip">vision</span>':''}</span><span${clash?' style="background:rgba(255,182,72,.08)"':''}>${measured}</span><span class="mono">${size}${escapeHtml(x.resident_gb?' / '+x.resident_gb:'')}</span><span><span class="chip${warnIf(x.state==='stopped')}"${x.linked_device?` title="${escapeHtml(x.state==='stopped'?'Not loaded':'Loaded')} on ${escapeHtml(linkedName(x))}, not this machine"`:''}>${escapeHtml(x.state)}</span>${buildActions(x)}</span></div>`;
 }
 
 /* §8's Reveal and Delete on an installed build (SIRVIS 0.19.7). SIRVIS finds the files from
@@ -10082,7 +10094,8 @@ function buildRow(x,contextLabel){
    the page's two-click confirm, refused while the build is loaded, and never an erase: the
    Trash gives it back. What SIRVIS kept because another installed model needs it is said. */
 function buildActions(x){
- if(!x.local_model_id)return '';
+ /* A linked build's files are on its own machine, and SIRVIS refuses both there. */
+ if(!x.local_model_id||x.linked_device)return '';
  const id=jsAttr(x.local_model_id),name=jsAttr(x.family||x.model_id||'');
  const loaded=x.state!=='stopped';
  /* Off, with SIRVIS's reason, while it withdraws `sirvis.model_files` (§15.4). */
@@ -10091,6 +10104,28 @@ function buildActions(x){
   +` <button type="button" class="ghost" onclick="deleteBuild('${id}','${name}',${x.size_gb??'null'})"`
   +(off||(loaded?' disabled title="Unload it first: a loaded model can\u2019t be moved"':' title="Move this model to the Trash"'))
   +`>Delete</button>`;
+}
+
+/* LM Link's device by its owner's name, or "another device" when LM Studio gave none. */
+function linkedName(x){return x.linked_device_name||'another device'}
+
+/* This machine's builds first, then each LM Link device's by name (SIRVIS 0.19.9): on the
+   owner's ThinkPad the Mac's models were listed among its own, one read as loaded here. */
+function byMachine(items){
+ const linked=items.filter(x=>x.linked_device)
+  .sort((a,b)=>linkedName(a).localeCompare(linkedName(b))||a.linked_device.localeCompare(b.linked_device));
+ return {here:items.filter(x=>!x.linked_device),linked};
+}
+
+/* The heading a device's builds sit under, before the first of them in `list`. */
+function linkedHeading(list,i,tag){
+ const x=list[i];
+ if(!x.linked_device||(i&&list[i-1].linked_device===x.linked_device))return '';
+ return `<${tag} class="${tag==='div'?'table-row group':'mono dim model-group'}"><span>On ${escapeHtml(linkedName(x))} · LM Link</span></${tag}>`;
+}
+
+function buildRows(items,contextLabel){
+ return items.map((x,i)=>linkedHeading(items,i,'div')+buildRow(x,contextLabel)).join('');
 }
 
 async function revealBuild(id){
@@ -10112,7 +10147,10 @@ async function sirvisModels(){
  heading('Installed builds','Identity is family, variant, runtime and runtime config — never the model name alone.',
   control('Runtime & sessions','loadModel'));
  const [m,mc]=await Promise.all([API.sirvis.models(),API.sirvis.machine()]);
- const loaded=m.items.filter(x=>x.state!=='stopped');
+ /* This machine's builds, then LM Link's by device. The figures above the table count this
+    machine's alone: a build loaded on another device holds none of this one's memory. */
+ const {here,linked}=byMachine(m.items);
+ const loaded=here.filter(x=>x.state!=='stopped');
  const resident=loaded.reduce((n,x)=>n+(x.resident_gb||0),0);
  /* Two different context numbers, and conflating them is a real error: the
     ceiling is what the build supports, and context_length is what it was actually
@@ -10127,15 +10165,15 @@ async function sirvisModels(){
  /* An installed-but-empty catalogue is a real state: LM Studio running with
     nothing downloaded answers 200 with no items, which `live()` accepts. The
     mock could never be empty, so this guard exists because of the wiring. */
- const first=loaded[0]||m.items[0]||null;
+ const first=loaded[0]||here[0]||null; /* this machine's: the chain below names it */
  $('#content').innerHTML=kpis([
-   ['Installed',String(m.items.length),'builds, not families','sirvis',m.live],
+   ['Installed',String(here.length),linked.length?`builds here · ${linked.length} more over LM Link`:'builds, not families','sirvis',m.live],
    ['Loaded',String(loaded.length),'holding memory now','sirvis',m.live],
    ['Resident',resident.toFixed(1)+' GB',mc.model_budget_gb==null?'holding memory now':`of a ${mc.model_budget_gb} GB budget`,'sirvis',mc.live],
    ['Snapshot','rev '+m.snapshot_revision,'every result pins to one','sirvis',m.live]])
  +`<div class="card full${escapeHtml(liveClass(m.live))}"><h3>Builds</h3>${cell(`
    <div class="table-row head seven"><span>Family</span><span>Variant</span><span>Runtime · context</span><span>Advertised</span><span>Measured</span><span>Disk / resident</span><span>State</span></div>
-   ${m.items.map(x=>buildRow(x,ctx)).join('')}
+   ${buildRows([...here,...linked],ctx)}
    <small class="mono dim">${SOURCE.sirvis==='live'
      ?`identity is the whole row: this machine has <b>granite-4.0-h-tiny</b> twice, once GGUF and once MLX, and they are different subjects with different evidence. Both capability columns are absent because SIRVIS's inventory publishes neither — it does not republish the runtime's advertised flags, and measurements are filed against evidence records rather than against a build. Two absences rather than two zeros: nobody has asked these builds to call a tool yet, which is <b>M13</b>.`
      :`the two capability columns disagree about ${escapeHtml(m.items.filter(x=>x.measured&&x.measured.tools&&(x.measured.tools[0]===x.measured.tools[1])!==x.tools_advertised).length)} builds, in both directions, and the highlighted cells are where. Three advertise no <b>tool_use</b> and make well-formed calls in every attempt. One advertises it and loses the arguments of seven calls in eight, because the MLX runtime discards them: the same model in its GGUF packaging gets 8 of 8. A capability record is a claim, and only one of these columns was obtained by trying it.`}</small>

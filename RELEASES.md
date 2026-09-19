@@ -859,7 +859,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.57
+## NERVIS — 0.34.58
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.9+ for the LM Link grouping, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **LM Link models are listed apart from this machine's.** With LM Studio's LM Link on, the menu bar
+  app, the Linux tray and SIRVIS's Models and front page show this machine's models first, then a
+  divider headed "On <other machine> (LM Link)". A model loaded on the other machine says so instead
+  of reading as loaded here, loading one says it runs in that machine's memory, and there's no
+  won't-fit warning based on this machine's memory. Linked models get no Show files or Delete, and the
+  counts at the top of SIRVIS's pages are this machine's alone.
+
+### 0.34.57
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
@@ -3530,7 +3542,16 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.8
+## SIRVIS — 0.19.9
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
+
+- **Knows which models are on another machine through LM Link.** Each model in the list now says
+  whether it runs on another device through LM Studio's LM Link, and that device's name, read from
+  LM Studio's own command-line listing. Showing or deleting such a model's files is refused (they are
+  on that machine), and so is benchmarking it here (the numbers would be that machine's).
+
+### 0.19.8
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
 

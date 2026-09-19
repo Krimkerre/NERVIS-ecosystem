@@ -52,6 +52,7 @@ from sirvis.runtimes.variants import (
     loaded_variants,
 )
 from sirvis.runtimes.variants import installed_paths as cli_installed_paths
+from sirvis.runtimes.variants import link_device_names as cli_link_device_names
 from sirvis.runtimes.variants import listings as cli_listings
 
 RUNTIME_KEY = "lmstudio"
@@ -559,6 +560,13 @@ class LMStudioAdapter:
             return None
         binary = self._resolve_lms()
         return cli_listings(binary) if binary else None
+
+    def link_device_names(self) -> dict[str, str]:
+        """LM Link's other devices by name (`variants.link_device_names`). Local-only, as above."""
+        if not _is_local(self.base_url):
+            return {}
+        binary = self._resolve_lms()
+        return cli_link_device_names(binary) if binary else {}
 
     def _local_builds(self) -> list[InstalledVariant] | None:
         """Installed builds from the CLI — but only for a runtime on this machine.

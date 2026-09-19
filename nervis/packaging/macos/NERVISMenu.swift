@@ -174,6 +174,13 @@ struct ModelsReport: Decodable {
         /// Loaded from this menu, so the menu may unload it. A model loaded by anything
         /// else is shown as loaded and left alone.
         let heldByMenu: Bool
+        /// Another machine's build, reached through LM Studio's LM Link, and that machine's
+        /// name when LM Studio gives it (19 September 2026). Nil for this Mac's own.
+        let linkedDevice: String?
+        let linkedDeviceName: String?
+
+        /// The LM Link device by its owner's name, or "another device" when LM Studio says none.
+        var deviceName: String { linkedDeviceName ?? "another device" }
     }
 
     let available: Bool
@@ -1031,7 +1038,16 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return submenu
         }
         if models.models.isEmpty { submenu.addItem(note("No models installed")) }
-        models.models.forEach { submenu.addItem(modelItem($0)) }
+        var shownDevice: String?
+        for model in models.models {
+            // LM Link: another machine's models, after this Mac's, under that machine's name.
+            if let device = model.linkedDevice, device != shownDevice {
+                submenu.addItem(.separator())
+                submenu.addItem(NSMenuItem.sectionHeader(title: "On \(model.deviceName) (LM Link)"))
+                shownDevice = device
+            }
+            submenu.addItem(modelItem(model))
+        }
         submenu.addItem(.separator())
         submenu.addItem(note("✓ loaded from this menu, click to unload · – loaded by something else"))
         return submenu
@@ -1063,11 +1079,13 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if model.loaded {
             item.state = .mixed
             item.isEnabled = false
-            item.toolTip = "Loaded by something else, which this menu leaves alone."
+            let place = model.linkedDevice == nil ? "Loaded by something else" : "Loaded on \(model.deviceName)"
+            item.toolTip = "\(place), which this menu leaves alone."
         } else {
             item.action = #selector(loadModel(_:))
             item.isEnabled = modelBusy == nil
-            item.toolTip = "Load through SIRVIS."
+            item.toolTip = model.linkedDevice == nil ? "Load through SIRVIS."
+                : "Load through SIRVIS. It runs on \(model.deviceName), in that machine's memory."
         }
         return item
     }
@@ -1090,7 +1108,8 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// size, or a moment when NERVIS cannot say what is free, loads without asking — there is
     /// nothing to judge with, and refusing would lock the menu exactly when a figure is missing.
     private func fitsOrConfirmed(_ model: ModelsReport.Model) -> Bool {
-        guard let size = model.sizeBytes, let free = report?.system?.memoryAvailableBytes,
+        // A linked model loads into the other machine's memory, which this Mac can't see.
+        guard model.linkedDevice == nil, let size = model.sizeBytes, let free = report?.system?.memoryAvailableBytes,
               size * MenuBar.loadHeadroom > free else { return true }
         NSApp.activate()
         let alert = NSAlert()

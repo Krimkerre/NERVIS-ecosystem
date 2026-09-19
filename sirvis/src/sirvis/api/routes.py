@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Mapping, TypeVar
@@ -75,6 +76,7 @@ from sirvis.runtimes import (
     RuntimeTimeoutError,
     RuntimeUnavailableError,
 )
+from sirvis.runtimes.variants import LinkTable, linked_device, linked_devices
 from sirvis.storage import (
     delete_result,
     list_runs,
@@ -292,8 +294,9 @@ async def read_models(request: Request, runtime_key: str | None = None) -> dict[
             ) from failure
         return _listing([]) | {"runtime": _runtime_absent(failure)}
     if runtime_key is None:
-        return _listing([_describe(inventory, model.runtime_key) for model in
-                         inventory.installed.values()]) | {"runtime": _RUNTIME_PRESENT}
+        links = await _link_table(request)
+        return _listing([_named(request, _describe(inventory, model.runtime_key, links))
+                         for model in inventory.installed.values()]) | {"runtime": _RUNTIME_PRESENT}
 
     found = inventory.by_runtime_key(runtime_key)
     if found is None:
@@ -345,6 +348,15 @@ async def _files_of(request: Request, local_model_id: str) -> tuple[Any, ModelFi
     if model is None:
         raise ModelNotFoundError(f"no installed build {local_model_id!r}",
                                  local_model_id=local_model_id)
+    variant = inventory.variants[model.variant_id]
+    device = linked_device(model.runtime_key, variant.runtime_format, await _link_table(request))
+    if device:
+        # Not "may come with LM Studio itself": the files are on the machine that runs it.
+        raise ModelFilesRefusedError(
+            f"{model.runtime_key} runs on another device through LM Link, so its files are on "
+            "that machine; show or delete them there",
+            local_model_id=local_model_id,
+        )
     adapter: LMStudioAdapter = request.app.state.lmstudio
     listed = await asyncio.to_thread(adapter.listings)
     if listed is None:
@@ -424,7 +436,9 @@ async def delete_model(request: Request, local_model_id: str) -> dict[str, Any]:
             "kept": files.as_dict()["kept"], "size_bytes": files.size_bytes}
 
 
-def _describe(inventory: Inventory, runtime_key: str) -> dict[str, Any]:
+def _describe(
+    inventory: Inventory, runtime_key: str, links: LinkTable | None = None
+) -> dict[str, Any]:
     """One installed build with everything §6 keeps separate, kept separate.
 
     Artifact, loadable configuration and running instance are distinct in the
@@ -446,7 +460,69 @@ def _describe(inventory: Inventory, runtime_key: str) -> dict[str, Any]:
         "family": family.as_dict(),
         "instances": [instance.as_dict() for instance in instances],
         "is_loaded": bool(instances),
+        # The LM Link device this build runs on, or None for this machine (19 September 2026).
+        "linked_device": linked_device(runtime_key, variant.runtime_format, links or {}),
     }
+
+
+def _named(request: Request, row: dict[str, Any]) -> dict[str, Any]:
+    """A model row with its LM Link device's name beside the identifier, for the menus."""
+    return row | {"linked_device_name": _link_name(request, row["linked_device"])}
+
+
+async def _refuse_linked(request: Request, model_key: str) -> None:
+    """Refuse to benchmark a build that runs on another device through LM Link (19 September 2026).
+
+    The numbers would be that machine's hardware filed under this one's evidence. When nothing
+    can be asked, nothing is refused here: the run itself will say the runtime is away.
+    """
+    try:
+        inventory = await _inventory(request)
+    except RuntimeUnavailableError:
+        return
+    model = inventory.resolve(model_key)
+    if model is None:
+        return
+    variant = inventory.variants[model.variant_id]
+    if linked_device(model.runtime_key, variant.runtime_format, await _link_table(request)):
+        raise InvalidConfigurationError(
+            f"{model.runtime_key} runs on another device through LM Link; benchmark it on that "
+            "machine, where the measurement belongs",
+            model=model_key,
+        )
+
+
+#: How long LM Studio's device listing is reused: `lms ls` runs a process, and the dashboard
+#: reads the model list every few seconds.
+LINK_CACHE_SECONDS = 30.0
+
+
+async def _link_table(request: Request) -> LinkTable:
+    """Which device holds each build (`runtimes.variants.linked_devices`), briefly cached.
+
+    Empty when LM Studio's CLI can't be asked, which marks every build as this machine's — the
+    answer every build had before LM Link existed.
+    """
+    held = getattr(request.app.state, "link_table", None)
+    now = time.monotonic()
+    if held is not None and now - held[0] < LINK_CACHE_SECONDS:
+        return held[1]  # type: ignore[no-any-return]
+    # A runtime without LM Studio's listing (another runtime, a test's stand-in) has no LM Link.
+    reader = getattr(request.app.state.lmstudio, "listings", None)
+    listings = await asyncio.to_thread(reader) if callable(reader) else None
+    table = linked_devices(list(listings[0])) if listings else {}
+    # The other devices' names, asked only when a build is on one: another process otherwise.
+    namer = getattr(request.app.state.lmstudio, "link_device_names", None)
+    linked = any(device for devices in table.values() for device in devices)
+    names = await asyncio.to_thread(namer) if linked and callable(namer) else {}
+    request.app.state.link_table = (now, table)
+    request.app.state.link_names = names
+    return table
+
+
+def _link_name(request: Request, device: str | None) -> str | None:
+    """The name LM Link gives `device`, from the listing `_link_table` last read."""
+    return getattr(request.app.state, "link_names", {}).get(device) if device else None
 
 
 # ── §8 model browser and downloads (M11) ────────────────────────────────────
@@ -708,6 +784,11 @@ async def submit_benchmark_job(request: Request) -> dict[str, Any]:
             "a benchmark job needs a `specification` object — the experiment as "
             "submitted, so a queued job does not depend on a file still existing"
         )
+    target = specification.get("target")
+    named = str(body.get("model") or (target.get("model") if isinstance(target, Mapping) else "")
+                or "")
+    if named:
+        await _refuse_linked(request, named)
     job_id = jobs.submit(
         request.app.state.database,
         specification=specification,

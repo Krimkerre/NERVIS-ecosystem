@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4529 tests, no network, no live service
+.venv/bin/pytest                      # part of 4538 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -40,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 567 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1819 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 573 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1822 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4529 passing across the four, conformance `PASS`.
+Expected: all clean, 4538 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,31 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## LM Link's models told apart from this machine's — 2026-09-19 (SIRVIS 0.19.9, NERVIS 0.34.58)
+
+The owner turned on LM Studio's LM Link to host a model on the Mac and use it from the ThinkPad. The Mac's
+menu showed the Mac-loaded `qwen3.5-9b` as loaded elsewhere, but the ThinkPad's showed it as loaded there:
+LM Studio's REST listing gives another device's models with no mark. `lms ls --json` does mark them —
+`deviceIdentifier` is null for this machine's builds and the other device's id for a linked one — and
+`lms link status --json` names the devices ("ThinkPadX13G2", "Govert.local"). The owner asked for a divider
+in the tray between local and LM Link models, and the same in SIRVIS. **SIRVIS:** `runtimes/variants.py`
+`linked_devices`/`linked_device` place each build (a build both machines hold stays this machine's, since the
+listing shows only one of the two) and `link_device_names` reads the names; `GET /api/v1/models` rows gain
+`linked_device` and `linked_device_name` (the listing is cached 30 s; the names are asked only when a build is
+linked). Show files and Delete refuse a linked build (its files are on the other machine) and so does a
+benchmark (its numbers would be the other machine's filed as this one's). **Menus and dashboard:** the Mac menu,
+the Linux tray and `tools/run.py models` list this machine's models first, then a divider and "On <device>
+(LM Link)"; a linked model loaded there reads "Loaded on <device>", loading one says it runs in that machine's
+memory, and the won't-fit warning isn't judged against this machine's memory. SIRVIS's Models and front page
+list linked builds under "On <device> · LM Link" without Show files or Delete, and count only this machine's
+builds as installed, loaded and measured. **Checked:** `sirvis/tests/test_lm_link.py` (6; one failed with the
+both-machines rule taken out), two tray tests and a launcher test; SIRVIS 573, NERVIS 1,822, the dashboard
+gates, and those tests on the Linux bench. **Seen live on the Mac:** the Mac menu app and both SIRVIS pages
+show the ThinkPad's two models under "On ThinkPadX13G2". **Not yet seen on the ThinkPad**, which needs a pull
+and restart. **Open:** a linked model loaded through SIRVIS still counts toward this machine's loaded-model
+ceiling, and RAVIS still treats a linked model as local for private and local-only routes — the owner's
+decision.
 
 ## Clarvis's voice from NERVIS — 2026-09-19 (NERVIS 0.34.57, Clarvis 0.17.24)
 

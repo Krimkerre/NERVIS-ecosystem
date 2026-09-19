@@ -495,6 +495,18 @@ LM Studio are refused. `GET /api/v1/models/{id}/files`, `POST …/reveal` and `D
 /api/v1/models/{id}` (both `admin`), advertised as `sirvis.model_files@1`; NERVIS's Models rows
 carry *Show files* and a two-click *Delete*.
 
+**Builds on another machine through LM Link, 19 September 2026 (0.19.9).** LM Studio's LM Link puts
+another device's models in the REST listing with no mark, so on the owner's ThinkPad a model loaded
+on the Mac read as loaded there. `lms ls --json` marks them — `deviceIdentifier` null for this
+machine's, the device's id otherwise — and `lms link status --json` names the devices.
+`runtimes/variants.py` places each build by (model key, format); a build both machines hold stays
+this machine's, since the listing shows only one of the two. `GET /api/v1/models` rows carry
+`linked_device` and `linked_device_name`; Reveal and Delete refuse a linked build
+(`MODEL_FILES_REFUSED`) and a benchmark job naming one is refused, its numbers being the other
+machine's. NERVIS lists linked builds after this machine's under the device's name, in the
+dashboard and in both menus. **Open:** a linked build loaded through SIRVIS counts toward this
+machine's `max_loaded`.
+
 ---
 
 # 9. Resource management

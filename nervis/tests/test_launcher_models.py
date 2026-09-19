@@ -100,6 +100,7 @@ def test_the_menu_leaves_alone_what_it_did_not_load_and_forgets_lapsed_leases(
     assert rows["a/held"] == {
         "key": "a/held", "name": "held", "format": "gguf", "quantization": "Q4_K_M",
         "size_bytes": 5_000_000_000, "loaded": True, "held_by_menu": True,
+        "linked_device": None, "linked_device_name": None,
     }
     assert rows["b/lapsed"]["loaded"] is False and rows["b/lapsed"]["held_by_menu"] is False
     assert rows["c/by-ravis"]["loaded"] is True and rows["c/by-ravis"]["held_by_menu"] is False
@@ -110,6 +111,34 @@ def test_the_menu_leaves_alone_what_it_did_not_load_and_forgets_lapsed_leases(
     assert run._menu_sessions() == {"a/held": "s-live"}
     assert run.unload_model("c/by-ravis")["ok"] is False
     assert not [a for a in sirvis.asked if a[0] == "DELETE"]
+
+
+def test_lm_link_models_come_after_this_machine_s_grouped_by_device(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The owner's ThinkPad with LM Link on, 19 September 2026: the Mac's models listed
+    among its own, one of them loaded on the Mac and read as loaded here."""
+    run = _launcher(monkeypatch, tmp_path)
+    mac = {"linked_device": "93c2", "linked_device_name": "Govert.local"}
+    monkeypatch.setattr(run, "_sirvis_call", FakeSirvis({
+        ("GET", "/api/v1/models"): (200, {"items": [
+            {"runtime_key": "qwen/qwen3.5-9b", "is_loaded": True, **mac},
+            {"runtime_key": "google/gemma-4-e2b", "linked_device": None},
+            {"runtime_key": "zeta/other-box", "linked_device": "a5c0", "linked_device_name": "Box"},
+            {"runtime_key": "ibm/granite-4-h-tiny"},
+            {"runtime_key": "google/gemma-4-e2b@mlx", **mac},
+        ]}),
+        ("GET", "/api/v1/runtime/residency"): (200, {"leases": [], "holdings": []}),
+    }))
+
+    rows = run.models_report()["models"]
+
+    assert [(row["name"], row["linked_device_name"]) for row in rows] == [
+        ("gemma-4-e2b", None), ("granite-4-h-tiny", None),
+        ("other-box", "Box"),
+        ("gemma-4-e2b@mlx", "Govert.local"), ("qwen3.5-9b", "Govert.local"),
+    ]
+    assert rows[-1]["loaded"] is True and rows[-1]["linked_device"] == "93c2"
 
 
 def test_a_refusal_comes_back_in_sirvis_words_and_nothing_is_recorded(

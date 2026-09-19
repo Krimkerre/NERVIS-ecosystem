@@ -1036,7 +1036,8 @@ root; it asks for the system password only to install system packages. `./instal
 **On a Mac, NERVIS lives in the menu bar; on Linux, in the tray.** On Linux the installer adds
 **NERVIS** to the applications menu; opening it starts the stack and puts the NERVIS mark in the
 tray, with the same menu as the Mac: the services and whether they answer, LM Studio's models
-loaded through SIRVIS, Codex and its tasks, the computer's CPU, memory and disk, **Open NERVIS
+loaded through SIRVIS (another machine's, reached through LM Studio's LM Link, below a divider
+under that machine's name), Codex and its tasks, the computer's CPU, memory and disk, **Open NERVIS
 dashboard**, and **Quit NERVIS and stop the stack**. A Linux menu can't colour text, so the status
 dots are coloured circles and a busy CPU carries ⚠ instead of turning red. GNOME needs its
 tray-icon extension for the icon to show (Ubuntu has it; the installer switches it on — a log-out

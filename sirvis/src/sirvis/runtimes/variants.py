@@ -50,6 +50,58 @@ TIMEOUT_SECONDS = 5.0
 FORMAT_NAMES = {"safetensors": "mlx"}
 
 
+#: A build's (family key, format) → the devices that hold it: `None` for this machine, an LM Link
+#: device id for another. From `lms ls --json`, whose rows carry `deviceIdentifier` — null here,
+#: the other machine's id for a build reached through LM Link (19 September 2026, read off the
+#: owner's ThinkPad: its REST listing showed the Mac's models with no mark at all).
+LinkTable = dict[tuple[str, str], frozenset[str | None]]
+
+
+def linked_devices(plain: list[object]) -> LinkTable:
+    """Which device holds each listed build, from `lms ls --json`'s rows."""
+    table: dict[tuple[str, str], set[str | None]] = {}
+    for row in plain:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("modelKey") or "")
+        raw_format = str(row.get("format") or "")
+        runtime_format = FORMAT_NAMES.get(raw_format, raw_format)
+        if not key or not runtime_format:
+            continue
+        device = row.get("deviceIdentifier")
+        table.setdefault((key, runtime_format), set()).add(
+            device if isinstance(device, str) and device else None
+        )
+    return {build: frozenset(devices) for build, devices in table.items()}
+
+
+def linked_device(runtime_key: str, runtime_format: str | None, table: LinkTable) -> str | None:
+    """The other device a build runs on through LM Link, or None for this machine.
+
+    None too when this machine holds a copy as well: LM Studio's own listing shows one of the
+    two and says not which, so the build is not claimed for another machine on a guess.
+    """
+    found = table.get((runtime_key.split("@", 1)[0], runtime_format or ""), frozenset())
+    remote = sorted(device for device in found if device)
+    return remote[0] if remote and None not in found else None
+
+
+def link_device_names(binary: str | None = None) -> dict[str, str]:
+    """LM Link's other devices by identifier, under the names their owner gave them.
+
+    From `lms link status --json` (19 September 2026: `peers` of `deviceIdentifier` and
+    `deviceName`, "ThinkPadX13G2" on the Mac). Empty when LM Link is off or the CLI can't be
+    asked, which leaves a linked build shown as "another device".
+    """
+    status = _ask(binary, ["link", "status", "--json"])
+    peers = status.get("peers") if isinstance(status, dict) else None
+    return {
+        str(peer["deviceIdentifier"]): str(peer["deviceName"])
+        for peer in (peers if isinstance(peers, list) else [])
+        if isinstance(peer, dict) and peer.get("deviceIdentifier") and peer.get("deviceName")
+    }
+
+
 @dataclass(frozen=True)
 class LoadedVariant:
     """One resident build, as the runtime's own tooling names it."""
@@ -280,6 +332,12 @@ def _run(binary: str | None, arguments: list[str]) -> list[object] | None:
     exit, a timeout, output that is not a JSON list — and a second copy of that
     ladder is a second place for the None-versus-empty distinction to rot.
     """
+    rows = _ask(binary, arguments)
+    return rows if isinstance(rows, list) else None
+
+
+def _ask(binary: str | None, arguments: list[str]) -> object | None:
+    """A CLI call's JSON answer, whatever its shape, or `None` for every way it can fail."""
     executable = binary or cli_path()
     if not executable:
         return None
@@ -293,10 +351,10 @@ def _run(binary: str | None, arguments: list[str]) -> list[object] | None:
     if finished.returncode != 0:
         return None
     try:
-        rows = json.loads(finished.stdout or "[]")
+        answer: object = json.loads(finished.stdout or "[]")
     except ValueError:
         return None
-    return rows if isinstance(rows, list) else None
+    return answer
 
 
 def confirm(model_key: str, variants: list[LoadedVariant] | None) -> LoadedVariant | None:

@@ -2198,6 +2198,11 @@ def _model_row(model: dict[str, object], loaded_keys: set[str], held: dict[str, 
         "size_bytes": model.get("installed_size_bytes"),
         "loaded": key in loaded_keys or bool(model.get("is_loaded")),
         "held_by_menu": key in held,
+        # Another machine's build, reached through LM Studio's LM Link (19 September 2026): the
+        # menus list these apart, under the device's name, so a Mac-hosted model on the ThinkPad
+        # no longer reads as loaded here.
+        "linked_device": model.get("linked_device"),
+        "linked_device_name": model.get("linked_device_name"),
     }
 
 
@@ -2225,7 +2230,9 @@ def models_report() -> dict[str, object]:
         for model in models.get("items", [])
         if isinstance(model, dict) and model.get("runtime_key")
     ]
-    rows.sort(key=lambda row: str(row["name"]).lower())
+    # This machine's models first, then each LM Link device's, each group by name.
+    rows.sort(key=lambda row: (bool(row["linked_device"]), str(row["linked_device_name"] or ""),
+                               str(row["name"]).lower()))
     return {"available": True, "models": rows, "max_loaded": residency.get("max_loaded")}
 
 
