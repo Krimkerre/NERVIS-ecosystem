@@ -20025,7 +20025,9 @@ a trailing slash, any capitals) and otherwise falls back to Clarvis's public rep
 (`https://github.com/Krimkerre/clarvis.git`; both repositories are public). **Checked:**
 `nervis/tests/test_install_clarvis_source.py` runs the function in bash against real repositories — 9
 cases, 3 failing with the old fallback — on the Mac and on Linux; NERVIS 1,807 on the Mac. (The Linux
-bench script now copies `install.sh` too; it had copied only the packages.)
+bench script now copies `install.sh` too; it had copied only the packages.) **Seen end to end on Linux:** Debian 12, NERVIS-ecosystem
+as a plain copy with no `.git` and `CLARVIS_REPO` unset, `./install.sh --yes --no-ollama` cloned Clarvis from
+the public repository, built and installed 0.17.23 in code-server, and finished with exit 0.
 
 ## The first live handover, and planning that asks less — 2026-09-19 (Clarvis 0.17.23)
 
