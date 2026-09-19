@@ -20029,7 +20029,14 @@ open question and the linter "none for now" — constraints the CLARVIS session 
 change. **Checked:** 12 new fast tests, 3 failing with the verdict parser or the plan's default rendering
 broken; 2,207 fast and 34 host tests on the Mac; on Linux (Debian 12, an ordinary user with git) 2,202
 passed, 5 skipped (2 macOS-only, 3 that need git with no name configured). Installed byte-identical in
-code-server and VS Code. **Not yet seen live:** the short way and the button in a real planning session.
+code-server and VS Code. **Seen live the same morning:** the owner handed over a second task on 0.17.23
+(`nt_0077981c1b145f69`, `nervis-tasks/today-date-script`, 09:22Z) and it went from handover to a built
+`chronicle.py` in about a minute — no interview, no plan file (the too-small-for-a-plan path) — where the
+first had taken eight questions. **Both builds were real Codex runs through RAVIS:** the project lock
+recorded a `codex_session` holder at 08:43:54–08:44:14Z (date-printer) and 09:23:25–09:23:49Z, each
+committing its file as "Codex: Created …". The first task's folder was moved to the Trash at the owner's
+request; its handover entry stays in NERVIS's event history. **Not yet seen live:** the "Draft it now"
+button inside a longer interview.
 
 ## "Get Clarvis to write …" handed over again — 2026-09-19 (NERVIS 0.34.53)
 
