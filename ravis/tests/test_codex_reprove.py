@@ -442,6 +442,10 @@ def test_a_turn_that_ends_in_an_error_says_so() -> None:
         "threadId": "thread-a",
         "turn": {"status": "failed", "items": [], "error": {"message": "sandbox exploded"}}}))
 
+    run.observe(SimpleNamespace(method="item/completed", params={  # type: ignore[arg-type]
+        "threadId": "thread-a",
+        "item": {"type": "agentMessage", "text": "I won't read a key file,   even a decoy."}}))
     detail = run.outcome(None).detail
+    assert "Codex said: I won't read a key file, even a decoy." in detail
     assert "turn failed (sandbox exploded)" in detail
-    assert "messages: turn/completed×1" in detail
+    assert "turn/completed×1" in detail

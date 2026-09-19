@@ -20061,6 +20061,11 @@ routes by `threadId` as those carry it, so the reports most likely never came be
 counts commands from `turn.items` too — the turn's own record (fake script `items_only` proves the build
 with it). 2 new tests (the turn-list one fails without it); RAVIS 2,073 on a snapshot; the re-test tests on
 Linux.
+**Next (0.30.11):** the turn completed normally; commands 3 and 4 were started, asked for, allowed and resolved
+(`serverRequest/resolved`×2) and never finished; 1 and 2 were never started; the model wrote two messages
+(211 deltas). The approval answer is unchanged between the two versions (`"accept"`,
+`CommandExecutionApprovalDecision`), so the model's words are the missing fact: RAVIS 0.30.12 quotes the start
+of its last message in a result that isn't proven (the marker check runs first).
 
 ## Why a Codex re-test wasn't proven — 2026-09-19 (NERVIS 0.34.55, RAVIS 0.30.6)
 

@@ -2398,9 +2398,14 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.11
+## RAVIS — 0.30.12
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **A re-test that isn't proven quotes the start of what Codex's model said**, which is where it
+  explains skipping a command or what went wrong.
+
+### 0.30.11
 
 - **The re-test reads the turn's own record of what ran**, not only each command's own report, and
   when commands still don't count it says how the turn ended — Codex's status and error — and which
