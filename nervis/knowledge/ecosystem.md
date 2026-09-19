@@ -1,6 +1,8 @@
 # The ecosystem — how the four fit together
 
-Four services, one machine, each with one job.
+Four services, each with one job, running together on one computer — a Mac, a Linux machine, or
+Windows through WSL 2. The owner runs the whole stack on two machines, a Mac and a ThinkPad laptop
+with CachyOS Linux, each with its own copy; LM Studio's LM Link lets either use the other's models.
 
 **SIRVIS knows.** It measures models and publishes evidence.
 **RAVIS chooses.** It routes each request to a model.
@@ -10,7 +12,9 @@ Four services, one machine, each with one job.
 ## The shape of it
 
     Clarvis ──┐
-              ├──► RAVIS ──► providers (local runtimes, OpenRouter, Anthropic, OpenAI, Google)
+              ├──► RAVIS ──► providers (LM Studio and Ollama on this machine, LM Studio's LM Link
+              │                 to the other machine, Anthropic, OpenAI, Google, OpenRouter,
+              │                 DeepSeek, xAI, and Codex on the owner's ChatGPT plan)
     NERVIS ───┘      ▲
        │             │ evidence shapes pool membership
        │          SIRVIS

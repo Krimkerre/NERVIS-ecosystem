@@ -13,11 +13,10 @@ its inputs are a body and the result is generated rather than stored — two cal
 a day apart against changed evidence are two different opinions. It reads
 nothing and changes nothing, so it stays in this read-only module.
 
-**`jobs` is listed and refuses.** M5's exit also asks for a benchmark to launch
-and its progress to stream; SIRVIS advertises `sirvis.benchmarks.jobs@1` as
-*unavailable* because submit/poll/cancel lands with its queue at M14. Listing
-the surface is how that shows as planned-and-absent rather than as a gap a
-reader has to infer — and §1 forbids inventing the endpoint in the meantime.
+**`jobs` was listed while it refused.** M5's exit also asks for a benchmark to launch and its
+progress to stream; SIRVIS advertised `sirvis.benchmarks.jobs@1` as *unavailable* until its queue
+landed at M14, and listing the surface showed that as planned-and-absent rather than a gap. It is
+available now, and the same entry reads it.
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ SURFACES: tuple[Surface, ...] = (
         "recommendations", "/api/v1/recommendations", "sirvis.recommendations",
         "Recommendations", method="POST",
     ),
-    # Refuses today. See the module docstring.
+    # Available since SIRVIS M14; see the module docstring for why it was listed before that.
     Surface("jobs", "/api/v1/benchmark-jobs", "sirvis.benchmarks.jobs", "Benchmark jobs"),
 )
 

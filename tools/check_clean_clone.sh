@@ -189,7 +189,7 @@ step "peer compatibility"      nervis-eco python tools/check_compatibility.py
 step "nervis prototype checks" nervis-eco/nervis python tools/check.py
 step "clarvis conformance"     nervis-eco/ravis ravis conformance clarvis
 
-echo "=== dashboard gates (the twenty-five that need no live service) ==="
+echo "=== dashboard gates (every one in nervis/tools/dashboard_gates.txt; none needs a live service) ==="
 if (cd nervis-eco/nervis && npm ci --no-audit --no-fund >/dev/null 2>&1); then
   echo "  npm ci ok"
 else

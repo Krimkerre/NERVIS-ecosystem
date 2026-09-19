@@ -1,10 +1,18 @@
-# Current state
+# Current state — historical snapshot of 28 August 2026
 
-**This is a snapshot, not the current state — noted 12 September 2026.** It was last
-rewritten on 28 August 2026. A few facts below were corrected on 12 September and marked
-where they were; the rest was not re-checked. What is built now is in the milestone tables
-of `../NERVIS.md` §21, `../RAVIS.md`, `../SIRVIS.md` and `../CLARVIS.md`, and in
-`../STATUS.md`.
+**This file is history, not the current state, and it is superseded — noted 19 September
+2026.** It describes the dashboard as it was on 28 August 2026 (a few facts were corrected
+on 12 September and marked where they were; nothing else was re-checked, and much of it is
+now wrong — screens, budgets, spend and the SIMULATE strip among them). It is kept as a
+record and is no longer maintained: do not update it, and do not act on it. For today:
+
+- **What is built and what is next:** `../../STATUS.md`.
+- **What shipped, version by version:** `../../RELEASES.md`.
+- **A plain-language description of each product as it is now:** `../knowledge/`.
+- **Milestone tables:** `../../NERVIS.md` §21, `../../RAVIS.md`, `../../SIRVIS.md` and
+  `../../CLARVIS.md`.
+
+The line below asking to fix this file when it disagrees with the code no longer applies.
 
 *Snapshot as of 28 Aug 2026. Written so an agent with no memory of how this got here
 can be useful in five minutes. If this file and the code disagree, the code is right

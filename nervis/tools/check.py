@@ -16,7 +16,8 @@ Run:  python3 tools/check.py
 **A fifth failure has its own check.** `tools/render_check.js` renders every
 screen with nothing running and fails if one throws, which is the class that has
 actually blanked screens: a `TypeError` while building a template string. Run it
-too — CI runs both.
+too. There is no CI (GitHub Actions is off); the commit hook in `tools/githooks` and
+`tools/check_clean_clone.sh` run both, with every gate in `tools/dashboard_gates.txt`.
 Run:  node tools/render_check.js
 """
 import pathlib

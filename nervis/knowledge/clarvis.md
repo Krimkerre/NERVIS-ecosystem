@@ -155,6 +155,11 @@ folder in Clarvis, not that it is stuck. Only the task's folder and id are shown
 words. Handovers made before 16 September 2026 have no id and don't appear. The list goes back as far
 as NERVIS's event history does.
 
+**Seen working end to end on 19 September 2026.** "Get Clarvis to write a tiny Python script that
+prints today's date" in NERVIS chat drew a **Hand over** button; Clarvis picked the task up within
+seconds and NERVIS's card followed it. A second small task went from handover to a finished script in
+about a minute, with no questions and no plan file. Both builds were real Codex runs through RAVIS.
+
 ## Voice
 
 Since Clarvis 0.17.24 and NERVIS 0.34.57 (19 September 2026), Clarvis speaks with **its own voice chosen in
@@ -162,7 +167,10 @@ NERVIS**: Settings → Voice → "Clarvis speaks with". NERVIS says Clarvis's li
 key, so there is one voice list and one key, and Clarvis still sounds different from NERVIS. It needs the
 Bridge on in that window. Without NERVIS, Clarvis uses its own voice setting; the Clarvis setting "voice
 source" (`clarvis.voice.source`: nervis or own) can make that permanent. Previewing a voice inside Clarvis
-still plays that voice. NERVIS's mute button doesn't silence Clarvis.
+still plays that voice. NERVIS's mute button doesn't silence Clarvis. If NERVIS can't be reached, the
+window isn't registered, or NERVIS has no key or no voice for Clarvis, Clarvis uses its own key; if
+NERVIS refuses a line on privacy or its daily cap, or doesn't answer in time, Clarvis says it with the
+computer's built-in voice instead, so it never pays twice. **Not yet heard live** as of 19 September.
 
 Off unless configured. A daily request cap, a chosen voice and engine, and a
 setting that trims a spoken reply past about twenty seconds to its opening and
@@ -191,7 +199,10 @@ to the draft, which still waits for approval. A small, clearly described task �
 small change — is offered this short way before any question; anything involving passwords,
 personal data, stored data, other files or the network gets the full interview. In plan.md a
 filled-in answer reads **Default (not asked)**, and what the program reads or writes is left as
-an open question rather than guessed.
+an open question rather than guessed. A task too small for a plan at all skips plan.md and is
+offered straight to building, which still asks first. The short way was seen live on 19 September
+(a one-line script built in about a minute); the **Draft it now** button inside a longer interview
+has not been seen live yet.
 
 ## Copying the editor's log for troubleshooting
 
@@ -219,7 +230,8 @@ while a question waits gets one line, and nothing runs.
 
 ## Current state, as of this writing
 
-**Version 0.15.4**, 29 commands, 23 settings, VS Code ^1.93.
+**Version 0.17.24** (19 September 2026), 33 commands, 27 settings, VS Code ^1.93. It runs in
+code-server and in VS Code, on macOS and on Linux (the owner's ThinkPad with CachyOS among them).
 
 Milestones M0–M9 are built and shipped, plus M9d2, M9d3, M9h, M13 and the first
 half of M8i (reasoning stripped out of replies). **M14 — the NERVIS Bridge — was
@@ -266,7 +278,9 @@ not something to tell somebody who asked a question.
 ## Its settings, and who may change them
 
 Clarvis is configured through VS Code's own settings, all under `clarvis.`.
-**NERVIS can name any of these exactly and change none of them.** Naming the
+**The running NERVIS can name any of these exactly and change none of them.** The installer is the
+one exception, and only on a fresh install: it fills in the settings still missing (the Bridge's
+address and secret path among them) and never changes one already set. Naming the
 right key is the useful thing it can do; guessing one is worse than saying "look
 in Settings", because somebody will go and search for it.
 
@@ -289,7 +303,8 @@ trusted at all, so letting it edit them would let it grant itself trust.
 
 Voice: `clarvis.voice.enabled`, `clarvis.voice.selectedVoice`,
 `clarvis.voice.fishAudio.engine`, `clarvis.voice.trimLongReplies`,
-`clarvis.voice.dailyRequestCap`, `clarvis.voice.savedVoices`. And
+`clarvis.voice.dailyRequestCap`, `clarvis.voice.savedVoices`, `clarvis.voice.source` (NERVIS's
+voice for Clarvis, or its own). And
 `clarvis.watch.minDurationSeconds` sets how long a build must run before Clarvis
 comments on it.
 

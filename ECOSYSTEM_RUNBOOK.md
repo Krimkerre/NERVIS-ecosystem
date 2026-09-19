@@ -117,8 +117,10 @@ additive, since every product works without it; its security impact is invariant
 below — accepted by the owner, with its fixtures. `STATUS.md` carries the build order and the known
 risks.
 
-Clarvis may run a coding task on OpenAI's Codex (`codex app-server`, the Homebrew stable build) on
-the owner's ChatGPT plan. **RAVIS runs the Codex process and keeps the task.** Clarvis windows start
+Clarvis may run a coding task on OpenAI's Codex (`codex app-server` — on a Mac the Homebrew stable
+build; on Linux, and on Windows inside WSL 2, Arch's own `openai-codex` package or OpenAI's npm
+build, each checked by RAVIS before it runs it, `ravis/src/ravis/codex/linux_origin.py`) on the
+owner's ChatGPT plan. **RAVIS runs the Codex process and keeps the task.** Clarvis windows start
 it, answer it, steer it, stop it, and reattach to it after closing. It is optional; every product
 works without it.
 
@@ -225,6 +227,10 @@ what the repository split used to be relied on for:
 > provider clients, routing engines and benchmark logic are prohibited** — enforced by an import
 > check in CI rather than by the filesystem, which makes it a rule that is actually verified
 > instead of merely implied.
+
+*As built, 19 September 2026:* there is no CI — GitHub Actions is switched off for this repository.
+The import check is `tools/check_imports.py`, and it runs in the clean-clone gate,
+`tools/check_clean_clone.sh`, which is the gate a release candidate is frozen on.
 
 Splitting later is cheap (`git subtree`, `git filter-repo`) and stays cheap for as long as those
 constraints hold — which is the real test of whether they are holding.
@@ -403,7 +409,11 @@ Before integration work begins:
 - Clarvis's source-established constraints are recorded as invariants with regression
   tests or named manual checks — see `CLARVIS.md` §3.
 - Test machines cover the supported OS/architecture/runtime combinations; clock
-  synchronisation is on, so traces can be compared.
+  synchronisation is on, so traces can be compared. *Supported, as of 19 September 2026:*
+  macOS and Linux, and Windows only inside WSL 2, where it is the Linux install (`install.sh`
+  refuses WSL 1, whose kernel can't run the sandboxes). The installer has run end to end on
+  Debian 12, Ubuntu 24.04, Fedora and Arch; the stack runs on the owner's Mac and, since
+  19 September 2026, on a CachyOS laptop. WSL 2 has not been run on a Windows machine.
 - Local secrets use OS keychain or equivalent secure storage. Fixtures contain no
   production credentials.
 - Ports, sockets, data directories, log retention and collision behaviour are documented.
@@ -411,11 +421,11 @@ Before integration work begins:
 
   | Service | Default | Notes |
   |---|---|---|
-  | NERVIS | `127.0.0.1:8711` | serves the dashboard and `/code/` when the Code tab is embedded |
+  | NERVIS | `127.0.0.1:8790` | serves the dashboard, and `/code/` when the Code tab is proxied. *Was listed as 8711 until 19 September 2026; 8790 is what the launcher and NERVIS's own default use* |
   | SIRVIS | `127.0.0.1:8721` | |
   | RAVIS | `127.0.0.1:8731` | one port carries `/v1`, `/api/v1` and `/ecosystem` together (RAVIS §3) |
   | Clarvis Bridge | `127.0.0.1:7071` first instance, then the next free port | **per extension host, not per machine** — two workspaces run two Bridges, so the port is dynamic and discovered through registration, never assumed |
-  | code-server | pinned by its own deployment | proxied, never assumed |
+  | code-server | pinned by its own deployment | the launcher runs it on `127.0.0.1:8080`; the Code tab frames it there directly by default, and through NERVIS's `/code/` proxy only when that is configured |
 
   A service whose default port is occupied fails to start with the conflict named; it does
   not silently pick another. Consumers read addresses from configuration or the registry —
@@ -713,7 +723,7 @@ it was reported at the time, with the `STATUS.md` passage that records it:
   `clarvis/docs/code-server-matrix.md`. It asks for "both direct and proxied", and the proxied
   axis was graded through a throwaway spike proxy rather than NERVIS's own, which shipped on
   9 September and has not been graded against the matrix. And the matrix graded Clarvis 0.0.1,
-  while 0.15.4 ships.
+  while 0.15.4 ships (0.17.24 as of 19 September 2026).
 - **Stage 10 — open.** `STATUS.md` called it closed on §8's twelve-scenario acceptance list
   alone; the stage names ten suites and a frozen release candidate. The load suite ran on
   12 September (`tools/load_test.py`; the latest full run recorded passed five of six checks,
@@ -721,12 +731,17 @@ it was reported at the time, with the `STATUS.md` passage that records it:
   (`tools/soak_test.py`) is built and has never run its length: the two runs recorded in
   `.run/soak/`, both 12 September, lasted three and five minutes. Rollback and recovery have
   never been rehearsed as one sequence. No release candidate is frozen — the repository has no
-  tags. *(Since then: the soak ran its four hours on 16–17 September, the rehearsals and the
-  rest of §15 were done on 17 September, and **`ecosystem-rc1` was frozen on 18 September
-  2026** — its record, with the evidence, is at the top of `RELEASES.md`.)* Four of §15's items are unchecked: code-server coverage, pairwise and E2E, the
-  degradation matrix, and the rehearsals. And the milestones the product documents map to this
-  stage carry no completion state: NERVIS M19 (`NERVIS.app`), RAVIS M20 (concurrency
-  awareness), SIRVIS M22 (`SIRVIS.app`) and Clarvis E-C7 (release regression).
+  tags. On 12 September four of §15's items were unchecked: code-server coverage, pairwise and
+  E2E, the degradation matrix, and the rehearsals. And the milestones the product documents map
+  to this stage carried no completion state: NERVIS M19 (`NERVIS.app`), RAVIS M20 (concurrency
+  awareness), SIRVIS M22 (`SIRVIS.app`) and Clarvis E-C7 (release regression). *(Since then, as
+  of 19 September 2026: the soak ran its four hours on 16–17 September; the rehearsals and the
+  rest of §15 were done on 17 September, and every §15 box is now ticked; **`ecosystem-rc1` was
+  frozen on 18 September 2026 and `ecosystem-rc2` on 19 September** — their records, with the
+  evidence, are at the top of `RELEASES.md`. NERVIS M19 is LIVE VERIFIED, joined by the Linux
+  tray on 18 September, and SIRVIS M22 was superseded by it on 12 September. RAVIS M20 is built
+  in part (RAVIS 0.29.0 and 0.29.1) and carries no state yet; Clarvis E-C7 is still without
+  one.)*
 
 ---
 

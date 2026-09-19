@@ -46,8 +46,9 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 #:
 #: * Events and registration come from SIRVIS, RAVIS and each Clarvis Bridge; registration needs
 #:   the enrollment secret (`instances._require_enrollment`), and a registered Bridge's heartbeat
-#:   and deregistration need the token it was issued. Event delivery has no guard beyond the
-#:   host and origin checks (`design/security/review-2026-09-16.md`, S7).
+#:   and deregistration need the token it was issued. Event delivery needs a sender's
+#:   credential — a service's events secret from the launcher, or a registered window's token
+#:   (`events._senders`), which closed `design/security/review-2026-09-16.md` S7.
 #: * SIRVIS's recommendations are a read with a body (§14.3), passed to SIRVIS and stored nowhere.
 #:
 #: Everything else under `/api/v1/` that is not a read needs the token, and a route added later

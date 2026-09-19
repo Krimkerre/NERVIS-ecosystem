@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4548 tests, no network, no live service
+.venv/bin/pytest                      # part of 4551 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1823 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1826 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4548 passing across the four, conformance `PASS`.
+Expected: all clean, 4551 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,39 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Every document swept, after chat didn't know it runs on Linux — 2026-09-19 (NERVIS 0.34.63)
+
+The owner, on the ThinkPad: NERVIS chat "seemed awfully unaware he COULD run on a thinkpad", and unaware of
+skills, which shipped before Linux support did. **Neither was a missing note.** `nervis/knowledge/nervis.md`
+had a platform section, and a skills one. The retrieval reached neither: a broad question ("what can you do?",
+"tell me about yourself") matches no term, and `knowledge.search`'s fallback opens the subject's file at the
+top — which described how peers are probed. "Does NERVIS work on Linux?" scored Clarvis's sections above the
+platform one, whose heading said "Installing it, and which systems it runs on" and never "Linux", "laptop" or
+"ThinkPad". And *What changed recently*, which is read from its head, stopped at 17 September while two days
+shipped. **Fixed:** the notes open with *What NERVIS can do, in short*; a section headed *Which computers it
+runs on: Mac, Linux laptops like the ThinkPad, Windows through WSL 2* names both the owner's machines and what
+is proven on Linux; the changes section is *What's new — what changed recently* with an 18–19 September block
+at its head; *Installing it*, *How the dashboard draws* and *Linux specifics* split out of what had become one
+long section. Term scores now put the platform section first for every platform question (19.6 for the
+ThinkPad one, from 0). **Three read-only audits** (knowledge against the 15–19 September entries, and every
+other document) found ~25 more: the Codex re-test's laptop result missing from `ravis.md`, "Codex 0.154.0 stays
+paused" beside the line saying it isn't, Clarvis listed at 0.15.4, the re-test described as menu-bar-only,
+`~/.Trash` and `macOS Keychain` and macOS thermal readings as if there were no Linux, Ollama's Linux service,
+the struck SIRVIS analytics, the roadmap's "none of them exists yet" over mostly-built sections, its free-pool
+question that `ravis/free-api` answered, and its two-machines section that LM Link overtook. **The other docs:**
+`README.md` gains what the four applications do, the two machines, the release candidates and that there is no
+CI, and loses a Mac-only path and the `.bat` launchers as a supported route; `nervis/README.md` (380 lines to
+186), `ravis/README.md` and `sirvis/README.md` were rewritten from the code — among them RAVIS's README had
+capability precedence backwards (the operator's declaration wins over SIRVIS's measurement, `core/capabilities.py`);
+`ECOSYSTEM_RUNBOOK.md` had NERVIS on port 8711; `nervis/docs/CURRENT_STATE.md` is marked a superseded 28 August
+snapshot; five stale code comments fixed (events now need a sender's credential, SIRVIS's jobs surface is
+available, the dashboard-gate count). **So it cannot rot silently again:** three tests in
+`nervis/tests/test_knowledge.py` — the opening overview must name each capability, the platform questions must
+reach the platform section, and *What's new* must name the current NERVIS, RAVIS and SIRVIS versions, so a
+version bump without a line there fails the suite. NERVIS 1,826. **Found, not fixed** (each its own task):
+`install.sh` installs Homebrew's deprecated code-server (4.112.0, disabled April 2027) on a Mac, and RAVIS
+removes a skill into `~/.Trash` on Linux, which no file manager shows.
 
 ## The sidebar's sideways scrollbar — 2026-09-19 (NERVIS 0.34.62)
 

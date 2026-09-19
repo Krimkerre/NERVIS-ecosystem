@@ -18,7 +18,7 @@ unnecessary backronym was not enough.
 
 **S**ilicon **I**nference **R**untime **V**alidation & **I**ntelligence **S**ystem
 
-- **Silicon** — it cares about the actual hardware in your Mac.
+- **Silicon** — it cares about the actual hardware in your computer, a Mac or a Linux machine.
 - **Inference** — it measures AI models while they are actually answering.
 - **Runtime** — it compares things like MLX and llama.cpp.
 - **Validation** — it tests whether models really perform as expected.
@@ -26,7 +26,7 @@ unnecessary backronym was not enough.
 - **System** — it exposes all of that through an app, an API and a service.
 
 SIRVIS tries different AI models and asks: *How fast are you? How smart are you? How much
-memory do you need? Can two of you run together without turning the Mac into a swap-file
+memory do you need? Can two of you run together without turning the machine into a swap-file
 enthusiast?*
 
 It keeps score. So SIRVIS knows which local models actually work well **on this particular
@@ -42,12 +42,13 @@ machine**, rather than trusting theoretical specs or somebody else's benchmark.
 - **Intelligence** — it uses policies, benchmarks, costs, capabilities and observations.
 - **System** — it is a reusable gateway for many applications, not a feature of one.
 
-You might have lots of models available. Some live on your Mac. Others live at OpenAI,
+You might have lots of models available. Some live on your own computer. Others live at OpenAI,
 Anthropic or Google. RAVIS gets a request and decides *which AI should handle this?*
 
 For a simple question it might pick a small fast model already running locally. For something
 difficult it might choose a stronger cloud model. Say *"nothing leaves this computer"* and it
-only chooses local models. Say *"give me the strongest answer, cost is secondary"* and it routes
+only chooses local models (which, by the owner's choice since 19 September 2026, include models
+LM Studio reaches on the owner's other computers through LM Link — see `RAVIS.md` §5). Say *"give me the strongest answer, cost is secondary"* and it routes
 differently.
 
 SIRVIS gives RAVIS real benchmark evidence, so RAVIS never has to guess how well a local model
@@ -151,8 +152,10 @@ authoritative for that kind of information.
 
 Its defining question: **what actually works well on this machine?**
 
-Designed for Apple Silicon macOS first, supporting GGUF via llama.cpp and MLX, with LM Studio as
-the first orchestration backend. Native llama.cpp, mlx-lm, Ollama and others follow through
+Designed for Apple Silicon macOS first, and it runs on Linux too (on Windows, inside WSL 2, as the
+Linux install) — reading a Linux machine's memory, GPU and temperature since SIRVIS 0.19.6. It
+supports GGUF via llama.cpp and MLX (MLX on Apple Silicon only), with LM Studio as the first
+orchestration backend. Native llama.cpp, mlx-lm, Ollama and others follow through
 adapters.
 
 SIRVIS discovers local models, browses what is available, downloads GGUF or MLX variants, loads
@@ -189,7 +192,7 @@ A + B together           ESTIMATED
 RAVIS must not pretend the third result is equally trustworthy. This distinction runs through
 the whole ecosystem, and nothing is allowed to quietly promote an estimate into a measurement.
 
-Every result traces back to machine, chip, RAM, macOS version, runtime and runtime version,
+Every result traces back to machine, chip, RAM, OS version, runtime and runtime version,
 model and revision, quantization, context length, load settings, generation settings, benchmark
 version and timestamp.
 
@@ -201,7 +204,10 @@ Its defining question: **which model should handle this request right now?**
 
 Applications connect over an OpenAI-compatible interface at `http://127.0.0.1:<port>/v1`, so no
 application needs a separate integration per provider. RAVIS can route to OpenAI, Anthropic,
-Google, OpenRouter, LM Studio, Ollama and generic OpenAI-compatible hosts, with more later.
+Google, OpenRouter, DeepSeek, xAI, LM Studio, Ollama and generic OpenAI-compatible hosts, with
+more later. It also hosts **Codex**, OpenAI's coding agent, running on the owner's own ChatGPT
+plan, as an optional engine for Clarvis's agent tasks — a brokered agent session rather than a
+route.
 
 ## Virtual models
 
@@ -409,15 +415,17 @@ Now the problem is measurable.
 
 ## The Clarvis diagnostics bridge
 
-Clarvis is not currently designed as a NERVIS service. The proposed integration adds a small
-**Clarvis Bridge** inside the extension host, exposing health, workspace identity, mode, busy
-state, agent run state, task events, approval state and a diagnostics summary.
+Clarvis was not originally designed as a NERVIS service. The integration — built, and driven end
+to end in August 2026 — adds a small **Clarvis Bridge** inside the extension host, exposing
+health, workspace identity, mode, busy state, agent run state, task events, approval state and a
+diagnostics summary.
 
 **It must remain optional.** Clarvis functions normally when NERVIS is not running.
 
-Clarvis also has a built, security-gated feature that tails VS Code logs into
-`.clarvis/vscode.log`. NERVIS may consume that as a diagnostic fallback — but the preferred
-integration is a structured Clarvis event, not a parsed log line.
+Clarvis also has a built, security-gated feature that copies its window's VS Code log into a file
+of its own, outside the project. NERVIS does not read that copy: a reference to it was planned and
+then dropped by the owner on 19 September 2026, because the integration is a structured Clarvis
+event, not a parsed log line.
 
 ## AI-assisted diagnostics
 
@@ -443,7 +451,8 @@ unrelated logs. If the analysis must stay local, RAVIS can be constrained to Loc
 
 ## The browser-hosted Code tab
 
-NERVIS may contain a **Code** tab:
+NERVIS has a **Code** tab. By default it shows code-server directly, at code-server's own address;
+routing it through NERVIS's own reverse proxy is built and optional, off unless configured:
 
 ```text
 NERVIS → /code/ → reverse proxy → code-server → Clarvis.vsix
@@ -471,7 +480,7 @@ That is an acceptable product, and the Code tab never blocks the core release.
 
 | Service | Holds |
 |---|---|
-| **RAVIS** | Cloud provider credentials — OpenAI, Anthropic, Google, OpenRouter. In the macOS Keychain |
+| **RAVIS** | Cloud provider credentials — OpenAI, Anthropic, Google, OpenRouter, DeepSeek, xAI. In the platform keyring (the macOS Keychain, or the Secret Service on Linux), or in a private file (mode `0600`) where there is none |
 | **CLARVIS** | Extension-specific credentials in VS Code SecretStorage, keychain-backed rather than in config files. Once RAVIS is the primary gateway, Clarvis needs far fewer |
 | **SIRVIS** | Usually none — local benchmarking needs no cloud credentials |
 | **NERVIS** | Only what NERVIS itself needs. **It must never become a plaintext central secret store** |
@@ -544,8 +553,8 @@ a constantly changing model-vendor ecosystem; RAVIS should not know how to edit 
 file.
 
 **NERVIS** has a system-wide view and a potentially long-running lifecycle. Clarvis explicitly
-does not — it belongs to one editor window and workspace. NERVIS may eventually observe several
-Clarvis instances at once:
+does not — it belongs to one editor window and workspace. NERVIS observes several Clarvis
+instances at once, one per editor window:
 
 ```text
                   NERVIS

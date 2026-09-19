@@ -18,8 +18,10 @@ than none, because it is believed.
 authority for what each service owes the others. `ECOSYSTEM_RUNBOOK.md` wins on any
 cross-product contract; an application's own document wins on its internals.
 
-**`nervis/` is the prototype** — the NERVIS dashboard and the three applications it
-observes, as one openable HTML file, and the one the build changes. It has its own
+**`nervis/` is the NERVIS service and the dashboard it serves** — the Python service in
+`nervis/src/nervis/`, and `nervis/index.html`, the one HTML file the service serves as its
+UI (it still opens from disk on its mocks with nothing running). It is the one the build
+changes. It has its own
 working rules in [`nervis/AGENTS.md`](./nervis/AGENTS.md), and you should read those
 before editing anything in there. It also has
 [`nervis/docs/PITFALLS.md`](./nervis/docs/PITFALLS.md), which is every defect that page
@@ -44,7 +46,7 @@ practice invited it.
 > exist, implement against the canonical contract, use a labelled test double, or
 > stop and report the missing dependency.**
 
-In the template that means: do not add a UI control without an endpoint that backs it.
+In the dashboard that means: do not add a UI control without an endpoint that backs it.
 A screen implying an API nobody has agreed to is worse than a missing screen, because
 it looks finished.
 
@@ -53,7 +55,7 @@ it looks finished.
 **`ECOSYSTEM_RUNBOOK.md` §14 is the engineering standard** — complexity ceiling of 8, naming,
 comments, error handling, tests, and the lint/type/test gates that enforce them. It is stated
 once there and is not repeated in this file or in any product document, for the same reason the
-specs are not repeated in the template.
+specs are not repeated in the dashboard.
 
 Two parts of it are easy to get wrong from habit, so they are worth naming here:
 

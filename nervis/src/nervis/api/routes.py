@@ -1,6 +1,8 @@
 """NERVIS's own API surface.
 
-§14 lists eight paths. Four exist, plus M3's RAVIS reads:
+The routes this module serves itself, plus M3's negotiated peer reads. The rest of `/api/v1`
+lives in the sibling modules of `nervis.api` (chat, events, files, voice, handovers, traces and
+the others), registered by `nervis.app`:
 
 - `/api/v1/health` — the convenience alias §4.1 permits beside the canonical
   `/ecosystem/health`, carrying the same data.

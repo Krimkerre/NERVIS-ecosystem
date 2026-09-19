@@ -3,8 +3,8 @@
 *Read this before touching anything in this directory. Tool-agnostic: it applies to
 Claude Code, OpenCode, Codex or anything else.*
 
-**This is the NERVIS dashboard under development** — the single-file prototype that
-becomes the control plane's UI, and the one the build changes. It began as the
+**This is the NERVIS service and its dashboard** — `index.html` is the single-file UI
+the service in `src/nervis/` serves, and the one the build changes. It began as the
 `template/` directory in this repository and now owns the working apparatus outright:
 these rules, `docs/`, `tools/` and `avatars/`.
 
@@ -16,8 +16,8 @@ of everything" rule is why it lives out there rather than beside this.
 
 ## Orient yourself
 
-1. `docs/CURRENT_STATE.md` — what is built, what the data actually is, and where
-   to start. Five minutes.
+1. `../STATUS.md` — what is built and what is next, today. (`docs/CURRENT_STATE.md`
+   is a snapshot from 28 August 2026, kept as history; it is not current.)
 2. `docs/PITFALLS.md` — every defect this repo has produced and the rule that
    prevents it. Read it before your first script-driven edit to `index.html`;
    almost nothing here fails loudly.
@@ -65,4 +65,4 @@ live is not.
 - Every figure names its owning service, so it can go absent.
 - Provenance survives where the underlying value has any (`MEASURED` / `ESTIMATED` /
   `UNKNOWN`), and staleness is shown where it matters.
-- Cycling that service on the **SIMULATE** strip changes this screen and nothing else.
+- Stopping that service changes this screen and nothing else.

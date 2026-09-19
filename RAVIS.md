@@ -74,8 +74,10 @@ handles provider failure and fallback; supports application-specific routing pro
 preserves session affinity; explains its decisions; and can be used by any application that
 supports a custom OpenAI-compatible endpoint.
 
-Primary platform **macOS / Apple Silicon**, architecture portable enough for later Linux and
-Windows support.
+Runs on **macOS and Linux**, and on Windows only inside WSL 2, where it is the Linux install.
+*Updated 19 September 2026:* this line used to name macOS / Apple Silicon as the primary platform
+with Linux and Windows for later. RAVIS's release notes list macOS and Linux; the installer has
+been run on Debian 12, Ubuntu 24.04, Fedora and Arch, and refuses WSL 1.
 
 The core product question:
 

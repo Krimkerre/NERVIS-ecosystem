@@ -15,8 +15,10 @@ integration spec this document does not repeat)
 
 ## Running it
 
-Covered in full in `README.md`'s "Running it" section: the six per-platform launchers,
-`python3 tools/run.py status`, where logs live (`.run/*.log`, one file per service), and what
+Covered in full in `README.md`'s "Running it" section: the start and stop launchers for macOS
+(`start-macos.command`) and Linux (`./start-linux.sh`) — Windows runs the Linux ones inside
+WSL 2, and the older `start-windows.bat` / `stop-windows.bat` for a native Windows Python are not a
+supported way to run the stack — `python3 tools/run.py status`, where logs live (`.run/*.log`, one file per service), and what
 each of the three minted credential files (`.run/dashboard.token`, `.run/nervis-benchmark.token`,
 `.run/nervis-ravis.token`) is for. Not repeated here — read it there.
 
@@ -37,15 +39,16 @@ launcher gives RAVIS and SIRVIS each a secret (`.run/ravis-events.token`,
 A service started some other way still works, but its events are refused; the Events screen and
 the Overview then say that NERVIS is refusing events from it, and its own log says the same.
 
-**On a Mac, the menu bar app does the same with a click.** Build it with
-`nervis/packaging/macos/build_app.sh` and copy `nervis/packaging/macos/build/NERVIS.app` into
-Applications once; every later build refreshes that copy. It does not open at login unless it is
+**On a Mac, the menu bar app does the same with a click.** `./install.sh` builds it and copies
+`NERVIS.app` into Applications (asking first if one is already there); to rebuild it by hand, run
+`nervis/packaging/macos/build_app.sh`, which also refreshes the copy in Applications. It does not open at login unless it is
 added under System Settings → General → Login Items. It has
 no window and no Dock icon. The NERVIS mark appears in the menu bar and the stack starts; its
 menu shows the number of unread notifications when there are any, **Open NERVIS dashboard**,
 each service — CLARVIS among them, running while an editor window has its Bridge on — and
 LM Studio and Ollama as running or not (LM Studio's entry opens LM Studio and lists its installed
-models), CPU, GPU and memory use, and **Quit
+models — this Mac's first, then any that LM Studio reaches on another of the owner's machines
+through LM Link, under an **On <device> (LM Link)** divider), CPU, GPU and memory use, and **Quit
 NERVIS and stop the stack**. Clicking a line of the stack opens it in the browser: SIRVIS, RAVIS,
 NERVIS and CLARVIS on their screens in the dashboard, code-server at its own address. The pupil in
 the mark is solid while the whole stack answers, faint
@@ -66,7 +69,10 @@ launcher's 12-second wait, and names in its log anything that may still be loade
 stays loaded. A model whose file, with a fifth
 more room to work, is larger than the memory free at that moment is loaded only after a dialog says so.
 A model loaded any other way — by RAVIS, a benchmark or LM Studio itself — is shown with a dash and is
-not the menu's to unload. SIRVIS loads at most two models at once and says so when asked for a third. Opening a second copy does nothing, and quitting it
+not the menu's to unload. SIRVIS keeps at most two models in this machine's memory at once and says
+so when asked for one more; since 19 September 2026 that count includes models loaded outside
+SIRVIS — by hand in LM Studio, or by another machine through LM Link — and leaves out models that
+run on another device through LM Link, since those use that machine's memory. Opening a second copy does nothing, and quitting it
 stops the stack first however the quit arrives, an ordinary `kill` included.
 
 **On Linux, the tray icon does the same, with the same menu.** `./install.sh` adds **NERVIS** to
@@ -221,8 +227,9 @@ pre-existing chat session preserved verbatim. Full detail in
 
 ### Upgrading code-server
 
-Homebrew's `code-server` formula is deprecated and stops at 4.112.0, so code-server is the
-standalone install: each version in `~/.local/lib/code-server-<version>`, with
+These steps are the Mac's. Homebrew's `code-server` formula is deprecated and stops at 4.112.0, so
+on the owner's Mac code-server is the standalone install (a fresh `./install.sh` on a Mac still
+installs the Homebrew formula): each version in `~/.local/lib/code-server-<version>`, with
 `~/.local/bin/code-server` pointing at the one in use. To move to a new release:
 
 1. Download `code-server-<version>-macos-arm64.tar.gz` from the release on GitHub and compare its
@@ -245,6 +252,14 @@ standalone install: each version in `~/.local/lib/code-server-<version>`, with
    `nervis/src/nervis/code_server_checks.json` (commit it, then restart NERVIS) and NERVIS shows
    the version as checked rather than untested. A failure names the matrix cells a changed file
    touches; re-run only those. Other browsers and audio are never re-checked by it.
+
+**On Linux these steps have not been worked out yet** (noted 19 September 2026). The installer
+puts code-server in with code-server's own script — a `.deb` or `.rpm` on Debian, Ubuntu and
+Fedora, the standalone release in `~/.local` on Arch — and rerunning `./install.sh` does not
+upgrade it: it finds code-server installed and leaves it alone. The check in step 4 compares two
+standalone installs under `~/.local/lib`, including the graded 4.135.0, which a Linux machine
+installed this way doesn't have, so there it reports the comparison as failed rather than
+passing.
 
 ### Checking dependencies for known holes
 
@@ -295,13 +310,13 @@ test process; the few conditions exercised against the running stack are named a
 | **Timeout** | A request waits out its timeout, then moves on or fails | Tested through RAVIS's routes: a timed-out model is asked once and the chain moves to the next; a model the caller named directly is not replaced; a local model that hangs is not answered from the cloud; the decision log stays bounded. Not shown: a service's own routes staying usable while a timeout is in flight | A pool request should move on after one timeout. A directly named model, or a request that must stay local, correctly returns the failure instead — that is the rule working, not a bug |
 | **Slow response** | Something is answering, just slowly | NERVIS's probe deadline is tested, a slow peer is reported unreachable rather than healthy, the services listing keeps answering while peers are slow, and a reader that falls behind on the event stream is dropped rather than waited for. Not shown: one peer slow while the rest are healthy, or that a slow peer cannot delay another peer's row | A slow peer showing as unreachable is the designed reading. Distinguish "slow but eventually correct" from "slow and now reported wrongly" — mixed slow-and-healthy is the unproved case |
 | **Full disk** | A write fails, a benchmark stops progressing | Tested in SIRVIS: a run that cannot write ends as failed rather than staying `running`, the model it held is released, and the service keeps answering while every results write fails with `ENOSPC`. Two gaps: nothing checks free space before a run starts, so a run that cannot finish still starts; and the test proving the model is released is weaker evidence than it reads | Free space before starting a benchmark — SIRVIS won't stop you starting one that cannot finish. A run killed by a full disk should read as failed; one still showing `running` is a real bug. If memory stays held afterwards, check the runtime |
-| **Unavailable keychain** | Credential reads hang or fail | RAVIS gives a keychain lookup 5 seconds, and its tests cover a keychain that holds nothing, never answers, errors at the operating system, or has no `security` binary — each falls through to environment variables — and the providers listing keeps answering. Not shown: what a provider does when its credential is unreachable rather than absent | If credential reads seem to hang, check the OS keychain directly. After the 5 s wait RAVIS uses the environment instead, so a key set there is the one in use |
+| **Unavailable keychain** | Credential reads hang or fail | RAVIS uses the platform keyring — the macOS Keychain through `security`, or the Linux Secret Service through `secret-tool` — and gives either lookup 5 seconds. Its tests cover a keychain that holds nothing, never answers, errors at the operating system, or has no `security` binary — each falls through to environment variables — and the providers listing keeps answering; on Linux they also cover a locked keyring, which is never asked (so nothing prompts on the desktop), and a machine with no keyring at all, which is left alone rather than created. Not shown: what a provider does when its credential is unreachable rather than absent | If credential reads seem to hang, check the OS keychain directly (Keychain Access on a Mac; `secret-tool` or the desktop's keyring manager on Linux). After the 5 s wait RAVIS uses the environment instead, so a key set there is the one in use |
 | **Trace collector loss** (NERVIS's event hub down) | Producers keep answering; NERVIS's dashboard/trace view goes quiet | **Live once, and now repeatable.** Against a collector killed mid-run (recorded in `STATUS.md`'s Stage 7 entry), a dependent service kept answering at baseline latency and reporting healthy, and the events queued during the outage arrived as one ordered batch on reconnect. RAVIS's route tests now read the same thing off `/ecosystem/health` after a real overflow: the publisher's queue is bounded, what it drops is counted, and an event retried after the hub returns arrives once, not twice | A dead collector should never make a healthy product report itself unready — if it does, that is a regression against tested behaviour, worth escalating specifically |
 | **Read-only data directory** | Writes fail | `sirvis doctor` reports a results directory that is not writable, and SIRVIS keeps answering with its results directory read-only. What a *write* does under this exact condition is proved only for a full disk, which is a different error reaching the same code | Fix the directory's permissions, then run `sirvis doctor` to confirm it reads writable again |
 | **Cloud provider 401/403/429/5xx** | RAVIS refuses, or moves on from, a cloud provider | Tested through RAVIS's routes: a 401 or 403 on a directly named model reaches you and is final whatever the error body says, and in a pool it counts against that provider only; a bare 500 is not chased across the pool; a run of 503s stops at the configured attempt count; and the health surface shows the refused model as never having worked without opening its circuit breaker, because a wrong key is configuration, not an outage. Not shown: the jittered retry §10 asks for — the 429 evidence proves the status is passed through, not a bounded, jittered retry | A 401/403 is a key problem: fix the credential rather than waiting for failover. Don't count on RAVIS retrying a 429 for you |
 | **Network loss** | A candidate provider is unreachable before any response | Tested through RAVIS's routes: a connection that never opens falls through to the next candidate, streaming or not; a failure after the request was sent is not re-sent to the same target; a local model that cannot be reached is refused rather than answered from the cloud; and a world where nothing connects stops at the retry budget. Not shown: loss mid-stream on the transparent path, or a dropped connection between two of this ecosystem's own services | Expect a pool request to move to the next candidate, and a request that must stay local to fail rather than go to the cloud. A stream that breaks partway is the unproved case |
 | **Hung local runtime** | A local model runtime accepts a connection and then never answers | SIRVIS reports a stalled runtime with its `TIMEOUT` code rather than `RUNTIME_UNAVAILABLE`, on request and streaming paths, and keeps answering. RAVIS asks a runtime that never answers only up to its budget, and a hung local model is not replaced by a cloud one. Not shown: a *benchmark* against a hung runtime ending | A timeout means the runtime is there and stuck — don't start or retry it, check what it is doing. `RUNTIME_UNAVAILABLE` means it is not running. A benchmark stuck against a hung runtime is the unproved case; check it by hand |
-| **Expired credential** | A provider shows a refused key | RAVIS gives a refused key its own state, distinct from an unreachable provider, and publishes it on the providers listing; a directly named model is not replaced when its key is refused, while a pool deliberately moves on to another provider. Not shown: a replaced key being noticed without a restart | Read the providers listing: a refused key shows as such, not as "down". After replacing a key, restart RAVIS if the refusal persists — noticing a rotation live is unproved |
+| **Expired credential** | A provider shows a refused key | RAVIS gives a refused key its own state, distinct from an unreachable provider, and publishes it on the providers listing; a directly named model is not replaced when its key is refused, while a pool deliberately moves on to another provider. RAVIS looks a provider's key up each time it needs one, so a key saved on the Credentials screen is used from the next request, and saving a changed key re-reads that provider's models at once (route tests: `test_credential_refresh_cooldown.py`; since RAVIS 0.30.14, a first key for OpenRouter, OpenAI, DeepSeek or xAI also works without a restart, `test_hosted_awaiting_key.py`). Not shown: a refused key replaced while RAVIS runs and the refusal then clearing — `tools/check_degradation.py` still lists rotation as unproved | Read the providers listing: a refused key shows as such, not as "down". After replacing a key, send one request and read the listing again; restart RAVIS only if the refusal persists |
 | **code-server loss after it had answered** | The Code tab's embedded editor stops responding | NERVIS marks code-server unreachable (never "stopped", which it says only of something it stopped itself), the services listing publishes that, and the Code tab refuses to frame an editor that is not answering. The capability derived from it deliberately survives the loss, so anything reading the capability rather than the state still looks fine | Read code-server's `state` in `/api/v1/services`, not its capability, and start it again with the start launcher |
 | **A service running but not answering** | The menu bar app's headline says "Not answering: RAVIS" (or another service); RAVIS's line reads "not answering", with "RAVIS is running as process N but not answering." and what clears it underneath | Since 12 September the launcher does not launch a second copy over it: it waits the usual start-up time, then prints "RAVIS (process N) is running but not answering. Stop the stack, then start it again.", keeps the process in its PID file and exits 1. Since 13 September `status --json` reports the same thing for any service the launcher owns whose process has been silent longer than that 30-second wait — at start or any time after — and the menu shows it under the service's line. A service with no process at all still reads "not running" | Quit NERVIS (or `tools/run.py stop`), which reaches the hung process through the PID file, then open it again |
 | **Bridge collision** (two Clarvis Bridges colliding on an endpoint, `instance_id`, or registry row) | A second window's claim on a live window's id is refused | Tested through NERVIS's routes: a second claim on an `instance_id` that is still answering is refused with a 409 and the live window keeps its lease; an event claiming a registered window must present that window's token; and a window whose lease lapsed is gone rather than probed. Two live windows contesting one *port* are covered by Clarvis's own suite, not by this matrix | A 409 at registration means another live window holds that id — close the duplicate rather than forcing it. A dead window's row goes once its lease lapses (next row) |
@@ -341,9 +356,15 @@ remembered:
   running stack under one dashboard's reads, plus chat against a private RAVIS, for hours awake:
   whether any service stops answering or restarts, and whether memory, open files, threads or
   read times creep. It samples once a minute into `.run/soak/`, so a run stopped early keeps its
-  record; `--report FILE` reads one back.
+  record; `--report FILE` reads one back. `caffeinate` is macOS's; on Linux, run it under
+  `systemd-inhibit --what=idle:sleep ravis/.venv/bin/python tools/soak_test.py --hours 4`, which
+  holds off idle sleep the same way.
 - **Compatibility matrix**: `python3 tools/check_compatibility.py` prints what this NERVIS
   supports its peers at and fails if any peer ships outside that window — printed rather than
   filed, because a table in a document is a copy that goes stale.
 - **Release notes**: `RELEASES.md`, enforced by `tools/check_releases.py` — a version bump with
   no note fails the gate.
+- **Release candidates**: `ecosystem-rc1` (18 September 2026) and `ecosystem-rc2` (19 September
+  2026), git tags in this repository and in Clarvis's, each freezing one combination of the five
+  that passed the gates. Their records — versions, commits, evidence and what is known and not
+  fixed — are at the top of `RELEASES.md`.

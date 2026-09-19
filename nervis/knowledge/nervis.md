@@ -4,6 +4,30 @@ NERVIS is the control plane: the dashboard, the diagnostics centre, the general
 chat, and the thing that watches the other services. It holds no models of its
 own and runs no benchmarks — it reads what the others publish and presents it.
 
+**What NERVIS can do, in short** (as of 19 September 2026, NERVIS 0.34.63). Each has its own
+section in these notes:
+
+- **Chat** with any model RAVIS can reach — local ones in LM Studio and Ollama, hosted ones with a
+  key, and the owner's ChatGPT plan through Codex — with attachments, pictures, slash commands
+  (`/help`, `/clear`, `/model`, `/skill-name`) and memory of earlier conversations.
+- **Skills**: folders of instructions for one kind of task. The Skills page lists them, installs one
+  from a GitHub link, and switches each on or off separately for Codex and for "the other models"
+  (Clarvis's own engine and this chat). Chat uses a switched-on skill that fits the question.
+- **Hand work to Clarvis**, the coding agent in the editor: "get Clarvis to write …" offers a
+  handover, and NERVIS watches Clarvis's windows, their problems and their logs.
+- **Voice**: replies spoken with Fish Audio voices (JARVIS and Miku ship as the starting set), and a
+  separate voice Clarvis speaks with ("Clarvis speaks with", Rick Sanchez by default).
+- **Files**: a workspace folder chat can save documents into and read from, shown in the Files tab.
+- **Watching everything**: the Overview, Notifications, Events, the Ecosystem map, per-request
+  traces, each service's raw log, diagnostics a model can read for you, machine readings (CPU,
+  memory, GPU, disk, temperature) and starting or stopping the services.
+- **RAVIS's side** in the same dashboard: routes, pools, providers, keys, budgets per day, week,
+  app and provider, spending, and Codex tasks with their allowed sites.
+- **SIRVIS's side**: installed models (load, show files, delete), downloads from Hugging Face,
+  benchmarks and their evidence, and models on the owner's other machine through LM Link.
+- **Runs on a Mac and on Linux** — the owner's ThinkPad laptop runs CachyOS — and on Windows
+  through WSL 2; in the Mac menu bar or the Linux tray. See *Which computers it runs on*.
+
 ## How it knows anything
 
 **Everything through published contracts, never another service's database.**
@@ -186,7 +210,8 @@ runs on NERVIS's own address, and both can carry script.
 **It can also reach a network share.** Point NERVIS at one on the Settings
 screen — Files → Network share — and it appears in the tab under "elsewhere",
 alongside the rooms. The launcher mounts it at every start, using the password
-already in the operator's Keychain; nothing but the address is stored. An empty
+already in the operator's Keychain on a Mac, or through the desktop's own mounter (`gio mount`) with
+the password its keyring holds on Linux; nothing but the address is stored. An empty
 address mounts nothing and shows nothing, which is every machine that was never
 told about a share.
 
@@ -294,12 +319,42 @@ measurement paraphrases it: one local build turned "4 of 6 services reachable"
 into "efficiently manages four key services", which is not a number anybody
 measured. So figures are rendered by NERVIS beside the reply.
 
-## What changed recently
+## What's new — what changed recently
 
 Asked directly and answered here on purpose, rather than only in `STATUS.md`
 (which chat never reads) — this section exists so a question like "what have
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
+
+**Newest first: 18–19 September 2026** (now NERVIS 0.34.63, RAVIS 0.30.15, SIRVIS 0.19.12, Clarvis
+0.17.24). Each has its own section in these notes.
+
+- **Linux, and the owner's ThinkPad.** One installer, `./install.sh`, for macOS, Linux and Windows
+  through WSL 2; NERVIS in the Linux tray; running on the ThinkPad with CachyOS. Codex works there
+  too: its file-rules re-test was proven on the laptop (RAVIS 0.30.13). Fixed on the way: keyring
+  prompts, the "macOS Keychain" label (now "keyring"), Linux machine readings, the installer's Clarvis
+  address, and the sidebar's sideways scrollbar.
+- **Two release candidates**, `ecosystem-rc1` (18 September) and `ecosystem-rc2` (19 September): a
+  git tag freezing one set of versions that passed every check from a clean copy of the code, on the
+  Mac and on four Linux systems. Each app keeps its own version number.
+- **Budgets** per day, week, application and provider, in RAVIS → Spending (RAVIS 0.30.5).
+- **Voices:** a fresh install starts with the owner's voices (JARVIS, Miku), and Clarvis speaks
+  through NERVIS with a voice of its own, "Clarvis speaks with", Rick Sanchez by default.
+- **LM Link, two machines:** the other machine's models are listed apart under its name, don't use up
+  this machine's loaded-model limit, and count as local for private requests. The limit now counts
+  every model in this machine's memory, whoever loaded it, and a load nobody took is unloaded again.
+- **Installed models:** Show files and Delete (to the Trash) on SIRVIS → Models; SIRVIS says what
+  stops when LM Studio or Hugging Face is down, and recovers by itself.
+- **Clarvis:** its problems per checker in NERVIS's diagnostics, its log copy fixed with a read-only
+  "Open Log Copy", tasks handed over from chat seen working end to end, and planning that asks less
+  (a short way for small tasks, and "Draft it now").
+- **Keys:** a key saved for OpenRouter, OpenAI, DeepSeek or xAI works without a restart.
+- **Dashboard:** screens update in place, a full-screen button, route decisions you can link to, an
+  everyday/advanced split of each menu, and calm drawing on weak graphics.
+- **A base review** found four paths that could delete or install in the wrong place; all fixed, and
+  the six decisions it left open were taken the same day (route decisions are now kept 30 days).
+- **These notes** now open with what NERVIS can do, say which computers it runs on, and fail
+  NERVIS's own tests when a new version ships without a line here (NERVIS 0.34.63).
 
 As of 17 September 2026 (NERVIS 0.34.19): three of the runbook's end-to-end scenarios passed
 against the running stack — **the rest keeps working while NERVIS is down** (and NERVIS catches
@@ -893,6 +948,7 @@ described, because the page kept its own copy of the list.
 **Clarvis's voice** is chosen here too (NERVIS 0.34.57): Settings → Voice → "Clarvis speaks with", separate
 from NERVIS's own. A Clarvis window with the Bridge on asks for it and NERVIS says its lines, under the same
 privacy check and daily cap. Rick Sanchez and DramaButler were added once, with Rick chosen for Clarvis.
+Not yet heard live as of 19 September 2026.
 
 A fresh installation (since NERVIS 0.34.56, 19 September 2026) starts with the owner's voices:
 JARVIS in three Fish engines and Miku in two, with "JARVIS S2.1 PRO" chosen. They're added once,
@@ -932,7 +988,7 @@ only as fresh as the last person to edit it.
 
 **The System screen no longer holds up the rest of the dashboard** (fixed in NERVIS
 0.25.1, 12 September 2026). Reading this machine's load lists every process and asks
-macOS for the thermal state. NERVIS used to wait for both before answering anything
+macOS for the thermal state (on Linux it reads the kernel's temperature sensors). NERVIS used to wait for both before answering anything
 else, which took other dashboard reads from about 4 ms to about 200 ms; it now does
 that work on the side. With the System screen open and redrawing, other reads take
 about 5 ms. Several browser tabs reading the System screen at the same moment can
@@ -1018,11 +1074,34 @@ named in the result. An empty pool refuses every request to it, so a button
 whose worst outcome is "your editor stopped answering" would be a trap. On this
 machine `ravis/draw` is the real case.
 
-## Installing it, and which systems it runs on
+## Which computers it runs on: Mac, Linux laptops like the ThinkPad, Windows through WSL 2
 
-NERVIS runs on **macOS and Linux**, and on **Windows inside WSL 2** (not WSL 1: the sandboxes need
-a real Linux kernel, and the installer stops on WSL 1 with the PowerShell commands that convert it). Since 18 September 2026 one
-script installs it: `./install.sh`, run from a checkout of NERVIS-ecosystem. It works out which
+**Yes, NERVIS runs on a Linux laptop, not just on a Mac.** The whole stack — NERVIS, RAVIS, SIRVIS,
+Clarvis in code-server, Ollama and Codex — runs on **macOS**, on **Linux** (Ubuntu, Debian, Fedora,
+Arch and their relatives such as CachyOS, EndeavourOS and Manjaro), and on **Windows only inside
+WSL 2** (not WSL 1, which the installer refuses). On a Mac it lives in the menu bar; on Linux in
+the system tray; under WSL there is no tray and the dashboard opens in a Windows browser.
+
+**The owner runs it on two machines:** a Mac (Apple M5, 24 GB, macOS 27; LM Studio calls it
+"Govert.local") and a **ThinkPad X13 Gen 2 laptop running CachyOS Linux** ("ThinkPadX13G2"). Each
+runs its own copy of the stack. LM Studio's **LM Link** lets one use the other's models: SIRVIS lists
+those apart under the other machine's name, they don't use up this machine's loaded-model limit, and
+they count as local for private and local-only requests, because both machines are the owner's.
+
+**What has been proven on Linux.** Every test suite passes there. The installer ran end to end on
+Debian 12, Ubuntu 24.04, Fedora and Arch for the release candidates (ecosystem-rc1 on 18 September
+2026, rc2 on 19 September; those runs found that Ollama's install now needs `zstd`), then for real on
+the ThinkPad, where it found and fixed the address it cloned Clarvis from. On the ThinkPad the stack
+starts from the tray, the dashboard works, and Codex through the owner's ChatGPT plan passed its
+file-rules re-test on 19 September 2026 (RAVIS 0.30.13). Linux-specific fixes since: no keyring
+prompts, "keyring" rather than "macOS Keychain" on stored keys, machine readings (memory, GPU,
+temperature) that Linux reports its own way, and a sidebar without a sideways scrollbar (NERVIS
+0.34.62, not yet seen on the ThinkPad itself). **Not yet done by hand on Linux:** a chat answered by
+a local model on that machine, and a SIRVIS benchmark.
+
+## Installing it
+
+Since 18 September 2026 one script installs NERVIS on every system above: `./install.sh`, run from a checkout of NERVIS-ecosystem. It works out which
 system it is on (macOS with Homebrew; Linux with apt, dnf or pacman — Ubuntu, Debian, Fedora, Arch
 and their relatives), installs the system packages, creates the services' Python environment,
 installs Ollama with NERVIS's embedding model and code-server, builds Clarvis and installs it into
@@ -1032,6 +1111,10 @@ the end, a re-run offers to change it, and it's kept in the checkout's `.run/cod
 a `~/.config/code-server/config.yaml` of your own wins instead. It starts nothing and never runs as
 root; it asks for the system password only to install system packages. `./install.sh --help` lists its options, and
 `--dry-run` shows the plan without doing any of it. Run again, it skips whatever is already there.
+It works from a git checkout, a ZIP download or a copied folder; without a git checkout it fetches
+Clarvis from its public GitHub repository. The 3 GB picture model for the PDF layout check is not
+downloaded unless asked for (`--with-pdf-model`). It needs Python 3.11 or newer, so it refuses
+Ubuntu 22.04 and Debian 11 (Python 3.10) with a sentence saying so.
 
 **On a Mac, NERVIS lives in the menu bar; on Linux, in the tray.** On Linux the installer adds
 **NERVIS** to the applications menu; opening it starts the stack and puts the NERVIS mark in the
@@ -1044,6 +1127,27 @@ tray-icon extension for the icon to show (Ubuntu has it; the installer switches 
 and back in may be needed once). On Windows (WSL) there is no tray: start with `./start-linux.sh`
 and open http://127.0.0.1:8790 in a Windows browser.
 
+## How the dashboard draws
+
+**Everyday and advanced (NERVIS 0.34.25).** NERVIS, RAVIS and SIRVIS each show a
+shorter menu until **Advanced controls** is pressed, at the foot of that application's
+menu and as a row in its settings screen. NERVIS everyday shows the overview, chat,
+files, notifications, skills and settings; advanced adds the ecosystem map, events,
+traces, diagnostics and the system screen. RAVIS everyday shows its dashboard, pools,
+providers, credentials, spending and settings. SIRVIS everyday shows everything except
+runtime sets. Each application remembers its own answer (`ui.nervis_advanced`,
+`ui.ravis_advanced`, `ui.sirvis_advanced`), all four tabs stay visible, the Clarvis
+editor is unchanged, and a link to a technical screen still opens it under a "Technical
+details" heading without switching that application into advanced mode. It changes what
+is shown and nothing else.
+
+**A full-screen button** (NERVIS 0.34.45) sits in the top bar beside the notifications and puts the
+whole dashboard in full screen; it is hidden where the browser can't do that.
+
+**The left sidebar** shows each application's screens. In a narrow window it shrinks to icons, and
+hovering one shows its name beside it (NERVIS 0.34.62: that label floats over the page, so the
+sidebar no longer grows a sideways scrollbar on Linux).
+
 **Screens update in place** (NERVIS 0.34.46). A refresh changes only what changed — a figure,
 a row, a label — instead of rebuilding the screen, so cards don't replay their entrance, a text
 selection survives and nothing jumps.
@@ -1052,6 +1156,8 @@ selection survives and nothing jumps.
 draws in software, or its first few seconds on screen are jerky, the dashboard stops its animations
 — the moving background, the avatars, the small spinners — exactly as the system's "reduce motion"
 setting would, so a virtual machine's screen doesn't flash. Nothing else changes.
+
+## Linux specifics
 
 **No keyring prompts on Linux** (RAVIS 0.30.3). If the desktop's keyring is locked, or there isn't
 one, RAVIS doesn't touch it — touching it is what makes the desktop ask for a password — and keeps
@@ -1071,9 +1177,14 @@ a changed file, is "not available" with the reason. `./install.sh` installs it
 normal system update does. A new build waits for the owner's OK in NERVIS, as on a Mac. The ChatGPT
 desktop app for Linux (a preview since August 2026) isn't used: it's a hand-downloaded package whose
 origin nothing on Linux checks.
-On 18 September 2026 every test suite passed on Linux, the installer ran on Debian, Fedora, Arch
-and an Ubuntu desktop, and the tray started the whole stack there; a chat answered by a local model
-and a benchmark have not yet been run on Linux by hand.
+
+**Quitting on Linux leaves Ollama running.** Ollama's own installer makes it a system service that
+starts with the computer, so NERVIS didn't start it and doesn't stop it; Quit says "Ollama left
+running". On a Mac the launcher starts and stops Ollama with the rest.
+
+**The System screen on Linux** reads memory, the graphics chip (a virtual machine's is called
+virtual) and temperatures the way Linux reports them, and says "not reported" for a figure the
+machine doesn't give. SIRVIS uses those temperatures too when judging whether a benchmark ran hot.
 
 ## Starting and stopping services
 
@@ -1117,7 +1228,9 @@ have worked. Every attempt is recorded, refusals included.
 NERVIS 0.34.13): it starts SIRVIS, Ollama, RAVIS, NERVIS and code-server in that
 order, each once the one before it answers or 30 seconds have passed, and stops
 them the other way round except that Ollama goes last: code-server, NERVIS,
-RAVIS, SIRVIS, Ollama. That is the order in runbook §12.1. Since NERVIS 0.34.16 a
+RAVIS, SIRVIS, Ollama. That is the order in runbook §12.1. On Linux, where Ollama's own installer
+runs it as a system service, the launcher neither starts nor stops it and says it was left running
+(see *Linux specifics*). Since NERVIS 0.34.16 a
 service only counts as ready when its health address answers with success; one
 answering with an error is named with the code.
 Since NERVIS 0.34.14 starting the stack also switches on the repository's
@@ -1393,18 +1506,6 @@ stays loaded until you click it again or quit NERVIS. Before loading a model tha
 the memory free at the time, the menu asks. A model loaded any other way shows a dash and is left alone,
 and SIRVIS loads at most two models at once. Clicking SIRVIS, RAVIS, NERVIS or CLARVIS in the menu opens
 that app's screen in the dashboard in your browser, and code-server opens the browser editor.
-
-**Everyday and advanced (NERVIS 0.34.25).** NERVIS, RAVIS and SIRVIS each show a
-shorter menu until **Advanced controls** is pressed, at the foot of that application's
-menu and as a row in its settings screen. NERVIS everyday shows the overview, chat,
-files, notifications, skills and settings; advanced adds the ecosystem map, events,
-traces, diagnostics and the system screen. RAVIS everyday shows its dashboard, pools,
-providers, credentials, spending and settings. SIRVIS everyday shows everything except
-runtime sets. Each application remembers its own answer (`ui.nervis_advanced`,
-`ui.ravis_advanced`, `ui.sirvis_advanced`), all four tabs stay visible, the Clarvis
-editor is unchanged, and a link to a technical screen still opens it under a "Technical
-details" heading without switching that application into advanced mode. It changes what
-is shown and nothing else.
 
 A service whose program is still running but has stopped answering is not shown as "not running"
 (since 13 September 2026). Its line reads "not answering", and underneath the menu names the process —

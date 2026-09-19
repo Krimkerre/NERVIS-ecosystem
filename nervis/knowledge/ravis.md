@@ -304,9 +304,11 @@ resets: an allowance, never a cost, and unknown rather than zero. With an admin 
 `/api/v1/codex/sign-out` signs out, and `/api/v1/codex/account/confirm` confirms a changed
 account; `/api/v1/codex/version-check` and `/api/v1/codex/accept-version` check and accept a
 Codex build RAVIS hasn't tested. The file-rules re-test, `/api/v1/codex/reprove`, starts only from
-the menu bar with the owner's own credential. RAVIS runs one Codex process for this, and only for a
-tested or accepted build, and the pinned Homebrew Codex 0.154.0 stays paused for tasks until its
-file rules are proven.
+the Mac's menu bar or the Linux tray, with the owner's own credential. RAVIS runs one Codex process
+for this, and only for a tested or accepted build, and a build stays paused for tasks until its file
+rules are proven. Proven so far: Homebrew's Codex 0.154.0 on the Mac (RAVIS 0.24.5), and Arch's
+Codex 0.155.1 on the owner's ThinkPad with CachyOS Linux (19 September 2026, RAVIS 0.30.13), so
+Codex tasks can run on both machines.
 
 **It runs Codex tasks for Clarvis** (RAVIS 0.23.15). A Clarvis window starts a task on
 `/api/v1/agent-sessions` in a project inside the coding folder — never the ecosystem's own
@@ -410,7 +412,9 @@ skills.sh's search, plus GitHub repositories, link lists and websites the owner 
 kept for a day, and a link list's links are looked up only when shown, to stay inside GitHub's
 hourly limit for requests without a token; when GitHub is rate-limiting RAVIS, the page says when to
 try again. RAVIS talks only to GitHub, skills.sh and websites the owner added, over https, and never
-sends a password or token. Not yet tried against the real GitHub, websites or skills.sh.
+sends a password or token. Installing, updating, removing and browsing were walked live against the
+real GitHub and skills.sh on 15–16 September 2026; a zip file and an update that finds changes have
+not been tried live yet.
 
 **It keeps one writer per project for both engines, and cleans up after Codex** (RAVIS 0.24.0).
 Clarvis's own coding runs take the project lock through `/api/v1/project-locks`. A window can take a
@@ -496,8 +500,8 @@ it holds without asking the keyring to be searched — client and admin identiti
 are matched by walking stored names, and a name that vanished with its value is
 an identity nobody can authenticate with.
 
-Where there is no keyring — Windows, a headless server, or
-`RAVIS_CREDENTIAL_KEYRING=0` — a `0600` file in RAVIS's config directory holds
+Where there is no keyring — Windows, a headless server, a Linux desktop whose keyring is locked or
+missing, or `RAVIS_CREDENTIAL_KEYRING=0` — a `0600` file in RAVIS's config directory holds
 them, which is plaintext and is said so rather than promised away. That switch
 means *leave this machine's keyring alone entirely*: not read, not written, not
 deleted from. Reads are file, then keyring, then environment.
@@ -611,8 +615,8 @@ opens it.
   **Check this version** shows RAVIS's seven checks on the build and what changed since the tested
   one; **Use this version…** (two clicks) accepts it. Accepting doesn't start the file-rules re-test
   and spends none of the plan's allowance; tasks stay paused until the re-test proves the rules, and
-  the re-test starts only from the menu bar (NERVIS → Codex → Re-test the file rules…), using one
-  short Codex turn. Since NERVIS 0.34.55 a re-test that isn't **proven** shows RAVIS's reason — in the
+  the re-test starts only from the Mac's menu bar or the Linux tray (NERVIS → Codex → Re-test the
+  file rules…), using one short Codex turn. Since NERVIS 0.34.55 a re-test that isn't **proven** shows RAVIS's reason — in the
   tray's message and in `python3 tools/run.py codex reprove` — and `python3 tools/run.py codex
   reprove-result` shows the last result and its reason without starting another re-test. On Linux, since RAVIS 0.30.7, the file
   rules hide Codex's whole folder rather than its sign-in file alone: Codex's Linux sandbox can't
@@ -621,7 +625,11 @@ opens it.
   this Codex accepts can hide it; RAVIS's log says so. Since RAVIS 0.30.13 the re-test judges by effect —
   each test command leaves an "I ran" note in its own folder — and a read the model declines because
   the rules forbid it counts as held, since the re-test's first step, run without a model, has already
-  refused that read; the write tests must still run, and any leak fails it.
+  refused that read; the write tests must still run, and any leak fails it. With that, the owner's
+  ThinkPad (CachyOS, Arch's Codex 0.155.1) came back **proven** on 19 September 2026: Codex tasks run
+  there. Codex on Linux wraps each command as `/usr/bin/bash -lc "…"` (the laptop's own shell, fish,
+  isn't supported by Codex); Clarvis's automatic answers in Unattended mode look inside that wrapper,
+  so a dangerous command hidden in it still asks the owner (checked 19 September, clarvis 5936d6b).
 
 Behind the card NERVIS forwards four control routes to RAVIS with its RAVIS admin credential, each
 after checking the page's control token: a task's Stop, to RAVIS's owner Stop; removing a site;

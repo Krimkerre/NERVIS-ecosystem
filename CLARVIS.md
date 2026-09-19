@@ -1115,7 +1115,8 @@ published.
 **Where it stands, 12 September 2026 — left without a state.** The matrix exists
 (`clarvis/docs/code-server-matrix.md`: 39 `PASS`, 16 `PASS_WITH_LIMITATION`, 0 `FAIL`,
 1 `NOT_TESTED`), but it was graded on Clarvis 0.0.1 on 29–30 August — only the multiple-window and
-rollback cells were run later, on 0.12.6 — and Clarvis is at 0.15.4. Its one `NOT_TESTED` cell is
+rollback cells were run later, on 0.12.6 — and Clarvis is at 0.15.4 (0.17.24 as of 19 September
+2026). Its one `NOT_TESTED` cell is
 Bridge teardown under code-server, and teardown is on the list runbook Stage 9 requires to pass.
 The proxied cells were graded through a spike proxy that does none of NERVIS's security work, not
 through NERVIS's own `/code/` route, which shipped on 9 September (`NERVIS.md` M14). The matrix

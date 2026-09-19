@@ -17,7 +17,9 @@ score, because a number without its conditions cannot be compared to anything.
 happened under memory pressure, thermal throttling or swap is marked suspect,
 with every reason attached. The verdict *is* the list of warnings: validity is
 "suspect if warnings else valid", so the notes are the whole of the
-justification rather than a caveat beside it.
+justification rather than a caveat beside it. On a Mac the heat reading is macOS's thermal state; on
+Linux (since SIRVIS 0.19.6) it is the kernel's temperature sensors, and a figure the machine doesn't
+report is left out rather than counted as fine.
 
 **Withdrawn measurements leave a tombstone.** A deleted result is recorded as
 deleted, because otherwise there is no way to tell a measurement somebody
@@ -196,3 +198,10 @@ answering.
 It does not report a score without its conditions, and it does not average a
 counted metric — tool-call rates are counted rather than averaged, so they carry
 no median and a reader asking for one is told that rather than given throughput.
+
+It will not grow comparison analytics (the owner's decision, 18 September 2026). Comparing one model's
+formats, Pareto charts, regression detection and historical comparison were struck rather than
+postponed: they pay off only for someone who benchmarks local builds as a habit, and this stack mostly
+routes to hosted models. The charts of what SIRVIS already measures stay. Later that day the owner
+also struck everything else specified and not built — among it the Playground (NERVIS chat covers it),
+a command line, extra Discover filters, and Compare, Inspect and Find variants on installed models.

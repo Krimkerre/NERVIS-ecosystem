@@ -859,7 +859,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.62
+## NERVIS — 0.34.63
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Chat knows what NERVIS is and what's new.** Its notes now open with what NERVIS can do (asked
+  "what can you do?", chat used to describe how it checks other services), say which computers it
+  runs on — the Mac, Linux laptops like the owner's ThinkPad, Windows through WSL 2 — and list
+  everything shipped on 18–19 September, which they were missing. About twenty-five outdated or
+  missing points in the notes were corrected. NERVIS's tests now fail when a new version ships
+  without a line in the notes.
+
+### 0.34.62
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

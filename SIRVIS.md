@@ -39,10 +39,13 @@ or ecosystem supervision (NERVIS). It must remain fully usable with none of them
 
 # 2. Product vision
 
-A local-first macOS application and service for discovering, downloading, managing,
-configuring, benchmarking, comparing and recommending local LLMs.
+A local-first application and service, for macOS and Linux, for discovering, downloading,
+managing, configuring, benchmarking, comparing and recommending local LLMs.
 
-Primary target: **Apple Silicon macOS**. Initial runtime support is GGUF via
+Primary target: **Apple Silicon macOS**. **It also runs on Linux** (and on Windows only inside
+WSL 2, as the Linux install): *since SIRVIS 0.19.6, 19 September 2026,* it reads a Linux
+machine's memory, swap, thermal state and GPU from the kernel's own figures, where before they
+came out unknown. MLX is Apple Silicon only. Initial runtime support is GGUF via
 llama.cpp/LM Studio and MLX via LM Studio. The architecture stays runtime-independent enough
 to add native llama.cpp, mlx-lm, Ollama and others later through adapters.
 
@@ -1387,7 +1390,8 @@ sirvis compare RUN_A RUN_B
 sirvis recommend --profile clarvis
 ```
 
-`sirvis doctor` checks Apple Silicon, macOS, RAM, disk, LM Studio, the LM Studio API,
+`sirvis doctor` checks the machine (whether it is Apple Silicon, and its OS — macOS or Linux — and
+version), RAM, disk, LM Studio, the LM Studio API,
 installed models, GGUF capability, MLX capability, the database, the results directory and
 the benchmark directory.
 
@@ -1486,7 +1490,7 @@ mapping is in §21.2.
 | # | Milestone | Build | Exit |
 |---|---|---|---|
 | **M0** AUTOMATED VERIFIED | Foundation | Python package, config, SQLite, migrations, structured logging, FastAPI shell, CLI shell, the `/ecosystem/*` MEP surface | `sirvis doctor` and `sirvis serve` work; database migrates; no runtime dependency needed to start; MEP conformance fixtures pass at one pinned protocol version and a mismatched major fails cleanly — Stage 1 exits here, not at M4 |
-| **M1** AUTOMATED VERIFIED | Hardware/system detection | Apple Silicon detection, RAM, CPU, GPU where possible, macOS, disk, swap, thermal basics, `SystemSnapshot` | Immutable snapshot persisted; a missing metric returns Unknown rather than a fabricated value; system endpoint works |
+| **M1** AUTOMATED VERIFIED | Hardware/system detection | Apple Silicon detection, RAM, CPU, GPU where possible, macOS, disk, swap, thermal basics, `SystemSnapshot`. *Linux readings (memory, swap, thermal state, GPU) added in SIRVIS 0.19.6, 19 September 2026* | Immutable snapshot persisted; a missing metric returns Unknown rather than a fabricated value; system endpoint works |
 | **M2** LIVE VERIFIED | LM Studio adapter | health, runtime info, installed models, loaded models, load, unload, generation | Discover → load → generate → unload; effective configuration captured |
 | **M3** AUTOMATED VERIFIED | Model domain and inventory | `ModelFamily`, `ModelVariant`, `LocalModel`, `RuntimeModelInstance`, family linking | GGUF and MLX variants represented separately; family relation without pretending exact equivalence; stable IDs survive restart; duplicate display names do not collide |
 | **M4** AUTOMATED VERIFIED | Public API foundation | `/health`, `/system`, `/models`, `/runtime`, plus §4.5 token scopes and origin validation | An external script can inspect SIRVIS and control a model *through SIRVIS* rather than LM Studio directly; MEP conformance fixtures pass; unsupported-major and redaction tests pass; an unauthenticated or wrong-origin mutation is refused |

@@ -407,3 +407,47 @@ def test_you_inside_a_question_about_a_peer_is_not_about_nervis() -> None:
     for question in ("can you tell me about ravis", "what can you say about sirvis",
                      "would you hook clarvis up to ravis"):
         assert not knowledge._about_itself(question), question
+
+
+# ── Keeping the notes current (19 September 2026) ───────────────────────────
+# On the owner's ThinkPad chat seemed unaware that NERVIS runs on Linux or has skills. Both were
+# written down, deep in the notes: a broad question ("what can you do?") matches no words and gets
+# the top of this file, which described how peers are probed; and "What changed recently" had
+# stopped at 17 September while two days of work shipped. These pin both.
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def _version(package: str) -> str:
+    for line in (REPO / package / "pyproject.toml").read_text().splitlines():
+        if line.startswith("version = "):
+            return line.split('"')[1]
+    raise AssertionError(f"no version in {package}/pyproject.toml")
+
+
+def test_a_question_with_no_matching_words_gets_what_nervis_can_do() -> None:
+    """The fallback for "what can you do?" is the top of the file, so the top must say it all."""
+    knowledge.forget_cached()
+    opening = [one for one in knowledge.sections() if one.subject == "nervis"][0].text
+    for capability in ("Chat", "Skills", "Clarvis", "Voice", "Files", "Linux", "ThinkPad", "WSL 2"):
+        assert capability in opening, f"the opening overview doesn't mention {capability}"
+
+
+def test_whats_new_names_the_versions_that_ship_now() -> None:
+    """A version bump without a line in chat's notes fails here, not in the owner's chat."""
+    knowledge.forget_cached()
+    new = next(one for one in knowledge.sections() if one.heading.startswith("What's new"))
+    newest = new.text[: new.text.find("\n\n", new.text.find("Newest first"))]
+    for package, name in (("nervis", "NERVIS"), ("ravis", "RAVIS"), ("sirvis", "SIRVIS")):
+        assert f"{name} {_version(package)}" in newest, (
+            f"'What's new' in knowledge/nervis.md doesn't name {name} {_version(package)}: "
+            "add what shipped to its newest-first list and update its version line")
+
+
+def test_platform_questions_reach_the_platform_section() -> None:
+    knowledge.forget_cached()
+    for question in ("can you run on a thinkpad?", "does NERVIS work on Linux?",
+                     "can NERVIS run on Windows?"):
+        scored = knowledge._term_scored(question, "")
+        best = max(scored, key=lambda row: row[0])[2]
+        assert best.heading.startswith("Which computers it runs on"), (question, best.heading)
