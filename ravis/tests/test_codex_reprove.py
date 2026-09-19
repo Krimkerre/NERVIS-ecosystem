@@ -421,3 +421,27 @@ def test_commands_that_never_count_as_run_say_what_the_turn_did() -> None:
     detail = run.outcome(None).detail
     assert detail.startswith("Codex didn't run command(s) [1] — seen: finished ? [completed")
     assert "a dict" in detail
+
+
+def test_commands_listed_only_in_the_turns_end_still_count(tmp_path: Path) -> None:
+    """The turn's own item list is the authoritative record; a missed report doesn't lose a run."""
+    with accepted_build(tmp_path, turn_script="items_only") as (rig, client):
+        start(client, rig)
+        result = finished(client, rig)
+
+    assert result["result"] == "proven", result
+
+
+def test_a_turn_that_ends_in_an_error_says_so() -> None:
+    from ravis.codex.reprove import FixedCommand, ReproofRun
+
+    plan = SimpleNamespace(commands=(FixedCommand(1, "cat /d/k", escalated=False),),
+                           marker="RAVIS-DECOY-MARKER-0002", folder_a=Path("/a"))
+    run = ReproofRun(plan, "thread-a")  # type: ignore[arg-type]
+    run.observe(SimpleNamespace(method="turn/completed", params={  # type: ignore[arg-type]
+        "threadId": "thread-a",
+        "turn": {"status": "failed", "items": [], "error": {"message": "sandbox exploded"}}}))
+
+    detail = run.outcome(None).detail
+    assert "turn failed (sandbox exploded)" in detail
+    assert "messages: turn/completed×1" in detail

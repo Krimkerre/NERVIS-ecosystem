@@ -2398,9 +2398,15 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.10
+## RAVIS — 0.30.11
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **The re-test reads the turn's own record of what ran**, not only each command's own report, and
+  when commands still don't count it says how the turn ended — Codex's status and error — and which
+  messages the turn sent.
+
+### 0.30.10
 
 - **A re-test whose commands don't count as run says what Codex did** — each command asked for and
   finished, with its status and exit code, in Codex's own shape — and a finished command reported

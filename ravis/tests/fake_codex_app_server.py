@@ -282,7 +282,8 @@ def scripted_turn(thread_id: str, turn_id: str, prompt: str, params: dict[str, A
     else:
         obey(thread_id, turn_id, prompt, script, stop)
     status = "interrupted" if stop.is_set() else "failed" if error else "completed"
-    ended = {"id": turn_id, "status": status, "items": [], "error": error}
+    # `items_only`: the finished commands only in the turn's own item list (19 September 2026).
+    ended = {"id": turn_id, "status": status, "items": state.pop("turn_items", []), "error": error}
     notify("turn/completed", {"threadId": thread_id, "turn": ended})
 
 
@@ -318,6 +319,7 @@ def obey(thread_id: str, turn_id: str, prompt: str, script: str, stop: threading
         # redirect arrives inside the bash it falls back to (19 September 2026).
         shown = linux_bash(command) if script == "linux_bash" and ">" in command else command
         state["finish_as_list"] = script == "list_finished"
+        state["items_only"] = script == "items_only"
         decision = approval(thread_id, turn_id, shown, asked_cwd)
         complete(thread_id, turn_id, index, command, cwd, decision, shown)
         if script == "stutters" and index == 2:
@@ -349,6 +351,9 @@ def complete(
             status="completed" if status == 0 else "failed", exitCode=status,
             aggregatedOutput=output,
         )
+    if state.get("items_only"):
+        state.setdefault("turn_items", []).append(item)
+        return
     notify("item/completed", {
         "threadId": thread_id, "turnId": turn_id, "item": item, "completedAtMs": 0,
     })

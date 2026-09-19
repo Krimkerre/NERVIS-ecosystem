@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4513 tests, no network, no live service
+.venv/bin/pytest                      # part of 4515 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1809 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4513 passing across the four, conformance `PASS`.
+Expected: all clean, 4515 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20053,6 +20053,14 @@ and Codex's own shape — never output) and reads a finished command given as a 
 `reprove.command_text` (`shlex.join`, then the same one-wrapper unwrap and exact match), in case Codex
 0.155.1 reports finished commands that way; the fake Codex's `list_finished` script proves the build with it.
 2 new tests (the list one fails without the join); RAVIS 2,071 on a snapshot; the re-test tests on Linux.
+**Next (0.30.10):** "didn't run [1, 2, 3, 4] — seen: asked 3, allowed; asked 4, allowed" — 1 and 2 (reads) never
+asked, which fits running sandboxed without approval, and no finished report at all. Codex's published
+`ThreadItem` and `ItemCompletedNotification` are byte-identical at rust-v0.154.0 and rust-v0.155.1, and RAVIS
+routes by `threadId` as those carry it, so the reports most likely never came before the turn ended. RAVIS
+0.30.11 records how the turn ended (`turn.status`, `turn.error.message`), tallies every message kind, and
+counts commands from `turn.items` too — the turn's own record (fake script `items_only` proves the build
+with it). 2 new tests (the turn-list one fails without it); RAVIS 2,073 on a snapshot; the re-test tests on
+Linux.
 
 ## Why a Codex re-test wasn't proven — 2026-09-19 (NERVIS 0.34.55, RAVIS 0.30.6)
 
