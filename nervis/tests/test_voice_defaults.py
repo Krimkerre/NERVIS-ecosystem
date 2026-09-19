@@ -28,9 +28,11 @@ def test_a_fresh_installation_has_the_owners_voices_with_jarvis_chosen(
     body = fresh(tmp_path, monkeypatch).get("/api/v1/voice").json()
 
     names = sorted(profile["name"] for profile in body["profiles"])
-    assert names == ["JARVIS", "JARVIS S1", "JARVIS S2.1 PRO", "Miku", "Miku S2.1 PRO"]
+    # NERVIS's five, and Clarvis's two (`test_voice_clarvis.py`).
+    assert names == ["DramaButler", "JARVIS", "JARVIS S1", "JARVIS S2.1 PRO", "Miku",
+                     "Miku S2.1 PRO", "Rick Sanchez"]
     assert body["selected_profile"] == "vp_default_jarvis_pro"
-    assert {p["voice_id"] for p in body["profiles"]} == {
+    assert {p["voice_id"] for p in body["profiles"]} >= {
         "14129c3e320149449d6bada6862f7338", "f88f4a28bb1d4cd7b34bc191b2202eb5"}
 
 

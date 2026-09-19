@@ -99,7 +99,7 @@ from nervis.registry import (
     declared_services,
 )
 from nervis.storage import installation_identity, prepare_database
-from nervis.voice import VoiceCredential
+from nervis.voice import VoiceCredential, seed_clarvis_voice
 from nervis.voice import config_directory as voice_config_directory
 from nervis.voice import seed_default_profiles as seed_default_voices
 from nervis.web import register_dashboard
@@ -176,6 +176,7 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     # The owner's voices on a fresh installation, once (`voice.seed_default_profiles`).
     if settings.seed_default_voices:
         seed_default_voices(api.state.database)
+        seed_clarvis_voice(api.state.database)
 
     # §18.2's voice credential. A file in the user's config directory rather
     # than a row in the database above: `nervis.db` is created in the working

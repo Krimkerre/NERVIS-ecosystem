@@ -339,7 +339,24 @@ DEFAULT_PROFILES = (
         "vp_default_miku_pro", "Miku S2.1 PRO", "f88f4a28bb1d4cd7b34bc191b2202eb5", "s2.1-pro"
     ),
 )
+# Clarvis's own voices join the starting set through `seed_clarvis_voice`, which runs after it.
 DEFAULT_SELECTED = "vp_default_jarvis_pro"
+
+#: Clarvis's voice, chosen in NERVIS and separate from NERVIS's own (owner's decision,
+#: 19 September 2026: "I don't want them to sound identical"). Clarvis asks for it through its
+#: registered window (`api/instances.py`); NERVIS never writes a Clarvis setting (CLARVIS.md §6.7).
+CLARVIS_PROFILE_SETTING = "voice.clarvis_profile"
+CLARVIS_SEEDED_SETTING = "voice.clarvis_defaults_seeded"
+#: The voices the owner's Clarvis used, Rick Sanchez chosen — added once, beside what is there.
+DEFAULT_CLARVIS_PROFILES = (
+    VoiceProfile(
+        "vp_default_rick", "Rick Sanchez", "d2e75a3e3fd6419893057c02a375a113", "s2.1-pro"
+    ),
+    VoiceProfile(
+        "vp_default_dramabutler", "DramaButler", "d949539cbbe84e849d166d089ae4ef16", "s2.1-pro"
+    ),
+)
+DEFAULT_CLARVIS = "vp_default_rick"
 #: Set once the starting set has been offered, so deleting every voice doesn't bring them back.
 SEEDED_SETTING = "voice.defaults_seeded"
 
@@ -362,6 +379,35 @@ def seed_default_profiles(database: Database) -> bool:
     return added
 
 
+def seed_clarvis_voice(database: Database) -> bool:
+    """Give Clarvis its own voice in NERVIS, once. True if a voice was added.
+
+    Adds the owner's Clarvis voices unless a profile with the same Fish voice and engine exists,
+    and chooses Rick Sanchez for Clarvis unless something is chosen already. Beside, never over,
+    what is there — and once, so a Clarvis voice deleted later stays deleted.
+    """
+    if read_setting(database, CLARVIS_SEEDED_SETTING):
+        return False
+    existing = {(p.voice_id, p.engine): p.profile_id for p in profiles(database)}
+    added = False
+    for profile in DEFAULT_CLARVIS_PROFILES:
+        if (profile.voice_id, profile.engine) not in existing:
+            save_profile(database, profile)
+            existing[(profile.voice_id, profile.engine)] = profile.profile_id
+            added = True
+    if not read_setting(database, CLARVIS_PROFILE_SETTING):
+        rick = DEFAULT_CLARVIS_PROFILES[0]
+        write_setting(database, CLARVIS_PROFILE_SETTING, existing[(rick.voice_id, rick.engine)])
+    write_setting(database, CLARVIS_SEEDED_SETTING, "1")
+    return added
+
+
+def clarvis_profile(database: Database) -> VoiceProfile | None:
+    """The voice Clarvis speaks with, or none — never NERVIS's own as a stand-in."""
+    chosen = read_setting(database, CLARVIS_PROFILE_SETTING)
+    return next((p for p in profiles(database) if chosen and p.profile_id == chosen), None)
+
+
 def delete_profile(database: Database, profile_id: str) -> bool:
     with database.connection as connection:
         deleted = connection.execute(
@@ -371,6 +417,8 @@ def delete_profile(database: Database, profile_id: str) -> bool:
     # profile it cannot show, so the selection is cleared with it.
     if deleted and read_setting(database, SELECTED_SETTING) == profile_id:
         write_setting(database, SELECTED_SETTING, "")
+    if deleted and read_setting(database, CLARVIS_PROFILE_SETTING) == profile_id:
+        write_setting(database, CLARVIS_PROFILE_SETTING, "")
     return bool(deleted)
 
 

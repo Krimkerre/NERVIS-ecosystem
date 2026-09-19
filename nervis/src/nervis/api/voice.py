@@ -78,6 +78,7 @@ class SettingsInput(BaseModel):
     muted: bool | None = None
     announce_status: bool | None = None
     selected_profile: str | None = None
+    clarvis_profile: str | None = None
     latency: str | None = None
     fallback: str | None = None
     daily_cap: int | None = None
@@ -116,6 +117,7 @@ async def read_voice(request: Request) -> dict[str, Any]:
         },
         "profiles": [profile.as_dict() for profile in voice.profiles(database)],
         "selected_profile": selected.profile_id if selected else "",
+        "clarvis_profile": voice.read_setting(database, voice.CLARVIS_PROFILE_SETTING),
         "engines": list(voice.SPEECH_ENGINES),
         "enabled": voice.read_setting(database, voice.ENABLED_SETTING) == "true",
         "muted": voice.read_setting(database, voice.MUTED_SETTING) == "true",
@@ -309,6 +311,8 @@ _WRITABLE: tuple[tuple[str, str, Any], ...] = (
     ("muted", voice.MUTED_SETTING, _flag),
     ("announce_status", voice.ANNOUNCE_SETTING, _flag),
     ("selected_profile", voice.SELECTED_SETTING, str),
+    # Clarvis's voice, separate from NERVIS's own (19 September 2026).
+    ("clarvis_profile", voice.CLARVIS_PROFILE_SETTING, str),
     ("latency", voice.LATENCY_SETTING, _one_of(voice.LATENCY_MODES)),
     ("fallback", voice.FALLBACK_SETTING, _one_of(voice.FALLBACK_MODES)),
     ("daily_cap", voice.DAILY_CAP_SETTING, _clamped),
@@ -356,6 +360,28 @@ async def speak(body: SpeakInput, request: Request) -> Response:
     return await _synthesize(request, database, spoken, profile, key, instead)
 
 
+async def speak_as_clarvis(request: Request, text: str, source_model: str) -> Response:
+    """One line in Clarvis's voice, for a registered Clarvis window (`api/instances.py`).
+
+    The same privacy gate and spend cap as NERVIS's own speech, with NERVIS's Fish key, so the
+    owner keeps one key and one cap; not NERVIS's mute. Refusals are the same 409s, which Clarvis
+    answers by falling back to its own voice or the system one.
+    """
+    database = request.app.state.database
+    body = SpeakInput(text=text, source_model=source_model)
+    spoken = voice.spoken_form(text, _trims(database))
+    blocked = await _blocked(request, database, body, spoken, "", respect_mute=False)
+    if blocked is not None:
+        return blocked
+    profile = voice.clarvis_profile(database)
+    if profile is None:
+        return _declined("no_voice", "no voice is chosen for Clarvis in NERVIS")
+    key = _credential(request).reveal()
+    if not key:
+        return _declined("no_credential", "no Fish Audio key is configured in NERVIS")
+    return await _synthesize(request, database, spoken, profile, key, "")
+
+
 def _trims(database: Any) -> bool:
     """Whether a long reply is announced rather than read.
 
@@ -366,7 +392,8 @@ def _trims(database: Any) -> bool:
 
 
 async def _blocked(
-    request: Request, database: Any, body: SpeakInput, spoken: str, instead: str
+    request: Request, database: Any, body: SpeakInput, spoken: str, instead: str,
+    *, respect_mute: bool = True,
 ) -> Response | None:
     """Every reason this line must not reach a cloud voice, in order.
 
@@ -375,7 +402,8 @@ async def _blocked(
     privacy gate comes before the spend guard because a refusal to *leak* should
     never be reported as a refusal to *spend*.
     """
-    if voice.read_setting(database, voice.MUTED_SETTING) == "true":
+    # NERVIS's mute is the page's own button; Clarvis has its own on/off and isn't silenced by it.
+    if respect_mute and voice.read_setting(database, voice.MUTED_SETTING) == "true":
         return _declined("muted", "voice is muted")
     if not spoken:
         # Nothing worth hearing survived the strip — a reply that was only a

@@ -157,6 +157,13 @@ as NERVIS's event history does.
 
 ## Voice
 
+Since Clarvis 0.17.24 and NERVIS 0.34.57 (19 September 2026), Clarvis speaks with **its own voice chosen in
+NERVIS**: Settings → Voice → "Clarvis speaks with". NERVIS says Clarvis's lines with NERVIS's Fish Audio
+key, so there is one voice list and one key, and Clarvis still sounds different from NERVIS. It needs the
+Bridge on in that window. Without NERVIS, Clarvis uses its own voice setting; the Clarvis setting "voice
+source" (`clarvis.voice.source`: nervis or own) can make that permanent. Previewing a voice inside Clarvis
+still plays that voice. NERVIS's mute button doesn't silence Clarvis.
+
 Off unless configured. A daily request cap, a chosen voice and engine, and a
 setting that trims a spoken reply past about twenty seconds to its opening and
 closing lines — because a two-minute monologue is not a butler, it is a hostage

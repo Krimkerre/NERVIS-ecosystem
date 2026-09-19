@@ -125,7 +125,16 @@ recovery and restore rehearsals — their last runs (12–17 September) are reco
 
 ---
 
-## Clarvis — 0.17.23
+## Clarvis — 0.17.24
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Clarvis speaks with the voice NERVIS keeps for it.** Choose Clarvis's voice in NERVIS → Settings →
+  Voice, separate from NERVIS's own; NERVIS speaks Clarvis's lines with its Fish Audio key, so there's
+  one voice list and one key. Needs the Bridge. Without NERVIS, Clarvis uses its own voice setting, and
+  "Clarvis: voice source" can make that permanent. Previewing a voice in Clarvis still plays that voice.
+
+### 0.17.23
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -850,7 +859,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.56
+## NERVIS — 0.34.57
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **A voice for Clarvis, chosen in Settings → Voice** ("Clarvis speaks with"), separate from NERVIS's own.
+  A Clarvis window with the Bridge on asks for it and has NERVIS speak its lines with NERVIS's key, under
+  the same privacy check and daily cap; NERVIS's own mute button doesn't silence Clarvis. Rick Sanchez
+  and DramaButler, the voices Clarvis used, are added once, with Rick chosen.
+
+### 0.34.56
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

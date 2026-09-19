@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4522 tests, no network, no live service
+.venv/bin/pytest                      # part of 4529 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 567 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1812 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1819 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4522 passing across the four, conformance `PASS`.
+Expected: all clean, 4529 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,27 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Clarvis's voice from NERVIS — 2026-09-19 (NERVIS 0.34.57, Clarvis 0.17.24)
+
+The owner found the double voice setup cumbersome and asked whether NERVIS could set Clarvis's voice through
+the Bridge. §6.7 forbids NERVIS writing a Clarvis setting, so the owner chose the other direction — Clarvis
+follows NERVIS — with a voice of Clarvis's own in NERVIS ("I don't want them to sound identical").
+**NERVIS:** `voice.clarvis_profile`, chosen under Settings → Voice ("Clarvis speaks with"; a "Clarvis" chip on
+its row); `seed_clarvis_voice` adds Rick Sanchez and DramaButler once beside what exists and chooses Rick (the
+Mac gained both, its five kept); two window-token routes, `GET /api/v1/registry/instances/clarvis/<id>/voice`
+and `POST …/speak` (`api/instances.py`, `voice_api.speak_as_clarvis`: the same privacy gate and daily cap as
+NERVIS's own speech, NERVIS's key, not NERVIS's page mute). The control-token audit lists the speak route as
+guarded by the window's token instead. **Clarvis:** `clarvis.voice.source` (`nervis` by default, or `own`);
+`src/voice/nervisVoice.ts`; `FishAudioProvider` asks NERVIS first and keys its cache on the voice NERVIS
+answers with; own key when NERVIS isn't reachable, the window isn't registered, or NERVIS has no key or voice
+for Clarvis; system voice when NERVIS refuses on privacy or its cap, or times out after it may have paid;
+previews keep the voice they name (`Utterance.own`). The CLARVIS session reviewed the plan and its seven
+pitfalls are all covered. **Checked:** NERVIS `nervis/tests/test_voice_clarvis.py` (8) plus the audit's extra line;
+Clarvis `nervisVoice.test.ts` (5; one fails if a privacy or cap refusal may be retried with Clarvis's key),
+2,212 fast and 34 host tests, on Linux 2,207 passed with 5 skipped. **Known limit:** Clarvis sends no model
+name with a line, so NERVIS's privacy gate treats Clarvis's lines as Clarvis's own words — as Clarvis's own
+Fish path always did. **Not yet heard live.**
 
 ## The owner's voices ship as the starting set — 2026-09-19 (NERVIS 0.34.56)
 

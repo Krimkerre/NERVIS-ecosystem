@@ -8294,11 +8294,27 @@ function voiceKeyCard(data){
 }
 
 /* The named voices, and the form that adds one. */
+/* Which of the named voices Clarvis speaks with — its own choice, separate from NERVIS's
+   (19 September 2026, the owner: "I don't want them to sound identical"). Clarvis asks NERVIS
+   for it; NERVIS never writes a Clarvis setting. */
+function clarvisVoiceRow(data){
+ const saved=data.profiles||[];
+ if(!saved.length)return '';
+ return `<label class="mono" style="display:block;margin-bottom:8px">Clarvis speaks with
+   <select style="background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit;margin-left:6px"
+     onchange="VOICE.flag('clarvis_profile',this.value)">
+    <option value=""${data.clarvis_profile?'':' selected'}>— Clarvis's own voice setting —</option>
+    ${saved.map(v=>`<option value="${escapeHtml(v.profile_id)}"${v.profile_id===data.clarvis_profile?' selected':''}>${escapeHtml(v.name)} · ${escapeHtml(v.engine)}</option>`).join('')}
+   </select>
+   <small class="dim" style="display:block;margin-top:4px;text-transform:none;letter-spacing:0">a Clarvis window with the Bridge on asks NERVIS for this voice and has NERVIS say its lines with NERVIS's key; without NERVIS it uses its own voice setting.</small>
+  </label>`;
+}
+
 function voiceVoicesCard(data){
  const chosen=data.selected_profile;
  const own=VOICE.catalogue;
  const profileRow=p=>`<div class="table-row" style="grid-template-columns:1.2fr 1fr auto auto auto auto;align-items:center;gap:8px">
-   <span class="mono"><b>${escapeHtml(p.name)}</b>${p.profile_id===chosen?' <span class="chip">in use</span>':''}</span>
+   <span class="mono"><b>${escapeHtml(p.name)}</b>${p.profile_id===chosen?' <span class="chip">in use</span>':''}${p.profile_id===data.clarvis_profile?' <span class="chip">Clarvis</span>':''}</span>
    <span class="mono dim" title="${escapeHtml(p.voice_id)}">${escapeHtml(p.voice_id.slice(0,12))}…</span>
    <span class="mono dim">${escapeHtml(p.engine)}</span>
    <span class="mono dim">${escapeHtml(p.speed)}×</span>
@@ -8307,6 +8323,7 @@ function voiceVoicesCard(data){
    <button class="btn" onclick="VOICE.remove('${jsAttr(p.profile_id)}')">Delete</button></span>
   </div>`; return `
   <div class="card full live"><h3>Voices</h3>${cell(`
+   ${clarvisVoiceRow(data)}
    ${(data.profiles||[]).length?(data.profiles||[]).map(profileRow).join(''):'<div class="trace-step"><b>none saved</b><span>add one below — a voice id alone is thirty-two hex characters and says nothing about how it sounds</span></div>'}
    <div class="table-row" style="grid-template-columns:1.2fr 1fr auto auto auto;align-items:center;gap:8px;margin-top:8px">
     <span><input id="vpName" placeholder="name it — e.g. Narrator"

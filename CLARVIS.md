@@ -798,6 +798,13 @@ Clarvis window says where the stop came from. Starting or cancelling a sign-in, 
 account and accepting a Codex version through RAVIS are runtime setup, not control of a task.
 NERVIS never starts the file-rules re-test; the owner starts it from the menu bar.
 
+**Clarvis's voice from NERVIS (19 September 2026, Clarvis 0.17.24, NERVIS 0.34.57) — a read, in the allowed
+direction.** The owner wanted one place to set voices, with Clarvis sounding different from NERVIS. NERVIS
+keeps a voice for Clarvis (`voice.clarvis_profile`); a registered Clarvis window asks for it
+(`GET /api/v1/registry/instances/clarvis/<id>/voice`) and has NERVIS render a line
+(`POST …/speak`), both with the token NERVIS issued that window. NERVIS never writes a Clarvis setting and
+its Fish key never reaches Clarvis; with the Bridge stopped, Clarvis speaks with its own voice setting.
+
 ## 6.8 Relationship to M13 raw logs
 
 M13 tails VS Code logs into `.clarvis/vscode.log` behind a Clarvis security gate, and is built.

@@ -371,6 +371,8 @@ def test_every_write_the_page_makes_needs_the_token(client: Any) -> None:
         "/api/v1/registry/instances",
         "/api/v1/registry/instances/x/x",
         "/api/v1/registry/instances/x/x/heartbeat",
+        # A Clarvis window's line in its own voice (19 September 2026): the window's token instead.
+        "/api/v1/registry/instances/x/x/speak",
     ]
 
 
@@ -378,6 +380,8 @@ def test_the_writes_that_are_not_the_page_s_keep_their_own_guards(client: Any) -
     """Events, registration and SIRVIS's recommendation read go past the page's rule — and a
     registration still needs the enrollment secret."""
     assert client.post("/api/v1/events", json=[]).status_code == 202
+    speak = client.post("/api/v1/registry/instances/clarvis/w/speak", json={"text": "hi"})
+    assert speak.status_code == 401, "no window token, no voice"
     registration = client.post("/api/v1/registry/instances", json={})
     assert registration.status_code == 401
     recommendation = client.post("/api/v1/sirvis/recommendations", json={})

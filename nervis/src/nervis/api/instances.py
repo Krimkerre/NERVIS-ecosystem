@@ -23,8 +23,10 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
+from pydantic import BaseModel
 
-from nervis import clarvis
+from nervis import clarvis, voice
+from nervis.api import voice as voice_api
 from nervis.bridges import read_config as read_bridge_config
 from nervis.bridges import read_problems as read_bridge_problems
 from nervis.bridges import read_status as read_bridge_status
@@ -210,6 +212,50 @@ async def heartbeat(service: str, instance_id: str, request: Request) -> dict[st
     except RegistrationRefusedError as refusal:
         raise UnauthorizedError(str(refusal)) from refusal
     return {"instance": instance.as_dict(request.app.state.instances_clock())}
+
+
+class WindowSpeech(BaseModel):
+    """A line a Clarvis window wants said in its own voice, and the model that wrote it."""
+
+    text: str
+    source_model: str = ""
+
+
+def _window(request: Request, service: str, instance_id: str) -> None:
+    """Refuse unless the caller holds this window's own token and the window is Clarvis's.
+
+    The same proof the heartbeat asks for, so a window speaks for itself and nobody else; and only
+    Clarvis, whose voice is the one NERVIS keeps a choice for.
+    """
+    instances: Instances = request.app.state.instances
+    if service != "clarvis" or not instances.holds(service, instance_id, _bearer(request)):
+        raise UnauthorizedError("no such instance, or the token does not match it")
+
+
+@router.get("/{service}/{instance_id}/voice")
+async def window_voice(service: str, instance_id: str, request: Request) -> dict[str, Any]:
+    """Which voice Clarvis should speak with, chosen in NERVIS (19 September 2026).
+
+    Clarvis asks this before rendering, so its cache is keyed on the voice NERVIS will use and a
+    change in NERVIS's Settings is heard at once. A read: NERVIS never writes a Clarvis setting
+    (CLARVIS.md §6.7), and its Fish key never leaves it.
+    """
+    _window(request, service, instance_id)
+    profile = voice.clarvis_profile(request.app.state.database)
+    return {
+        "profile": profile.as_dict() if profile else None,
+        "can_speak": bool(profile) and request.app.state.voice_credential.configured(),
+    }
+
+
+@router.post("/{service}/{instance_id}/speak")
+async def window_speak(
+    service: str, instance_id: str, body: WindowSpeech, request: Request
+) -> Response:
+    """One line in Clarvis's voice, rendered with NERVIS's key, behind NERVIS's privacy and spend
+    checks. The text is spoken and not kept (`voice_api.speak_as_clarvis`)."""
+    _window(request, service, instance_id)
+    return await voice_api.speak_as_clarvis(request, body.text, body.source_model)
 
 
 @router.delete("/{service}/{instance_id}", status_code=204)
