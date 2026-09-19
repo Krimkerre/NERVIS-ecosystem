@@ -256,10 +256,14 @@ elif have ollama; then
 elif [ "$OS" = macos ]; then
   install_packages "Ollama" ollama
 else
+  # Ollama's script unpacks a .tar.zst and stops at once without zstd, which a fresh Debian,
+  # Ubuntu or Fedora lacks (found on 19 September 2026, testing the second release candidate).
+  install_packages "What Ollama's installer needs" zstd
   say "Ollama: installing with its official script (ollama.com/install.sh)…"
   need_root
   if [ "$DRY_RUN" = 1 ]; then run sh -c "curl -fsSL https://ollama.com/install.sh | sh"
-  else curl -fsSL https://ollama.com/install.sh | sh; fi
+  else curl -fsSL https://ollama.com/install.sh | sh || fail "Ollama's own installer stopped (its message is above).
+  Fix what it asks for and run ./install.sh again, or run ./install.sh --no-ollama to go on without it."; fi
   good "Ollama: installed"
 fi
 

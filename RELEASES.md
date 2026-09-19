@@ -786,7 +786,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.51
+## NERVIS — 0.34.52
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **The installer works on a fresh Linux machine again.** Ollama's own install script now needs the
+  `zstd` tool, which a fresh Debian, Ubuntu or Fedora doesn't have, so installing stopped there. The
+  installer now adds it first, and if Ollama's script ever stops, says so and how to go on without it.
+
+### 0.34.51
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
