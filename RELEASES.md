@@ -756,7 +756,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.49
+## NERVIS — 0.34.50
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **A banner on the SIRVIS screens when LM Studio or Hugging Face is down**, one per cause,
+  listing what stops until it is back. A button that can't work is greyed out with SIRVIS's
+  reason, and a refused command says that reason rather than naming a capability.
+
+### 0.34.49
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
@@ -3299,7 +3308,17 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.7
+## SIRVIS — 0.19.8
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
+
+- **Says what stops when LM Studio or Hugging Face is down.** SIRVIS checks LM Studio every ten
+  seconds and notes whether Hugging Face's last answer failed, then marks the abilities that need
+  them as unavailable or reduced, each with a reason that starts "Waiting on LM Studio, which
+  isn't answering: …". It never contacts Hugging Face just to check. Everything is restored by
+  itself when they answer again.
+
+### 0.19.7
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
 

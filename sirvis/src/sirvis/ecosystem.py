@@ -169,7 +169,9 @@ def sirvis_surface(service_id: str, machine_id: str, database: object) -> Ecosys
         service_id=service_id,
         machine_id=machine_id,
         build_version=BUILD_VERSION,
-        declared=DECLARED,
+        # A copy: `availability.restate` lowers this surface's entries and must never
+        # touch the module's, which is what it restores them from.
+        declared=dict(DECLARED),
         # **Deliberately not a check for the event publisher.** A failing check
         # makes `ready` false, and a dead collector making the product
         # advertise itself as degraded is exactly the coupling Stage 7 forbids.

@@ -1474,10 +1474,36 @@ const capable=(k,id)=>usable(k)&&(SERVICES[k].caps||[]).includes(id);
 function gated(service,capability){
  if(capable(service,capability))return '';
  const known=SERVICES[service]||{label:service,state:'unknown'};
+ /* The service's own reason first: SIRVIS says "Waiting on LM Studio, which isn't
+    answering: no model can be loaded or unloaded" (§15.4), which says what to do. */
+ const said=(known.reasons||{})[capability];
  const why=usable(service)
-   ?`${known.label} does not currently offer ${capability}`
+   ?(said||`${known.label} does not currently offer ${capability}`)
    :`${known.label} is ${known.state}`;
- return ` disabled title="${why}" style="opacity:.45;cursor:not-allowed"`;
+ return ` disabled title="${escapeHtml(why)}" style="opacity:.45;cursor:not-allowed"`;
+}
+/* What SIRVIS says it is waiting on, as one banner per cause (§15.4, 19 September 2026).
+   SIRVIS lowers a capability while LM Studio isn't answering or Hugging Face failed its
+   last read, and starts each reason "Waiting on <who>, which <why>: <what stops>"; the
+   losses are grouped under their cause so a person reads "LM Studio isn't answering" once,
+   with everything it stops below it. Empty when SIRVIS itself is down: the screen's own
+   absence notice says that. */
+function sirvisWaiting(){
+ const s=SERVICES.sirvis||{};
+ if(!usable('sirvis'))return '';
+ const causes=new Map();
+ for(const [id,st] of Object.entries(s.capStates||{})){
+  if(st==='available')continue;
+  for(const part of String((s.reasons||{})[id]||'').split('; ')){
+   const m=/^Waiting on ([^,]+), which ([^:]+): (.+)$/.exec(part);
+   if(!m)continue;
+   const cause=`${m[1]} ${m[2]}`;
+   const lost=causes.get(cause)||new Set();
+   causes.set(cause,lost.add(m[3]));
+  }
+ }
+ return [...causes].map(([cause,lost])=>banner(escapeHtml(cause),
+   'Until it answers again: '+[...lost].map(escapeHtml).join('; ')+'.','warn')).join('');
 }
 /* Which capability a screen's data actually needs, per service.
  
@@ -1886,6 +1912,10 @@ function absorbRegistry(d){
    SERVICES[e.key].state=e.state;
    SERVICES[e.key].caps=Object.entries(e.capabilities||{})
      .filter(([,state])=>state==='available'||state==='degraded').map(([id])=>id);
+   /* Kept whole beside `caps`, for `gated` and `sirvisWaiting`: what each capability
+      is doing and, for one that is not available, the service's own reason. */
+   SERVICES[e.key].capStates=e.capabilities||{};
+   SERVICES[e.key].reasons=e.capability_reasons||{};
   }
   if(e.state==='healthy'||e.state==='degraded')SOURCE[e.key]='live';
  }
@@ -10038,9 +10068,11 @@ function buildActions(x){
  if(!x.local_model_id)return '';
  const id=jsAttr(x.local_model_id),name=jsAttr(x.family||x.model_id||'');
  const loaded=x.state!=='stopped';
- return ` <button type="button" class="ghost" onclick="revealBuild('${id}')" title="Show this model's files in the file manager">Show files</button>`
+ /* Off, with SIRVIS's reason, while it withdraws `sirvis.model_files` (§15.4). */
+ const off=gated('sirvis','sirvis.model_files');
+ return ` <button type="button" class="ghost" onclick="revealBuild('${id}')"${off||` title="Show this model's files in the file manager"`}>Show files</button>`
   +` <button type="button" class="ghost" onclick="deleteBuild('${id}','${name}',${x.size_gb??'null'})"`
-  +(loaded?' disabled title="Unload it first: a loaded model can\u2019t be moved"':' title="Move this model to the Trash"')
+  +(off||(loaded?' disabled title="Unload it first: a loaded model can\u2019t be moved"':' title="Move this model to the Trash"'))
   +`>Delete</button>`;
 }
 
@@ -18050,6 +18082,8 @@ async function render(){if(!inMikuMode())IDLE.stop();applyTheme();applyMode();gl
     +'the everyday menu is unchanged. <button type="button" class="ghost" onclick="go(\'nervis\',\'Overview\')">'
     +'Back to the overview</button>','info')+$('#content').innerHTML;
  }
+ if(state.app==='sirvis'){const waiting=sirvisWaiting();
+  if(waiting)$('#content').innerHTML=waiting+$('#content').innerHTML;}
  RENDERED_MOCK=Object.keys(SOURCE).filter(key=>SOURCE[key]==='mock');replaceClarvisPanelAvatar();hydrateAvatarFrames();paintZen();
  /* Again, after the screen has fetched. The first call paints the bar
     immediately so it is never blank; this one corrects it with whatever the

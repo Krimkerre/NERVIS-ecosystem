@@ -116,6 +116,9 @@ class Settings(BaseSettings):
     download_large_share: float = 0.5
     # How often a running download's progress is asked of LM Studio.
     download_poll_seconds: float = 2.0
+    # How often SIRVIS asks LM Studio whether it is there, to say which capabilities its
+    # absence takes away (`availability.py`, §15.4).
+    runtime_watch_seconds: float = 10.0
 
     # ── §9 resource management ───────────────────────────────────────────────
     # Two co-resident models cost almost nothing on 24 GB and the third is where

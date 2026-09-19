@@ -1230,6 +1230,23 @@ a broken SIRVIS. A runtime that is down shows where it is read instead: its
 `/api/v1/runtimes` row stops saying `running`, and a model read answers 502 rather than 404
 (`sirvis/tests/test_m8_resources.py`).
 
+**As built, 19 September 2026 (SIRVIS 0.19.8): capabilities now say when LM Studio or Hugging
+Face is down** (`sirvis/src/sirvis/availability.py`). SIRVIS asks LM Studio every
+`runtime_watch_seconds` (10) through the same `health` read `/api/v1/runtimes` makes, which
+loads nothing. While it isn't answering, `runtime.control` and `model_files` turn `unavailable`,
+and `inventory.read`, `runtime.state.read`, `benchmarks.jobs`, `recommendations` and `downloads`
+turn `degraded`. Hugging Face is never asked for this: the outcome of the last real search or
+model read counts, so SIRVIS sends nothing to the internet on its own, and `catalog.read` and
+`downloads` go `degraded` (not `unavailable`, so Discover stays usable for the search that
+clears it). Results, Runtime Sets and events need neither and never change. Every lowered
+reason reads "Waiting on <who>, which <why>: <what stops>", and the revision moves only when a
+state or reason changes. Readiness is unchanged — still the database alone. NERVIS 0.34.50
+shows one banner per cause on the SIRVIS screens, puts the reason on a button it disables, and
+refuses a command with SIRVIS's sentence (`nervis/tools/sirvis_waiting_check.js`). Tested in
+`sirvis/tests/test_availability.py` (4) and seen live on a private SIRVIS pointed at dead
+addresses: seven capabilities lowered within a second of the first probe, and a failed search
+added Hugging Face.
+
 ---
 
 # 16. Web dashboard
@@ -1498,7 +1515,7 @@ Load GGUF + MLX → measure combined RAM → benchmark independently
 | Stage 6–7 — NERVIS core, events and tracing | M21 — **no production test doubles** |
 | Stage 10 — whole-ecosystem hardening | M22 |
 | **Unscheduled — deferred by decision** | None since 18 September 2026: M5 (SDK), M17 and M18 were struck that day, with M15b |
-| **Struck, 18 September 2026** | M19 (format comparison) and M20 (advanced analytics), by the owner's decision after the base review. **Later the same day, the owner's decision on everything specified and unbuilt** struck M5 (client libraries: only NERVIS calls SIRVIS), M15b (Runtime Set recommendations and expected memory, performance and quality), M17 (configuration sweeps) and M18 (quality suites) — benchmark research of the kind M19 and M20 were — and, of the sections, §4.2's four unbuilt paths and sessions list, §18's command line (the dashboard does its job), §8's Discover filters beyond format and size and the installed view's Compare, Inspect and Find variants, and §16's Playground (NERVIS chat covers it). **Kept, to build:** §8's Reveal and Delete on installed models, and §15.4's capabilities turning unavailable when LM Studio or Hugging Face is down. Not put to the owner, so still open: §11.7's randomized run order, §14.2's fit classes and §15.3's remaining events and spans. Kept in the table with their rows struck rather than deleted: a milestone that vanishes leaves the numbering with a hole and the next reader wondering what M19 was |
+| **Struck, 18 September 2026** | M19 (format comparison) and M20 (advanced analytics), by the owner's decision after the base review. **Later the same day, the owner's decision on everything specified and unbuilt** struck M5 (client libraries: only NERVIS calls SIRVIS), M15b (Runtime Set recommendations and expected memory, performance and quality), M17 (configuration sweeps) and M18 (quality suites) — benchmark research of the kind M19 and M20 were — and, of the sections, §4.2's four unbuilt paths and sessions list, §18's command line (the dashboard does its job), §8's Discover filters beyond format and size and the installed view's Compare, Inspect and Find variants, and §16's Playground (NERVIS chat covers it). **Kept, to build:** §8's Reveal and Delete on installed models, and §15.4's capabilities turning unavailable when LM Studio or Hugging Face is down — both built on 19 September 2026. Not put to the owner, so still open: §11.7's randomized run order, §14.2's fit classes and §15.3's remaining events and spans. Kept in the table with their rows struck rather than deleted: a milestone that vanishes leaves the numbering with a hole and the next reader wondering what M19 was |
 | **Built outside the stage plan** | M11 (model browser and download). Deferred by decision until it shipped on 12 September 2026, when NERVIS's Discover and Downloads screens needed a real source; no runbook stage names it |
 | Stage 4 — visible increment | M14 (web UI). Not deferred. The wiring this row asked for is done: as of 12 September 2026 all nine screens on the SIRVIS tab of `nervis/index.html` read the live service (§16's opening note). What is left of M14 is §16's charts, Pareto analysis, historical regressions, result comparison and the Playground, plus separate Queue, System and Settings pages — none of them built |
 

@@ -29,6 +29,7 @@ from sirvis.api.security import (
     ensure_bootstrap_token,
     is_preflight,
 )
+from sirvis.availability import Availability, watch_lmstudio
 from sirvis.config import Settings
 from sirvis.core.machine import machine_identity
 from sirvis.downloads import serve_downloads
@@ -141,6 +142,8 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     # M11's download watcher, for the same reason: a transfer LM Studio is making is
     # watched whether or not anybody collects the events about it.
     watcher = asyncio.create_task(serve_downloads(api))
+    # §15.4: whether LM Studio is there, so the capabilities it carries say so when it is not.
+    runtime_watch = asyncio.create_task(watch_lmstudio(api))
     publisher: EventPublisher = api.state.events
     if not publisher.enabled:
         try:
@@ -148,6 +151,7 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
         finally:
             worker.cancel()
             watcher.cancel()
+            runtime_watch.cancel()
             # After the queue is cancelled, so a benchmark cannot take a model
             # behind the release; its own `finally` then finds its session
             # already ended and does nothing. Before the drain below, whose
@@ -161,6 +165,7 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
         finally:
             worker.cancel()
             watcher.cancel()
+            runtime_watch.cancel()
             # Same place and reason as the branch above.
             await _release_models_on_stop(api)
             pump.cancel()
@@ -318,6 +323,7 @@ def _attach_shared_state(
         machine_id=api.state.machine_id,
         database=api.state.database,
     )
+    api.state.availability = Availability()
 
 
 def _register_cors(api: FastAPI) -> None:

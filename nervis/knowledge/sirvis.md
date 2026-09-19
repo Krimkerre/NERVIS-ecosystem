@@ -131,6 +131,21 @@ and the weights under `~/.lmstudio/models`; both go. Delete is refused while the
 keeps anything another installed model still needs, and refuses a model that came with LM Studio
 itself (the small embedding model), which only uninstalling LM Studio removes.
 
+## When LM Studio or Hugging Face is down
+
+SIRVIS checks every ten seconds whether LM Studio is answering (a read that loads nothing).
+While it isn't, the SIRVIS screens show a yellow banner, "LM Studio isn't answering", listing
+what stops until it is back: loading and unloading models, Show files and Delete, listing
+installed models, starting downloads and benchmarks, and recommendations that know what is
+installed. Buttons that can't work are greyed out with that reason. Results, Runtime Sets and
+past downloads still read normally. Fix: open LM Studio and start its server; the banner goes
+by itself within ten seconds.
+
+Hugging Face is only judged by SIRVIS's last real search: if it failed, a banner says Hugging
+Face failed the last read and Discover's search and new downloads may not work. SIRVIS never
+contacts Hugging Face on its own for this, so the banner clears the next time a search works.
+Since 19 September 2026 (SIRVIS 0.19.8, NERVIS 0.34.50).
+
 ## What it will not do
 
 It does not delete a model on its own — not to make room for another, and not a failed partial

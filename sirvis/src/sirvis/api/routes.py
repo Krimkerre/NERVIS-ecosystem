@@ -16,7 +16,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Awaitable, Mapping, TypeVar
 
 from ecosystem_protocol import wire_identifier
 from fastapi import APIRouter, Query, Request
@@ -31,6 +31,7 @@ from sirvis.api.security import (
     resolve_caller,
     token_summary,
 )
+from sirvis.availability import note_hub
 from sirvis.core.inventory import Inventory, build_inventory
 from sirvis.core.machine import latest_snapshot, machine_identity, record_snapshot
 from sirvis.core.recommendations import (
@@ -50,6 +51,7 @@ from sirvis.core.runtime_sets import (
 )
 from sirvis.errors import (
     BenchmarkNotFoundError,
+    CatalogUnavailableError,
     DeadlineExceededError,
     DiskSpaceError,
     DownloadNotFoundError,
@@ -98,6 +100,7 @@ from sirvis.telemetry import detect_system
 
 logger = logging.getLogger("sirvis")
 router = APIRouter(prefix="/api/v1", tags=["sirvis"])
+T = TypeVar("T")
 
 # Moves when the underlying set changes, so a consumer can tell a real change
 # from a re-read (§4.2). One value for now; per-collection revisions arrive when
@@ -504,15 +507,31 @@ async def search_catalog(
             "max_bytes is a size in bytes, zero or more", parameter="max_bytes", value=max_bytes
         )
     memory = await _machine_memory(request)
-    found = await catalog.search(
+    found = await _from_hub(request, catalog.search(
         request.app.state.hub_client, q.strip(), format_,
         max(1, min(limit, catalog.MAX_RESULTS)), await _installed(request),
         sort=sort, memory_bytes=memory, fits_only=fits, max_bytes=max_bytes,
-    )
+    ))
     free = downloads.free_bytes(request.app.state.settings.lmstudio_models_path)
     return _listing(found.pop("items")) | found | {
         "source": "huggingface", "disk_free_bytes": free, "sort": sort, "memory_bytes": memory,
     }
+
+
+async def _from_hub(request: Request, pending: Awaitable[T]) -> T:
+    """A Hugging Face read, whose outcome also says whether Hugging Face is up (§15.4).
+
+    Only `CatalogUnavailableError` means Hugging Face failed; a model it has no record of
+    is an answer, and so counts as it being there (`availability.note_hub`).
+    """
+    failure: CatalogUnavailableError | None = None
+    try:
+        return await pending
+    except CatalogUnavailableError as failed:
+        failure = failed
+        raise
+    finally:
+        note_hub(request.app, failure)
 
 
 async def _machine_memory(request: Request) -> int | None:
@@ -538,7 +557,8 @@ async def _machine_memory(request: Request) -> int | None:
 @router.get("/catalog/{repo_id:path}")
 async def read_catalog_model(request: Request, repo_id: str) -> dict[str, Any]:
     """One model, and its downloadable variants with their sizes, disk checks and memory fit."""
-    detail = await catalog.model(request.app.state.hub_client, repo_id, await _installed(request))
+    detail = await _from_hub(request, catalog.model(
+        request.app.state.hub_client, repo_id, await _installed(request)))
     memory = await _machine_memory(request)
     budget = int(memory * catalog.FIT_SHARE) if memory else None
     for variant in detail["variants"]:
@@ -566,7 +586,8 @@ async def start_download(request: Request) -> dict[str, Any]:
     require(request, Scope.ADMIN)
     body = await _json_body(request)
     repo_id = catalog.checked_repo_id(str(body.get("repo_id") or ""))
-    detail = await catalog.model(request.app.state.hub_client, repo_id, await _installed(request))
+    detail = await _from_hub(request, catalog.model(
+        request.app.state.hub_client, repo_id, await _installed(request)))
     if detail["gated"]:
         raise InvalidConfigurationError(
             "this model is gated behind a licence on Hugging Face, and LM Studio would "

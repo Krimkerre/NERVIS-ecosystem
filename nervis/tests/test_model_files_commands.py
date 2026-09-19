@@ -92,3 +92,25 @@ def test_neither_is_ever_offered_from_a_sentence() -> None:
     for said in ("delete the model gemma", "move gemma to the trash", "show me gemma's files"):
         proposal = commands.propose(said, [])
         assert proposal is None or proposal.operation.id not in commands.BUTTON_ONLY
+
+
+def test_while_lm_studio_is_down_the_refusal_is_sirvis_s_own_reason() -> None:
+    """§15.4, 19 September 2026: SIRVIS withdraws the capability and says why; NERVIS makes
+    no request and hands the person that sentence rather than the capability's id."""
+    sent: list[httpx.Request] = []
+    client = an_api()
+    _sirvis(client, httpx.Response(200, json={}), sent)
+    entry = client.app.state.registry.get("sirvis")
+    reason = ("Waiting on LM Studio, which isn't answering: an installed model's files "
+              "can't be shown or moved to the Trash")
+    entry.capabilities = {"sirvis.model_files": "unavailable"}
+    # Answering now, as the probe saw it: fresh, so the refusal is the capability's own.
+    entry.state = RegistryState.HEALTHY
+    entry.last_seen = entry.checked_at = client.app.state.registry._now()
+    entry.capability_reasons = {"sirvis.model_files": reason}
+
+    answered = client.post("/api/v1/commands/run",
+                           json={"operation": "sirvis.model.delete", "target": "lm_1"})
+
+    assert answered.status_code >= 400 and sent == []
+    assert answered.json()["error"]["message"] == reason

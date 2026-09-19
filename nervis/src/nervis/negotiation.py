@@ -151,10 +151,14 @@ def negotiate(operation: Operation, entry: RegistryEntry | None) -> Verdict:
     known_state = _ADVERTISED.get(state)
     if known_state is Availability.AVAILABLE:
         return Verdict(operation, Availability.AVAILABLE)
+    # The peer's own sentence when it sent one (§4.1 makes it mandatory here): since
+    # 19 September 2026 SIRVIS says "Waiting on LM Studio, which isn't answering: …",
+    # which tells a person what to do; the state alone only tells them it is off.
+    said = entry.capability_reasons.get(operation.capability, "")
     return Verdict(
         operation,
         known_state or Availability.UNAVAILABLE,
-        f"{entry.declaration.label} reports {operation.capability} as {state}",
+        said or f"{entry.declaration.label} reports {operation.capability} as {state}",
     )
 
 
