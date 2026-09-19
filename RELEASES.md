@@ -72,7 +72,20 @@ apply to a stack that runs on one machine is still the owner's decision.
 
 ---
 
-## Clarvis — 0.17.20
+## Clarvis — 0.17.21
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Copying the editor's log works, and stays out of your project.** "Clarvis: Start Copying This
+  Window's Log" now copies the right window's log in desktop VS Code and code-server alike (before, it
+  found nothing on desktop and the wrong editor's log under code-server). The copy is kept in the
+  editor's own storage for the workspace, where the agent can't read it and git can't commit it; it is
+  added to rather than overwritten, and picks up where it stopped. You approve once per workspace, and
+  the new "Clarvis: Revoke Log Copying" takes that back and offers to move the copy to the Trash. A copy
+  left inside the project by an older version is pointed out, with an offer to move it to the Trash.
+- The log reference for NERVIS is dropped as not wanted.
+
+### 0.17.20
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 

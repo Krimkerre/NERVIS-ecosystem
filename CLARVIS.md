@@ -193,7 +193,8 @@ on 31 August, and the rest has moved on. Re-read from the extension today:
   planned milestone. It ships today behind a user approval prompt that names the risk
   explicitly, writing to `.clarvis/vscode.log` — `src/logtailing/logTailing.ts`, commands
   `clarvis.startLogTailing` / `clarvis.stopLogTailing`. The ecosystem consequence is unchanged:
-  it is a security-gated raw diagnostic aid, **never the primary status contract**.
+  it is a security-gated raw diagnostic aid, **never the primary status contract**. (Since Clarvis
+  0.17.21 the copy is kept outside the workspace — see §6.8.)
 - **M11 is an active release gate**, not a future milestone. Ecosystem work must not disturb it.
 
 ---
@@ -588,7 +589,7 @@ clarvis.status.read@1
 clarvis.config.summary@1
 clarvis.events@1
 clarvis.diagnostics.summary@1
-clarvis.logs.reference@1        only where M13 log tailing exists and is approved
+clarvis.logs.reference@1        not wanted (owner, 19 September 2026) — stays unavailable
 clarvis.ravis_provider@1
 clarvis.voice@1                 as built, 29 August 2026 — see the note below
 ```
@@ -803,6 +804,21 @@ M13 tails VS Code logs into `.clarvis/vscode.log` behind a Clarvis security gate
 **The ecosystem must not treat that text file as the primary status contract.** Structured
 Bridge events and status are the normal integration; M13 stays an explicitly approved raw
 diagnostic aid with workspace and privacy consequences.
+
+**As built, 19 September 2026 (Clarvis 0.17.21): the log reference dropped, M13 fixed.** The owner
+decided `clarvis.logs.reference@1` is not wanted: nothing reads one, and an opaque reference to a file
+NERVIS may not open would add nothing `/v1/status` and the event cursor do not already say. It stays
+`unavailable` with that reason, and §6.3's optional log reference will not be published. M13 itself
+had four defects, now fixed (`src/logtailing/`): it looked for a desktop-only `1-main.log` (found
+nothing on desktop, the wrong editor under code-server, and possibly another window's); it wrote
+`.clarvis/vscode.log` inside the workspace, readable by the agent and a Codex task and committable;
+its approval was a modal on every start, forgotten on reload; and it truncated the copy. Now the
+source is this window's extension-host log beside `context.logUri` (`exthost.log` desktop,
+`remoteexthost.log` code-server); the copy is appended to the workspace's own editor storage
+(`context.storageUri`), outside the project, resuming where it stopped and set aside once past 20 MB;
+approval is remembered per workspace until "Clarvis: Revoke Log Copying", which stops the copy and
+offers to move it to the Trash; Stop holds across a reload; and a start that finds the old in-project
+copy offers to move it to the Trash.
 
 ## 6.9 If a management API is ever wanted — recorded, not authorised
 

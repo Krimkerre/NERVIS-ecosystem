@@ -176,6 +176,16 @@ warning" — counts only, never which file or what the problem says; a window on
 simply has no such line. Clarvis answers about itself; it is not a surface
 NERVIS queries for workspace contents.
 
+## Copying the editor's log for troubleshooting
+
+Since Clarvis 0.17.21 (19 September 2026): "Clarvis: Start Copying This Window's Log" copies
+the current window's extension-host log (desktop VS Code or code-server) into Clarvis's own
+storage for that workspace — outside the project, so Clarvis's agent can't read it and git
+can't commit it. It asks for approval once per workspace; "Clarvis: Revoke Log Copying" takes
+the approval back and offers to move the copy to the Trash. "Stop Copying" pauses it until
+started again, even across a reload. The copy is added to, never overwritten. NERVIS never
+sees the log or a reference to it: the owner decided that isn't wanted.
+
 ## Slash commands for skills in its chat
 
 Since Clarvis 0.17.7 (15 September 2026), Clarvis's chat has slash commands for
