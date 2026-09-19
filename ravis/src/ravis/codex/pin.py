@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib import resources
@@ -103,10 +104,24 @@ def used_surface(document: Mapping[str, Any]) -> UsedSurface:
     )
 
 
+#: The pinned rules that hide single entries of Codex's own home, and the one folder rule that
+#: replaces them on Linux (`_for_linux`).
+CODEX_HOME_ENTRIES = (
+    "{codex_home}/auth.json", "{codex_home}/sessions", "{codex_home}/archived_sessions",
+)
+CODEX_HOME_FOLDER = "{codex_home}"
+#: A single-file rule besides Codex's own: kept on Linux, where it works only while the file
+#: is absent.
+NETRC_RULE = "{user_home}/.netrc"
+
+
 def file_rules_profile(
-    document: Mapping[str, Any], folders: Mapping[str, Path]
+    document: Mapping[str, Any], folders: Mapping[str, Path], *, system: str = sys.platform
 ) -> FileRulesProfile | None:
-    """The calibrated profile, this Mac's folders filled in; None until calibration writes it."""
+    """The calibrated profile, this Mac's folders filled in; None until calibration writes it.
+
+    On Linux the rules on Codex's own home are worded as one folder (`_for_linux`).
+    """
     raw = document.get("file_rules_profile")
     if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
         return None
@@ -121,7 +136,10 @@ def file_rules_profile(
         logger.warning("codex: the pinned file-rules profile's name isn't a plain identifier")
         return None
     # A stored profile from before Cal-3 may still list sites; they never reach the launch flags.
-    filled = tuple(_filled(flag, folders) for flag in without_network_domains(flags, name))
+    worded = without_network_domains(flags, name)
+    if system.startswith("linux"):
+        worded = [_for_linux(flag, folders) for flag in worded]
+    filled = tuple(_filled(flag, folders) for flag in worded)
     # **`default_permissions` names the profile** (found live, 13 September 2026). Codex 0.154.0
     # refuses to start when `[permissions]` defines a profile and nothing chooses one: "config
     # defines `[permissions]` profiles but does not set `default_permissions`". RAVIS started
@@ -131,6 +149,39 @@ def file_rules_profile(
     # with — calibration's and the pinned one alike.
     chosen = ("-c", f'default_permissions="{name}"')
     return FileRulesProfile(name=name, flags=(*filled, *chosen))
+
+
+def _for_linux(flag: str, folders: Mapping[str, Path]) -> str:
+    """The rules on Codex's own home as one folder rule, for Codex's Linux sandbox.
+
+    **Found on the owner's CachyOS laptop, 19 September 2026.** Codex 0.155.1 hides a single file
+    with bwrap's `--ro-bind-data`, and fails to start a session whenever a rule names a file that
+    exists ("bwrap: Can't write data to file …/auth.json: Bad file descriptor"; openai/codex#43929,
+    open and unfixed). `tools/codex_sandbox_probe.py` showed there that even `auth.json` alone
+    fails, a rule on an absent file is harmless, and hiding Codex's whole home works: it starts,
+    the sign-in file stays hidden, and the project stays writable. So the three entries —
+    `auth.json`, `sessions`, `archived_sessions` — become the folder they live in. Nothing a task
+    runs has any business there; the NERVIS skills folder is elsewhere (`agent/skills.py` refuses
+    one inside Codex's home) and task commands get their own temp folder in the project.
+
+    **`~/.netrc` stays**, because on a machine without one it is harmless, and with one no wording
+    can hide it from this Codex. Kept rather than dropped: Codex then fails to start, loudly and
+    with its reason, instead of leaving the file readable. The log says which it is.
+    """
+    # The folder rule takes the place of the first entry found, and the rest go: a rule can only
+    # ever be widened here, never dropped without the folder that covers it.
+    rules = [f'"{entry}"="deny"' for entry in CODEX_HOME_ENTRIES if f'"{entry}"="deny"' in flag]
+    if rules:
+        flag = flag.replace(rules[0], f'"{CODEX_HOME_FOLDER}"="deny"', 1)
+        for rule in rules[1:]:
+            flag = flag.replace(f"{rule}, ", "").replace(f", {rule}", "")
+    home = folders.get("user_home")
+    if NETRC_RULE in flag and home is not None and (home / ".netrc").exists():
+        logger.warning(
+            "codex: ~/.netrc exists, and Codex's Linux sandbox can't hide a single file "
+            "(openai/codex#43929); Codex will fail to start until it is moved or Codex is fixed"
+        )
+    return flag
 
 
 def _filled(flag: str, folders: Mapping[str, Path]) -> str:

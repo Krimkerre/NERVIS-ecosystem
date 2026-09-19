@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4506 tests, no network, no live service
+.venv/bin/pytest                      # part of 4509 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1809 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4506 passing across the four, conformance `PASS`.
+Expected: all clean, 4509 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,26 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Codex on Linux: the file rules as one folder — 2026-09-19 (RAVIS 0.30.7)
+
+With the reason now visible, the laptop's inconclusive re-test read: *Codex refused thread/start …
+failed to load AGENTS.md instructions … bwrap: Can't write data to file …/ravis-codex/auth.json: Bad
+file descriptor*. Codex 0.155.1 hides a single file with bwrap's `--ro-bind-data` and fails when a
+rule names an existing file — openai/codex#43929, open, a patch proposed and not merged — so every
+session on Linux failed at its start. `tools/codex_sandbox_probe.py` (new; `codex sandbox` under each
+wording, a throwaway home and a fake sign-in file, no account, no network, no turn) settled it on the
+owner's CachyOS laptop: the pinned rules and the rules without `~/.netrc` both fail; without the
+`auth.json` rule it starts and leaks the fake sign-in file; **hiding Codex's whole home instead of its
+three entries starts, keeps the sign-in file hidden and leaves the project writable**. So on Linux
+`pin.file_rules_profile` words `{codex_home}/auth.json`, `sessions` and `archived_sessions` as one
+`{codex_home}` rule, the folder taking the first entry's place so a rule is only ever widened; the
+NERVIS skills folder is elsewhere and task commands have their own temp folder. `~/.netrc` stays: an
+absent one is harmless, and a present one can't be hidden by any wording this Codex accepts, so Codex
+fails to start with its reason rather than leaving it readable (RAVIS logs which). macOS is
+unchanged. **Checked:** 3 new tests in `ravis/tests/test_codex_profile_flags.py` (2 fail with the Linux wording
+switched off); RAVIS 2,067 on a snapshot; the new tests on the Linux bench. **Not yet seen live:** the
+re-test on the laptop with RAVIS 0.30.7.
 
 ## Why a Codex re-test wasn't proven — 2026-09-19 (NERVIS 0.34.55, RAVIS 0.30.6)
 

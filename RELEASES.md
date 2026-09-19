@@ -2398,9 +2398,17 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.6
+## RAVIS — 0.30.7
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **Codex tasks can start on Linux.** Codex's Linux sandbox has a bug (openai/codex#43929): it can't
+  hide a single file, so hiding Codex's own sign-in file stopped every Codex session from starting.
+  On Linux, RAVIS now hides Codex's whole folder instead: the sign-in file stays hidden, and
+  sessions start. macOS is unchanged. `tools/codex_sandbox_probe.py` checks which wording a machine
+  can start with, without an account or a ChatGPT turn.
+
+### 0.30.6
 
 - **The Codex file-rules re-test logs its result and reason**, so an "inconclusive" or "failed" run
   can be understood from RAVIS's log, not only from its record.

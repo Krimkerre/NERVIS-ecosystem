@@ -603,7 +603,11 @@ opens it.
   the re-test starts only from the menu bar (NERVIS → Codex → Re-test the file rules…), using one
   short Codex turn. Since NERVIS 0.34.55 a re-test that isn't **proven** shows RAVIS's reason — in the
   tray's message and in `python3 tools/run.py codex reprove` — and `python3 tools/run.py codex
-  reprove-result` shows the last result and its reason without starting another re-test.
+  reprove-result` shows the last result and its reason without starting another re-test. On Linux, since RAVIS 0.30.7, the file
+  rules hide Codex's whole folder rather than its sign-in file alone: Codex's Linux sandbox can't
+  hide a single file (openai/codex#43929), which kept every Codex session from starting. A Linux
+  machine with a `~/.netrc` file still can't start Codex until that file is moved, because no rule
+  this Codex accepts can hide it; RAVIS's log says so.
 
 Behind the card NERVIS forwards four control routes to RAVIS with its RAVIS admin credential, each
 after checking the page's control token: a task's Stop, to RAVIS's owner Stop; removing a site;
