@@ -317,6 +317,7 @@ def obey(thread_id: str, turn_id: str, prompt: str, script: str, stop: threading
         # As Codex 0.155.1 showed them on a Linux laptop whose login shell is fish: a command with a
         # redirect arrives inside the bash it falls back to (19 September 2026).
         shown = linux_bash(command) if script == "linux_bash" and ">" in command else command
+        state["finish_as_list"] = script == "list_finished"
         decision = approval(thread_id, turn_id, shown, asked_cwd)
         complete(thread_id, turn_id, index, command, cwd, decision, shown)
         if script == "stutters" and index == 2:
@@ -334,7 +335,10 @@ def complete(
     shown: str | None = None,
 ) -> None:
     item: dict[str, Any] = {
-        "type": "commandExecution", "id": f"item-{index}", "command": shown or command, "cwd": cwd,
+        "type": "commandExecution", "id": f"item-{index}", "cwd": cwd,
+        # `list_finished`: a finished command reported as its argv, a shape a newer Codex could use.
+        "command": (["/usr/bin/bash", "-lc", command] if state.get("finish_as_list")
+                    else shown or command),
         "commandActions": [],
     }
     if decision != "accept":

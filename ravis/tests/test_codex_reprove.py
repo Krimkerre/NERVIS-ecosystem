@@ -24,6 +24,7 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -395,3 +396,28 @@ def test_only_a_plain_one_argument_shell_wrapper_is_taken_off() -> None:
     for other in ("bash -lc 'cat /tmp/decoy' extra", "fish -c 'cat /tmp/decoy'",
                   "python3 -c 'print(1)'", "bash -x -c 'cat /tmp/decoy'", "bash -lc 'unclosed"):
         assert unwrapped(other) == other, other
+
+
+def test_a_finished_command_reported_as_a_list_of_words_still_counts(tmp_path: Path) -> None:
+    with accepted_build(tmp_path, turn_script="list_finished") as (rig, client):
+        start(client, rig)
+        result = finished(client, rig)
+
+    assert result["result"] == "proven", result
+
+
+def test_commands_that_never_count_as_run_say_what_the_turn_did() -> None:
+    """19 September 2026, a Linux laptop: all four asked for and allowed, none counted as run,
+    and nothing said why. The result now lists what the turn did, in Codex's own shape."""
+    from ravis.codex.reprove import FixedCommand, ReproofRun
+
+    plan = SimpleNamespace(commands=(FixedCommand(1, "cat /d/k", escalated=False),),
+                           marker="RAVIS-DECOY-MARKER-0001", folder_a=Path("/a"))
+    run = ReproofRun(plan, "thread-a")  # type: ignore[arg-type]
+    run.observe(SimpleNamespace(method="item/completed", params={  # type: ignore[arg-type]
+        "threadId": "thread-a",
+        "item": {"type": "commandExecution", "command": {"odd": True}, "status": "completed"}}))
+
+    detail = run.outcome(None).detail
+    assert detail.startswith("Codex didn't run command(s) [1] — seen: finished ? [completed")
+    assert "a dict" in detail

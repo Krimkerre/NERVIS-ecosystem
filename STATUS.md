@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4511 tests, no network, no live service
+.venv/bin/pytest                      # part of 4513 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1809 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4511 passing across the four, conformance `PASS`.
+Expected: all clean, 4513 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20046,6 +20046,13 @@ unclosed quote are left as they came and can only fail to match. The fake Codex 
 script that shows commands that way, which now proves the build; 2 new tests, both failing without the
 unwrap; RAVIS 2,069 on a snapshot, the re-test tests on the Linux bench. **Still to check:** whether
 RAVIS's gates on ordinary Codex tasks see through the same wrapper.
+**Next on the laptop (0.30.9):** inconclusive again, "Codex didn't run command(s) [1, 2, 3, 4]" — no command
+declined, none counted as run, and nothing said why. RAVIS 0.30.10 lists what the turn did when that happens
+(`ReproofRun.seen`: each command asked for and allowed or declined, each finished one with status, exit code
+and Codex's own shape — never output) and reads a finished command given as a list of words through
+`reprove.command_text` (`shlex.join`, then the same one-wrapper unwrap and exact match), in case Codex
+0.155.1 reports finished commands that way; the fake Codex's `list_finished` script proves the build with it.
+2 new tests (the list one fails without the join); RAVIS 2,071 on a snapshot; the re-test tests on Linux.
 
 ## Why a Codex re-test wasn't proven — 2026-09-19 (NERVIS 0.34.55, RAVIS 0.30.6)
 

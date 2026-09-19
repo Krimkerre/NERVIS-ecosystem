@@ -2398,9 +2398,15 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.9
+## RAVIS — 0.30.10
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **A re-test whose commands don't count as run says what Codex did** — each command asked for and
+  finished, with its status and exit code, in Codex's own shape — and a finished command reported
+  as a list of words is read the same careful way as one reported as a line.
+
+### 0.30.9
 
 - **The Codex re-test recognises its commands on Linux.** Where the login shell is one Codex doesn't
   support (fish), Codex falls back to bash and shows a command with a redirect wrapped as
