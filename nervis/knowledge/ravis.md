@@ -512,7 +512,9 @@ All six are known to RAVIS from the start, key or no key (since RAVIS 0.30.14
 and NERVIS 0.34.61). One without a key waits for it: RAVIS doesn't fetch its
 model list, send it requests or check whether it answers, and the Providers
 screen says "no key yet — not probed". Before that, a key saved for OpenRouter,
-OpenAI, DeepSeek or xAI did nothing until the stack was restarted.
+OpenAI, DeepSeek or xAI did nothing until the stack was restarted. With a key,
+those four are asked only for their model list; since RAVIS 0.30.15 they are no
+longer also asked which models are loaded, a question only LM Studio answers.
 
 Saving a key also refreshes that provider's model list, so a new key's models
 appear straight away. Since 12 September 2026 saving the *same* key again does

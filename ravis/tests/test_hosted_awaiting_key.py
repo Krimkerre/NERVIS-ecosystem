@@ -38,11 +38,13 @@ class _Catalogue:
 
     def __init__(self) -> None:
         self.asked: list[str] = []
+        self.other: list[str] = []
 
     def handle(self, request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/api/v0/models"):
-            # LM Studio's residency read, which a refresh tries after any catalogue fetch; a
-            # service that isn't LM Studio answers 404 and it is not the catalogue.
+        if not request.url.path.endswith("/v1/models"):
+            # LM Studio's residency read (`/api/v0/models`), which a refresh sent to every
+            # upstream until it was spared a hosted service; counted apart, never answered.
+            self.other.append(request.url.path)
             return httpx.Response(404)
         self.asked.append(request.headers.get("authorization", ""))
         return httpx.Response(200, json={"object": "list", "data": [{"id": "openai/gpt-x"}]})
@@ -68,6 +70,7 @@ def test_a_hosted_kind_waits_for_its_key_and_a_local_one_never_does(tmp_path: Pa
     asyncio.run(openrouter.registry.refresh())
     assert openrouter.registry.model_ids() == ["openai/gpt-x"]
     assert catalogue.asked == ["Bearer sk-or-typed-in-later"]
+    assert catalogue.other == [], "a hosted service is not asked LM Studio's residency"
     assert openrouter.adapter.has_credential
 
 

@@ -146,7 +146,11 @@ class ModelRegistry:
         self._snapshot = ModelSnapshot(models=models, refreshed_at=time.monotonic())
         # Best-effort and never fatal: an upstream that is not LM Studio simply
         # 404s here, leaving residency UNKNOWN and routing exactly as it was.
-        self._residency = await probe_residency(self._upstream.base_url, self._client)
+        # A hosted service (`requires_key`) is never LM Studio, so it isn't asked at
+        # all (19 September 2026): each refresh sent OpenRouter, OpenAI, DeepSeek and
+        # xAI a request for LM Studio's own path, keyless, for a 404.
+        if not self._upstream.requires_key:
+            self._residency = await probe_residency(self._upstream.base_url, self._client)
 
     async def _fetch(self) -> list[dict[str, Any]]:
         """Read the upstream catalogue and normalise only what must be."""

@@ -20013,6 +20013,27 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## Codex's Linux shell wrapper checked; hosted services spared LM Studio's question — 2026-09-19 (RAVIS 0.30.15)
+
+**The wrapper.** Codex 0.155.1 on the ThinkPad falls back from fish to bash and sends every command as
+`/usr/bin/bash -lc "…"`; the re-test's exact-text match had tripped on it (RAVIS 0.30.13). Checked whether
+anything that judges an ordinary task's commands could be fooled the same way. **RAVIS approves nothing** on
+ordinary tasks — each request goes to the window (`APPROVALS_REVIEWER = "user"`) — and its two readers of command
+text search the whole text: the redactor's denied-path match (`agent/redact.py`) and a blocked site's protocol
+(`agent/sites.py` `protocol_for`), so a wrapper hides nothing from either. Both need the command as text, and
+Codex's own schema says it always is (generated offline from ChatGPT.app's Codex, a throwaway `CODEX_HOME`:
+`CommandExecutionRequestApprovalParams.command` is string or null, the command item's is string). **Clarvis's
+Unattended auto-answer** (`src/engine/codex/approvals.ts`) unwraps shell wrappers before its gate, built for the
+Mac's `/bin/zsh -lc`; its pattern already covers `/usr/bin/bash`, and a scratch build judged 12 Linux-shaped
+commands right. The tests pinned only zsh, so after asking the CLARVIS session (which added two cases: the dd
+false positive of 51342a6 inside the wrapper) a test now pins the Linux form — clarvis 5936d6b, test only, 2,213
+passing, failing with the shell pattern narrowed to zsh. **No gap found; nothing changed but the test.**
+
+**The residency question.** Noticed in the entry below: after every catalogue fetch `ModelRegistry.refresh`
+asked the upstream for LM Studio's residency (`/api/v0/models`), keyless, hosted services included, for a 404. It
+now skips any `requires_key` upstream; `ravis/tests/test_hosted_awaiting_key.py` asserts the hosted service is asked
+nothing else.
+
 ## Keys: "keyring", and saved without a restart — 2026-09-19 (RAVIS 0.30.14, NERVIS 0.34.61)
 
 Two things the owner met on the ThinkPad the same day, parked until now. **The label:** RAVIS names every

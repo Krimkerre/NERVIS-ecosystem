@@ -2467,7 +2467,15 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.14
+## RAVIS — 0.30.15
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **Hosted services are no longer asked LM Studio's question.** After reading a provider's model
+  list RAVIS also asked it which models were loaded, a question only LM Studio answers;
+  OpenRouter, OpenAI, DeepSeek and xAI now get only the model-list request.
+
+### 0.30.14
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
 
