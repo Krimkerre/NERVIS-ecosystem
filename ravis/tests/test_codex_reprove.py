@@ -411,7 +411,8 @@ def test_commands_that_never_count_as_run_say_what_the_turn_did() -> None:
     and nothing said why. The result now lists what the turn did, in Codex's own shape."""
     from ravis.codex.reprove import FixedCommand, ReproofRun
 
-    plan = SimpleNamespace(commands=(FixedCommand(1, "cat /d/k", escalated=False),),
+    write = FixedCommand(1, "printf x > /nowhere/o", False, Path("/nowhere/o"))
+    plan = SimpleNamespace(commands=(write,),
                            marker="RAVIS-DECOY-MARKER-0001", folder_a=Path("/a"))
     run = ReproofRun(plan, "thread-a")  # type: ignore[arg-type]
     run.observe(SimpleNamespace(method="item/completed", params={  # type: ignore[arg-type]
@@ -435,7 +436,8 @@ def test_commands_listed_only_in_the_turns_end_still_count(tmp_path: Path) -> No
 def test_a_turn_that_ends_in_an_error_says_so() -> None:
     from ravis.codex.reprove import FixedCommand, ReproofRun
 
-    plan = SimpleNamespace(commands=(FixedCommand(1, "cat /d/k", escalated=False),),
+    write = FixedCommand(1, "printf x > /nowhere/o", False, Path("/nowhere/o"))
+    plan = SimpleNamespace(commands=(write,),
                            marker="RAVIS-DECOY-MARKER-0002", folder_a=Path("/a"))
     run = ReproofRun(plan, "thread-a")  # type: ignore[arg-type]
     run.observe(SimpleNamespace(method="turn/completed", params={  # type: ignore[arg-type]
@@ -449,3 +451,38 @@ def test_a_turn_that_ends_in_an_error_says_so() -> None:
     assert "Codex said: I won't read a key file, even a decoy." in detail
     assert "turn failed (sandbox exploded)" in detail
     assert "turn/completed×1" in detail
+
+
+# ── Judged by effect, and reads the model won't try (owner's decision, 19 September 2026) ───
+
+
+@pytest.mark.parametrize("script", ["laptop", "declines_reads"])
+def test_a_model_that_wont_try_the_reads_still_proves_the_build(
+    tmp_path: Path, script: str
+) -> None:
+    """`laptop` replays the owner's Linux run: reads never attempted, writes blocked, and no
+    finished report. Step 1 refused the reads without a model; the writes' notes show they ran."""
+    with accepted_build(tmp_path, turn_script=script) as (rig, client):
+        start(client, rig)
+        result = finished(client, rig)
+
+    assert result["result"] == "proven", result
+    assert "declined read command(s) [1, 2]" in result["detail"]
+
+
+def test_a_model_that_runs_nothing_proves_nothing(tmp_path: Path) -> None:
+    with accepted_build(tmp_path, turn_script="does_nothing") as (rig, client):
+        start(client, rig)
+        result = finished(client, rig)
+
+    assert result["result"] == "inconclusive", result
+    assert "didn't run command(s) [3, 4]" in result["detail"]
+
+
+def test_every_command_leaves_its_note_in_folder_a(tmp_path: Path) -> None:
+    from ravis.codex.reprove import prepare_plan
+
+    plan = prepare_plan(tmp_path)
+    for command in plan.commands:
+        assert command.note == plan.folder_a / f"ran-{command.index}.txt"
+        assert command.text.endswith(f"; printf ran > {command.note}")

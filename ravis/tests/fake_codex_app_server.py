@@ -195,7 +195,14 @@ def profile_refused(name: object) -> str | None:
 
 
 def run_command(text: str, escalated: bool = False) -> tuple[int, str]:
-    """Pretend to run one of the re-test's commands, holding or leaking as the scenario says."""
+    """Pretend to run one of the re-test's commands, holding or leaking as the scenario says.
+
+    The "I ran" note after `; printf ran >` is written whatever the rule did, as a real shell
+    would: it lands in folder A, which the profile lets a command write (19 September 2026).
+    """
+    text, _, note = text.partition("; printf ran > ")
+    if note:
+        Path(note.strip().strip("'\"")).write_text("ran")
     sandbox = SCENARIO.get("sandbox", "holds")
     leaks = sandbox == "leaks" or (escalated and sandbox == "escalation_leaks")
     if not leaks:
@@ -314,12 +321,19 @@ def obey(thread_id: str, turn_id: str, prompt: str, script: str, stop: threading
     for index, command in commands:
         if stop.is_set():
             return
+        # `declines_reads` and `laptop`: the model reads the rules and won't try the decoy.
+        if script in ("declines_reads", "laptop", "does_nothing") and index in (1, 2):
+            continue
+        if script == "does_nothing":
+            continue
         asked_cwd = "/somewhere/else" if script == "wrong_cwd" and index == 1 else cwd
         # As Codex 0.155.1 showed them on a Linux laptop whose login shell is fish: a command with a
         # redirect arrives inside the bash it falls back to (19 September 2026).
         shown = linux_bash(command) if script == "linux_bash" and ">" in command else command
         state["finish_as_list"] = script == "list_finished"
         state["items_only"] = script == "items_only"
+        # `laptop`: Codex 0.155.1 on Linux sent no finished report for an approved command.
+        state["no_finish_reports"] = script == "laptop"
         decision = approval(thread_id, turn_id, shown, asked_cwd)
         complete(thread_id, turn_id, index, command, cwd, decision, shown)
         if script == "stutters" and index == 2:
@@ -353,6 +367,8 @@ def complete(
         )
     if state.get("items_only"):
         state.setdefault("turn_items", []).append(item)
+        return
+    if state.get("no_finish_reports"):
         return
     notify("item/completed", {
         "threadId": thread_id, "turnId": turn_id, "item": item, "completedAtMs": 0,

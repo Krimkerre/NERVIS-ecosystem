@@ -2398,9 +2398,17 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.12
+## RAVIS — 0.30.13
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **The Codex file-rules re-test can pass on Linux and with the newer model.** Each test command
+  now leaves an "I ran" note in its own folder, so whether it ran is judged by its effect — Codex on
+  Linux sends no finished report for an approved command. And a read the model won't even attempt,
+  because it can see the rules forbid it, counts as held: the direct check without a model has
+  already refused that read. A leak still fails the test, and the write tests must run.
+
+### 0.30.12
 
 - **A re-test that isn't proven quotes the start of what Codex's model said**, which is where it
   explains skipping a command or what went wrong.

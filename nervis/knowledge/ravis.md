@@ -607,7 +607,10 @@ opens it.
   rules hide Codex's whole folder rather than its sign-in file alone: Codex's Linux sandbox can't
   hide a single file (openai/codex#43929), which kept every Codex session from starting. A Linux
   machine with a `~/.netrc` file still can't start Codex until that file is moved, because no rule
-  this Codex accepts can hide it; RAVIS's log says so.
+  this Codex accepts can hide it; RAVIS's log says so. Since RAVIS 0.30.13 the re-test judges by effect —
+  each test command leaves an "I ran" note in its own folder — and a read the model declines because
+  the rules forbid it counts as held, since the re-test's first step, run without a model, has already
+  refused that read; the write tests must still run, and any leak fails it.
 
 Behind the card NERVIS forwards four control routes to RAVIS with its RAVIS admin credential, each
 after checking the page's control token: a task's Stop, to RAVIS's owner Stop; removing a site;

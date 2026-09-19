@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4515 tests, no network, no live service
+.venv/bin/pytest                      # part of 4519 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1809 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4515 passing across the four, conformance `PASS`.
+Expected: all clean, 4519 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20066,6 +20066,18 @@ Linux.
 (211 deltas). The approval answer is unchanged between the two versions (`"accept"`,
 `CommandExecutionApprovalDecision`), so the model's words are the missing fact: RAVIS 0.30.12 quotes the start
 of its last message in a result that isn't proven (the marker check runs first).
+**It said:** 1 and 2 "Not run: the path is explicitly denied by policy" / "policy prohibits reading the path or
+requesting escalation"; 3 ran, exit 1, "Read-only file system"; 4 escalation requested, exit 1. So every rule
+that was tried held, and the result was inconclusive only because Codex sent no finished report for an
+approved command on Linux and the newer model won't attempt a read the rules visibly forbid. **The owner
+decided** to judge by effect and count a declined read as held: RAVIS 0.30.13 adds an "I ran" note to each
+command (`; printf ran > <folder A>/ran-N.txt`, written whatever the part before did), counts notes as runs,
+and treats a read never asked for as declined — proven, saying which, since step 1 (K5a) refused both reads
+without a model. Writes can't be declined: a model that runs nothing stays inconclusive. The escalated read
+is the one case now untried by a model; the escalated write held the same way. New fake scripts `laptop`
+(the owner's run replayed), `declines_reads` and `does_nothing`; 3 new tests plus the two diagnostic ones
+moved to a write command; two falsifiers caught (writes excusable; notes not counted); RAVIS 2,077 on a
+snapshot; the Codex tests on Linux.
 
 ## Why a Codex re-test wasn't proven — 2026-09-19 (NERVIS 0.34.55, RAVIS 0.30.6)
 
