@@ -125,7 +125,18 @@ recovery and restore rehearsals — their last runs (12–17 September) are reco
 
 ---
 
-## Clarvis — 0.17.22
+## Clarvis — 0.17.23
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **Planning asks less.** Every planning question now has a **Draft it now** button, which fills in
+  whatever wasn't asked with the usual answers and goes straight to the draft. A small, clearly
+  described task ("a Python script that prints today's date") is offered that short way up front, in
+  one question. Anything that touches passwords, personal data, stored data or the network still gets
+  the full interview. In the plan, filled-in answers say **Default (not asked)**, what the program
+  reads or writes stays an open question, and nothing skips your approval.
+
+### 0.17.22
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 

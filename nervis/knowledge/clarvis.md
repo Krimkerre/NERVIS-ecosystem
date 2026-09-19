@@ -176,6 +176,16 @@ warning" — counts only, never which file or what the problem says; a window on
 simply has no such line. Clarvis answers about itself; it is not a surface
 NERVIS queries for workspace contents.
 
+## Planning asks less (Clarvis 0.17.23)
+
+Since 19 September 2026 every planning question has a **Draft it now** button (in an input box,
+type "draft it now"): the questions not yet asked get the usual answers and Clarvis goes straight
+to the draft, which still waits for approval. A small, clearly described task — one script, one
+small change — is offered this short way before any question; anything involving passwords,
+personal data, stored data, other files or the network gets the full interview. In plan.md a
+filled-in answer reads **Default (not asked)**, and what the program reads or writes is left as
+an open question rather than guessed.
+
 ## Copying the editor's log for troubleshooting
 
 Since Clarvis 0.17.21 (19 September 2026): "Clarvis: Start Copying This Window's Log" copies

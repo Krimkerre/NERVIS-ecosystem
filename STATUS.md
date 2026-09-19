@@ -20013,6 +20013,24 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## The first live handover, and planning that asks less — 2026-09-19 (Clarvis 0.17.23)
+
+**The handover chain seen live** (E-C8 / §6.4): with NERVIS 0.34.53, the owner's *get Clarvis to write a
+tiny Python script that prints today's date* drew Hand over; NERVIS recorded `nt_7ce3e52adbbcf319` in
+`nervis-tasks/date-printer` at 08:39:53Z, Clarvis picked it up at 08:40:01Z, and "Handed over to Clarvis"
+followed it to *paused between runs*. **What the owner found:** the planning interview walked all eight
+topics for a one-line script — "i spent more time answering questions than i would've spent writing the
+script myself". The owner chose both fixes: **Draft it now** in every round (a chat button, a language-menu
+choice, or the words typed), and a **short way for small, clear tasks** offered in one question; the model
+judges size (`src/planning/smallTask.ts`), with credentials, personal or stored data, other files, the
+network or any doubt counting as full. Defaults (`interviewTopics.fillDefaults`) are marked `defaulted`,
+render as **Default (not asked)** in plan.md and "(a default, not asked)" in later prompts; `data` stays an
+open question and the linter "none for now" — constraints the CLARVIS session drew from §4.9 before the
+change. **Checked:** 12 new fast tests, 3 failing with the verdict parser or the plan's default rendering
+broken; 2,207 fast and 34 host tests on the Mac; on Linux (Debian 12, an ordinary user with git) 2,202
+passed, 5 skipped (2 macOS-only, 3 that need git with no name configured). Installed byte-identical in
+code-server and VS Code. **Not yet seen live:** the short way and the button in a real planning session.
+
 ## "Get Clarvis to write …" handed over again — 2026-09-19 (NERVIS 0.34.53)
 
 Found live by the owner starting the first handover test: *get Clarvis to write a tiny Python script
