@@ -850,7 +850,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.54
+## NERVIS — 0.34.55
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **A Codex re-test that isn't "proven" says why.** `run.py codex reprove`, and the Linux tray's
+  result message, now include RAVIS's reason. **`run.py codex reprove-result`** shows the last
+  re-test's result and reason without starting another (which would spend a Codex turn).
+
+### 0.34.54
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
@@ -2389,7 +2398,14 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.5
+## RAVIS — 0.30.6
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **The Codex file-rules re-test logs its result and reason**, so an "inconclusive" or "failed" run
+  can be understood from RAVIS's log, not only from its record.
+
+### 0.30.5
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
 

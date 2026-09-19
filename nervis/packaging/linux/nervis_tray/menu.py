@@ -545,8 +545,12 @@ def retest_result(code: int, error: str | None) -> tuple[str, str]:
         6: ("RAVIS isn't answering", "The re-test didn't start. Try again once RAVIS is running."),
         10: ("RAVIS refused the re-test", error or "It gave no reason."),
     }
-    return known.get(code, ("The re-test didn't finish", error or
-                            "The launcher gave no reason; .run/menubar.log may say more."))
+    title, said = known.get(code, ("The re-test didn't finish", error or
+                                   "The launcher gave no reason; .run/menubar.log may say more."))
+    # RAVIS's own reason, when it gave one, after the general sentence (19 September 2026).
+    if code in (11, 12) and error:
+        said = f"{said}\n\nRAVIS said: {error}"
+    return title, said
 
 
 def sign_in_exit(code: int, error: str | None) -> str:

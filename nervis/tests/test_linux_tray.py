@@ -213,6 +213,10 @@ def test_the_dialogs_say_the_mac_apps_sentences_for_each_exit() -> None:
     assert menu.stop_exit(9, None) == \
         "That task isn't running any more, so there was nothing to stop."
     assert menu.retest_result(11, None)[0] == "A file rule didn't hold"
+    # RAVIS's own reason follows the general sentence (19 September 2026).
+    assert menu.retest_result(12, "Codex didn't run command(s) 3")[1].endswith(
+        "RAVIS said: Codex didn't run command(s) 3")
+    assert "RAVIS said" not in menu.retest_result(12, None)[1]
     assert menu.sign_in_exit(5, None).startswith("Another program is holding the sign-in ports")
 
 

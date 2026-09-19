@@ -2635,7 +2635,7 @@ def _awaited_reproof(key: str, answer: object) -> tuple[int, dict[str, object]]:
     while True:
         reproof = _mapping(_mapping(answer).get("reproof"))
         if reproof.get("state") == "finished":
-            return _reproof_result(reproof.get("result"))
+            return _reproof_result(reproof.get("result"), reproof.get("detail"))
         if time.monotonic() >= deadline:
             return EXIT_FAILED, {
                 "result": None,
@@ -2648,11 +2648,36 @@ def _awaited_reproof(key: str, answer: object) -> tuple[int, dict[str, object]]:
             return _ravis_refusal(status, answer, REPROVE_EXITS)
 
 
-def _reproof_result(word: object) -> tuple[int, dict[str, object]]:
-    """The exit code and printed line for the re-test's result word."""
+def _reproof_result(word: object, detail: object = None) -> tuple[int, dict[str, object]]:
+    """The exit code and printed line for the re-test's result word.
+
+    **With RAVIS's reason when it isn't `proven`**, as `error`, which the tray and the menu bar
+    app already show: "inconclusive" alone reached the owner with nothing to act on
+    (19 September 2026).
+    """
     if isinstance(word, str) and word in REPROOF_RESULTS:
-        return REPROOF_RESULTS[word], {"result": word}
+        said = {"error": detail} if word != "proven" and isinstance(detail, str) and detail else {}
+        return REPROOF_RESULTS[word], {"result": word, **said}
     return EXIT_FAILED, {"result": None, "error": "RAVIS finished the re-test without a result."}
+
+
+def codex_reprove_result() -> tuple[int, dict[str, object]]:
+    """The last re-test's result and reason, read without starting one.
+
+    A re-test spends a Codex turn; asking why the last one came out as it did should not.
+    Exits as the re-test itself would have, or 0 with `result: null` when none has run.
+    """
+    key = _held_secret(RAVIS_OWNER_TOKEN)
+    if not key:
+        return EXIT_REFUSED, {"error": NO_OWNER_KEY}
+    status, answer = _ravis_call("GET", "/api/v1/codex/reprove", key)
+    if status != 200:
+        return _ravis_refusal(status, answer, REPROVE_EXITS)
+    reproof = _mapping(_mapping(answer).get("reproof"))
+    if reproof.get("state") != "finished":
+        return 0, {"result": None, "state": reproof.get("state") or "idle"}
+    code, line = _reproof_result(reproof.get("result"), reproof.get("detail"))
+    return code, {**line, "finished_at": reproof.get("finished_at")}
 
 
 def _ravis_refusal(
@@ -2683,6 +2708,7 @@ def _idempotency_key() -> str:
 #: `run.py codex <action>` for each action that takes nothing more; `stop` is read on its own.
 CODEX_ACTIONS = {
     "sign-in": codex_sign_in, "cancel-sign-in": codex_cancel_sign_in, "reprove": codex_reprove,
+    "reprove-result": codex_reprove_result,
 }
 
 
@@ -2712,6 +2738,8 @@ def _codex_arguments() -> argparse.ArgumentParser:
     stop.add_argument("--project", required=True, help="the task's folder, from status --json")
     stop.add_argument("--turn", required=True, help="the task's turn id, from status --json")
     actions.add_parser("reprove", help="re-test Codex's file rules, using one short Codex turn")
+    actions.add_parser("reprove-result",
+                       help="the last re-test's result and RAVIS's reason, without starting one")
     calibrate = actions.add_parser(
         "calibrate", help="prove Codex's file rules on two throwaway projects, owner present"
     )

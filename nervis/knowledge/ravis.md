@@ -601,7 +601,9 @@ opens it.
   one; **Use this version…** (two clicks) accepts it. Accepting doesn't start the file-rules re-test
   and spends none of the plan's allowance; tasks stay paused until the re-test proves the rules, and
   the re-test starts only from the menu bar (NERVIS → Codex → Re-test the file rules…), using one
-  short Codex turn.
+  short Codex turn. Since NERVIS 0.34.55 a re-test that isn't **proven** shows RAVIS's reason — in the
+  tray's message and in `python3 tools/run.py codex reprove` — and `python3 tools/run.py codex
+  reprove-result` shows the last result and its reason without starting another re-test.
 
 Behind the card NERVIS forwards four control routes to RAVIS with its RAVIS admin credential, each
 after checking the page's control token: a task's Stop, to RAVIS's owner Stop; removing a site;

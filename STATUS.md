@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4504 tests, no network, no live service
+.venv/bin/pytest                      # part of 4506 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 567 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1807 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1809 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4504 passing across the four, conformance `PASS`.
+Expected: all clean, 4506 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,24 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Why a Codex re-test wasn't proven — 2026-09-19 (NERVIS 0.34.55, RAVIS 0.30.6)
+
+On the owner's CachyOS laptop, Codex (Arch's `openai-codex`) was accepted and its file-rules re-test
+came back **inconclusive**, with nothing saying why: RAVIS keeps the reason in its record
+(`reproof.detail` — Codex didn't run the fixed commands, went off the list, hit the time or step cap,
+couldn't start, or the test's folders couldn't be made), but `run.py codex reprove` printed only the
+result word, the tray and menu bar only a general sentence, the Codex card nothing, and RAVIS logged
+nothing. Now RAVIS logs the result and reason; `run.py codex reprove` prints the reason as `error` when
+the result isn't `proven` (which the Linux tray and the Mac menu bar already show); the Linux tray
+appends "RAVIS said: …"; and **`run.py codex reprove-result`** reads the last result and reason with a
+GET, spending no Codex turn — the record survives a restart. **Checked:** 2 new launcher tests (both
+fail with the reason dropped) and a tray assertion; NERVIS 1,809 and RAVIS's Codex tests (339, on a
+snapshot) pass. **Parked, found the same hour on the laptop:** a hosted provider whose key is saved
+while the stack runs doesn't appear under Providers until a restart — the launcher declares hosted
+upstreams at start only from keys it finds then (`_default_upstreams`), and RAVIS refreshes only a
+declared one; and the Providers screen labels RAVIS's `keychain` source "macOS Keychain" on Linux,
+where RAVIS reads Secret Service correctly.
 
 ## The installer on a real Linux laptop: Clarvis's address — 2026-09-19 (NERVIS 0.34.54)
 

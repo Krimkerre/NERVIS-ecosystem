@@ -983,3 +983,43 @@ def test_ravis_is_told_the_codex_folders_as_json_lists_keeping_what_the_owner_ad
     assert {name: json.loads(environments["RAVIS"][name]) for name in AGENT_SETTINGS} == ours
     for other in ("SIRVIS", "NERVIS", "Ollama", "code-server"):
         assert not set(AGENT_SETTINGS) & set(environments[other]), other
+
+
+def test_a_reprove_that_is_not_proven_prints_ravis_s_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """19 September 2026, a Linux laptop: "inconclusive" reached the owner with no reason, which
+    RAVIS had and nothing passed on. It is printed as `error`, which the tray already shows."""
+    admin = _contract("codex-admin.json")
+    started = _answer(_route_examples(admin, "POST", REPROVE_ROUTE), "the owner, from the menu bar")
+    status, finished = _answer(_route_examples(admin, "GET", REPROVE_ROUTE),
+                               "finished: only state and the result word are fixed")
+    why = "Codex didn't run command(s) 3, 4"
+    ended = (status, {"reproof": {**finished["reproof"], "result": "inconclusive", "detail": why}})
+    ravis = FakeRavis({("POST", REPROVE_ROUTE): [started], ("GET", REPROVE_ROUTE): [ended]})
+    run, _ = _launcher(monkeypatch, tmp_path, ravis)
+    _hold_keys(run)
+    monkeypatch.setattr(run, "time", FakeClock())
+
+    code, printed, _ = _codex(run, monkeypatch, capsys, "reprove")
+
+    assert (code, printed) == (12, {"result": "inconclusive", "error": why})
+
+
+def test_reprove_result_reads_the_last_re_test_without_starting_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Asking why the last re-test ended as it did must not spend another Codex turn: a GET only."""
+    admin = _contract("codex-admin.json")
+    status, finished = _answer(_route_examples(admin, "GET", REPROVE_ROUTE),
+                               "finished: only state and the result word are fixed")
+    why = "the re-test's folders couldn't be made: [Errno 13] Permission denied"
+    ended = (status, {"reproof": {**finished["reproof"], "result": "inconclusive", "detail": why}})
+    ravis = FakeRavis({("GET", REPROVE_ROUTE): [ended]})
+    run, _ = _launcher(monkeypatch, tmp_path, ravis)
+    _hold_keys(run)
+
+    code, printed, _ = _codex(run, monkeypatch, capsys, "reprove-result")
+
+    assert code == 12 and printed["result"] == "inconclusive" and printed["error"] == why
+    assert [call["method"] for call in ravis.calls] == ["GET"]

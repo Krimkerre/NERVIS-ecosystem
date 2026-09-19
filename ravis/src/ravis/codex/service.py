@@ -1279,6 +1279,12 @@ class CodexService:
         if outcome.result == "proven" and record.sha256 is not None and record.sha256 == installed:
             self._record.proven[record.sha256] = _iso_now()
         self._save()
+        # Said in the log as well as kept: "inconclusive" alone gave the owner nothing to act on
+        # (19 September 2026, a Linux laptop), and the reason lived only in this record.
+        (logger.info if outcome.result == "proven" else logger.warning)(
+            "codex file-rules re-test finished: %s — %s",
+            outcome.result, outcome.detail or "no detail",
+        )
         self.runtime.revise()
         self._supervisor.wake()
         self._emit(
