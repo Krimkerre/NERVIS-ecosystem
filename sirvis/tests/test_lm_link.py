@@ -189,3 +189,38 @@ def test_where_a_model_runs_is_read_from_lm_studio_s_listing(
     assert asyncio.run(routes.runs_elsewhere(state, "never-installed")) is False
     monkeypatch.setattr(LMStudioAdapter, "list_models", unreachable)
     assert asyncio.run(routes.runs_elsewhere(state, "qwen/qwen3.5-9b")) is False, "counted here"
+
+
+# ── Models loaded here by something else, the ThinkPad through LM Link among them ──
+# The Mac's side of the same evening: a model the ThinkPad loaded on the Mac through LM Link went
+# past the Mac's SIRVIS, and its ceiling never counted it. Nothing marks which machine asked, so
+# the ceiling counts every model in this machine's memory, whoever loaded it.
+
+
+def test_models_loaded_here_by_something_else_fill_the_ceiling() -> None:
+    async def scenario() -> None:
+        runtime = FakeRuntime()
+        runtime.loads = ["qwen/by-the-thinkpad", "gemma/by-hand"]
+        manager = ResourceManager(runtime, max_loaded=2)  # type: ignore[arg-type]
+
+        with pytest.raises(ResourceExhaustedError, match="loaded outside SIRVIS"):
+            await manager.acquire("menu", "granite/ours")
+        # One already in memory is adopted where it is, needing no room.
+        await manager.acquire("ravis", "gemma/by-hand")
+        assert await manager.counted() == 2
+        assert runtime.loads == ["qwen/by-the-thinkpad", "gemma/by-hand"], "nothing loaded"
+
+    asyncio.run(scenario())
+
+
+def test_a_model_the_other_machine_holds_is_not_counted_as_loaded_here() -> None:
+    """The ThinkPad's side: LM Studio lists the Mac's loaded model as loaded, and it isn't here."""
+    async def scenario() -> None:
+        runtime = FakeRuntime()
+        runtime.loads = ["qwen/qwen3.5-9b"]  # on the Mac, reported by LM Link
+        manager = ResourceManager(runtime, max_loaded=1,  # type: ignore[arg-type]
+                                  runs_elsewhere=_on_the_mac)
+        await manager.acquire("menu", "ibm/granite-4-h-tiny")
+        assert await manager.counted() == 1
+
+    asyncio.run(scenario())

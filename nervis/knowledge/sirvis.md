@@ -144,8 +144,11 @@ machine>" rather than as loaded here. Loading one from here works — it loads i
 machine's memory. Before 19 September 2026 LM Studio's listing gave these models no mark, so a
 model loaded on the Mac showed as loaded on the laptop. Since SIRVIS 0.19.10 a linked model doesn't
 use up this machine's limit on loaded models (it sits in the other machine's memory); the Runtime
-screen marks it "LM Link". The other machine's own limit doesn't see it either, because the load
-doesn't pass through that machine's SIRVIS. A linked model counts as local for private and
+screen marks it "LM Link". Since SIRVIS 0.19.11 the limit counts every model in this machine's
+memory, whoever loaded it — by hand in LM Studio, by LM Studio itself, or by your other machine
+through LM Link — so the Mac's limit sees what the ThinkPad loads on it. Asking SIRVIS for one of
+those takes no extra place. A refusal says "also in memory, loaded outside SIRVIS" and names them;
+unload them in LM Studio to free a place. A linked model counts as local for private and
 local-only requests: the owner decided on 19 September 2026 that both laptops are theirs.
 
 ## When LM Studio or Hugging Face is down

@@ -859,7 +859,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.59
+## NERVIS — 0.34.60
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.11+ for the full count, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **SIRVIS's Runtime screen shows the same count SIRVIS's limit uses**, including models loaded
+  outside SIRVIS (by hand, by LM Studio, or by another machine through LM Link), and says how many
+  of those there are.
+
+### 0.34.59
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.10+ for the LM Link count, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
@@ -3551,7 +3560,17 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.10
+## SIRVIS — 0.19.11
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
+
+- **The loaded-model limit counts every model in this machine's memory, whoever loaded it.** A
+  model another machine loaded here through LM Link, one loaded by hand in LM Studio, or one LM
+  Studio loaded by itself now takes a place, and a refusal names them ("also in memory, loaded
+  outside SIRVIS"). Asking for one of them takes no extra place, since it's already loaded. Models
+  that run on another machine are still not counted here.
+
+### 0.19.10
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
 

@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4541 tests, no network, no live service
+.venv/bin/pytest                      # part of 4543 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -40,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 576 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 578 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1822 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4541 passing across the four, conformance `PASS`.
+Expected: all clean, 4543 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,24 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## The limit counts what others loaded here — 2026-09-19 (SIRVIS 0.19.11, NERVIS 0.34.60)
+
+Asked whether the two SIRVISes could talk, the owner chose the two small fixes first. **The Mac's limit:**
+a model the ThinkPad loads on the Mac through LM Link never passes the Mac's SIRVIS, and on the Mac it looks
+exactly like one loaded by hand — nothing marks which machine asked. So the ceiling now counts every model in
+this machine's memory that SIRVIS didn't load (`foreign_instances`, looked at before each acquire), less those
+another device runs (`runs_elsewhere`), and less SIRVIS's own loads (`_loaded_here`): a load whose only waiter
+gave up lands held by nobody, and counting it would block the ceiling for good under a false name. A model
+already in memory is adopted without needing a place. The refusal names what's outside; residency gains
+`counted_toward_max`, which the Runtime screen's Resident count now shows. **Blast radius:** a model loaded by
+hand in LM Studio, or by LM Studio itself, now also takes a place — on this Mac, with the limit at 2, two such
+models make SIRVIS refuse a third. **The ThinkPad showing what's loaded on the Mac** turned out to be done
+already: LM Studio reports the Mac's loaded state on the ThinkPad (the owner's first observation was that very
+report), and since 0.34.58 the menus file it under "On Govert.local (LM Link)" as "Loaded on Govert.local".
+**Checked:** two tests in `sirvis/tests/test_lm_link.py` and the old stop test's limit raised to its three
+models; each of the three rules broken in a copy fails its own test; SIRVIS 578; the dashboard gates.
+**Found, not fixed:** that abandoned load stays in memory held by nobody, and a stop leaves it there.
 
 ## LM Link models leave this machine's loaded-model limit alone — 2026-09-19 (SIRVIS 0.19.10, NERVIS 0.34.59)
 

@@ -1728,6 +1728,9 @@ async def read_residency(request: Request) -> dict[str, Any]:
     caller = resolve_caller(request.app.state.database, headers)
     return manager.residency(reveal_owner=not caller.is_anonymous) | {
         "foreign": await manager.foreign_instances(),
+        # What `max_loaded` is measured against: held, loading and loaded by anything else here,
+        # less models another device runs through LM Link (19 September 2026).
+        "counted_toward_max": await manager.counted(),
         "snapshot_revision": SNAPSHOT_REVISION,
     }
 

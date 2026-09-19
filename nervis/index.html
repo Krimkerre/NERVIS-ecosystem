@@ -9685,12 +9685,17 @@ function foreignInstancesCard(foreign,live=false){
    <small class="mono dim">LM Studio loads instances by itself when a request wants more context than the running copy has, and a person can load anything by hand. These occupy memory SIRVIS is accounting for and does not own, so it reports them rather than reclaiming them — reclaiming something another client is using is the exact failure §9 exists to prevent.</small>`,'sirvis')}</div>`;
 }
 
-/* A model another device runs through LM Link takes none of this machine's room, and SIRVIS
-   0.19.10 leaves it out of the ceiling; so do the Resident count and its row. */
-function residentTile(held,max){
- const elsewhere=held.filter(h=>h.runs_elsewhere).length;
- return ['Resident',`${held.length-elsewhere} / ${max}`,
-  elsewhere?`against the ceiling · ${elsewhere} more on other devices`:'against the manager ceiling','sirvis'];
+/* The Resident count is what SIRVIS measures its ceiling against (`counted_toward_max`, SIRVIS
+   0.19.11): its own models, and models anything else loaded into this machine's memory — another
+   machine through LM Link among them — but not a model another device runs, which takes none of
+   this machine's room (0.19.10). An older SIRVIS sends no count, and its holdings stand in. */
+function residentTile(res){
+ const held=res.holdings||[],elsewhere=held.filter(h=>h.runs_elsewhere).length;
+ const counted=res.counted_toward_max??held.length-elsewhere,outside=counted-(held.length-elsewhere);
+ const notes=['against the ceiling'];
+ if(outside>0)notes.push(`${outside} loaded outside SIRVIS`);
+ if(elsewhere)notes.push(`${elsewhere} more on other devices`);
+ return ['Resident',`${counted} / ${res.max_loaded}`,notes.join(' · '),'sirvis'];
 }
 function linkedChip(h){
  return h.runs_elsewhere
@@ -9710,7 +9715,7 @@ async function sirvisRuntime(){
  const armed=runtimeArmed();
 
  $('#content').innerHTML=kpis([
-   residentTile(held,res.max_loaded),
+   residentTile(res),
    ['Owned',String(owned),owned===held.length?'all held by SIRVIS':'the rest were adopted','sirvis'],
    ['Sessions',String(leases.length),'live leases','sirvis'],
    ['Foreign',String(foreign.length),foreign.length?'runtime loaded these itself':'none','sirvis']])

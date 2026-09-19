@@ -110,7 +110,8 @@ async def test_stopping_leaves_a_model_sirvis_did_not_load_where_it_is() -> None
     by hand and borrowed through a session; another was loaded by LM Studio and
     never touched. Stopping releases the session and unloads neither."""
     runtime = FakeRuntime(resident=("loaded-by-hand", "loaded-by-lm-studio"))
-    manager = ResourceManager(runtime)
+    # Three models in memory: the ceiling counts what anything else loaded (19 September 2026).
+    manager = ResourceManager(runtime, max_loaded=3)
     await manager.acquire(owner="benchmark", model_key="loaded-by-hand")
     await manager.acquire(owner="menubar", model_key="ours")
 

@@ -186,6 +186,16 @@ class ResourceManager:
         # ceiling — which is about this machine's — does not count it. None counts everything.
         self._runs_elsewhere = runs_elsewhere
         self._elsewhere: set[str] = set()
+        # Models in this machine's memory that this manager did not load — by hand in LM Studio,
+        # by LM Studio itself, or by another machine through LM Link — as of the last look. The
+        # ceiling counts them (19 September 2026): memory is memory whoever loaded it, and the
+        # Mac's limit missed the models its ThinkPad loaded on it through LM Link.
+        self._outside: frozenset[str] = frozenset()
+        # Models this manager loaded and hasn't seen unloaded. Never counted as loaded outside
+        # SIRVIS, whether held or not: a load whose only waiter gave up lands held by nobody, and
+        # counting it would block the ceiling for good under a false name — the choice
+        # `_unload_all` makes for a failed unload, for the same reason.
+        self._loaded_here: set[str] = set()
         self._holdings: dict[str, Holding] = {}
         self._leases: dict[str, Lease] = {}
         self._loading: dict[str, asyncio.Task[tuple[LoadedModel, bool]]] = {}
@@ -213,7 +223,7 @@ class ResourceManager:
         """
         session = session_id or uuid.uuid4().hex
         await self._expire_stale()
-        await self._place(model_key)
+        await self._survey(model_key)
 
         loaded, owned = await self._ensure_loaded(model_key, configuration, policy)
         async with self._lock:
@@ -238,26 +248,48 @@ class ResourceManager:
             self._leases[session] = lease
             return lease
 
-    async def _place(self, model_key: str) -> None:
-        """Note whether `model_key` runs on another machine, before it is counted or loaded.
+    async def _survey(self, model_key: str) -> None:
+        """Look, before a model is counted or loaded, at where it runs and what else is in memory.
 
-        Asked outside the lock, since it may ask the runtime; recorded inside it. Asked on
-        every acquire rather than once, so a model LM Link stops reaching is counted here again.
+        Both are asked outside the lock, since both ask the runtime; recorded inside it. Asked on
+        every acquire rather than once, so the count follows what LM Studio holds now and a model
+        LM Link stops reaching is counted here again.
         """
-        if self._runs_elsewhere is None:
-            return
-        elsewhere = await self._runs_elsewhere(model_key)
+        elsewhere = await self._runs_elsewhere(model_key) if self._runs_elsewhere else False
+        outside = await self._outside_here()
         async with self._lock:
             if elsewhere:
                 self._elsewhere.add(model_key)
             else:
                 self._elsewhere.discard(model_key)
+            self._outside = outside
+
+    async def _outside_here(self) -> frozenset[str]:
+        """Models in this machine's memory that this manager did not load (`foreign_instances`),
+        less those another device runs through LM Link: those sit in that machine's memory."""
+        keys = [key for key in await self.foreign_instances() if key not in self._loaded_here]
+        if self._runs_elsewhere is not None:
+            keys = [key for key in keys if not await self._runs_elsewhere(key)]
+        return frozenset(keys)
+
+    async def counted(self) -> int:
+        """How many models the ceiling counts right now, looked at afresh — for residency."""
+        outside = await self._outside_here()
+        async with self._lock:
+            self._outside = outside
+            return self._occupied()
 
     def _occupied(self, *, unloading: bool = False) -> int:
-        """Models taking room in this machine's memory: held and loading, and optionally those
-        whose unload hasn't answered yet. A model on another device takes none. Lock held."""
-        keys = {*self._holdings, *self._loading, *(self._unloading if unloading else ())}
+        """Models taking room in this machine's memory: held, loading and loaded by anything else,
+        and optionally those whose unload hasn't answered yet. A model on another device takes
+        none. Lock held."""
+        keys = {*self._holdings, *self._loading, *self._outside,
+                *(self._unloading if unloading else ())}
         return len(keys - self._elsewhere)
+
+    def _needs_no_room(self, model_key: str) -> bool:
+        """A model another device runs, or one already in memory here — adopting it adds nothing."""
+        return model_key in self._elsewhere or model_key in self._outside
 
     async def release(self, session_id: str) -> list[str]:
         """Drop a session's claims, unloading anything nobody else holds.
@@ -328,6 +360,7 @@ class ResourceManager:
             await self._runtime.unload(model_key)
         except RuntimeUnavailableError:
             return existed
+        self._loaded_here.discard(model_key)
         return True
 
     async def release_on_stop(self, budget_seconds: float) -> StopReport:
@@ -488,6 +521,7 @@ class ResourceManager:
             answered = self._unloading[model_key] = asyncio.Event()
         try:
             await self._runtime.unload(model_key)
+            self._loaded_here.discard(model_key)
             return True
         except RuntimeUnavailableError:
             return False
@@ -608,8 +642,8 @@ class ResourceManager:
             return self._unloading[model_key]
         if not self._unloading or model_key in self._holdings or model_key in self._loading:
             return None
-        # A model on another device needs none of this machine's memory to come back first.
-        if model_key in self._elsewhere or self._occupied(unloading=True) < self._max_loaded:
+        # A model on another device, or one already in memory, needs no memory to come back first.
+        if self._needs_no_room(model_key) or self._occupied(unloading=True) < self._max_loaded:
             return None
         return next(iter(self._unloading.values()))
 
@@ -687,7 +721,9 @@ class ResourceManager:
         existing = next((m for m in resident if m.model_key == model_key), None)
         if existing is not None:
             return existing, False
-        return await self._runtime.load(model_key, configuration), True
+        loaded = await self._runtime.load(model_key, configuration)
+        self._loaded_here.add(model_key)
+        return loaded, True
 
     def _make_room(self, policy: ConflictPolicy, model_key: str) -> None:
         """Ensure there is capacity, according to the policy the caller chose.
@@ -712,9 +748,10 @@ class ResourceManager:
         adding their lengths counts each model once.
 
         **A model on another device neither needs room nor takes it** (`_occupied`): LM Link
-        loads it into that machine's memory (19 September 2026).
+        loads it into that machine's memory (19 September 2026). **A model something else loaded
+        here takes room** — and acquiring it needs none, since it is adopted where it is.
         """
-        if model_key in self._elsewhere or self._occupied() < self._max_loaded:
+        if self._needs_no_room(model_key) or self._occupied() < self._max_loaded:
             return
 
         # Unreferenced holdings cannot currently exist — release unloads at
@@ -740,9 +777,12 @@ class ResourceManager:
         # when the capacity is taken by a load that has not finished, and the
         # reader's next question is always *what is using it*.
         loading = sorted(self._loading)
+        # Named, or a refusal with one model held reads as a miscount.
+        outside = sorted(self._outside - set(self._holdings) - self._elsewhere)
         raise ResourceExhaustedError(
             f"at capacity ({self._max_loaded} models); held by {holders}"
             + (f"; loading {loading}" if loading else "")
+            + (f"; also in memory, loaded outside SIRVIS: {outside}" if outside else "")
             + f"; policy={policy.value}"
         )
 

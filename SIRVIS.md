@@ -506,7 +506,10 @@ this machine's, since the listing shows only one of the two. `GET /api/v1/models
 machine's. NERVIS lists linked builds after this machine's under the device's name, in the
 dashboard and in both menus. **Since 0.19.10 a linked build takes no place under this machine's
 `max_loaded`** (`ResourceManager`'s `runs_elsewhere`, asked before each acquire; unknown counts here).
-**Open:** the other machine's SIRVIS doesn't see a load LM Link sends it, so its own ceiling misses it.
+**Since 0.19.11 the ceiling counts every model in this machine's memory whoever loaded it** — which
+catches a load LM Link sends here from another machine, indistinguishable on this side from one
+loaded by hand — less models another device runs and less SIRVIS's own abandoned loads
+(`_loaded_here`). Residency reports `counted_toward_max`.
 
 ---
 
