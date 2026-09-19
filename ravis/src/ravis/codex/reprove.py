@@ -443,7 +443,7 @@ class ReproofRun:
             if command is not None and command.index not in self.allowed:
                 self.allowed.add(command.index)
                 return {"decision": "accept"}, command.index
-            self.off_list.append("Codex asked to run a command that isn't on the list")
+            self.off_list.append(self._why_declined(item.params, command))
             return {"decision": "decline"}, None
         declines: dict[str, dict[str, Any]] = {
             "item/fileChange/requestApproval": {"decision": "decline"},
@@ -452,6 +452,23 @@ class ReproofRun:
         }
         self.off_list.append(f"Codex sent {item.method}")
         return declines.get(item.method), None
+
+    def _why_declined(self, params: dict[str, Any], command: FixedCommand | None) -> str:
+        """Which of the three ways a request missed the list, with the command as Codex sent it.
+
+        **The command is quoted** (19 September 2026): on the owner's Linux laptop the re-test
+        came back "asked to run a command that isn't on the list" and nothing said which, so the
+        one question worth asking — was it a different command, or a listed one in a shape RAVIS
+        didn't recognise — could not be answered without spending another turn. It is Codex's
+        own proposal in a throwaway folder, never a secret, and it is cut to a readable length.
+        """
+        asked = " ".join(str(params.get("command")).split())[:200]
+        if command is not None:
+            return f"Codex asked to run listed command {command.index} a second time: {asked}"
+        listed = self._by_text.get(str(params.get("command")))
+        if listed is not None:
+            return f"Codex asked to run listed command {listed.index} outside folder A: {asked}"
+        return f"Codex asked to run a command that isn't on the list: {asked}"
 
     def _listed(self, params: dict[str, Any]) -> FixedCommand | None:
         """The listed command a request is for: exactly its text, in folder A, in thread A."""

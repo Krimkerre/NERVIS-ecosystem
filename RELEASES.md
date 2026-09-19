@@ -2398,9 +2398,14 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.7
+## RAVIS — 0.30.8
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **A re-test Codex strays from quotes what it asked for**, and which of three ways it missed:
+  not one of the four test commands, a listed one outside its folder, or a listed one asked twice.
+
+### 0.30.7
 
 - **Codex tasks can start on Linux.** Codex's Linux sandbox has a bug (openai/codex#43929): it can't
   hide a single file, so hiding Codex's own sign-in file stopped every Codex session from starting.

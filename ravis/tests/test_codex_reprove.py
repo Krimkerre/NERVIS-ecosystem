@@ -314,9 +314,10 @@ def test_an_escalated_command_that_escapes_fails_the_re_test(tmp_path: Path) -> 
 @pytest.mark.parametrize(
     ("script", "words"),
     [
-        ("wanders", "isn't on the list"),
-        ("stutters", "isn't on the list"),
-        ("wrong_cwd", "isn't on the list"),
+        # Each says which of the three misses it was, and quotes the command (19 September 2026).
+        ("wanders", "isn't on the list: "),
+        ("stutters", "a second time: "),
+        ("wrong_cwd", "outside folder A: "),
         ("loops", "more than 12 steps"),
         ("sleeps", "cap"),
     ],

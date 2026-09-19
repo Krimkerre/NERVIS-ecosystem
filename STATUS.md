@@ -20031,7 +20031,13 @@ absent one is harmless, and a present one can't be hidden by any wording this Co
 fails to start with its reason rather than leaving it readable (RAVIS logs which). macOS is
 unchanged. **Checked:** 3 new tests in `ravis/tests/test_codex_profile_flags.py` (2 fail with the Linux wording
 switched off); RAVIS 2,067 on a snapshot; the new tests on the Linux bench. **Not yet seen live:** the
-re-test on the laptop with RAVIS 0.30.7.
+re-test on the laptop with RAVIS 0.30.7. **Tried the same afternoon:** the session now started, and the
+re-test came back inconclusive for a different reason — "Codex asked to run a command that isn't on the
+list", with no command named. The laptop's login shell is fish, which Codex doesn't support
+(openai/codex#20259, closed; `shell_detect.rs` knows zsh, bash, sh, cmd and PowerShell only) and falls
+back from, so the four commands may reach RAVIS in another shape. RAVIS 0.30.8 quotes the command and
+says which of three misses it was (`ReproofRun._why_declined`; `ravis/tests/test_codex_reprove.py` updated), so the
+next re-test shows what to recognise rather than a guess loosening the match.
 
 ## Why a Codex re-test wasn't proven — 2026-09-19 (NERVIS 0.34.55, RAVIS 0.30.6)
 
