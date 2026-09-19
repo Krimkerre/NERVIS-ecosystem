@@ -20038,6 +20038,13 @@ both bundles byte-identical to the build. **Not yet used live:** approving, copy
 old-copy offer need a person at the editor; code-server's `remoteexthost.log` is proven from its folder
 layout on this Mac, not by a host run under code-server.
 
+**Tried live the same morning (Clarvis 0.17.22):** the owner started copying in code-server, and the copy
+was written to workspace storage from `remoteexthost.log` — the code-server source confirmed on a real
+window. They could not find the copy afterwards, since the start message's button hides; "Clarvis: Open
+Log Copy" now opens it, read-only (`setActiveEditorReadonlyInSession`, present in both editors), and
+"already copying" carries the button. The same session saw the diagnostics summary live: a scratch
+`test.js` gave `by_source: {"ts": {"errors": 1}}` through NERVIS, drawn as "ts 1 error".
+
 ## Clarvis's problems summary — 2026-09-19 (Clarvis 0.17.20, NERVIS 0.34.51)
 
 The first of Clarvis's two kept items (row 14). `clarvis.diagnostics.summary@1` had said "not built"

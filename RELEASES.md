@@ -72,7 +72,15 @@ apply to a stack that runs on one machine is still the owner's decision.
 
 ---
 
-## Clarvis — 0.17.21
+## Clarvis — 0.17.22
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **"Clarvis: Open Log Copy"** opens the log copy at any time; before, the only way was a button on
+  a message that hides after a few seconds. The copy opens read-only, since Clarvis keeps adding to
+  it, and "already copying" now carries the same button.
+
+### 0.17.21
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
