@@ -1004,17 +1004,17 @@ small.dim{display:block;opacity:.55;margin:6px 0 4px;line-height:1.45}
    that occasionally needs a scroll to read in full. */
 .route-card .table-row{padding:5px 2px}
 
-/* Hover label for the rail. Uses ::before because ::after is already the active-item
-   dot, and reads data-label rather than title so the native tooltip does not appear
-   on top of it. Matters most below 900px, where the written labels are hidden. */
-.side-nav button:before{content:attr(data-label);position:absolute;left:calc(100% + 9px);
-  top:50%;transform:translateY(-50%) translateX(-4px);padding:5px 9px;border-radius:5px;
+/* Hover label for the icon rail, below 900px where the written labels are hidden (`NAV_TIP`).
+   One element fixed over the page, not a ::before on each button as it was until 19 September
+   2026: the sidebar scrolls (overflow-y:auto, which makes overflow-x auto too), so every label
+   drawn past its edge — invisible, but laid out — widened its scroll area from 219 to 293px. On
+   the owner's Linux laptop Firefox drew that as a horizontal scrollbar under the sidebar; macOS
+   hides scrollbars until you scroll, so the Mac never showed it. And the label was clipped at the
+   sidebar's edge. Wide, the label only repeated the button's own text, so it shows there no more. */
+.nav-tip{position:fixed;transform:translateY(-50%);padding:5px 9px;border-radius:5px;
   background:#0b131c;border:1px solid rgba(var(--rgb),.4);color:#dbe6f2;
   font:11px/1 Inter,-apple-system,system-ui,sans-serif;letter-spacing:.02em;white-space:nowrap;
-  opacity:0;pointer-events:none;z-index:70;box-shadow:0 8px 22px #000a;
-  transition:opacity .12s ease,transform .12s ease}
-.side-nav button:hover:before,.side-nav button:focus-visible:before{opacity:1;transform:translateY(-50%) translateX(0)}
-@media(prefers-reduced-motion:reduce){.side-nav button:before{transition:none}}
+  pointer-events:none;z-index:70;box-shadow:0 8px 22px #000a}
 </style></head>
 <body><div class="app"><header class="top"><div class="brand" id="brandHome" role="button" tabindex="0" title="NERVIS overview" aria-label="Go to the NERVIS overview"><i></i><span>NERVIS</span></div><nav class="tabs" aria-label="Applications"><button class="tab active" data-app="nervis">NERVIS</button><button class="tab" data-app="sirvis">SIRVIS</button><button class="tab" data-app="ravis">RAVIS</button><button class="tab" data-app="clarvis">CLARVIS</button></nav><div class="top-status"><i class="dot"></i><span id="globalStatus">All systems operational</span></div><div class="note-slot" id="notePipSlot"></div><button type="button" class="fs-toggle" id="fsToggle" title="Full screen" aria-label="Full screen" aria-pressed="false" hidden></button></header><div class="body"><aside class="side"><div class="app-name"><b id="sideName">NERVIS</b><small id="sideTag">Control plane</small></div><nav class="side-nav" id="sideNav"></nav><button type="button" class="adv-switch" id="advSwitch" aria-pressed="false" aria-label="Advanced controls" title="Show model routing, benchmarks, service configuration and detailed diagnostics"><span class="adv-dot" aria-hidden="true"></span><span class="adv-word">Advanced controls</span></button></aside><main class="main"><section class="page-head"><div><h1 id="pageTitle">Ecosystem overview</h1><p id="pageSubtitle">Unified health, activity and intelligence across every service.</p><div class="actions" id="pageActions"></div></div><div class="avatar-slot" id="avatarSlot"></div></section><section class="grid" id="content"></section></main></div><div id="editorHold" hidden></div></div>
 <div class="toast" id="toast"></div>
@@ -4418,6 +4418,28 @@ function syncAdvanced(){
 function applyTheme(){const c=APP_CONFIG[state.app];const _app=document.querySelector('.app');
  syncAdvanced();_app.dataset.app=state.app;_app.classList.toggle('bridge-down',state.app==='clarvis'&&!usable('clarvis'));document.documentElement.style.setProperty('--accent',c.accent);document.documentElement.style.setProperty('--rgb',c.rgb);$('#sideName').textContent=c.name;$('#sideTag').textContent=c.tag;$('.page-head').classList.remove('no-avatar');let full=$('#backronym');if(!full){full=document.createElement('div');full.id='backronym';full.className='backronym';$('#pageTitle').after(full)}full.textContent=c.tag;$$('.tab').forEach(x=>x.classList.toggle('active',x.dataset.app===state.app))}
 function nav(){const c=APP_CONFIG[state.app];if(!c.nav.includes(state.view))state.view=c.nav[0];$('#sideNav').innerHTML=visibleNav(state.app).map(x=>`<button class="${x===state.view?'active':''}" data-view="${x}" data-label="${x}" aria-label="${x}"><i class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON[x]||'<circle cx="8" cy="8" r="4"/>'}</svg></i><span>${x}</span></button>`).join('');$$('#sideNav button').forEach(b=>b.onclick=()=>{if(state.app==='clarvis')focusClarvisView(b.dataset.view);go(state.app,b.dataset.view)})}
+/* The rail's hover label (`.nav-tip`): beside a button whose written label is hidden, on hover or
+   keyboard focus. Delegated to #sideNav, since `nav()` rebuilds its buttons on every screen. */
+const NAV_TIP=(()=>{
+ const tip=document.createElement('div');tip.className='nav-tip';tip.setAttribute('role','tooltip');
+ tip.hidden=true;document.body.appendChild(tip);
+ const hide=()=>{tip.hidden=true};
+ const show=b=>{
+  const written=b&&b.querySelector('span');
+  if(!written||getComputedStyle(written).display!=='none'){hide();return}
+  const r=b.getBoundingClientRect();
+  tip.textContent=b.dataset.label;tip.style.left=`${r.right+9}px`;tip.style.top=`${r.top+r.height/2}px`;
+  tip.hidden=false;
+ };
+ const side=$('#sideNav');
+ side.addEventListener('pointerover',e=>show(e.target.closest('button')));
+ side.addEventListener('pointerleave',hide);
+ side.addEventListener('focusin',e=>{const b=e.target.closest('button');if(b&&b.matches(':focus-visible'))show(b)});
+ side.addEventListener('focusout',hide);
+ side.addEventListener('click',hide);
+ $('.side').addEventListener('scroll',hide,{passive:true});
+ return {show,hide};
+})();
 /* Every app, Clarvis included, presents its avatar in the same slot. When the
    extension detects it is embedded it suppresses its own in-panel avatar and
    lets this one speak for it — see CLARVIS_BRIDGE below. */

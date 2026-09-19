@@ -20013,6 +20013,20 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## The sidebar's sideways scrollbar — 2026-09-19 (NERVIS 0.34.62)
+
+The owner's ThinkPad, at a lower resolution than the Mac, showed a horizontal scrollbar under the left sidebar
+and odd-looking hover labels. Measured at 1280×720: `.side` scrolls vertically (`overflow-y:auto`, so
+`overflow-x` computes to `auto` too), and each button's `::before` label, invisible but laid out at
+`left:calc(100% + 9px)`, widened its scroll area from 219 to 293px — always, not only on hover. Firefox on Linux
+draws that as a scrollbar; macOS hides scrollbars until you scroll. The label was also clipped at the edge. Now
+one `.nav-tip` element, fixed over the page (`NAV_TIP`, delegated to `#sideNav`), shows beside a button on hover
+or keyboard focus and only when its written label is hidden — the icon rail below 900px; in the wide layout the
+label only repeated the button's text. **Checked in the browser pane:** 1280×720, sidebar 219 of 219, no label;
+820×600, sidebar 71 of 71, "Providers" beside its icon at the same height, outside the sidebar, unclipped; the
+dashboard gates (the harness's stand-in page has `appendChild`, not `append`). **Not seen on the ThinkPad**
+itself, which needs a pull.
+
 ## Codex's Linux shell wrapper checked; hosted services spared LM Studio's question — 2026-09-19 (RAVIS 0.30.15)
 
 **The wrapper.** Codex 0.155.1 on the ThinkPad falls back from fish to bash and sends every command as

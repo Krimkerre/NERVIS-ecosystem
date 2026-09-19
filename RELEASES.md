@@ -859,7 +859,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.61
+## NERVIS — 0.34.62
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **No more horizontal scrollbar under the left sidebar.** The hover labels sat just past the
+  sidebar's edge, which made it scroll sideways; Firefox on Linux showed that as a scrollbar, and
+  the labels were cut off. The label now floats over the page, and only in the narrow layout
+  where the sidebar shows icons alone — in the wide one it only repeated the button's text.
+
+### 0.34.61
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+ for keys saved without a restart, SIRVIS 0.19.11+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
