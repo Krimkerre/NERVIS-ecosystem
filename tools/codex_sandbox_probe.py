@@ -6,7 +6,7 @@ the rules hide two or more single files (openai/codex#43929: "bwrap: Can't write
 …: Bad file descriptor"). RAVIS's rules hide two: Codex's `auth.json` and `~/.netrc`.
 
 **Safe to run anywhere.** No account, no network, no ChatGPT turn: `codex sandbox` runs one
-local command under the rules. Codex is pointed at a throwaway settings folder, so the real
+local command under the rules. Codex is pointed at a throwaway home folder, so the real
 Codex folders are never read or written, and the "sign-in file" it tries to read is a fake one
 made here. Everything lives in a temporary folder removed at the end.
 
@@ -35,11 +35,13 @@ def profile_flag() -> str:
     return flags[flags.index("-c") + 1]
 
 
-def wording(base: str, drop: tuple[str, ...], places: dict[str, str]) -> str:
-    """The profile with the named rules taken out and the placeholders filled in."""
+def wording(base: str, drop: tuple[str, ...], places: dict[str, str], add: tuple[str, ...] = ()) -> str:
+    """The profile with the named rules taken out, others added, and the placeholders filled in."""
     text = base
     for rule in drop:
         text = text.replace(f', "{rule}"="deny"', "").replace(f'"{rule}"="deny", ', "")
+    for rule in add:
+        text = text.replace('"{reproof_decoys}"="deny"', f'"{rule}"="deny", "{{reproof_decoys}}"="deny"')
     for name, value in places.items():
         text = text.replace(name, value)
     return text
@@ -59,30 +61,39 @@ def main() -> int:
         ("without the ~/.netrc rule", ("{user_home}/.netrc",)),
         ("without the auth.json rule", ("{codex_home}/auth.json",)),
         ("without either single-file rule", ("{user_home}/.netrc", "{codex_home}/auth.json")),
+        ("the whole Codex folder hidden instead of its files",
+         ("{codex_home}/auth.json", "{codex_home}/sessions", "{codex_home}/archived_sessions")),
     ]
+    # Rules added per variant: only the last hides the folder itself.
+    added = {len(variants) - 1: ("{codex_home}",)}
     with tempfile.TemporaryDirectory(prefix="ravis-probe-") as temporary:
         root = Path(temporary)
-        settings, home, project = root / "settings", root / "codex-home", root / "project"
-        for folder in (settings, home, project, root / "ravis-config", root / "decoys"):
+        home, project = root / "codex-home", root / "project"
+        for folder in (home, home / "tmp", project, root / "ravis-config", root / "decoys"):
             folder.mkdir()
         (home / "auth.json").write_text(SECRET)
         places = {"{user_home}": str(Path.home()), "{ravis_config}": str(root / "ravis-config"),
                   "{codex_home}": str(home), "{reproof_decoys}": str(root / "decoys")}
-        for label, drop in variants:
+        for index, (label, drop) in enumerate(variants):
             command = [codex, "sandbox", "-c", f"permissions.clarvis_run={_value(base)}",
                        "-P", "clarvis_run", "-C", str(project), "--",
-                       "sh", "-c", f"cat {home / 'auth.json'} 2>/dev/null; echo started"]
-            command[3] = wording(command[3], drop, places)
+                       "sh", "-c", (f"cat {home / 'auth.json'} 2>/dev/null; echo started; "
+                                    "echo x > wrote.txt && echo project-writable")]
+            command[3] = wording(command[3], drop, places, added.get(index, ()))
             ran = subprocess.run(command, capture_output=True, text=True, timeout=60, check=False,
                                  env={"PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(Path.home()),
-                                      "CODEX_HOME": str(settings)})
+                                      # As RAVIS runs Codex: its home is the folder the rules
+                                      # name, with TMPDIR inside it (`codex/supervisor.py`).
+                                      "CODEX_HOME": str(home), "TMPDIR": str(home / "tmp")})
             said = ran.stdout + ran.stderr
             started = "started" in ran.stdout
             leaked = SECRET in ran.stdout
             verdict = ("STARTS and hides the sign-in file" if started and not leaked
                        else "STARTS but LEAKS the sign-in file" if started
                        else "does NOT start")
-            print(f"- {label}: {verdict}")
+            writes = "" if not started else (" · the project stays writable" if "project-writable" in ran.stdout
+                                             else " · but the project is NOT writable")
+            print(f"- {label}: {verdict}{writes}")
             if not started:
                 print("    " + (said.strip().splitlines() or ["(no output)"])[-1][:200])
     return 0
