@@ -20033,8 +20033,8 @@ list linked builds under "On <device> · LM Link" without Show files or Delete, 
 builds as installed, loaded and measured. **Checked:** `sirvis/tests/test_lm_link.py` (6; one failed with the
 both-machines rule taken out), two tray tests and a launcher test; SIRVIS 573, NERVIS 1,822, the dashboard
 gates, and those tests on the Linux bench. **Seen live on the Mac:** the Mac menu app and both SIRVIS pages
-show the ThinkPad's two models under "On ThinkPadX13G2". **Not yet seen on the ThinkPad**, which needs a pull
-and restart. **Open:** a linked model loaded through SIRVIS still counts toward this machine's loaded-model
+show the ThinkPad's two models under "On ThinkPadX13G2". **The owner confirmed the divider on the ThinkPad**
+after a pull and restart. **Open:** a linked model loaded through SIRVIS still counts toward this machine's loaded-model
 ceiling, and RAVIS still treats a linked model as local for private and local-only routes — the owner's
 decision.
 
