@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4494 tests, no network, no live service
+.venv/bin/pytest                      # part of 4495 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 567 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1797 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1798 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4494 passing across the four, conformance `PASS`.
+Expected: all clean, 4495 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,19 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## "Get Clarvis to write …" handed over again — 2026-09-19 (NERVIS 0.34.53)
+
+Found live by the owner starting the first handover test: *get Clarvis to write a tiny Python script
+that prints today's date* drew a Save button for a `.md` file, not Hand over. The owner suspected
+"print"; it was "write". `commands.propose` tries its rules in order, and `_saving_proposal` came
+before `_handoff_proposal`, so any Clarvis task beginning with "write", "save" or "export" became an
+offer to save chat's reply. (Tested first without a `default_name`, the sentence proposed the
+handover — the save rule needs one, and chat always supplies it; tested as chat calls it, it
+reproduced.) The handoff rule now comes first: its patterns match only a sentence addressed to
+Clarvis (*get/have/ask/tell Clarvis to …*, *hand/send/give … to Clarvis*), so an ordinary save is
+unaffected. **Checked:** a new test (three Clarvis sentences hand over, "save that as notes.md" still
+saves) fails with the old order; NERVIS 1,798 on the Mac and on Linux.
 
 ## The log reference dropped, Clarvis's log copy fixed — 2026-09-19 (Clarvis 0.17.21)
 

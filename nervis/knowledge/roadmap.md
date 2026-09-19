@@ -218,7 +218,10 @@ until that button is pressed**, and until then the task is not in the workspace
 and Clarvis does not have it. On 10 September 2026 *"Can you hand a small coding
 task to clarvis?"* produced no button because that phrasing was not recognised,
 and chat told the person the task had been written anyway. The phrasing is
-recognised now; if a request ever produces no button, nothing was handed over.
+recognised now; if a request ever produces no button, nothing was handed over. Until NERVIS 0.34.53
+(19 September 2026) a task starting with "write", "save" or "export" — *get Clarvis to write a
+script…* — got a Save button for chat's reply instead of Hand over; a sentence addressed to Clarvis
+now always offers the handover.
 
 **Where it opens, since 10 September 2026.** The editor opens at its usual
 address with the task's folder attached, so its saved keys, history and

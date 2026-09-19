@@ -520,10 +520,13 @@ def propose(
     attempts: tuple[Callable[[], Proposal | None], ...] = (
         lambda: _switch_proposal(question, pools) if SWITCH.search(question) and pools else None,
         lambda: _cancel_from(question, jobs),
-        lambda: _saving_proposal(question, default_name, attachment),
-        # Before learning, because "get clarvis to remember the port" is a
-        # handoff whose task happens to contain the word `remember`.
+        # Before saving and before learning, because a task for Clarvis can contain either
+        # verb: "get clarvis to remember the port", and — found live on 19 September 2026 —
+        # "get Clarvis to write a tiny Python script…", which the save rule read as "write
+        # this reply to a file" and offered a Save button instead of Hand over. The handoff
+        # patterns only match a sentence addressed to Clarvis, so nothing else moves.
         lambda: _handoff_proposal(question, clarvis),
+        lambda: _saving_proposal(question, default_name, attachment),
         lambda: _learning_proposal(question),
         lambda: _benchmark_proposal(question, models) if BENCHMARK.search(question) else None,
     )

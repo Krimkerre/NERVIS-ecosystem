@@ -839,7 +839,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.52
+## NERVIS — 0.34.53
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **"Get Clarvis to write …" offers Hand over again.** A task for Clarvis that began with "write"
+  (or "save", "export") offered to save chat's reply as a file instead, because that check ran
+  first. A sentence addressed to Clarvis is now always a handover.
+
+### 0.34.52
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

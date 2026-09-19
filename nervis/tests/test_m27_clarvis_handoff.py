@@ -374,3 +374,17 @@ def test_each_task_folder_is_named_for_its_task(tmp_path: Path) -> None:
     assert (tmp_path / written.folder / "clarvis-task.md").is_file()
     assert not (tmp_path / "clarvis-task.md").exists()
     assert not (tmp_path / "nervis-tasks" / "clarvis-task.md").exists()
+
+
+def test_a_task_for_clarvis_that_starts_with_write_is_handed_over_not_saved() -> None:
+    """Found live on 19 September 2026: "get Clarvis to write a tiny Python script that prints
+    today's date" offered a Save button (the reply to a .md file) instead of Hand over, because
+    the save rule, tried first, read "write" as "write this reply to a file"."""
+    for said in ("get Clarvis to write a tiny Python script that prints today's date.",
+                 "ask clarvis to save the settings to a config file",
+                 "hand this to clarvis: export the report as csv"):
+        proposal = commands.propose(said, [], default_name="notes.md")
+        assert proposal is not None and proposal.operation == "nervis.clarvis.task", said
+    # A save that doesn't address Clarvis is still a save.
+    saved = commands.propose("save that as notes.md", [], default_name="notes.md")
+    assert saved is not None and saved.operation == "nervis.document.write"
