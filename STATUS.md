@@ -20031,7 +20031,7 @@ broken; 2,207 fast and 34 host tests on the Mac; on Linux (Debian 12, an ordinar
 passed, 5 skipped (2 macOS-only, 3 that need git with no name configured). Installed byte-identical in
 code-server and VS Code. **Seen live the same morning:** the owner handed over a second task on 0.17.23
 (`nt_0077981c1b145f69`, `nervis-tasks/today-date-script`, 09:22Z) and it went from handover to a built
-`chronicle.py` in about a minute — no interview, no plan file (the too-small-for-a-plan path) — where the
+script (chronicle.py, in the task's folder) in about a minute — no interview, no plan file (the too-small-for-a-plan path) — where the
 first had taken eight questions. **Both builds were real Codex runs through RAVIS:** the project lock
 recorded a `codex_session` holder at 08:43:54–08:44:14Z (date-printer) and 09:23:25–09:23:49Z, each
 committing its file as "Codex: Created …". The first task's folder was moved to the Trash at the owner's
