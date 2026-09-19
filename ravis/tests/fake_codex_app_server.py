@@ -314,17 +314,27 @@ def obey(thread_id: str, turn_id: str, prompt: str, script: str, stop: threading
         if stop.is_set():
             return
         asked_cwd = "/somewhere/else" if script == "wrong_cwd" and index == 1 else cwd
-        decision = approval(thread_id, turn_id, command, asked_cwd)
-        complete(thread_id, turn_id, index, command, cwd, decision)
+        # As Codex 0.155.1 showed them on a Linux laptop whose login shell is fish: a command with a
+        # redirect arrives inside the bash it falls back to (19 September 2026).
+        shown = linux_bash(command) if script == "linux_bash" and ">" in command else command
+        decision = approval(thread_id, turn_id, shown, asked_cwd)
+        complete(thread_id, turn_id, index, command, cwd, decision, shown)
         if script == "stutters" and index == 2:
             approval(thread_id, turn_id, command, cwd)
 
 
+def linux_bash(command: str) -> str:
+    """`command` as Codex showed it on Linux: in `/usr/bin/bash -lc "…"`, double-quote escaped."""
+    escaped = "".join("\\" + c if c in '\\"$`' else c for c in command)
+    return f'/usr/bin/bash -lc "{escaped}"'
+
+
 def complete(
-    thread_id: str, turn_id: str, index: int, command: str, cwd: str, decision: str | None
+    thread_id: str, turn_id: str, index: int, command: str, cwd: str, decision: str | None,
+    shown: str | None = None,
 ) -> None:
     item: dict[str, Any] = {
-        "type": "commandExecution", "id": f"item-{index}", "command": command, "cwd": cwd,
+        "type": "commandExecution", "id": f"item-{index}", "command": shown or command, "cwd": cwd,
         "commandActions": [],
     }
     if decision != "accept":

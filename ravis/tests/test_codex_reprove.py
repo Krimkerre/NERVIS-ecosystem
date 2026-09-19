@@ -369,3 +369,29 @@ def test_a_ravis_restart_during_the_re_test_is_reported_not_forgotten(tmp_path: 
 
     assert (reproof["state"], reproof["result"]) == ("finished", "inconclusive")
     assert reproof["detail"] == "RAVIS restarted during the re-test"
+
+
+def test_a_listed_command_inside_codexs_linux_shell_wrapper_still_proves_the_build(
+    tmp_path: Path,
+) -> None:
+    """19 September 2026, a Linux laptop with fish as login shell: Codex showed the redirecting
+    commands as `/usr/bin/bash -lc "…"`, and the re-test declined its own listed command."""
+    with accepted_build(tmp_path, turn_script="linux_bash") as (rig, client):
+        start(client, rig)
+        result = finished(client, rig)
+
+    assert result["result"] == "proven", result
+
+
+def test_only_a_plain_one_argument_shell_wrapper_is_taken_off() -> None:
+    from ravis.codex.reprove import unwrapped
+
+    listed = "printf 'ravis-reproof\\n' > /tmp/x/outside-plain.txt"
+    wrapped = '/usr/bin/bash -lc "printf \'ravis-reproof\\\\n\' > /tmp/x/outside-plain.txt"'
+    assert unwrapped(wrapped) == listed
+    assert unwrapped("zsh -c 'cat /tmp/decoy'") == "cat /tmp/decoy"
+    assert unwrapped("cat /tmp/decoy") == "cat /tmp/decoy", "nothing to take off"
+    # Anything else is left as it came, so it can only fail to match a listed command.
+    for other in ("bash -lc 'cat /tmp/decoy' extra", "fish -c 'cat /tmp/decoy'",
+                  "python3 -c 'print(1)'", "bash -x -c 'cat /tmp/decoy'", "bash -lc 'unclosed"):
+        assert unwrapped(other) == other, other

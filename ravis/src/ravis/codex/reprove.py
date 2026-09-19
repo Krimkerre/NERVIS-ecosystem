@@ -404,6 +404,30 @@ def _decision_word(response: dict[str, Any]) -> str:
     return "empty_grant" if "permissions" in response else "empty_answer"
 
 
+#: The shells whose one-argument wrapper Codex may put around a command (`unwrapped`).
+WRAPPING_SHELLS = frozenset({"bash", "zsh", "sh"})
+
+
+def unwrapped(command: str) -> str:
+    """The command inside Codex's shell wrapper, or the command itself when there is none.
+
+    **Found on the owner's Linux laptop, 19 September 2026.** Its login shell is fish, which Codex
+    doesn't support (openai/codex#20259), so Codex falls back to bash and shows a command with a
+    redirect as `/usr/bin/bash -lc "printf 'ravis-reproof\\n' > …"` rather than the command alone.
+    The re-test compared text exactly and declined its own listed command. Only one shape is
+    unwrapped — `<bash|zsh|sh, any path> <-c|-lc> <one argument>` and nothing after it — and the
+    argument must still equal a listed command exactly, so nothing is accepted that wasn't listed.
+    """
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return command
+    shell_ok = len(words) == 3 and Path(words[0]).name in WRAPPING_SHELLS
+    if shell_ok and words[1] in ("-c", "-lc"):
+        return words[2]
+    return command
+
+
 class ReproofRun:
     """What one K5b turn did, judged against the fixed list as it happens."""
 
@@ -430,7 +454,7 @@ class ReproofRun:
             if thread != self._thread_a:
                 self.off_list.append("Codex acted in folder B")
         if item.method == "item/completed" and entry.get("type") == "commandExecution":
-            command = self._by_text.get(str(entry.get("command")))
+            command = self._by_text.get(unwrapped(str(entry.get("command"))))
             if command is not None and thread == self._thread_a:
                 self.ran.add(command.index)
         if item.method == "turn/completed" and thread == self._thread_a:
@@ -465,14 +489,14 @@ class ReproofRun:
         asked = " ".join(str(params.get("command")).split())[:200]
         if command is not None:
             return f"Codex asked to run listed command {command.index} a second time: {asked}"
-        listed = self._by_text.get(str(params.get("command")))
+        listed = self._by_text.get(unwrapped(str(params.get("command"))))
         if listed is not None:
             return f"Codex asked to run listed command {listed.index} outside folder A: {asked}"
         return f"Codex asked to run a command that isn't on the list: {asked}"
 
     def _listed(self, params: dict[str, Any]) -> FixedCommand | None:
         """The listed command a request is for: exactly its text, in folder A, in thread A."""
-        command = self._by_text.get(str(params.get("command")))
+        command = self._by_text.get(unwrapped(str(params.get("command"))))
         cwd = params.get("cwd")
         if command is None or params.get("threadId") != self._thread_a or not isinstance(cwd, str):
             return None

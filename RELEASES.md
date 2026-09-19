@@ -2398,9 +2398,17 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.8
+## RAVIS — 0.30.9
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **The Codex re-test recognises its commands on Linux.** Where the login shell is one Codex doesn't
+  support (fish), Codex falls back to bash and shows a command with a redirect wrapped as
+  `/usr/bin/bash -lc "…"`; the re-test took that for a command off its list. It now looks inside
+  exactly that one-argument bash, zsh or sh wrapper, and the command inside must still match a
+  listed one exactly.
+
+### 0.30.8
 
 - **A re-test Codex strays from quotes what it asked for**, and which of three ways it missed:
   not one of the four test commands, a listed one outside its folder, or a listed one asked twice.

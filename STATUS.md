@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4509 tests, no network, no live service
+.venv/bin/pytest                      # part of 4511 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1809 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4509 passing across the four, conformance `PASS`.
+Expected: all clean, 4511 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20038,6 +20038,14 @@ list", with no command named. The laptop's login shell is fish, which Codex does
 back from, so the four commands may reach RAVIS in another shape. RAVIS 0.30.8 quotes the command and
 says which of three misses it was (`ReproofRun._why_declined`; `ravis/tests/test_codex_reprove.py` updated), so the
 next re-test shows what to recognise rather than a guess loosening the match.
+**It showed:** `/usr/bin/bash -lc "printf 'ravis-reproof\\n' > …/outside-plain.txt"` — listed command 3,
+inside the bash Codex fell back to, with its double-quote escaping. RAVIS 0.30.9 looks through exactly that
+wrapper (`reprove.unwrapped`: a bash, zsh or sh at any path, `-c` or `-lc`, one argument, nothing after),
+and the argument must still equal a listed command exactly; `fish -c`, extra words, other flags or an
+unclosed quote are left as they came and can only fail to match. The fake Codex gained a `linux_bash`
+script that shows commands that way, which now proves the build; 2 new tests, both failing without the
+unwrap; RAVIS 2,069 on a snapshot, the re-test tests on the Linux bench. **Still to check:** whether
+RAVIS's gates on ordinary Codex tasks see through the same wrapper.
 
 ## Why a Codex re-test wasn't proven — 2026-09-19 (NERVIS 0.34.55, RAVIS 0.30.6)
 
