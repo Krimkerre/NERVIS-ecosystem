@@ -12,6 +12,7 @@ import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from functools import partial
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 import httpx
@@ -23,6 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from sirvis import jobs as job_store
 from sirvis.api import router as api_router
+from sirvis.api.routes import runs_elsewhere
 from sirvis.api.security import (
     check_host,
     cors_headers,
@@ -317,6 +319,8 @@ def _attach_shared_state(
         runtime=api.state.lmstudio,
         default_lease_seconds=settings.default_lease_seconds,
         max_loaded=settings.max_loaded_models,
+        # A model LM Link runs on another device takes none of this machine's room.
+        runs_elsewhere=partial(runs_elsewhere, api.state),
     )
     api.state.ecosystem = sirvis_surface(
         service_id=api.state.service_id,

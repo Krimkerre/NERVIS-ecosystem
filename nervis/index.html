@@ -9685,6 +9685,18 @@ function foreignInstancesCard(foreign,live=false){
    <small class="mono dim">LM Studio loads instances by itself when a request wants more context than the running copy has, and a person can load anything by hand. These occupy memory SIRVIS is accounting for and does not own, so it reports them rather than reclaiming them — reclaiming something another client is using is the exact failure §9 exists to prevent.</small>`,'sirvis')}</div>`;
 }
 
+/* A model another device runs through LM Link takes none of this machine's room, and SIRVIS
+   0.19.10 leaves it out of the ceiling; so do the Resident count and its row. */
+function residentTile(held,max){
+ const elsewhere=held.filter(h=>h.runs_elsewhere).length;
+ return ['Resident',`${held.length-elsewhere} / ${max}`,
+  elsewhere?`against the ceiling · ${elsewhere} more on other devices`:'against the manager ceiling','sirvis'];
+}
+function linkedChip(h){
+ return h.runs_elsewhere
+  ?' <span class="chip dim" title="Runs on another device through LM Link, so it takes none of this machine\u2019s room">LM Link</span>':'';
+}
+
 async function sirvisRuntime(){
  heading('Runtime','What is resident, who holds it, and when their claim lapses.',
    control('Refresh evidence','refreshEvidence'));
@@ -9698,7 +9710,7 @@ async function sirvisRuntime(){
  const armed=runtimeArmed();
 
  $('#content').innerHTML=kpis([
-   ['Resident',`${held.length} / ${res.max_loaded}`,'against the manager ceiling','sirvis'],
+   residentTile(held,res.max_loaded),
    ['Owned',String(owned),owned===held.length?'all held by SIRVIS':'the rest were adopted','sirvis'],
    ['Sessions',String(leases.length),'live leases','sirvis'],
    ['Foreign',String(foreign.length),foreign.length?'runtime loaded these itself':'none','sirvis']])
@@ -9731,7 +9743,7 @@ async function sirvisRuntime(){
   <div class="card full${liveClass(Boolean(res))}"><h3>Resident now</h3>${cell(
    held.length?`
    <div class="table-row head six"><span>Model</span><span>References</span><span>Sessions</span><span style="grid-column:4/5">Effective config</span><span style="grid-column:5/-1">Owner</span></div>
-   ${held.map(h=>`<div class="table-row six"><span class="mono">${escapeHtml(h.model_key)}</span><span>${escapeHtml(h.reference_count)}</span><span class="mono" style="opacity:.7">${escapeHtml(dash((h.sessions||[]).map(s=>s.slice(0,8)).join(' · ')))}</span><span class="mono" style="grid-column:4/5;opacity:.75">${escapeHtml(effectiveConfig(h))}</span><span style="grid-column:5/-1"><span class="chip${warnUnless(h.owned)}">${escapeHtml(h.owned?'SIRVIS':'adopted')}</span></span></div>`).join('')}
+   ${held.map(h=>`<div class="table-row six"><span class="mono">${escapeHtml(h.model_key)}${linkedChip(h)}</span><span>${escapeHtml(h.reference_count)}</span><span class="mono" style="opacity:.7">${escapeHtml(dash((h.sessions||[]).map(s=>s.slice(0,8)).join(' · ')))}</span><span class="mono" style="grid-column:4/5;opacity:.75">${escapeHtml(effectiveConfig(h))}</span><span style="grid-column:5/-1"><span class="chip${warnUnless(h.owned)}">${escapeHtml(h.owned?'SIRVIS':'adopted')}</span></span></div>`).join('')}
    <small class="mono dim">a model is unloaded when its reference count reaches zero and not before — releasing one lease on a model two clients hold takes it from neither. <b>Adopted</b> is the column that matters for memory: SIRVIS did not load those and will never unload them, so releasing every lease here does not give that memory back.</small>`
    :`<div class="trace-step"><b>resident</b><span>nothing</span></div>
    <small class="mono dim">no model is in memory and no lease is outstanding. This is the ordinary state of an idle machine, and it is the state that makes the ceiling above meaningful: ${escapeHtml(res.max_loaded)} is what the manager will hold at once, not what is loaded.</small>`,'sirvis')}</div>

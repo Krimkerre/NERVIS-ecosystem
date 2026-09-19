@@ -498,26 +498,50 @@ LINK_CACHE_SECONDS = 30.0
 
 
 async def _link_table(request: Request) -> LinkTable:
+    """`link_table` for the app serving this request."""
+    return await link_table(request.app.state)
+
+
+async def link_table(state: Any) -> LinkTable:
     """Which device holds each build (`runtimes.variants.linked_devices`), briefly cached.
 
     Empty when LM Studio's CLI can't be asked, which marks every build as this machine's — the
     answer every build had before LM Link existed.
     """
-    held = getattr(request.app.state, "link_table", None)
+    held = getattr(state, "link_table", None)
     now = time.monotonic()
     if held is not None and now - held[0] < LINK_CACHE_SECONDS:
         return held[1]  # type: ignore[no-any-return]
     # A runtime without LM Studio's listing (another runtime, a test's stand-in) has no LM Link.
-    reader = getattr(request.app.state.lmstudio, "listings", None)
+    reader = getattr(state.lmstudio, "listings", None)
     listings = await asyncio.to_thread(reader) if callable(reader) else None
     table = linked_devices(list(listings[0])) if listings else {}
     # The other devices' names, asked only when a build is on one: another process otherwise.
-    namer = getattr(request.app.state.lmstudio, "link_device_names", None)
+    namer = getattr(state.lmstudio, "link_device_names", None)
     linked = any(device for devices in table.values() for device in devices)
     names = await asyncio.to_thread(namer) if linked and callable(namer) else {}
-    request.app.state.link_table = (now, table)
-    request.app.state.link_names = names
+    state.link_table = (now, table)
+    state.link_names = names
     return table
+
+
+async def runs_elsewhere(state: Any, model_key: str) -> bool:
+    """Whether `model_key` runs on another device through LM Link, for the loaded-model ceiling.
+
+    Its memory is that machine's, so it takes no room here (`ResourceManager`). False whenever
+    it can't be told — the runtime not answering, a key that names no one build — which counts
+    the model here: the side that errs toward this machine's memory.
+    """
+    try:
+        inventory = build_inventory(await state.lmstudio.list_models())
+    except RuntimeUnavailableError:
+        return False
+    model = inventory.resolve(model_key)
+    if model is None:
+        return False
+    variant = inventory.variants[model.variant_id]
+    table = await link_table(state)
+    return linked_device(model.runtime_key, variant.runtime_format, table) is not None
 
 
 def _link_name(request: Request, device: str | None) -> str | None:

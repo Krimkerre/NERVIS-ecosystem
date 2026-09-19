@@ -504,8 +504,9 @@ this machine's, since the listing shows only one of the two. `GET /api/v1/models
 `linked_device` and `linked_device_name`; Reveal and Delete refuse a linked build
 (`MODEL_FILES_REFUSED`) and a benchmark job naming one is refused, its numbers being the other
 machine's. NERVIS lists linked builds after this machine's under the device's name, in the
-dashboard and in both menus. **Open:** a linked build loaded through SIRVIS counts toward this
-machine's `max_loaded`.
+dashboard and in both menus. **Since 0.19.10 a linked build takes no place under this machine's
+`max_loaded`** (`ResourceManager`'s `runs_elsewhere`, asked before each acquire; unknown counts here).
+**Open:** the other machine's SIRVIS doesn't see a load LM Link sends it, so its own ceiling misses it.
 
 ---
 

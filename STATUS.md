@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4538 tests, no network, no live service
+.venv/bin/pytest                      # part of 4541 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -40,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 573 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 576 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1822 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4538 passing across the four, conformance `PASS`.
+Expected: all clean, 4541 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,22 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## LM Link models leave this machine's loaded-model limit alone — 2026-09-19 (SIRVIS 0.19.10, NERVIS 0.34.59)
+
+The entry below left one thing open and the owner asked for it fixed: a model loaded through SIRVIS that LM
+Link runs on the other machine took one of this machine's places under `max_loaded`. `ResourceManager` now
+takes `runs_elsewhere`, asked before each acquire (`routes.runs_elsewhere`: the inventory's build, its format,
+and LM Studio's device listing), and counts only the models taking room here (`_occupied`) — in the ceiling,
+the wait for another model's unload, and what preempt may reclaim. Residency holdings carry `runs_elsewhere`;
+the dashboard's Runtime screen counts only this machine's and marks the others "LM Link". Unknown counts here.
+**Checked:** three tests in `sirvis/tests/test_lm_link.py` — with a limit of one, two Mac-hosted models and one
+local model all load and a second local one is refused; the ceiling test fails with the fix taken out; SIRVIS
+576; the resource tests on the Linux bench; the dashboard gates. **Not loaded live:** that needs a model load,
+which waits for the owner's go-ahead. Read against the Mac's LM Studio, with the ThinkPad disconnected from
+LM Link at the time, every model was placed on this machine — right, and only the negative case. **Still
+not counted anywhere:** a model the ThinkPad loads on the Mac through LM Link goes past the Mac's SIRVIS, so the
+Mac's own limit doesn't see it either — the SIRVIS-to-SIRVIS question the owner raised the same evening.
 
 ## LM Link's models told apart from this machine's — 2026-09-19 (SIRVIS 0.19.9, NERVIS 0.34.58)
 

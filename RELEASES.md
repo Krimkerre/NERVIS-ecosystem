@@ -859,7 +859,16 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.58
+## NERVIS — 0.34.59
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.10+ for the LM Link count, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **SIRVIS's Runtime screen counts only this machine's models against the limit.** A model loaded
+  on another machine through LM Link is marked "LM Link" and listed as "more on other devices"
+  beside the count.
+
+### 0.34.58
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.9+ for the LM Link grouping, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
@@ -3542,7 +3551,16 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.9
+## SIRVIS — 0.19.10
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
+
+- **A model on another machine no longer uses up this machine's loaded-model limit.** Before each
+  load SIRVIS checks whether the model runs on another device through LM Link; if so it sits in
+  that machine's memory and isn't counted here. When SIRVIS can't tell, it counts the model, which
+  errs toward protecting this machine's memory.
+
+### 0.19.9
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
 

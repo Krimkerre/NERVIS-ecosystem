@@ -8,18 +8,22 @@ below are the ThinkPad's own, trimmed to the fields read.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.test_m8_resources import FakeRuntime
 
 from sirvis.api import routes
 from sirvis.api.security import Scope, mint_token
 from sirvis.app import create_app
 from sirvis.config import Settings
 from sirvis.core.inventory import build_inventory
-from sirvis.runtimes import LMStudioAdapter, variants
+from sirvis.resources import ResourceExhaustedError, ResourceManager
+from sirvis.runtimes import LMStudioAdapter, RuntimeUnavailableError, variants
 from sirvis.runtimes.variants import link_device_names, linked_device, linked_devices
 
 MAC = "93c2fceb2889bcc190ba21dc03828d12"
@@ -125,3 +129,63 @@ def test_a_linked_build_is_not_benchmarked_here(api: tuple[TestClient, str, str]
     )
     assert refused.status_code >= 400
     assert "benchmark it on that machine" in refused.json()["error"]["message"]
+
+
+# ── The loaded-model ceiling ─────────────────────────────────────────────────
+# The owner's ThinkPad, 19 September 2026: a model the Mac ran through LM Link took one of the
+# ThinkPad's two places. The ceiling is about this machine's memory, and that model uses the Mac's.
+
+MAC_MODELS = {"qwen/qwen3.5-9b", "google/gemma-4-e2b@mlx"}
+
+
+async def _on_the_mac(model_key: str) -> bool:
+    return model_key in MAC_MODELS
+
+
+def test_a_model_on_another_device_takes_no_place_under_the_ceiling() -> None:
+    async def scenario() -> None:
+        manager = ResourceManager(FakeRuntime(), max_loaded=1,  # type: ignore[arg-type]
+                                  runs_elsewhere=_on_the_mac)
+        await manager.acquire("menu", "qwen/qwen3.5-9b")
+        await manager.acquire("menu", "google/gemma-4-e2b@mlx")
+        await manager.acquire("ravis", "ibm/granite-4-h-tiny")  # this machine's one place
+
+        with pytest.raises(ResourceExhaustedError):
+            await manager.acquire("ravis", "google/gemma-4-e2b")  # a second of its own: full
+        held = {h["model_key"]: h["runs_elsewhere"] for h in manager.residency()["holdings"]}
+        assert held == {"qwen/qwen3.5-9b": True, "google/gemma-4-e2b@mlx": True,
+                        "ibm/granite-4-h-tiny": False}
+
+    asyncio.run(scenario())
+
+
+def test_without_knowing_where_models_run_every_one_is_counted() -> None:
+    """The ceiling as it was, and the side it errs on when nobody can say."""
+    async def scenario() -> None:
+        manager = ResourceManager(FakeRuntime(), max_loaded=1)  # type: ignore[arg-type]
+        await manager.acquire("menu", "qwen/qwen3.5-9b")
+        with pytest.raises(ResourceExhaustedError):
+            await manager.acquire("ravis", "ibm/granite-4-h-tiny")
+
+    asyncio.run(scenario())
+
+
+def test_where_a_model_runs_is_read_from_lm_studio_s_listing(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def listed(_self: Any) -> list[dict[str, Any]]:
+        return [_entry("qwen/qwen3.5-9b", "mlx"), _entry("ibm/granite-4-h-tiny", "gguf")]
+
+    async def unreachable(_self: Any) -> list[dict[str, Any]]:
+        raise RuntimeUnavailableError("LM Studio isn't answering")
+
+    monkeypatch.setattr(LMStudioAdapter, "listings", lambda _self: (list(THINKPAD_LS), []))
+    monkeypatch.setattr(LMStudioAdapter, "link_device_names", lambda _self: {})
+    monkeypatch.setattr(LMStudioAdapter, "list_models", listed)
+    state = SimpleNamespace(lmstudio=LMStudioAdapter(base_url="http://127.0.0.1:9"))
+
+    assert asyncio.run(routes.runs_elsewhere(state, "qwen/qwen3.5-9b")) is True
+    assert asyncio.run(routes.runs_elsewhere(state, "ibm/granite-4-h-tiny")) is False
+    assert asyncio.run(routes.runs_elsewhere(state, "never-installed")) is False
+    monkeypatch.setattr(LMStudioAdapter, "list_models", unreachable)
+    assert asyncio.run(routes.runs_elsewhere(state, "qwen/qwen3.5-9b")) is False, "counted here"

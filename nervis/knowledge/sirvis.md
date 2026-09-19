@@ -142,9 +142,11 @@ counts at the top of the pages are this machine's alone. The menu bar app and th
 same: a divider, "On <other machine> (LM Link)", and a model loaded there reads "Loaded on <other
 machine>" rather than as loaded here. Loading one from here works — it loads into the other
 machine's memory. Before 19 September 2026 LM Studio's listing gave these models no mark, so a
-model loaded on the Mac showed as loaded on the laptop. Still open: a linked model loaded through
-SIRVIS counts toward this machine's limit on loaded models. A linked model counts as local for
-private and local-only requests: the owner decided on 19 September 2026 that both laptops are theirs.
+model loaded on the Mac showed as loaded on the laptop. Since SIRVIS 0.19.10 a linked model doesn't
+use up this machine's limit on loaded models (it sits in the other machine's memory); the Runtime
+screen marks it "LM Link". The other machine's own limit doesn't see it either, because the load
+doesn't pass through that machine's SIRVIS. A linked model counts as local for private and
+local-only requests: the owner decided on 19 September 2026 that both laptops are theirs.
 
 ## When LM Studio or Hugging Face is down
 

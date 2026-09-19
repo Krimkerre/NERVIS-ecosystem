@@ -28,7 +28,7 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import partial
-from typing import Any, Callable, Protocol
+from typing import Any, Awaitable, Callable, Protocol
 
 from sirvis.runtimes import LoadedModel, RuntimeUnavailableError
 
@@ -175,11 +175,17 @@ class ResourceManager:
         clock: Callable[[], float] = time.monotonic,
         default_lease_seconds: float = DEFAULT_LEASE_SECONDS,
         max_loaded: int = DEFAULT_MAX_LOADED,
+        runs_elsewhere: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
         self._runtime = runtime
         self._clock = clock
         self._default_lease = default_lease_seconds
         self._max_loaded = max_loaded
+        # Whether a model runs on another device through LM Studio's LM Link, asked before
+        # each load (19 September 2026). Such a model sits in that machine's memory, so the
+        # ceiling — which is about this machine's — does not count it. None counts everything.
+        self._runs_elsewhere = runs_elsewhere
+        self._elsewhere: set[str] = set()
         self._holdings: dict[str, Holding] = {}
         self._leases: dict[str, Lease] = {}
         self._loading: dict[str, asyncio.Task[tuple[LoadedModel, bool]]] = {}
@@ -207,6 +213,7 @@ class ResourceManager:
         """
         session = session_id or uuid.uuid4().hex
         await self._expire_stale()
+        await self._place(model_key)
 
         loaded, owned = await self._ensure_loaded(model_key, configuration, policy)
         async with self._lock:
@@ -230,6 +237,27 @@ class ResourceManager:
             )
             self._leases[session] = lease
             return lease
+
+    async def _place(self, model_key: str) -> None:
+        """Note whether `model_key` runs on another machine, before it is counted or loaded.
+
+        Asked outside the lock, since it may ask the runtime; recorded inside it. Asked on
+        every acquire rather than once, so a model LM Link stops reaching is counted here again.
+        """
+        if self._runs_elsewhere is None:
+            return
+        elsewhere = await self._runs_elsewhere(model_key)
+        async with self._lock:
+            if elsewhere:
+                self._elsewhere.add(model_key)
+            else:
+                self._elsewhere.discard(model_key)
+
+    def _occupied(self, *, unloading: bool = False) -> int:
+        """Models taking room in this machine's memory: held and loading, and optionally those
+        whose unload hasn't answered yet. A model on another device takes none. Lock held."""
+        keys = {*self._holdings, *self._loading, *(self._unloading if unloading else ())}
+        return len(keys - self._elsewhere)
 
     async def release(self, session_id: str) -> list[str]:
         """Drop a session's claims, unloading anything nobody else holds.
@@ -377,6 +405,8 @@ class ResourceManager:
                     # difference: an adopted instance occupies memory that
                     # releasing every lease will not give back.
                     "owned": holding.owned,
+                    # On another device through LM Link, so not counted against `max_loaded`.
+                    "runs_elsewhere": key in self._elsewhere,
                 }
                 for key, holding in sorted(self._holdings.items())
             ],
@@ -578,7 +608,8 @@ class ResourceManager:
             return self._unloading[model_key]
         if not self._unloading or model_key in self._holdings or model_key in self._loading:
             return None
-        if len(self._holdings) + len(self._loading) + len(self._unloading) < self._max_loaded:
+        # A model on another device needs none of this machine's memory to come back first.
+        if model_key in self._elsewhere or self._occupied(unloading=True) < self._max_loaded:
             return None
         return next(iter(self._unloading.values()))
 
@@ -596,7 +627,7 @@ class ResourceManager:
             return existing
         in_flight = self._loading.get(model_key)
         if in_flight is None:
-            self._make_room(policy)
+            self._make_room(policy, model_key)
             in_flight = asyncio.create_task(self._acquire_instance(model_key, configuration))
             self._loading[model_key] = in_flight
             # **The load cleans up after itself, rather than depending on a
@@ -658,7 +689,7 @@ class ResourceManager:
             return existing, False
         return await self._runtime.load(model_key, configuration), True
 
-    def _make_room(self, policy: ConflictPolicy) -> None:
+    def _make_room(self, policy: ConflictPolicy, model_key: str) -> None:
         """Ensure there is capacity, according to the policy the caller chose.
 
         Called with the lock held, and `WAIT` does not actually wait here — it
@@ -679,8 +710,11 @@ class ResourceManager:
         The two tables never overlap — a key already held returns its holding
         before this is reached, and a key already loading is awaited — so
         adding their lengths counts each model once.
+
+        **A model on another device neither needs room nor takes it** (`_occupied`): LM Link
+        loads it into that machine's memory (19 September 2026).
         """
-        if len(self._holdings) + len(self._loading) < self._max_loaded:
+        if model_key in self._elsewhere or self._occupied() < self._max_loaded:
             return
 
         # Unreferenced holdings cannot currently exist — release unloads at
@@ -690,7 +724,8 @@ class ResourceManager:
         # worth having and is not this milestone. Recorded in STATUS.md rather
         # than left as an unreachable branch nobody knows is unreachable.
         reclaimable = [
-            key for key, holding in self._holdings.items() if holding.reference_count == 0
+            key for key, holding in self._holdings.items()
+            if holding.reference_count == 0 and key not in self._elsewhere
         ]
         if policy is ConflictPolicy.PREEMPT and reclaimable:
             # Only ever an unreferenced holding. §9 forbids unloading a resource
