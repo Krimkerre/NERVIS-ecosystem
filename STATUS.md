@@ -20123,7 +20123,10 @@ NERVIS's relay sent none — it now sends `{}`.
 size, and refused the bundled embedder with the reason; the Models screen drew both buttons on all
 nine rows, and a first Delete click asked "Move exaone-deep-2.4b (1.8 GB) to the Trash? It can be
 put back from there". **Not done live:** a real Delete or Reveal — a Delete moves gigabytes of the
-owner's models, so it waits for the owner. 7 SIRVIS tests on the locating and the Trash, 4 on the
+owner's models, so it waits for the owner. **Done live by the owner on 19 September 2026:** Show files opened
+Ministral-8B's folder in Finder, and Delete moved `google/gemma-4-12b-qat` — LM Studio stopped listing it,
+nothing of it was left in LM Studio's folders (description or weights), the other Gemmas stayed, NERVIS
+recorded both actions, and the owner found it in the Trash. 7 SIRVIS tests on the locating and the Trash, 4 on the
 endpoints, 5 NERVIS tests on the operations; SIRVIS 563 and NERVIS 1,792 pass on the Mac and on
 Linux; every dashboard gate passes.
 
