@@ -103,6 +103,11 @@ def is_local_address(base_url: str) -> bool:
     of guessing wrong in that direction is a pool refusing to route, and in the
     other direction it is a prompt leaving the machine that was promised it
     would not.
+
+    **One exception, by the owner's decision (19 September 2026):** LM Studio on
+    this machine also serves, on its loopback address, models it reaches on the
+    owner's other machines through LM Link, and those count as local too — "they
+    are both mine" (RAVIS.md §5).
     """
     host = urlsplit(base_url).hostname or ""
     if host in {"localhost", "localhost."}:

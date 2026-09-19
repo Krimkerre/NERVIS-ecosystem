@@ -143,8 +143,8 @@ same: a divider, "On <other machine> (LM Link)", and a model loaded there reads 
 machine>" rather than as loaded here. Loading one from here works — it loads into the other
 machine's memory. Before 19 September 2026 LM Studio's listing gave these models no mark, so a
 model loaded on the Mac showed as loaded on the laptop. Still open: a linked model loaded through
-SIRVIS counts toward this machine's limit on loaded models, and RAVIS still treats a linked model
-as local when a request must stay private or local.
+SIRVIS counts toward this machine's limit on loaded models. A linked model counts as local for
+private and local-only requests: the owner decided on 19 September 2026 that both laptops are theirs.
 
 ## When LM Studio or Hugging Face is down
 

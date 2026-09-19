@@ -171,9 +171,10 @@ rather than picking a model.
 - `ravis/cheap` — least money, preferring local
 - `ravis/free-api` — costs nothing and runs on somebody else's hardware; logged,
   never private (see the free pool, below)
-- `ravis/local` — never leaves this machine
+- `ravis/local` — never leaves your own machines: this one, plus any of your machines whose models
+  LM Studio reaches through LM Link (your decision, 19 September 2026: both laptops are yours)
 - `ravis/api` — cloud only
-- `ravis/private` — strictest privacy; cloud excluded
+- `ravis/private` — strictest privacy; cloud excluded; your LM Link machines count as local here too
 - `ravis/coding`, `ravis/reasoning`, `ravis/long-context` — capability-shaped
 - `ravis/agent` — tools required
 - `ravis/vision` — image input required; chat's save-time visual check uses it

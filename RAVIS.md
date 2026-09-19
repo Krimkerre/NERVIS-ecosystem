@@ -298,6 +298,14 @@ is the same heuristic `ravis/coding`'s own exclusion list already applies in
 the other direction, and the capability requirement is real evidence where a
 name pattern would be a guess.
 
+**"Local" includes the owner's other machines through LM Studio's LM Link — the owner's decision,
+19 September 2026** ("private can count both laptops as local, since they are both mine"). RAVIS
+judges locality by the upstream's address (`is_local_address`: loopback only), and LM Studio on
+this machine serves the models it reaches over LM Link on the same loopback address, so
+`ravis/local` and `ravis/private` already route to them: a prompt to one leaves this machine for
+the owner's other one. That was found when SIRVIS 0.19.9 learned to tell linked builds apart, and
+kept. A LAN or hosted address is still not local.
+
 `ravis/draw` is the other half of that pair and shares no member with it:
 reading an image and emitting one are separate capabilities that happen to
 share a word, so it requires `image_out` rather than `vision`. Two exclusions

@@ -20035,8 +20035,10 @@ both-machines rule taken out), two tray tests and a launcher test; SIRVIS 573, N
 gates, and those tests on the Linux bench. **Seen live on the Mac:** the Mac menu app and both SIRVIS pages
 show the ThinkPad's two models under "On ThinkPadX13G2". **The owner confirmed the divider on the ThinkPad**
 after a pull and restart. **Open:** a linked model loaded through SIRVIS still counts toward this machine's loaded-model
-ceiling, and RAVIS still treats a linked model as local for private and local-only routes — the owner's
-decision.
+ceiling. **Decided the same evening:** a linked model counts as local for private and local-only routes
+("private can count both laptops as local, since they are both mine"). RAVIS already routes that way —
+it judges locality by LM Studio's loopback address — so nothing changed but the record (`RAVIS.md` §5,
+`ravis/src/ravis/upstreams.py`).
 
 ## Clarvis's voice from NERVIS — 2026-09-19 (NERVIS 0.34.57, Clarvis 0.17.24)
 
