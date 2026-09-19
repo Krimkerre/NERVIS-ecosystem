@@ -32,6 +32,55 @@ below — so "the version that passed" names something. It is a git tag, not a n
 each component keeps its own. Runbook §12's canary and cohort steps did not run; whether they
 apply to a stack that runs on one machine is still the owner's decision.
 
+### ecosystem-rc2 — 19 September 2026
+
+| Component | Version | Commit |
+|---|---|---|
+| NERVIS | 0.34.52 | this repository at the `ecosystem-rc2` tag |
+| RAVIS | 0.30.5 | the same |
+| SIRVIS | 0.19.8 | the same |
+| ecosystem-protocol | 0.2.3 (MEP 1.0.0) | the same |
+| Clarvis | 0.17.22 | `clarvis` at 84c2bd8, tagged `ecosystem-rc2` there too |
+
+**What is new since rc1:** budgets per day, week, application and provider; Show files and Delete
+for installed models; SIRVIS saying when LM Studio or Hugging Face is down; screens that update in
+place; route decisions that can be linked to; Linux machine readings (memory, GPU, temperature);
+Clarvis's problems summary, its log copy fixed, and the log reference dropped; the installer asking
+for the editor's password, refusing WSL 1, and connecting Clarvis on a fresh install.
+
+**The evidence, all on this code:**
+- **The clean-clone gate, 77 of 77,** on f8a10b1 cloned from GitHub (Clarvis 84c2bd8): every
+  package's lint, types and tests from the committed declarations alone, the repository gates, the
+  39 dashboard gates, and Clarvis's types, lint, unit tests, build and extension-host tests.
+- **Linux, more of it than rc1.** In the Docker bench: RAVIS 2,063 (+1 skipped, macOS-only), NERVIS
+  1,797, SIRVIS 567, protocol 66. **The installer ran end to end on Debian 12, Ubuntu 24.04, Fedora
+  and Arch**, each from a fresh copy as an ordinary user, and then, with the Node it fetched, **every
+  dashboard gate (39, the sandbox gate and `check.py`) and Clarvis's full fast checks (2,193 passed,
+  2 macOS-only skipped) passed on each of the four** — neither ran on Linux for rc1.
+- **Found by those runs and fixed before the tag:** Ollama's own install script now needs `zstd`,
+  which fresh Debian, Ubuntu and Fedora lack, so the installer stopped there with no message of
+  its own; it installs `zstd` first and names the failure otherwise (NERVIS 0.34.52).
+- **The live dashboard checks** against the running stack: every card's badge matches its source
+  (`honesty_check.js`); 37 of 39 screens repaint on their own (`recovery_check.js`), the Overview
+  confirmed live in a browser, the other flagged screen as for rc1.
+- **Seen live on this Mac today, by the owner or with them:** Show files and a real Delete (the
+  model in the Trash); the LM Studio-down banner and its recovery; a Clarvis window's problems by
+  checker; the log copy under code-server; a hard provider budget refusing a request before it
+  reached Anthropic, and its alert.
+
+**Not rerun for this candidate:** the four-hour long-running test, the load test, and the rollback,
+recovery and restore rehearsals — their last runs (12–17 September) are recorded under rc1.
+
+**Known and not fixed in this candidate:**
+- The Arch test container needed more package mirrors than the image's two, which timed out on
+  large downloads; a network matter, not the installer's. Arch's code-server lives in
+  `~/.local/bin`, which the installer handles and says so.
+- Codex on Linux has not signed in or run a task; a chat through a local model and a benchmark have
+  not been run by hand on Linux.
+- The Code tab's Safari and https rows are ungraded (Stage 9); Firefox is graded.
+- Clarvis's release regression checks beyond rollback (E-C7), and the owner's open decisions in
+  STATUS.
+
 ### ecosystem-rc1 — 18 September 2026
 
 | Component | Version | Commit |
