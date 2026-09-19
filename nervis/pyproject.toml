@@ -1,6 +1,6 @@
 [project]
 name = "nervis"
-version = "0.34.55"
+version = "0.34.56"
 description = "Ecosystem control plane — dashboard, event hub, diagnostics"
 requires-python = ">=3.11"
 dependencies = [

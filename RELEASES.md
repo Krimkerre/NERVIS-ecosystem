@@ -850,7 +850,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.55
+## NERVIS — 0.34.56
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **A fresh installation starts with the owner's voices:** JARVIS (three engines) and Miku (two),
+  with "JARVIS S2.1 PRO" chosen. Added once, only when there are no voices yet, so an installation
+  with its own keeps them and one whose voices were all deleted isn't refilled. Nothing speaks until
+  a Fish Audio key is entered.
+
+### 0.34.55
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

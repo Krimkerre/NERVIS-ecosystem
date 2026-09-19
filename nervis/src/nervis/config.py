@@ -33,6 +33,9 @@ class Settings(BaseSettings):
 
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
+    # Whether a fresh installation starts with the owner's voices (`voice.seed_default_profiles`).
+    # On by default; the test suite turns it off so each test starts from an empty voice list.
+    seed_default_voices: bool = True
 
     database_path: str = "nervis.db"
 

@@ -322,6 +322,46 @@ def save_profile(database: Database, profile: VoiceProfile) -> VoiceProfile:
     return profile
 
 
+#: The owner's voices, a fresh installation's starting set (19 September 2026, owner's request:
+#: "ship the current voices as standard"). Fish reference ids are public model ids, not secrets —
+#: nothing speaks until a Fish Audio key is entered, and the key never ships. Fixed ids, so a
+#: second machine's list names the same voices the same way.
+DEFAULT_PROFILES = (
+    VoiceProfile(
+        "vp_default_jarvis", "JARVIS", "14129c3e320149449d6bada6862f7338", "s2.1-pro-free"
+    ),
+    VoiceProfile("vp_default_jarvis_s1", "JARVIS S1", "14129c3e320149449d6bada6862f7338", "s1"),
+    VoiceProfile(
+        "vp_default_jarvis_pro", "JARVIS S2.1 PRO", "14129c3e320149449d6bada6862f7338", "s2.1-pro"
+    ),
+    VoiceProfile("vp_default_miku", "Miku", "f88f4a28bb1d4cd7b34bc191b2202eb5", "s1"),
+    VoiceProfile(
+        "vp_default_miku_pro", "Miku S2.1 PRO", "f88f4a28bb1d4cd7b34bc191b2202eb5", "s2.1-pro"
+    ),
+)
+DEFAULT_SELECTED = "vp_default_jarvis_pro"
+#: Set once the starting set has been offered, so deleting every voice doesn't bring them back.
+SEEDED_SETTING = "voice.defaults_seeded"
+
+
+def seed_default_profiles(database: Database) -> bool:
+    """Give an installation with no voices the owner's set, once. True if it added them.
+
+    **Once, and only into an empty list.** A machine that already has voices keeps exactly its own;
+    one whose owner deleted them all is not refilled on the next start.
+    """
+    if read_setting(database, SEEDED_SETTING):
+        return False
+    added = not profiles(database)
+    if added:
+        for profile in DEFAULT_PROFILES:
+            save_profile(database, profile)
+        if not read_setting(database, SELECTED_SETTING):
+            write_setting(database, SELECTED_SETTING, DEFAULT_SELECTED)
+    write_setting(database, SEEDED_SETTING, "1")
+    return added
+
+
 def delete_profile(database: Database, profile_id: str) -> bool:
     with database.connection as connection:
         deleted = connection.execute(

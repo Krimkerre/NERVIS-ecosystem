@@ -890,6 +890,11 @@ described, because the page kept its own copy of the list.
 
 ## Voice
 
+A fresh installation (since NERVIS 0.34.56, 19 September 2026) starts with the owner's voices:
+JARVIS in three Fish engines and Miku in two, with "JARVIS S2.1 PRO" chosen. They're added once,
+only when no voice exists yet, so a machine with its own voices keeps them and deleting them all
+doesn't bring them back. Nothing speaks until a Fish Audio key is entered in Settings → Voice.
+
 Speech is off unless configured. A privacy gate refuses a cloud voice for a
 reply that was produced locally — a local answer spoken by a hosted voice would
 send the text off the machine after the point of routing it locally.

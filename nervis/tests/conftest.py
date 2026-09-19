@@ -106,6 +106,8 @@ def isolated_config_home(tmp_path: Path, monkeypatch: Any) -> Iterator[Path]:
     for variable in DEAD_ADDRESSES:
         monkeypatch.setenv(variable, "http://127.0.0.1:9")
     monkeypatch.setenv("NERVIS_PORT", str(TEST_PORT))
+    # Each test starts with no voices; `test_voice_defaults.py` turns the owner's set back on.
+    monkeypatch.setenv("NERVIS_SEED_DEFAULT_VOICES", "0")
     yield home
 
 

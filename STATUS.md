@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4519 tests, no network, no live service
+.venv/bin/pytest                      # part of 4522 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 567 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1809 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1812 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4519 passing across the four, conformance `PASS`.
+Expected: all clean, 4522 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,22 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## The owner's voices ship as the starting set — 2026-09-19 (NERVIS 0.34.56)
+
+The laptop's Codex re-test came back **proven** on RAVIS 0.30.13 (the evening's last Codex entry below), and
+the owner asked next for their voices to be installed by default: a fresh NERVIS had none. NERVIS now seeds
+its five voice profiles from the Mac — JARVIS on `s2.1-pro-free`, `s1` and `s2.1-pro`, Miku on `s1` and
+`s2.1-pro` (Fish reference ids, public; no key ships) — with "JARVIS S2.1 PRO" selected, under fixed ids
+(`voice.DEFAULT_PROFILES`, `seed_default_profiles`, called at startup behind `seed_default_voices`). Once and
+only into an empty list (`voice.defaults_seeded`), so the Mac's own profiles are untouched and a deleted set
+is not refilled. The suite turns the seed off so each test starts empty (`NERVIS_SEED_DEFAULT_VOICES=0`).
+**Checked:** `nervis/tests/test_voice_defaults.py`, 3 tests (the keep-existing one fails if the seed
+overwrites); NERVIS 1,812 on the Mac; the voice tests on Linux. **Asked the same hour, not yet decided:**
+Clarvis's voice set from NERVIS through the Bridge. §6.7 forbids NERVIS writing a Clarvis setting, so the
+proposal is the other direction: Clarvis may follow NERVIS's voice, asking NERVIS which is selected and
+having NERVIS speak, with its own setting as the fallback. Clarvis's own shipped defaults wait on that
+decision.
 
 ## Codex on Linux: the file rules as one folder — 2026-09-19 (RAVIS 0.30.7)
 
