@@ -95,7 +95,7 @@ without doing any of it.
 
 | | Packages from | Also installs | Desktop |
 |---|---|---|---|
-| macOS | Homebrew | code-server, Ollama | builds `NERVIS.app` (the menu bar app) and copies it to Applications |
+| macOS | Homebrew | Ollama; code-server from its own standalone release into `~/.local` (Homebrew's formula is deprecated, stops at 4.112.0 and goes away in April 2027) | builds `NERVIS.app` (the menu bar app) and copies it to Applications |
 | Ubuntu, Debian and relatives | apt | code-server and Ollama through their official installers | an applications-menu entry and the tray icon |
 | Fedora and relatives | dnf | the same | the same |
 | Arch and relatives | pacman | the same | the same |

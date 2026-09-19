@@ -4,7 +4,7 @@ NERVIS is the control plane: the dashboard, the diagnostics centre, the general
 chat, and the thing that watches the other services. It holds no models of its
 own and runs no benchmarks — it reads what the others publish and presents it.
 
-**What NERVIS can do, in short** (as of 19 September 2026, NERVIS 0.34.63). Each has its own
+**What NERVIS can do, in short** (as of 20 September 2026, NERVIS 0.34.64). Each has its own
 section in these notes:
 
 - **Chat** with any model RAVIS can reach — local ones in LM Studio and Ollama, hosted ones with a
@@ -326,8 +326,12 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–19 September 2026** (now NERVIS 0.34.63, RAVIS 0.30.15, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–20 September 2026** (now NERVIS 0.34.64, RAVIS 0.30.15, SIRVIS 0.19.12, Clarvis
 0.17.24). Each has its own section in these notes.
+
+- **A fresh Mac install now gets the current code-server** (20 September), from code-server's own
+  standalone release rather than Homebrew's, which stopped at 4.112.0 and goes away in April 2027.
+  One already installed is left alone.
 
 - **Linux, and the owner's ThinkPad.** One installer, `./install.sh`, for macOS, Linux and Windows
   through WSL 2; NERVIS in the Linux tray; running on the ThinkPad with CachyOS. Codex works there
@@ -1104,7 +1108,8 @@ a local model on that machine, and a SIRVIS benchmark.
 Since 18 September 2026 one script installs NERVIS on every system above: `./install.sh`, run from a checkout of NERVIS-ecosystem. It works out which
 system it is on (macOS with Homebrew; Linux with apt, dnf or pacman — Ubuntu, Debian, Fedora, Arch
 and their relatives), installs the system packages, creates the services' Python environment,
-installs Ollama with NERVIS's embedding model and code-server, builds Clarvis and installs it into
+installs Ollama with NERVIS's embedding model and code-server — on a Mac and on Arch the standalone
+release into `~/.local`, a `.deb` or `.rpm` elsewhere — builds Clarvis and installs it into
 code-server, connects Clarvis to RAVIS and NERVIS with its theme, and adds NERVIS to the desktop.
 It asks you to choose the editor's (code-server's) password — Enter makes one up and shows it at
 the end, a re-run offers to change it, and it's kept in the checkout's `.run/code-server.password`;
@@ -1112,7 +1117,9 @@ a `~/.config/code-server/config.yaml` of your own wins instead. It starts nothin
 root; it asks for the system password only to install system packages. `./install.sh --help` lists its options, and
 `--dry-run` shows the plan without doing any of it. Run again, it skips whatever is already there.
 It works from a git checkout, a ZIP download or a copied folder; without a git checkout it fetches
-Clarvis from its public GitHub repository. The 3 GB picture model for the PDF layout check is not
+Clarvis from its public GitHub repository. It never replaces what is already installed: a Mac whose
+code-server came from Homebrew keeps it, and is told at the end that Homebrew's stopped at 4.112.0
+and goes away in April 2027, with the two commands that move it to the current release. The 3 GB picture model for the PDF layout check is not
 downloaded unless asked for (`--with-pdf-model`). It needs Python 3.11 or newer, so it refuses
 Ubuntu 22.04 and Debian 11 (Python 3.10) with a sentence saying so.
 

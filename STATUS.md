@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4551 tests, no network, no live service
+.venv/bin/pytest                      # part of 4558 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1826 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1833 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4551 passing across the four, conformance `PASS`.
+Expected: all clean, 4558 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,27 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## A Mac's code-server comes from its own release, not Homebrew — 2026-09-20 (NERVIS 0.34.64)
+
+Noticed while the docs were swept (the entry below, "found, not fixed"), then started by the owner from its
+task card. `brew info code-server`: *"stable 4.112.0 … Deprecated because it uses non-FOSS @github/copilot
+since 4.113.0! It will be disabled on 2027-04-11."* `install.sh` installed that formula on a Mac, so a fresh
+Mac got an editor two dozen releases behind the 4.137.0 the owner's Mac runs and the 4.135.0 Stage 9's matrix
+graded, while Linux already took code-server's own script. **Fixed:** macOS now takes the standalone release
+through that script (`--method standalone`, as Arch does — left to itself the script picks Homebrew on a Mac),
+which lands in `~/.local/bin`, where `tools/run.py`'s `code_server_binary` already looks. Nothing already installed
+is replaced: a Homebrew code-server keeps working and is named in the closing "later" lines with
+`brew uninstall` and the standalone command. The systemd hint is now only for a `.deb` or `.rpm`, and
+`--dry-run` no longer runs the post-install check, which ended every dry run on a machine without
+code-server in "code-server isn't where it said". **Checked:** `nervis/tests/test_install_code_server.py`
+(7 tests) lifts the step out of the installer and runs it with stand-ins for its helpers — macOS takes
+standalone and never a package, Arch still does, Debian and Fedora still take the package with the systemd
+hint, an installed one is left alone with Homebrew's named, and a dry run plans without failing; putting
+Homebrew back in a scratch copy fails the two macOS ones. The real script's `--dry-run` was run as an ordinary
+user in a Debian 12 container (the `.deb` plan, and it now reaches past code-server), and the tests also ran on
+the Linux bench. Arch's container couldn't install sudo under emulation, so Arch rests on the lifted-step test.
+NERVIS 1,833. **Not done live:** no code-server was installed or replaced on the owner's Mac.
 
 ## Every document swept, after chat didn't know it runs on Linux — 2026-09-19 (NERVIS 0.34.63)
 

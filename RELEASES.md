@@ -859,7 +859,20 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.63
+## NERVIS — 0.34.64
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **A fresh Mac install gets the current code-server.** `./install.sh` took it from Homebrew, whose
+  formula is deprecated, stopped at 4.112.0 and is disabled on 11 April 2027; it now uses
+  code-server's own standalone release into `~/.local`, as it already did on Arch — the same
+  install the owner's Mac runs and Clarvis is graded against. A code-server already installed is
+  left alone; one that came from Homebrew is named at the end with the commands that move it.
+  Linux is unchanged (a `.deb` or `.rpm`, standalone on Arch). `--dry-run` no longer ends by
+  looking for the code-server it only pretended to install.
+
+### 0.34.63
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

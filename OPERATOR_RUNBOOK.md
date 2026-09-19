@@ -227,10 +227,14 @@ pre-existing chat session preserved verbatim. Full detail in
 
 ### Upgrading code-server
 
-These steps are the Mac's. Homebrew's `code-server` formula is deprecated and stops at 4.112.0, so
-on the owner's Mac code-server is the standalone install (a fresh `./install.sh` on a Mac still
-installs the Homebrew formula): each version in `~/.local/lib/code-server-<version>`, with
-`~/.local/bin/code-server` pointing at the one in use. To move to a new release:
+These steps are the Mac's. Homebrew's `code-server` formula is deprecated and stops at 4.112.0 —
+it uses a non-FOSS dependency from 4.113.0, and Homebrew disables the formula on 11 April 2027 — so
+code-server on a Mac is the standalone install: each version in `~/.local/lib/code-server-<version>`,
+with `~/.local/bin/code-server` pointing at the one in use. **Since NERVIS 0.34.64 (20 September
+2026) `./install.sh` installs that standalone release on a Mac too**, through code-server's own
+script with `--method standalone`, as it already did on Arch; a code-server already installed is
+left alone, and one that came from Homebrew is named at the end with the two commands that move it.
+To move to a new release:
 
 1. Download `code-server-<version>-macos-arm64.tar.gz` from the release on GitHub and compare its
    SHA-256 with the digest GitHub shows for that file.

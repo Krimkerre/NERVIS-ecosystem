@@ -324,28 +324,43 @@ if [ "$WANT_CODE_SERVER" = 0 ]; then
   skipped "code-server: skipped (--no-code-server), and with it Clarvis"
 elif have code-server; then
   good "code-server: already installed ($(cs --version 2>/dev/null | grep -E '^[0-9]' | head -1 | cut -d' ' -f1))"
-elif [ "$OS" = macos ]; then
-  install_packages "code-server" code-server
+  # **Left where it is, and named.** This installer never replaces what is already installed. But
+  # Homebrew's code-server is deprecated and stopped at 4.112.0 — it uses a non-FOSS dependency
+  # from 4.113.0 on, and Homebrew disables the formula on 11 April 2027 — so a Mac that got it that
+  # way is on an old editor, and on a different one from the release Clarvis is graded against.
+  if [ "$OS" = macos ] && have brew && brew list --versions code-server >/dev/null 2>&1; then
+    later "code-server came from Homebrew, which stopped at 4.112.0 and drops it on 11 April 2027. To move to the current release: brew uninstall code-server && curl -fsSL https://code-server.dev/install.sh | sh -s -- --method standalone"
+  fi
 else
   say "code-server: installing with its official script (code-server.dev/install.sh)…"
-  # On Arch the script's own choice is to build code-server from the AUR, which needs Arch's build
-  # tools and several minutes; its standalone method unpacks the release into ~/.local instead,
-  # with no build and no sudo. Everywhere else its choice is a .deb or .rpm, the better one there.
+  # **The standalone release on macOS and on Arch, the script's own choice elsewhere.** Left to
+  # itself the script installs Homebrew's formula on a Mac — deprecated, stopped at 4.112.0 and
+  # disabled on 11 April 2027 (see above) — and on Arch builds from the AUR, which needs Arch's
+  # build tools and several minutes. Standalone unpacks the current release into ~/.local instead,
+  # with no build and no sudo, which is what the owner's Mac runs. Everywhere else the script picks
+  # a .deb or .rpm, the better one there.
   method=()
-  [ "$PM" = pacman ] && method=(-s -- --method standalone)
+  { [ "$OS" = macos ] || [ "$PM" = pacman ]; } && method=(-s -- --method standalone)
   if [ "$DRY_RUN" = 1 ]; then run sh -c "curl -fsSL https://code-server.dev/install.sh | sh ${method[*]}"
   else curl -fsSL https://code-server.dev/install.sh | sh "${method[@]}"; fi
-  # The standalone install (Arch) lands in ~/.local/bin, which not every shell puts on PATH. The
-  # launcher looks there too, so NERVIS finds it either way; a person typing `code-server` may not.
-  if ! have code-server; then
-    export PATH="$HOME/.local/bin:$PATH"
-    later "code-server is in ~/.local/bin, which your shell's PATH doesn't include; NERVIS finds it anyway"
+  # The standalone install (macOS and Arch) lands in ~/.local/bin, which not every shell puts on
+  # PATH. The launcher looks there too, so NERVIS finds it either way; a person typing
+  # `code-server` may not. Nothing was installed under --dry-run, so nothing is looked for: the
+  # plan would otherwise end in "isn't where it said" on every machine without code-server.
+  if [ "$DRY_RUN" = 0 ]; then
+    if ! have code-server; then
+      export PATH="$HOME/.local/bin:$PATH"
+      later "code-server is in ~/.local/bin, which your shell's PATH doesn't include; NERVIS finds it anyway"
+    fi
+    have code-server || fail "code-server's installer finished, but code-server isn't where it said."
+    good "code-server: installed"
   fi
-  have code-server || fail "code-server's installer finished, but code-server isn't where it said."
-  good "code-server: installed"
   # A .deb or .rpm install suggests a systemd service. NERVIS starts and stops code-server itself,
-  # with the stack, so that service would be a second copy fighting over the same port.
-  [ "$PM" = pacman ] || later "code-server's installer mentions 'systemctl enable code-server' — not needed: NERVIS starts it"
+  # with the stack, so that service would be a second copy fighting over the same port. Only where
+  # the script installs a package: not on a Mac, and not on Arch's standalone.
+  if [ "$OS" != macos ] && [ "$PM" != pacman ]; then
+    later "code-server's installer mentions 'systemctl enable code-server' — not needed: NERVIS starts it"
+  fi
 fi
 
 # code-server asks for a password in the browser. With a config of your own
