@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4543 tests, no network, no live service
+.venv/bin/pytest                      # part of 4545 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -40,14 +40,14 @@ The other three packages are checked the same way, from their own directories:
 
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
-cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 578 tests
+cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
 cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1822 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4543 passing across the four, conformance `PASS`.
+Expected: all clean, 4545 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,25 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## A load nobody took is given back — 2026-09-19 (SIRVIS 0.19.12)
+
+Found while counting the limit (the entry below, "found, not fixed"), then started by the owner from its task card.
+A load is shielded so that one request giving up doesn't cancel it for another, so a load whose only waiter
+left still landed — held by nobody, in memory for good, and a stop only waited on loads still under way, so it
+left it too. `ResourceManager` now counts the acquires waiting on each load (`_waiters`: from joining it in
+`_share_or_start` until the holding exists in `acquire`, or until giving up in `_ensure_loaded`), and whichever
+comes last — the load landing (`_forget_load`) or the last waiter leaving (`_stop_waiting`) — gives the model
+back (`_give_back_if_abandoned`) when it was this manager's own load, nobody waits, nobody holds it and no unload
+has started. It is marked mid-unload at that instant, so a new acquire waits for the unload rather than adopting
+an instance on its way out. A stop waits on a give-back under way instead of unloading a second time, and names
+one that failed. `_ensure_loaded`'s cleanup no longer awaits the lock: an await a second cancellation
+interrupted would leave its acquire counted as a waiter for good. **Checked:** two tests in
+`sirvis/tests/test_release_on_stop.py` — the abandoned load unloaded once, a stop after it asking nothing more;
+two acquires on one load, the first giving up, the second keeping its model — each safeguard broken in a copy
+fails a test (no give-back: the first; ignoring waiters: the second and 16 others, ordinary loads among them;
+a stop unaware of give-backs: the stop-mid-load test); the lifecycle tests 15 times over with no failure;
+SIRVIS 580 on the Mac and on the Linux bench.
 
 ## The limit counts what others loaded here — 2026-09-19 (SIRVIS 0.19.11, NERVIS 0.34.60)
 

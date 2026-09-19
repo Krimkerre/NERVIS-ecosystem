@@ -399,3 +399,55 @@ async def test_the_only_waiter_giving_up_does_not_strand_the_capacity() -> None:
 
     lease = await manager.acquire(owner="menubar", model_key="another-model")
     assert lease.model_keys == ("another-model",)
+
+
+async def test_a_load_nobody_took_is_given_back_once_it_lands() -> None:
+    """The model behind the test above (19 September 2026). The capacity was freed, but the
+    load itself landed held by nobody and stayed in memory for good — and after it landed a
+    stop left it there too, since the stop only waits on loads still under way."""
+    runtime = FakeRuntime()
+    runtime.load_gate = asyncio.Event()
+    manager = ResourceManager(runtime, max_loaded=1)
+
+    waiting = asyncio.create_task(manager.acquire(owner="dashboard", model_key="old-model"))
+    await runtime.load_started.wait()
+    waiting.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await waiting
+    runtime.load_gate.set()
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    assert runtime.loads == runtime.unloads == ["old-model"]
+    assert await runtime.list_loaded_models() == []
+    report = await manager.release_on_stop(budget_seconds=1.0)
+    assert runtime.unloads == ["old-model"], "given back once, not again by the stop"
+    assert report.not_unloaded == ()
+
+
+async def test_an_acquire_that_joined_the_load_keeps_its_model() -> None:
+    """The race the give-back must not lose: two acquires share one load, the first gives up,
+    and the load lands. The second takes its holding only after its wait returns, so a model
+    given back the moment it landed unheld would be pulled from under it."""
+    runtime = FakeRuntime()
+    runtime.load_gate = asyncio.Event()
+    manager = ResourceManager(runtime)
+
+    first = asyncio.create_task(manager.acquire(owner="dashboard", model_key="shared"))
+    await runtime.load_started.wait()
+    second = asyncio.create_task(manager.acquire(owner="ravis", model_key="shared"))
+    for _ in range(5):
+        await asyncio.sleep(0)  # the second joins the load under way
+    first.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await first
+    runtime.load_gate.set()
+    lease = await second
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    assert runtime.loads == ["shared"] and runtime.unloads == []
+    held = manager.residency()["holdings"]
+    assert [(h["model_key"], h["reference_count"]) for h in held] == [("shared", 1)]
+    await manager.release(lease.session_id)
+    assert runtime.unloads == ["shared"], "and it is still SIRVIS's to unload"

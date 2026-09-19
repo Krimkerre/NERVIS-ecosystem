@@ -196,6 +196,12 @@ class ResourceManager:
         # counting it would block the ceiling for good under a false name — the choice
         # `_unload_all` makes for a failed unload, for the same reason.
         self._loaded_here: set[str] = set()
+        # Acquires waiting on each load under way, from the moment they join it until they hold
+        # the model or give up. A load that lands with none left is nobody's, and is given back
+        # (`_give_back_if_abandoned`) — but not a moment before its last waiter has its holding.
+        self._waiters: dict[str, int] = {}
+        # Those give-backs under way, for a stop to wait on rather than unload a second time.
+        self._giving_back: dict[str, asyncio.Task[bool]] = {}
         self._holdings: dict[str, Holding] = {}
         self._leases: dict[str, Lease] = {}
         self._loading: dict[str, asyncio.Task[tuple[LoadedModel, bool]]] = {}
@@ -225,28 +231,34 @@ class ResourceManager:
         await self._expire_stale()
         await self._survey(model_key)
 
-        loaded, owned = await self._ensure_loaded(model_key, configuration, policy)
-        async with self._lock:
-            holding = self._holdings.setdefault(
-                model_key,
-                Holding(model_key=model_key, loaded=loaded, acquired_at=self._clock(),
-                        owned=owned),
-            )
-            holding.references[session] = holding.references.get(session, 0) + 1
-            previous = self._leases.get(session)
-            keys = tuple(sorted({*(previous.model_keys if previous else ()), model_key}))
-            seconds = lease_seconds or (
-                previous.lease_seconds if previous else self._default_lease
-            )
-            lease = Lease(
-                session_id=session,
-                owner=owner,
-                model_keys=keys,
-                expires_at=self._clock() + seconds,
-                lease_seconds=seconds,
-            )
-            self._leases[session] = lease
-            return lease
+        loaded, owned, waited = await self._ensure_loaded(model_key, configuration, policy)
+        try:
+            async with self._lock:
+                holding = self._holdings.setdefault(
+                    model_key,
+                    Holding(model_key=model_key, loaded=loaded, acquired_at=self._clock(),
+                            owned=owned),
+                )
+                holding.references[session] = holding.references.get(session, 0) + 1
+                previous = self._leases.get(session)
+                keys = tuple(sorted({*(previous.model_keys if previous else ()), model_key}))
+                seconds = lease_seconds or (
+                    previous.lease_seconds if previous else self._default_lease
+                )
+                lease = Lease(
+                    session_id=session,
+                    owner=owner,
+                    model_keys=keys,
+                    expires_at=self._clock() + seconds,
+                    lease_seconds=seconds,
+                )
+                self._leases[session] = lease
+                return lease
+        finally:
+            # After the holding, never before: a load that has landed is given back once
+            # nobody waits on it, and this acquire waited until the line above.
+            if waited:
+                self._stop_waiting(model_key)
 
     async def _survey(self, model_key: str) -> None:
         """Look, before a model is counted or loaded, at where it runs and what else is in memory.
@@ -394,6 +406,7 @@ class ResourceManager:
         async with self._lock:
             sessions, ours, adopted = self._drop_every_lease()
             loading = dict(self._loading)
+            giving_back = set(self._giving_back)
         # All at once rather than one after another: one unload the runtime
         # never answers must not stop the rest being tried inside the same
         # budget. One job per model, so what one confirmed survives another
@@ -407,7 +420,7 @@ class ResourceManager:
             sessions=sessions,
             unloaded=tuple(unloaded),
             left_loaded=tuple(adopted),
-            not_unloaded=tuple(sorted({*ours, *landed} - set(unloaded))),
+            not_unloaded=tuple(sorted({*ours, *landed, *giving_back} - set(unloaded))),
             still_loading=tuple(sorted(key for key, task in loading.items() if not task.done())),
             finished=finished,
         )
@@ -519,6 +532,10 @@ class ResourceManager:
                 # unloading is not ours to do (§11.2's "unload if owned").
                 return False
             answered = self._unloading[model_key] = asyncio.Event()
+        return await self._finish_unload(model_key, answered)
+
+    async def _finish_unload(self, model_key: str, answered: asyncio.Event) -> bool:
+        """Ask the runtime to unload a model already marked mid-unload, then clear the mark."""
         try:
             await self._runtime.unload(model_key)
             self._loaded_here.discard(model_key)
@@ -573,39 +590,62 @@ class ResourceManager:
 
         Only called once the service has stopped taking requests and the queue
         is cancelled, so nothing is left waiting to record these as holdings.
+
+        **Since 19 September 2026 such a load gives itself back** the moment it lands with no
+        waiter left (`_give_back_if_abandoned`), stop or not. So this waits on that unload where
+        one has started — every give-back under way, landed in this stop or before it — and
+        unloads only a landed load nothing has given back yet: one unload per model, reported
+        once, whichever of the two gets there first.
         """
-        if not loading:
+        if not loading and not self._giving_back:
             return []
-        await asyncio.wait(loading.values())
+        if loading:
+            await asyncio.wait(loading.values())
         unloaded: list[str] = []
+        for model_key, giving in list(self._giving_back.items()):
+            # Shielded: a stop out of budget stops waiting, not the unload.
+            if await asyncio.shield(giving):
+                unloaded.append(model_key)
         for model_key, task in loading.items():
-            if _landed_here(task) and model_key not in self._holdings:
+            if not _landed_here(task) or model_key in self._holdings or model_key in unloaded:
+                continue
+            if model_key in self._loaded_here:
                 unloaded += await self._unload_all([model_key])
+            else:
+                unloaded.append(model_key)  # given back already, between the stop's look and now
         return unloaded
 
     async def _ensure_loaded(
         self, model_key: str, configuration: dict[str, Any] | None, policy: ConflictPolicy
-    ) -> tuple[LoadedModel, bool]:
+    ) -> tuple[LoadedModel, bool, bool]:
         """Get hold of a model, and say whether this manager owns the instance.
 
-        Returns the instance and whether it was loaded here. Both halves matter:
-        the caller needs the effective configuration, and the manager needs to
-        know at release time whether unloading is its business.
+        Returns the instance, whether it was loaded here, and whether this acquire waited on a
+        load. The first two matter because the caller needs the effective configuration and the
+        manager needs to know at release time whether unloading is its business. The third
+        says whether the caller must `_stop_waiting` once its holding exists.
         """
         in_flight = await self._holding_or_load(model_key, configuration, policy)
         if isinstance(in_flight, Holding):
-            return in_flight.loaded, in_flight.owned
+            return in_flight.loaded, in_flight.owned, False
 
         try:
             # Shielded so a caller that gives up — a cancelled request, a client
             # that disconnected — does not cancel a load another caller is also
             # waiting on. Without this, one abandoned acquire takes the other
             # down with it.
-            return await asyncio.shield(in_flight)
+            loaded, owned = await asyncio.shield(in_flight)
+        except BaseException:
+            # Gave up, or the load failed: this acquire will take nothing.
+            self._stop_waiting(model_key)
+            raise
         finally:
-            async with self._lock:
-                if self._loading.get(model_key) is in_flight and in_flight.done():
-                    del self._loading[model_key]
+            # Without the lock, and deliberately: no await here, so nothing else runs in
+            # between on the event loop — and an await that a second cancellation interrupted
+            # would skip the return below, leaving this acquire counted as a waiter for good.
+            if self._loading.get(model_key) is in_flight and in_flight.done():
+                del self._loading[model_key]
+        return loaded, owned, True
 
     async def _holding_or_load(
         self, model_key: str, configuration: dict[str, Any] | None, policy: ConflictPolicy
@@ -673,6 +713,7 @@ class ResourceManager:
             # model was refused as at capacity until this same key was asked for
             # again (base review, 17 September 2026, finding 8).
             in_flight.add_done_callback(partial(self._load_finished, model_key))
+        self._waiters[model_key] = self._waiters.get(model_key, 0) + 1
         return in_flight
 
     def _load_finished(self, model_key: str, task: asyncio.Task[Any]) -> None:
@@ -689,11 +730,56 @@ class ResourceManager:
             self._loading.pop(model_key, None)
 
     async def _forget_load(self, model_key: str) -> None:
-        """Drop the pending-load entry once its task is done, under the lock."""
+        """Drop the pending-load entry once its task is done, under the lock, and give the model
+        back if every acquire waiting on it has gone."""
         async with self._lock:
             in_flight = self._loading.get(model_key)
             if in_flight is not None and in_flight.done():
                 del self._loading[model_key]
+            self._give_back_if_abandoned(model_key)
+
+    def _stop_waiting(self, model_key: str) -> None:
+        """One acquire is done waiting on `model_key`'s load: it holds the model or gave up.
+
+        No await, so atomic on the event loop. The last to leave gives the model back if the
+        load has landed and nobody took it; a load still under way is left to `_forget_load`.
+        """
+        remaining = self._waiters.get(model_key, 0) - 1
+        if remaining > 0:
+            self._waiters[model_key] = remaining
+            return
+        self._waiters.pop(model_key, None)
+        self._give_back_if_abandoned(model_key)
+
+    def _give_back_if_abandoned(self, model_key: str) -> None:
+        """Unload a model this manager loaded that no acquire took (19 September 2026).
+
+        The case: a request gives up mid-load — a cancelled benchmark, a closed dashboard tab.
+        The load is shielded so that one leaving does not cancel it for others, and it lands
+        anyway, held by nobody. It used to stay in memory for good, and a stop left it too.
+
+        Only once all of these hold, checked with no await in between: the load has landed
+        (nothing for this key is still loading), it was this manager's own (`_loaded_here`), no
+        acquire is still waiting on it (`_waiters` — one that joined the same load takes its
+        holding only after `_ensure_loaded` returns, so the landing alone is not enough), nobody
+        holds it, and no unload of it has started. The model is marked mid-unload right here,
+        before the runtime is asked, so an acquire arriving meanwhile waits for the unload
+        (`_holding_or_load`) instead of adopting an instance on its way out.
+        """
+        pending = self._loading.get(model_key)
+        if (self._waiters.get(model_key) or model_key in self._holdings
+                or model_key in self._unloading or model_key not in self._loaded_here
+                or (pending is not None and not pending.done())):
+            return
+        answered = self._unloading[model_key] = asyncio.Event()
+        giving = asyncio.get_running_loop().create_task(self._finish_unload(model_key, answered))
+        self._giving_back[model_key] = giving
+        giving.add_done_callback(partial(self._given_back, model_key))
+
+    def _given_back(self, model_key: str, task: asyncio.Task[bool]) -> None:
+        """Forget a finished give-back — this one, not a later one for the same model."""
+        if self._giving_back.get(model_key) is task:
+            del self._giving_back[model_key]
 
     async def _acquire_instance(
         self, model_key: str, configuration: dict[str, Any] | None

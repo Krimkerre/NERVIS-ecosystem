@@ -3560,7 +3560,16 @@ ceiling.
 
 ---
 
-## SIRVIS — 0.19.11
+## SIRVIS — 0.19.12
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
+
+- **A load nobody took is unloaded again.** When whoever asked for a model gives up while it is
+  still loading — a stopped benchmark, a closed dashboard tab — the load finishes anyway, and the
+  model used to stay in memory held by nobody, even after SIRVIS stopped. SIRVIS now unloads it as
+  soon as it lands, unless another request is waiting on the same load, which keeps it.
+
+### 0.19.11
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `sirvis serve` · **Runs on:** macOS, Linux
 

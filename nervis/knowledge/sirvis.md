@@ -148,7 +148,9 @@ screen marks it "LM Link". Since SIRVIS 0.19.11 the limit counts every model in 
 memory, whoever loaded it — by hand in LM Studio, by LM Studio itself, or by your other machine
 through LM Link — so the Mac's limit sees what the ThinkPad loads on it. Asking SIRVIS for one of
 those takes no extra place. A refusal says "also in memory, loaded outside SIRVIS" and names them;
-unload them in LM Studio to free a place. A linked model counts as local for private and
+unload them in LM Studio to free a place. Since SIRVIS 0.19.12 a model whose requester gave up
+while it was still loading (a stopped benchmark, a closed tab) is unloaded again as soon as it
+lands, instead of staying in memory held by nobody. A linked model counts as local for private and
 local-only requests: the owner decided on 19 September 2026 that both laptops are theirs.
 
 ## When LM Studio or Hugging Face is down

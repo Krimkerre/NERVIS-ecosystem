@@ -576,6 +576,13 @@ Use per-runtime locking, bounded queues, capacity reservations, startup timeouts
 lease heartbeats, idempotent operations and cleanup after crash. Ownership is explicit so
 RAVIS and NERVIS never fight over lifecycle.
 
+**A load nobody took is given back, since 0.19.12 (19 September 2026).** A load is shielded so
+that one waiter giving up does not cancel it for another, which meant a load whose only waiter
+left landed held by nobody and stayed loaded, a stop included. The manager counts each load's
+waiters from joining it until their holding exists, and gives the model back the moment it has
+landed with none left — its own load, unheld, no unload started — marking it mid-unload at once so
+a new acquire waits rather than adopts it. A stop waits on such an unload instead of repeating it.
+
 ---
 
 # 10. Runtime Sets
