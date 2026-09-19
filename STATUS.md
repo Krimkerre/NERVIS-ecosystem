@@ -20286,6 +20286,16 @@ of a provider budget — any live request risks a paid call if the code were wro
 proven by the tests, which run the real policy and engine. The one notification the test left is
 in NERVIS's store.
 
+**The provider refusal, seen live on 19 September 2026 (09:43 CEST), with the owner's go-ahead and at
+no cost:** a hard 30-day budget of $0.0001 on Anthropic, set through the Spending screen, read
+`EXHAUSTED` at once on the $0.58 already estimated in the window; a chat request naming
+`claude-haiku-4-5-20251001` (5 tokens) was refused with HTTP 422 `no_route`, the model excluded because
+"anthropic's monthly budget is spent and marked hard, so anthropic's paid models are refused until it
+has room again (§14)". Anthropic's priced-call count stayed at 321, so nothing was sent. NERVIS filed
+"RAVIS: anthropic's monthly budget is spent" as a warning at the same moment. The budget was removed
+through the page and the notification dismissed. (The first save failed with `CONTROL_TOKEN_REQUIRED`
+from a page opened before a restart — the refusal said to reload, and a reload fixed it.)
+
 24 new RAVIS tests (the rules, each slice's arithmetic, currency, windows, the request band, the
 provider refusal and ranking, and the API), each of four deliberate breakages caught; 2 new NERVIS
 notification tests; the control-token list gained the new write. RAVIS 2,064 and NERVIS 1,779
