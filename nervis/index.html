@@ -13239,7 +13239,11 @@ async function ravisCredentials(){
 
  const items=payload.items||[];
  const loose=items.filter(i=>i.configured&&!i.file_is_private);
- const label={file:'stored by RAVIS',keychain:'macOS Keychain',environment:'environment variable',absent:'not set'};
+ /* `keychain` is RAVIS's one name for the platform's keyring, on every platform (it is on the
+    wire, so it stays). Named "macOS Keychain" here until 19 September 2026, which the owner's
+    Linux laptop showed for a key kept in the Secret Service; "keyring" is the owner's word for
+    it. The card below names both. */
+ const label={file:'stored by RAVIS',keychain:'keyring',environment:'environment variable',absent:'not set'};
 
  /* The provider's own name for itself, from RAVIS, falling back to the id.
     The id stays `google` because it is a wire value — it keys the credential

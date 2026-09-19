@@ -76,6 +76,12 @@ class GenericOpenAiAdapter:
         # about their deployment that RAVIS cannot observe.
         self._configured = configured_capabilities or {}
 
+    @property
+    def has_credential(self) -> bool:
+        """False only for a hosted service with no key yet (`Upstream.awaiting_key`); a local
+        runtime needs none. The same question `AnthropicAdapter.has_credential` answers."""
+        return not self._upstream.awaiting_key
+
     async def health(self) -> ProviderHealth:
         """Reachability, measured by the cheapest call the protocol offers."""
         if not self._upstream.is_configured:

@@ -43,7 +43,6 @@ def _nervis_environment(
         "nervis_ravis_credential", "benchmark_token", "admin_token", "ravis_admin_credential"
     ):
         monkeypatch.setattr(run, minted, lambda: "(not a credential)")
-    monkeypatch.setattr(run, "_stored_credential_names", set)
     monkeypatch.setattr(run, "_ollama", list)
     monkeypatch.setattr(run, "_code_server", list)
     monkeypatch.delenv("NERVIS_WORKSPACE_PATH", raising=False)
@@ -85,7 +84,6 @@ def test_ravis_is_told_the_codex_skills_folder_inside_the_same_workspace(
         "nervis_ravis_credential", "benchmark_token", "admin_token", "ravis_admin_credential"
     ):
         monkeypatch.setattr(run, minted, lambda: "(not a credential)")
-    monkeypatch.setattr(run, "_stored_credential_names", set)
     monkeypatch.setattr(run, "_ollama", list)
     monkeypatch.setattr(run, "_code_server", list)
     services = {name: env for name, _, _, env, _ in run._services()}

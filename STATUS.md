@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4545 tests, no network, no live service
+.venv/bin/pytest                      # part of 4548 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1822 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1823 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4545 passing across the four, conformance `PASS`.
+Expected: all clean, 4548 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,25 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Keys: "keyring", and saved without a restart — 2026-09-19 (RAVIS 0.30.14, NERVIS 0.34.61)
+
+Two things the owner met on the ThinkPad the same day, parked until now. **The label:** RAVIS names every
+platform keyring `keychain` on the wire, and the Credentials screen turned that into "macOS Keychain" on Linux
+too; it now reads "keyring", the owner's word (`nervis/tools/codex_check.js` pins it). **The restart:** the
+launcher declared a hosted upstream only for a provider holding a key at start, so an OpenRouter key saved
+afterwards was stored and used by nothing until the stack restarted. `_default_upstreams` now declares all of
+`TRANSPARENT_KINDS` (its credential-name reader is gone, nothing else used it), and RAVIS holds a hosted kind with
+no key as waiting for it — `Upstream.requires_key`/`awaiting_key`, set for a kind that knows its own hosted
+address unless pointed at this machine: no catalogue fetch (`ModelRegistry.refresh`), no route
+(`GenericOpenAiAdapter.has_credential`) and no probe (`read_providers` says "no key yet — not probed", which
+now also spares a keyless Anthropic or Google). Saving a key already refreshed a declared provider's catalogue,
+so its models come in on the save. **Checked:** `ravis/tests/test_hosted_awaiting_key.py` (2) and a launcher test
+in `nervis/tests/test_launcher_lmstudio_context.py`; a keyless fetch, a keyless probe and the old launcher (only
+LM Studio and Ollama with no key stored) each fail one; RAVIS 2,079 and NERVIS 1,823 on the Mac, the provider and
+launcher tests on the Linux bench, the dashboard gates. **Noticed, not changed:** after any catalogue fetch a
+refresh also asks the upstream for LM Studio's residency (`/api/v0/models`), hosted services included; they
+answer 404.
 
 ## A load nobody took is given back — 2026-09-19 (SIRVIS 0.19.12)
 

@@ -228,8 +228,9 @@ async function everyStateDrawsItsWords() {
       continue;
     }
     /* The ● before a stored key is markup the page writes, not RAVIS's text: escaped,
-       it read "&#9679; macOS Keychain" on screen (13 September 2026). */
-    if (!html.includes("&#9679; macOS Keychain") || html.includes("&amp;#9679;")) {
+       it read "&#9679; macOS Keychain" on screen (13 September 2026), "keyring" since
+       19 September 2026. */
+    if (!html.includes("&#9679; keyring") || html.includes("&amp;#9679;")) {
       failures.push(`${label}: a stored key's row does not draw its dot: the entity was escaped into text.`);
     }
     expect(label, slotOf(page), present, absent);

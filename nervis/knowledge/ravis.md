@@ -504,7 +504,15 @@ deleted from. Reads are file, then keyring, then environment.
 
 Providers with a credential row: Anthropic, DeepSeek, Google AI Studio, OpenAI,
 OpenRouter and xAI. The last two of those were added on 9 September 2026 and
-need nothing but an address, because both speak the OpenAI protocol.
+need nothing but an address, because both speak the OpenAI protocol. A stored
+key's row says "keyring" when it is in the platform keyring (it said "macOS
+Keychain" even on Linux before 19 September 2026).
+
+All six are known to RAVIS from the start, key or no key (since RAVIS 0.30.14
+and NERVIS 0.34.61). One without a key waits for it: RAVIS doesn't fetch its
+model list, send it requests or check whether it answers, and the Providers
+screen says "no key yet — not probed". Before that, a key saved for OpenRouter,
+OpenAI, DeepSeek or xAI did nothing until the stack was restarted.
 
 Saving a key also refreshes that provider's model list, so a new key's models
 appear straight away. Since 12 September 2026 saving the *same* key again does

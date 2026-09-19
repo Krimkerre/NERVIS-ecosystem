@@ -82,10 +82,9 @@ def _ravis_environment(
     """The environment `start` would launch RAVIS with, as the real `_services` builds it.
 
     The rest of what `_services` reaches is replaced: NERVIS's environment, built in the same
-    call, is handed credentials that live in `.run/`; the default upstream list reads the names in
-    the credential store; Ollama and code-server are other questions; and the workspace NERVIS is
-    given is made beside the repository root, so the root is a folder inside `tmp_path` here and
-    the workspace lands in `tmp_path` too.
+    call, is handed credentials that live in `.run/`; Ollama and code-server are other questions;
+    and the workspace NERVIS is given is made beside the repository root, so the root is a folder
+    inside `tmp_path` here and the workspace lands in `tmp_path` too.
     """
     root = tmp_path / "NERVIS-ecosystem"
     root.mkdir()
@@ -95,7 +94,6 @@ def _ravis_environment(
     ):
         monkeypatch.setattr(run, minted, lambda: "(not a credential)")
     monkeypatch.setattr(run, "events_secret", lambda _service: "(not a credential)")
-    monkeypatch.setattr(run, "_stored_credential_names", set)
     monkeypatch.setattr(run, "_ollama", list)
     monkeypatch.setattr(run, "_code_server", list)
     return next(env for name, _, _, env, _ in run._services() if name == "RAVIS")
@@ -296,3 +294,18 @@ def test_the_default_start_prints_is_the_one_ravis_holds() -> None:
 
     assert declared is not None
     assert int(declared.group(1)) == _load().RAVIS_LMSTUDIO_DEFAULT
+
+
+def test_every_hosted_provider_is_declared_before_its_key_exists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The owner's Linux laptop, 19 September 2026: an OpenRouter key saved after the stack started
+    was stored and used by nothing until a restart, because only providers holding a key at start
+    were declared to RAVIS. RAVIS holds a keyless one as waiting for its key."""
+    run = _load()
+    monkeypatch.setenv("HOME", str(tmp_path))  # no credential store here at all
+
+    declared = json.loads(run._default_upstreams()["RAVIS_UPSTREAMS"])
+
+    assert [one["name"] for one in declared] == [
+        "lmstudio", "ollama", "openrouter", "openai", "deepseek", "xai"]

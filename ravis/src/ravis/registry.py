@@ -119,8 +119,10 @@ class ModelRegistry:
         to a client as "this provider has no models", which is a stronger and
         more wrong claim than "here is what was there a minute ago".
         """
-        if not self._upstream.is_configured:
+        if not self._upstream.is_configured or self._upstream.awaiting_key:
+            # Waiting for a key is not a failure, and nothing is asked of the service meanwhile.
             self._snapshot = ModelSnapshot(models=[], refreshed_at=time.monotonic())
+            self._unreachable = False
             return
         try:
             models = await self._fetch()

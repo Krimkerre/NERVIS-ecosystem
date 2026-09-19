@@ -46,7 +46,6 @@ import argparse
 import ipaddress
 import json
 import os
-import pathlib
 import platform
 import re
 import secrets
@@ -875,7 +874,7 @@ def _custom_length(held: object) -> int | None:
 
 
 def _default_upstreams() -> dict[str, str]:
-    """Both local runtimes, plus every hosted provider this machine has a key for.
+    """Both local runtimes, plus every hosted provider RAVIS can reach, key or no key.
 
     **Declared, not merely warned about.** RAVIS persists two things per provider
     — the credential and whether it is enabled — and does *not* persist which
@@ -894,8 +893,14 @@ def _default_upstreams() -> dict[str, str]:
     is only reached when neither `RAVIS_UPSTREAM_BASE_URL` nor `RAVIS_UPSTREAMS`
     is present.
 
-    **No credential is read, only the name of each provider that has one.** The
-    file is opened to list its keys and never its values.
+    **Every hosted provider, whether a key is stored yet or not** (19 September
+    2026). This declared only those with a key at start, so a key saved on the
+    Credentials screen afterwards was stored and used by nothing until a restart:
+    on the owner's Linux laptop OpenRouter stayed off the Providers screen until
+    the stack was restarted. RAVIS now holds a keyless hosted provider as waiting
+    for a key — no catalogue, no route, no probe (`Upstream.awaiting_key`) — and
+    reads the key per request, so saving one brings its models in at once, the
+    way Anthropic and Google already worked. No credential store is read here.
     """
     # **Named for the runtime, now that there are two.** One local runtime
     # could be called `local` without ambiguity — this function's own history
@@ -913,39 +918,8 @@ def _default_upstreams() -> dict[str, str]:
         {"name": "lmstudio", "base_url": LM_STUDIO, "kind": "lmstudio"},
         {"name": "ollama", "base_url": f"http://127.0.0.1:{OLLAMA_PORT}", "kind": "ollama"},
     ]
-    for kind in TRANSPARENT_KINDS:
-        if kind in _stored_credential_names():
-            upstreams.append({"name": kind, "kind": kind})
+    upstreams += [{"name": kind, "kind": kind} for kind in TRANSPARENT_KINDS]
     return {"RAVIS_UPSTREAMS": json.dumps(upstreams)}
-
-
-def _stored_credential_names() -> set[str]:
-    """Every credential name RAVIS holds, wherever it put the value.
-
-    **Both stores, and the second one is why this exists.** This read
-    `credentials.json` alone, which was the whole store until credentials moved
-    to the platform keyring — and the migration that moved them emptied that
-    file, so the next start declared no hosted upstream at all. RAVIS kept
-    answering, because Anthropic and Google are translated adapters registered
-    unconditionally; OpenAI and OpenRouter simply stopped existing, silently,
-    with the keys still configured and reported as configured.
-
-    Names only. The launcher has no business reading a secret, and does not:
-    the keyring index holds names by design, and the file's values are ignored.
-    """
-    found: set[str] = set()
-    config = pathlib.Path.home() / ".config" / "ravis"
-    try:
-        held = json.loads((config / "credentials.json").read_text())
-        found.update(held if isinstance(held, dict) else {})
-    except (OSError, ValueError):
-        pass
-    try:
-        indexed = json.loads((config / "credentials.keyring.json").read_text())
-        found.update(indexed if isinstance(indexed, list) else [])
-    except (OSError, ValueError):
-        pass
-    return found
 
 
 def _with_results(env: dict[str, str]) -> dict[str, str]:
@@ -1848,7 +1822,7 @@ def start() -> int:
         named = [one["name"] for one in json.loads(declared["RAVIS_UPSTREAMS"])]
         print(f"\nRAVIS upstreams defaulted to: {', '.join(named)}.")
         print(f"  LM Studio at {LM_STUDIO}, Ollama at http://127.0.0.1:{OLLAMA_PORT};")
-        print("  hosted ones are the providers this machine already holds a key for.")
+        print("  hosted ones wait for a key, saved on RAVIS → Credentials, before they serve.")
         print("  Set RAVIS_UPSTREAMS to override.")
     print(f"\nDashboard: {DASHBOARD}")
     print("Stop them with the stop launcher next to this one.")
@@ -1952,7 +1926,7 @@ def stop() -> int:
 # Hosted providers reachable as a transparent upstream, and the kind name that
 # knows its own address. A credential for one of these is only usable if the
 # upstream is *declared* — RAVIS persists the key and not the declaration — which
-# is why `_default_upstreams` reads this list rather than trusting the store.
+# is why `_default_upstreams` declares all of them, key or no key.
 TRANSPARENT_KINDS = ("openrouter", "openai", "deepseek", "xai")
 
 

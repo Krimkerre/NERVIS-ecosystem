@@ -34,6 +34,7 @@ from ravis.upstream import Upstream
 from ravis.upstreams import (
     UpstreamSpec,
     api_root_for,
+    default_base_url,
     is_local_address,
     upstream_specs,
 )
@@ -87,6 +88,9 @@ def build_transparents(
             # A closure rather than a value, so a key typed into the Credentials
             # screen reaches the next request instead of the next restart.
             credential=_resolver(spec, credentials),
+            # A kind that knows its own hosted address is a service that wants a key — unless
+            # an operator pointed it at this machine, where a local server may want none.
+            requires_key=bool(default_base_url(spec.kind)) and not is_local_address(spec.base_url),
         )
         registry = ModelRegistry(
             upstream=upstream,

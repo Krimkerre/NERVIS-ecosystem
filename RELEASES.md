@@ -859,7 +859,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.60
+## NERVIS — 0.34.61
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+ for keys saved without a restart, SIRVIS 0.19.11+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **A stored API key reads "keyring"**, not "macOS Keychain", which Linux showed too.
+- **The launcher tells RAVIS about OpenRouter, OpenAI, DeepSeek and xAI whether or not a key is
+  stored yet**, so a key saved on RAVIS → Credentials works straight away instead of after the
+  next restart.
+
+### 0.34.60
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.11+ for the full count, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
@@ -2457,7 +2467,17 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.13
+## RAVIS — 0.30.14
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **A key saved for OpenRouter, OpenAI, DeepSeek or xAI works without a restart.** These four are
+  now always known to RAVIS, and one without a key simply waits for it: RAVIS doesn't fetch its
+  model list, route to it or check whether it answers. Saving the key brings its models in at
+  once, as Anthropic and Google already did. Anthropic and Google without a key are no longer
+  checked either; the Providers screen says "no key yet".
+
+### 0.30.13
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
 

@@ -444,7 +444,10 @@ async def read_providers(request: Request) -> dict[str, Any]:
     now = time.monotonic()
     probes = await asyncio.gather(
         *(
-            _probe(adapter, cache, now) if name not in disabled else _skipped()
+            _skipped("disabled — not probed") if name in disabled
+            # No key, no call: a provider that can only answer "unauthorised" is not asked.
+            else _skipped("no key yet — not probed") if not getattr(adapter, "has_credential", True)
+            else _probe(adapter, cache, now)
             for name, adapter, _, _built in entries
         )
     )
@@ -679,8 +682,8 @@ def _refresh_later(adapter: Any, cache: "ProviderHealthCache") -> None:
         cache.inflight.pop(adapter.name, None)
 
 
-async def _skipped() -> dict[str, Any]:
-    return {"reachable": None, "detail": "disabled — not probed", "latency_ms": None}
+async def _skipped(why: str) -> dict[str, Any]:
+    return {"reachable": None, "detail": why, "latency_ms": None}
 
 
 @router.get("/profiles")

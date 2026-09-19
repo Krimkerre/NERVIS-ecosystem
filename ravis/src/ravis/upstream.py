@@ -77,6 +77,18 @@ class Upstream:
     credential: Callable[[], str] | None = field(
         default=None, compare=False, repr=False
     )
+    # **A hosted service that answers nothing useful without a key** — OpenRouter, OpenAI,
+    # DeepSeek, xAI (`transparent.build_transparents`). The launcher declares all of them
+    # whether or not a key is stored yet (19 September 2026), so a key saved on the Credentials
+    # screen finds its upstream already there instead of waiting for a restart. Until then it is
+    # `awaiting_key`: no catalogue, no route, no probe. OpenRouter's catalogue is public, and
+    # fetching it keyless would offer hundreds of models that refuse every request.
+    requires_key: bool = False
+
+    @property
+    def awaiting_key(self) -> bool:
+        """A hosted service that needs a key and has none yet, as of right now."""
+        return self.requires_key and not self.key()
 
     @property
     def is_configured(self) -> bool:
