@@ -77,7 +77,11 @@ recovery and restore rehearsals — their last runs (12–17 September) are reco
   `~/.local/bin`, which the installer handles and says so.
 - Codex on Linux has not signed in or run a task; a chat through a local model and a benchmark have
   not been run by hand on Linux.
-- The Code tab's Safari and https rows are ungraded (Stage 9); Firefox is graded.
+- The Code tab passes in Firefox and Safari on its default path, framing code-server directly (Safari
+  by the owner on 17 September: panel, Bridge on trust, a chat through RAVIS; no agent run, voice or
+  keyboard check there). On the optional path through NERVIS's own proxy, off unless configured, only
+  Chromium is graded; https is untried on either path. *(This line said Safari was ungraded when
+  the tag was made — corrected the same day; the owner pointed it out.)*
 - Clarvis's release regression checks beyond rollback (E-C7), and the owner's open decisions in
   STATUS.
 
