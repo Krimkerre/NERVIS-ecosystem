@@ -286,6 +286,64 @@ async def read_config(
     }
 
 
+# `clarvis.diagnostics.summary@1` (Clarvis 0.17.20): the checker names a Bridge may send. The
+# same rule Clarvis applies before sending — short, no slash — applied again on arrival, because
+# NERVIS does not take a peer's word for what is safe to draw.
+SOURCE_NAME = re.compile(r"^[A-Za-z0-9 ._-]{1,40}$")
+MAX_SOURCES = 21  # Clarvis's twenty, and its `other`
+SEVERITIES = ("errors", "warnings", "information", "hints")
+
+
+def interpret_problems(body: Mapping[str, Any]) -> dict[str, dict[str, int]]:
+    """Each checker's counts, kept only where the name and every count are the expected shape."""
+    found = body.get("by_source")
+    if not isinstance(found, Mapping):
+        return {}
+    kept: dict[str, dict[str, int]] = {}
+    for name, counts in found.items():
+        if len(kept) >= MAX_SOURCES or not SOURCE_NAME.match(str(name)):
+            continue
+        if not isinstance(counts, Mapping):
+            continue
+        values = [counts.get(severity) for severity in SEVERITIES]
+        if all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in values):
+            kept[str(name)] = dict(zip(SEVERITIES, values))  # type: ignore[arg-type]
+    return kept
+
+
+async def read_problems(
+    client: httpx.AsyncClient, instance: Instance, now: float
+) -> dict[str, Any]:
+    """One live Bridge's problem counts by checker (`/v1/diagnostics`), or say why not.
+
+    Same rules as `read_config`: never raises, a 404 is an older Clarvis rather than a fault.
+    Counts only arrive — no file, no message — and are shaped again here.
+    """
+    if not instance.is_live(now):
+        return {"reachable": False, "detail": "the lease has lapsed; this window is not answering"}
+    try:
+        response = await client.get(
+            instance.base_url + "/v1/diagnostics",
+            headers={"Authorization": f"Bearer {instance.token}"},
+            timeout=READ_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as failure:
+        return {"reachable": False, "detail": f"no response: {type(failure).__name__}"}
+    if response.status_code == 404:
+        return {"reachable": True, "detail": "this Clarvis does not publish a problems summary"}
+    if response.status_code >= 400:
+        return {"reachable": True, "detail": f"the Bridge answered HTTP {response.status_code}"}
+    try:
+        body = response.json()
+    except ValueError:
+        return {"reachable": True, "detail": "the Bridge answered with something that is not JSON"}
+    if not isinstance(body, Mapping):
+        return {
+            "reachable": True,
+            "detail": "the Bridge answered with something that is not an object",
+        }
+    return {"reachable": True, "detail": "", "by_source": interpret_problems(body)}
+
 async def read_status(
     client: httpx.AsyncClient, instance: Instance, now: float
 ) -> dict[str, Any]:

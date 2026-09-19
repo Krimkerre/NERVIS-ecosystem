@@ -72,7 +72,16 @@ apply to a stack that runs on one machine is still the owner's decision.
 
 ---
 
-## Clarvis — 0.17.19
+## Clarvis — 0.17.20
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
+
+- **A problems summary for NERVIS.** Each editor window now tells NERVIS its problems counted by
+  the checker that raised them (TypeScript, ESLint, …), only when asked and only as numbers — never
+  a file name or what the problem says. A checker name that could hide a path or a sentence is
+  counted as "other".
+
+### 0.17.19
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -756,7 +765,15 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.50
+## NERVIS — 0.34.51
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Diagnostics → Clarvis shows problems by checker** for each window on Clarvis 0.17.20 or later,
+  e.g. "ts 2 errors · eslint 1 warning". The names and numbers are checked again on arrival.
+
+### 0.34.50
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

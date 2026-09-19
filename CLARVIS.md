@@ -602,6 +602,16 @@ workbench or a remote host), `unavailable` with voice off. Of the rest, `status.
 `diagnostics.summary@1`, `logs.reference@1` and `ravis_provider@1` are `unavailable`, each with its
 reason (`src/bridge/protocol.ts`).
 
+**Since Clarvis 0.17.20 (19 September 2026) `clarvis.diagnostics.summary@1` is `available`** in every
+editor window: `GET /v1/diagnostics` (the Bridge token, like every route) answers with the problem
+counts by severity, the number of files with any, the same counts per checker (`by_source`, e.g.
+`ts`, `eslint`), and `read_at`. Counts only — never a file, a message or a range. A checker name
+must be 1–40 letters, digits, spaces, dots, underscores or dashes (no slash, so never a path) or it
+is counted as `other`, as is every checker past the twentieth. It is read when asked rather than
+paced, since nothing is pushed. A Bridge given no problem reader serves no such route and keeps the
+capability `unavailable` with its reason. NERVIS 0.34.51 reads it beside `/v1/status`, shapes it
+again (`bridges.interpret_problems`) and shows it on the window card.
+
 **`clarvis.config.summary@1` is the read that exists so a write does not have to.**
 §6.7 forbids NERVIS changing a Clarvis setting and the Bridge has no write path to extend, so
 the useful half of *"can the dashboard manage Clarvis"* is answered by publishing the

@@ -55,13 +55,13 @@ function answer(status, body) {
 }
 
 async function drawn({ handovers, windows = [{ instance_id: WINDOW, live: true, label: "coding" }],
-                       status = { state: "idle" } }) {
+                       status = { state: "idle" }, problems = {} }) {
   const fetchImpl = (url) => {
     const address = String(url);
     if (address.endsWith("/api/v1/handovers")) {
       return handovers ? answer(200, { items: handovers }) : Promise.reject(new TypeError("fetch failed"));
     }
-    if (address.includes("/api/v1/registry/instances/clarvis/")) return answer(200, { ...DIAGNOSTICS, status });
+    if (address.includes("/api/v1/registry/instances/clarvis/")) return answer(200, { ...DIAGNOSTICS, status, problems });
     if (address.includes("/api/v1/registry/instances")) return answer(200, { items: windows });
     return Promise.reject(new TypeError("fetch failed"));
   };
@@ -118,8 +118,15 @@ async function statusRows() {
   expect(html, "request ffffffffffffffffffffffffffffffff", "the last request's id is not shown.");
   expect(html, "nt_000000000000000c</span> · being built", "the window's task and stage are not shown.");
   expect(html, "42 published", "the event cursor is not shown.");
+  // Clarvis 0.17.20's `/v1/diagnostics`: the problems by checker, one with nothing open left out.
+  const zero = { errors: 0, warnings: 0, information: 0, hints: 0 };
+  const split = await drawn({ handovers: [], status: REPORTED, problems: { by_source: {
+    ts: { ...zero, errors: 2 }, eslint: { ...zero, warnings: 1 }, idlechecker: zero } } });
+  expect(split, "<span class=\"mono\">ts</span> 2 errors · <span class=\"mono\">eslint</span> 1 warning",
+         "problems by checker are not shown.");
+  if (split.includes("idlechecker")) failures.push("a checker with nothing open is still listed.");
   const quiet = await drawn({ handovers: [], status: { state: "idle" } });
-  for (const label of ["problems", "build", "tests", "last request", "task", "events"]) {
+  for (const label of ["problems", "build", "tests", "last request", "task", "events", "by checker"]) {
     if (quiet.includes(`<dt>${label}</dt>`)) failures.push(`a window that reported no ${label} still gets a ${label} row.`);
   }
 }
@@ -132,6 +139,8 @@ async function hostile() {
     last_request_provider: HOSTILE, last_request_result: HOSTILE, task_stage: HOSTILE, build_finished_at: HOSTILE,
     diagnostics_warnings: HOSTILE, event_cursor: HOSTILE } });
   if (odd.includes("<img")) failures.push("something a status carries became markup.");
+  const named = await drawn({ handovers: [], problems: { by_source: { [HOSTILE]: { errors: 1 } } } });
+  if (named.includes("<img")) failures.push("a checker's name became markup.");
 }
 
 async function main() {

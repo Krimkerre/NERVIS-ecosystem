@@ -170,7 +170,10 @@ the window knows them: the editor's problem counts, how the last build and the l
 test run ended (only tasks VS Code itself files as a build or a test; a command typed
 in a terminal isn't counted), the last AI request with its model, provider, result and
 request id (the id RAVIS files its routing decision under), the handed-over task it is
-working on and its stage, and how many events it has published. Clarvis answers about itself; it is not a surface
+working on and its stage, and how many events it has published. Since Clarvis 0.17.20 (19 September
+2026) the card also splits the problems by the checker that raised them — "ts 2 errors · eslint 1
+warning" — counts only, never which file or what the problem says; a window on an older Clarvis
+simply has no such line. Clarvis answers about itself; it is not a surface
 NERVIS queries for workspace contents.
 
 ## Slash commands for skills in its chat

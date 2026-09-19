@@ -26,6 +26,7 @@ from fastapi import APIRouter, Request, Response
 
 from nervis import clarvis
 from nervis.bridges import read_config as read_bridge_config
+from nervis.bridges import read_problems as read_bridge_problems
 from nervis.bridges import read_status as read_bridge_status
 from nervis.enrollment import matches, presented_secret
 from nervis.errors import NotFoundError, RefusedError, UnauthorizedError
@@ -162,11 +163,15 @@ async def read_diagnostics(service: str, instance_id: str, request: Request) -> 
     status = await read_bridge_status(
         request.app.state.probe_client, instance, request.app.state.instances_clock()
     )
+    # The problems by checker (`clarvis.diagnostics.summary@1`), a fourth read: counts only.
+    problems = await read_bridge_problems(
+        request.app.state.probe_client, instance, request.app.state.instances_clock()
+    )
     events = request.app.state.hub.query(
         instance_id=instance_id, limit=200, latest=True
     )
     return clarvis.diagnostics(
-        instance.as_dict(request.app.state.instances_clock()), status, events
+        instance.as_dict(request.app.state.instances_clock()), status, events, problems
     )
 
 

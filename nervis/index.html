@@ -17026,6 +17026,20 @@ function clarvisProblems(status){
   +`${n(status.diagnostics_information)} info, ${n(status.diagnostics_hints)} hint(s) in ${n(status.diagnostics_files)} file(s)`;
 }
 
+/* The same problems split by the checker that raised them — "ts 2 errors · eslint 1 warning" —
+   from the window's `/v1/diagnostics` (Clarvis 0.17.20, `clarvis.diagnostics.summary@1`).
+   Counts only ever arrive; a checker with nothing open is left out. */
+const PROBLEM_WORDS=[['errors','error'],['warnings','warning'],['information','info'],['hints','hint']];
+function checkerLine(name,counts){
+ const parts=PROBLEM_WORDS.filter(([key])=>counts[key]>0)
+   .map(([key,word])=>`${counts[key]} ${word}${counts[key]===1||word==='info'?'':'s'}`);
+ return parts.length?`<span class="mono">${escapeHtml(name)}</span> ${escapeHtml(parts.join(', '))}`:'';
+}
+function clarvisCheckers(problems){
+ return Object.entries((problems||{}).by_source||{})
+   .map(([name,counts])=>checkerLine(name,counts||{})).filter(Boolean).join(' · ');
+}
+
 const CHECK_WORDS={passed:['passed',''],failed:['failed',' warn'],unknown:['ended without an exit code','']};
 
 function clarvisCheck(result,at){
@@ -17052,6 +17066,7 @@ function clarvisWindowCard(d,tabs){
    ['activity',status.activity_id?`<span class="mono">${escapeHtml(status.activity_id)}</span>`:''],
    ['elapsed',status.elapsed_ms!=null?`${escapeHtml(Math.round(status.elapsed_ms/100)/10)}s`:''],
    ...clarvisStatusRows(status),
+   ['by checker',clarvisCheckers(d.problems)],
  ].filter(([,value])=>value);
  return `<div class="card full${liveClass(d.expires_in>0)}"><h3>Window
    ${clarvisStateChip(status.state||'unknown')}</h3>${cell(tabs+`<dl class="kv">${

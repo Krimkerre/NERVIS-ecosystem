@@ -204,6 +204,7 @@ def diagnostics(
     instance: Mapping[str, Any],
     status: Mapping[str, Any],
     events: list[Mapping[str, Any]],
+    problems: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One window's whole answer.
 
@@ -219,6 +220,7 @@ def diagnostics(
         "expires_in": instance.get("expires_in"),
         "capabilities": dict(instance.get("capabilities") or {}),
         "status": dict(status),
+        "problems": dict(problems or {}),
         "agent_run": agent_run(events),
         "tasks": tasks(events)[:EVENT_WINDOW],
         "gate": gate(events),
