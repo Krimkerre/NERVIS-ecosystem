@@ -436,19 +436,30 @@ ensure_node() {  # ensure_node "what it is for"
   good "Node $("$NODE_BIN/node" --version): in $PRIVATE_NODE, used only by the installer and RAVIS's Codex check"
 }
 
+# Where Clarvis is cloned from: CLARVIS_REPO when set; else beside this repository's own origin,
+# however that is written (https or ssh, with or without .git, any capitals); else Clarvis's public
+# home on GitHub. Until 19 September 2026 a copy with no origin git could read — a downloaded ZIP,
+# a copied folder — was sent to a repository named just "clarvis.git", and the clone failed with
+# "repository 'clarvis.git' doesn't exist" (found on the owner's Linux laptop).
+CLARVIS_PUBLIC_REPO="https://github.com/Krimkerre/clarvis.git"
+clarvis_source() {
+  if [ -n "${CLARVIS_REPO:-}" ]; then printf '%s\n' "$CLARVIS_REPO"; return; fi
+  local origin
+  origin="$(git -C "$REPO" remote get-url origin 2>/dev/null || true)"
+  if printf '%s' "$origin" | grep -qiE '(^|[/:])nervis-ecosystem(\.git)?/?$'; then
+    # Case-insensitive by bracket class: BSD sed (macOS) has no I flag.
+    printf '%s\n' "$origin" | sed -E 's#[Nn][Ee][Rr][Vv][Ii][Ss]-[Ee][Cc][Oo][Ss][Yy][Ss][Tt][Ee][Mm](\.git)?/?$#clarvis.git#'
+  else
+    printf '%s\n' "$CLARVIS_PUBLIC_REPO"
+  fi
+}
+
 step "Clarvis — the coding assistant, installed into code-server"
 if [ "$WANT_CLARVIS" = 0 ]; then
   skipped "Clarvis: skipped"
 else
   if [ ! -d "$CLARVIS_DIR/.git" ]; then
-    source_url="${CLARVIS_REPO:-}"
-    if [ -z "$source_url" ]; then
-      origin="$(git -C "$REPO" remote get-url origin 2>/dev/null || true)"
-      source_url="${origin%NERVIS-ecosystem.git}clarvis.git"
-      [ "$origin" != "$source_url" ] || source_url=""
-    fi
-    [ -n "$source_url" ] || fail "Clarvis isn't at $CLARVIS_DIR and there's no origin to find it from.
-  Clone it there yourself, or set CLARVIS_REPO=<its git URL>."
+    source_url="$(clarvis_source)"
     say "Clarvis isn't beside NERVIS-ecosystem; cloning it from $source_url…"
     run git clone -q "$source_url" "$CLARVIS_DIR"
   fi

@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4495 tests, no network, no live service
+.venv/bin/pytest                      # part of 4504 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 567 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1798 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1807 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4495 passing across the four, conformance `PASS`.
+Expected: all clean, 4504 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,20 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## The installer on a real Linux laptop: Clarvis's address — 2026-09-19 (NERVIS 0.34.54)
+
+Found by the owner running `install.sh` on their own Linux laptop: "fatal: repository 'clarvis.git'
+doesn't exist". With `CLARVIS_REPO` unset, the installer built Clarvis's address by stripping
+`NERVIS-ecosystem.git` from the repository's origin; an origin git could not read (a ZIP download, a
+copied folder) left the bare `clarvis.git`, and one written without `.git` or in other capitals would
+not have matched either. The rc2 installer runs never took this path — they set `CLARVIS_REPO`. Now
+`clarvis_source` in `install.sh` accepts the origin in any form (https or ssh, with or without `.git` or
+a trailing slash, any capitals) and otherwise falls back to Clarvis's public repository
+(`https://github.com/Krimkerre/clarvis.git`; both repositories are public). **Checked:**
+`nervis/tests/test_install_clarvis_source.py` runs the function in bash against real repositories — 9
+cases, 3 failing with the old fallback — on the Mac and on Linux; NERVIS 1,807 on the Mac. (The Linux
+bench script now copies `install.sh` too; it had copied only the packages.)
 
 ## The first live handover, and planning that asks less — 2026-09-19 (Clarvis 0.17.23)
 

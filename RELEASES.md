@@ -850,7 +850,18 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.53
+## NERVIS — 0.34.54
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **The installer finds Clarvis however NERVIS-ecosystem was fetched.** On a copy with no git origin
+  it could read — a downloaded ZIP, a copied folder — it tried to clone a repository called just
+  `clarvis.git` and stopped ("repository 'clarvis.git' doesn't exist"). It now works out Clarvis's
+  address from any form of the origin (https or ssh, with or without `.git`), and otherwise uses
+  Clarvis's public GitHub repository.
+
+### 0.34.53
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.0+, SIRVIS 0.19.5+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
