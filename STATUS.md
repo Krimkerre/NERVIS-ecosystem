@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4571 tests, no network, no live service
+.venv/bin/pytest                      # part of 4578 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1839 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1846 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4571 passing across the four, conformance `PASS`.
+Expected: all clean, 4578 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,39 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Windows starts the stack in WSL, from a double-click — 2026-09-20 (NERVIS 0.34.72)
+
+The owner asked for a Windows launcher that starts the stack in WSL, and looking at what was there
+found a launcher that could never have worked: `start-windows.bat` called `py.exe`, then
+`python.exe`, which would have run `tools/run.py` as a *Windows* program and sent it looking for
+`ravis/.venv/bin/sirvis`. On Windows this stack is a Linux stack — venv, services, Ollama,
+code-server, sandboxes, all inside the distribution — so the front door has to cross into it.
+README and the operator runbook had been describing those files as "older launchers for a native
+Windows Python", which is a polite way of saying nobody had tried them.
+
+Both `.bat` files now run `wsl.exe --cd "%~dp0." -- python3 tools/run.py start|stop`. `--cd` takes
+the folder in Windows' spelling and translates it, so the repository can sit on `C:` **or** inside
+the distribution (`\\wsl.localhost\Ubuntu\home\…`, which is what Explorer shows and what `cd /d`
+cannot hold); the trailing dot stops the folder's final backslash from escaping the quote. A
+machine without WSL is told `wsl --install` rather than shown a window that closes, and a failure
+names the three things it is likely to be: no `python3` in the distribution, NERVIS installed in
+another distro, or a `wsl.exe` too old for `--cd`. `./start-linux.sh` inside the WSL terminal is
+unchanged and is the same thing.
+
+**And the browser is on the other side.** Inside WSL there is usually no browser at all, so
+`webbrowser.open` opened nothing: the dashboard never appeared, and neither would a Codex sign-in
+page, which *is* the whole sign-in. `tools/run.py` gained `in_wsl()` (environment, else the kernel's own
+`osrelease`) and `open_page()`, used at all three places that used to call `webbrowser` directly —
+`wslview` from `wslu` first, then Windows' own `cmd.exe /c start`, run from `/mnt/c` so `cmd.exe`
+is not started in a path it cannot represent.
+
+Checked by `nervis/tests/test_launcher_windows.py` (7 tests): both launchers hand the work to WSL
+and name neither Windows Python, a plain Linux is not mistaken for WSL, a scrubbed environment
+still is, `wslview` is preferred and not called twice, `cmd.exe` takes over when it is missing or
+fails, and off WSL nothing changes. NERVIS's suite is 1846. **Not yet seen live:** the owner has no
+Windows machine in use here, so this is checked by test and by reading `wsl.exe`'s documented
+`--cd`, not by a double-click on Windows.
 
 ## The link starts with the stack, and only if the owner says so — 2026-09-20 (NERVIS 0.34.71)
 

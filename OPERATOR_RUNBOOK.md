@@ -16,9 +16,9 @@ integration spec this document does not repeat)
 ## Running it
 
 Covered in full in `README.md`'s "Running it" section: the start and stop launchers for macOS
-(`start-macos.command`) and Linux (`./start-linux.sh`) — Windows runs the Linux ones inside
-WSL 2, and the older `start-windows.bat` / `stop-windows.bat` for a native Windows Python are not a
-supported way to run the stack — `python3 tools/run.py status`, where logs live (`.run/*.log`, one file per service), and what
+(`start-macos.command`) and Linux (`./start-linux.sh`) — on Windows, `start-windows.bat` and
+`stop-windows.bat` hand the same `tools/run.py` to WSL 2, where the stack lives; a native Windows
+Python is not a supported way to run it — `python3 tools/run.py status`, where logs live (`.run/*.log`, one file per service), and what
 each of the three minted credential files (`.run/dashboard.token`, `.run/nervis-benchmark.token`,
 `.run/nervis-ravis.token`) is for. Not repeated here — read it there.
 
@@ -98,8 +98,9 @@ extensions off — gets a dialog saying so, and the stack starts anyway. `python
 `--print-menu` does.
 
 **Windows runs the Linux install inside WSL**, without the tray: WSL can't reach Windows' tray.
-Start with `./start-linux.sh` in the WSL terminal and open `http://127.0.0.1:8790` in a Windows
-browser; WSL forwards the address.
+Double-click `start-windows.bat` in Explorer — it runs the launcher inside the distribution — or
+use `./start-linux.sh` in the WSL terminal, which is the same thing. The dashboard opens on the
+Windows side by itself (`wslview`, else `cmd.exe /c start`); WSL forwards `http://127.0.0.1:8790`.
 
 ---
 

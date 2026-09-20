@@ -1408,6 +1408,47 @@ def _sirvis_token(filename: str, label: str, scopes: str) -> str:
     return token
 
 
+def in_wsl() -> bool:
+    """Whether this Linux is really Windows' Subsystem for Linux.
+
+    Windows is supported *through* WSL 2 — the venv, the runtimes and the services all live
+    inside the distribution — so the launcher runs as a Linux launcher there. What is not
+    inside the distribution is the person: their browser, their Explorer window and their
+    double-click are on the Windows side, and a few things have to cross back (`open_page`).
+
+    Both signals, because either one alone has a hole: the environment variables are absent
+    from a session started by something that scrubbed the environment, and `osrelease` is the
+    kernel's own word for it.
+    """
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    try:
+        return "microsoft" in Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+
+
+def open_page(url: str) -> bool:
+    """Open a page in the person's browser, including when their browser is on Windows.
+
+    **Under WSL there is usually no browser inside the distribution.** Their Firefox or Edge
+    is on the Windows side, `webbrowser` finds nothing to open, and the dashboard — or worse,
+    a Codex sign-in page — silently never appears. `wslview` (from `wslu`, which Ubuntu ships)
+    is the distribution's own answer; Windows' `cmd.exe /c start` is the one that is always
+    there. Run from `/mnt/c` so `cmd.exe` is not started in a path it cannot represent, which
+    is where its "UNC paths are not supported" warning comes from.
+    """
+    if in_wsl():
+        for command in (["wslview", url], ["cmd.exe", "/c", "start", "", url]):
+            if not shutil.which(command[0]):
+                continue
+            done = subprocess.run(command, capture_output=True, check=False,
+                                  cwd="/mnt/c" if Path("/mnt/c").is_dir() else None)
+            if done.returncode == 0:
+                return True
+    return webbrowser.open(url)
+
+
 def dashboard_url() -> str:
     """The dashboard address, with the token and a cache key.
 
@@ -1851,7 +1892,7 @@ def start() -> int:
         print("Already running.")
         print(f"  Named callers to RAVIS: {teach_ravis_the_credential()}")
         print(f"Dashboard: {DASHBOARD}")
-        webbrowser.open(dashboard_url())
+        open_page(dashboard_url())
         return 0
 
     print("Starting, each once the one before it answers"
@@ -1934,7 +1975,7 @@ def start() -> int:
     if all_ready:
         # The fragment is never sent to a server. The page consumes it and
         # clears the address bar immediately.
-        webbrowser.open(dashboard_url())
+        open_page(dashboard_url())
     return 0 if all_ready else 1
 
 
@@ -2637,7 +2678,7 @@ def codex_sign_in() -> tuple[int, dict[str, object]]:
     page, state = sign_in.get("auth_url"), _text(sign_in.get("state"))
     if not (isinstance(page, str) and page.startswith("https://")):
         return EXIT_FAILED, {"state": state, "error": "RAVIS named no sign-in page to open."}
-    if not webbrowser.open(page):
+    if not open_page(page):
         return EXIT_FAILED, {"state": state, "error": "No browser could be opened for the sign-in."}
     return 0, {"state": state}
 

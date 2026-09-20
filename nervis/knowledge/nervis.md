@@ -326,8 +326,13 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–20 September 2026** (now NERVIS 0.34.71, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–20 September 2026** (now NERVIS 0.34.72, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
+
+- **Windows starts with a double-click again** (20 September, NERVIS 0.34.72): `start-windows.bat`
+  and `stop-windows.bat` hand the launcher to WSL 2, where the stack actually lives. They used to
+  call Windows' own Python, which could never have worked — the services are Linux programs. The
+  dashboard now also opens in the Windows browser by itself. See *Which computers it runs on*.
 
 - **Two laptops can be linked, if you ask for it** (20 September, NERVIS 0.34.71): the Mac and the
   ThinkPad can reach each other's SIRVIS through an SSH tunnel that the launcher opens when the
@@ -1118,6 +1123,11 @@ Arch and their relatives such as CachyOS, EndeavourOS and Manjaro), and on **Win
 WSL 2** (not WSL 1, which the installer refuses). On a Mac it lives in the menu bar; on Linux in
 the system tray; under WSL there is no tray and the dashboard opens in a Windows browser.
 
+**Starting it on Windows is still a double-click.** `start-windows.bat` and `stop-windows.bat` sit
+in the folder and are opened from Explorer like any other Windows program, but what they do is hand
+the launcher to WSL — the services are Linux programs, so Windows' own Python cannot run them, and
+these files used to try. The folder can be on `C:` or inside the distribution; either works.
+
 **The owner runs it on two machines:** a Mac (Apple M5, 24 GB, macOS 27; LM Studio calls it
 "Govert.local") and a **ThinkPad X13 Gen 2 laptop running CachyOS Linux** ("ThinkPadX13G2"). Each
 runs its own copy of the stack. LM Studio's **LM Link** lets one use the other's models: SIRVIS lists
@@ -1163,8 +1173,10 @@ under that machine's name), Codex and its tasks, the computer's CPU, memory and 
 dashboard**, and **Quit NERVIS and stop the stack**. A Linux menu can't colour text, so the status
 dots are coloured circles and a busy CPU carries ⚠ instead of turning red. GNOME needs its
 tray-icon extension for the icon to show (Ubuntu has it; the installer switches it on — a log-out
-and back in may be needed once). On Windows (WSL) there is no tray: start with `./start-linux.sh`
-and open http://127.0.0.1:8790 in a Windows browser.
+and back in may be needed once). On Windows (WSL) there is no tray: double-click
+**start-windows.bat** in Explorer — it hands the work to WSL, where the stack actually lives —
+or run `./start-linux.sh` inside the WSL terminal, which is the same thing. The dashboard opens
+in your Windows browser by itself; WSL forwards http://127.0.0.1:8790.
 
 ## How the dashboard draws
 

@@ -139,10 +139,15 @@ README — double-click on macOS, or run it from a shell:
 |---|---|---|
 | macOS | `start-macos.command` | `stop-macos.command` |
 | Linux | `./start-linux.sh` | `./stop-linux.sh` |
-| Windows, inside WSL 2 | `./start-linux.sh` | `./stop-linux.sh` — then open http://127.0.0.1:8790 in a Windows browser |
+| Windows | `start-windows.bat` | `stop-windows.bat` — double-clicked in Explorer, on the Windows side |
 
-`start-windows.bat` and `stop-windows.bat` are older launchers for a native Windows Python; that is
-not a supported way to run the stack, since the installer, Codex and the sandboxes need Linux.
+**On Windows the launchers drive WSL 2**, which is where the stack lives: they hand the same
+`tools/run.py` to `wsl.exe --cd "%~dp0."`, so the folder can sit on `C:` or inside the
+distribution and either way the distribution runs it. Windows' own Python is not a supported way
+to run the stack — the services are Linux programs in `ravis/.venv/bin`, and the installer, Codex
+and the sandboxes all need Linux. Inside the WSL terminal `./start-linux.sh` still works and is
+the same thing. The dashboard opens in a Windows browser by itself; there is no tray, because
+WSL cannot reach Windows'.
 
 It brings up SIRVIS on 8721, RAVIS on 8731 and NERVIS on 8790, then opens the
 dashboard. First run creates the virtual environment and installs the four
