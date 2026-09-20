@@ -125,7 +125,18 @@ recovery and restore rehearsals — their last runs (12–17 September) are reco
 
 ---
 
-## Clarvis — 0.17.24
+## Clarvis — 0.17.25
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `clarvis-0.17.25.vsix` · **Runs in:** VS Code and code-server, on macOS and Linux
+
+- **Conversations are kept on your machine, not in your browser.** In the browser editor they were
+  held by the browser: they did not follow you to another browser, and clearing that browser's site
+  data lost them. They now live in a file beside Clarvis's other notes, which is the same machine in
+  either editor. Existing conversations are moved across the first time, and the old copy is left
+  where it was. Two editor windows on one project no longer overwrite each other's last line, and
+  Clear Conversation now clears the file too.
+
+### 0.17.24
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `.vsix`, installed into VS Code and code-server
 
@@ -859,7 +870,15 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.66
+## NERVIS — 0.34.67
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge 0.17.25+, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Chat's notes follow Clarvis 0.17.25:** conversations are kept on this machine now, in a file
+  beside Clarvis's other notes, rather than by the browser in the browser editor.
+
+### 0.34.66
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

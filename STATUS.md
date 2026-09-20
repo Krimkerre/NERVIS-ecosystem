@@ -20013,6 +20013,31 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## Conversations moved onto the machine — 2026-09-20 (Clarvis 0.17.25, NERVIS 0.34.67)
+
+The owner's decision, straight after the entry below found that a browser editor keeps Clarvis's chats in the
+browser. `chat/Transcript.ts` wrote `clarvis.chat.current` and `clarvis.chat.history` into `workspaceState`;
+they now go to `globalStorageUri/chats/<sha256 of the workspace folder, 16 hex>.json`, which is the machine
+running the extension host in either editor — `chat/transcriptFile.ts` holds the rules, `chat/transcriptStore.ts`
+touches disk, and the workspace's own path travels inside the file so a moved project is recognisable. **The
+CLARVIS session reviewed the plan before any of it was written** and its seven points are in the result: merge
+by session id rather than whole-file last-write-wins (two windows on one workspace each own a session, and a
+whole-file write dropped the other's last turn); read `workspaceState` once when the file is absent and never
+write it again, since two records diverge the first time somebody opens a second browser; leave the old copy
+rather than delete it; `mkdir` the storage folder, which may not exist; Clear Conversation must clear the file;
+the twenty-session cap is now a choice rather than a constraint; and in the browser case this writes
+conversation text to the server's disk, where nothing was written before. A window still open keeps its
+conversation — only sessions last written before this window started are filed as left behind, which the single
+key never distinguished, so two open windows used to archive each other's live thread. **Checked:** 8 fast tests
+on the rules (`chat/transcriptFile.test.ts`) and 4 through the editor's own file API in a real extension host
+(`test/transcriptStore.spec.ts`) — the file lands under `chats/` with no temporary left behind, the old keys are
+read once and left alone, two stores keep both sessions, a crashed window's conversation is filed and a clear
+takes it out of the file. Clarvis 2,221 fast and 38 host tests (34 before). Packaged and force-installed into
+code-server and VS Code, both reporting 0.17.25 with `dist/extension.js` matching the package byte for byte.
+**Still per-browser in code-server, named in Clarvis's own `../clarvis/plan.md` as the candidates to follow:** a paused planning
+interview, the log-copy approval, the branch-flow answers, the last failing command and blocker, the last run
+and `clarvis.agent.baseBranch`, and the NERVIS task track.
+
 ## E-C7's recovery test, and where a browser editor keeps a conversation — 2026-09-20 (NERVIS 0.34.66)
 
 The last of E-C7, with the owner at the keyboard. Clarvis open in code-server; a watcher on RAVIS's log killed

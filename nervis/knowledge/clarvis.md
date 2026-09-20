@@ -206,12 +206,17 @@ interview on 20 September.
 
 ## Where conversations are kept, and what a crash does to them
 
-Clarvis keeps each chat in the editor's own storage for that workspace: the current one and the
-list of earlier ones. **In desktop VS Code that is on this machine**, in the editor's storage file.
-**In the browser editor (code-server) it is in the browser**, because VS Code in a browser keeps
-its state there — so a conversation from Firefox is not in Chrome, and clearing the browser's site
-data for the editor's address loses it. Measured on 20 September 2026: code-server keeps no state
-file on this machine at all, and the same editor opened in a second browser showed an empty history.
+Since Clarvis 0.17.25 (20 September 2026) each chat is kept **in a file on this machine**, beside
+Clarvis's other notes (one file per project, under the editor's storage folder for Clarvis) — the
+same machine whether the editor is desktop VS Code or the browser one. Conversations already there
+are moved across the first time and the old copy is left where it was.
+
+**Why it changed:** until that day chats lived in the editor's workspace storage, which VS Code
+keeps *in the browser* when the editor is code-server. So a conversation belonged to one browser
+profile: it wasn't in another browser, and clearing that browser's site data for the editor's
+address lost it. Measured that morning — the editor wrote nothing on the machine at all, and the
+same editor opened in Chrome showed an empty history. Two editor windows on one project used to
+overwrite each other's last line as well; each now keeps its own.
 
 **If the editor's extension host stops while Clarvis is answering** (a crash, or the process being
 killed — tried for real on 20 September 2026): the editor starts a new one by itself in seconds,
