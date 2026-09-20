@@ -4,7 +4,7 @@ NERVIS is the control plane: the dashboard, the diagnostics centre, the general
 chat, and the thing that watches the other services. It holds no models of its
 own and runs no benchmarks — it reads what the others publish and presents it.
 
-**What NERVIS can do, in short** (as of 20 September 2026, NERVIS 0.34.65). Each has its own
+**What NERVIS can do, in short** (as of 20 September 2026, NERVIS 0.34.66). Each has its own
 section in these notes:
 
 - **Chat** with any model RAVIS can reach — local ones in LM Studio and Ollama, hosted ones with a
@@ -326,8 +326,13 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–20 September 2026** (now NERVIS 0.34.65, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–20 September 2026** (now NERVIS 0.34.66, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.24). Each has its own section in these notes.
+
+- **What a crash does to a Clarvis chat, tried for real** (20 September): the editor restarts
+  within seconds, the question is kept in the history and the half-finished answer is lost. In the
+  browser editor those conversations live in the browser, not on this machine — see the Clarvis
+  notes, *Where conversations are kept*.
 
 - **Tried for real on 20 September:** Clarvis speaking in its own voice through NERVIS, "Draft it
   now" inside a longer planning interview, and a Mac model loaded from the ThinkPad over LM Link

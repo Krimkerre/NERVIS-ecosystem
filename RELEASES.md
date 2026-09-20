@@ -859,7 +859,18 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.65
+## NERVIS — 0.34.66
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Chat can say where Clarvis's conversations live and what a crash does to them.** In the browser
+  editor they are kept by the browser, so they don't follow you to another browser and clearing its
+  site data loses them; in desktop VS Code they are on the machine. If the editor's extension host
+  stops mid-answer, a new one starts by itself, the question stays in the history and the
+  half-finished answer is lost.
+
+### 0.34.65
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

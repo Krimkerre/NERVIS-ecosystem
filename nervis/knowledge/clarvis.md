@@ -204,6 +204,21 @@ offered straight to building, which still asks first. The short way was seen liv
 (a one-line script built in about a minute), and the **Draft it now** button inside a longer
 interview on 20 September.
 
+## Where conversations are kept, and what a crash does to them
+
+Clarvis keeps each chat in the editor's own storage for that workspace: the current one and the
+list of earlier ones. **In desktop VS Code that is on this machine**, in the editor's storage file.
+**In the browser editor (code-server) it is in the browser**, because VS Code in a browser keeps
+its state there — so a conversation from Firefox is not in Chrome, and clearing the browser's site
+data for the editor's address loses it. Measured on 20 September 2026: code-server keeps no state
+file on this machine at all, and the same editor opened in a second browser showed an empty history.
+
+**If the editor's extension host stops while Clarvis is answering** (a crash, or the process being
+killed — tried for real on 20 September 2026): the editor starts a new one by itself in seconds,
+Clarvis opens a **new** chat rather than resuming, and the interrupted chat — with the question
+asked, and no answer — is in the history list. The half-finished answer is lost; nothing else is,
+and the rest of the stack is unaffected, since NERVIS, RAVIS and SIRVIS run outside the editor.
+
 ## Copying the editor's log for troubleshooting
 
 Since Clarvis 0.17.21 (19 September 2026): "Clarvis: Start Copying This Window's Log" copies
