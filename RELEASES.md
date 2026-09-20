@@ -125,7 +125,18 @@ recovery and restore rehearsals — their last runs (12–17 September) are reco
 
 ---
 
-## Clarvis — 0.17.27
+## Clarvis — 0.17.28
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `clarvis-0.17.28.vsix` · **Runs in:** VS Code and code-server, on macOS and Linux
+
+- **Your answer to "this machine has no sandbox — run commands anyway?" is kept on the machine**
+  (your decision). Answered in one browser, it now holds for every browser on that machine, for
+  that project — the question is about the machine, so answering it once per browser was an
+  accident of where the answer happened to be stored. It is still asked per project, Clarvis still
+  asks before each command, and your files are still snapshotted first. The only thing still kept
+  by the editor is the token a window registers to NERVIS with.
+
+### 0.17.27
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `clarvis-0.17.27.vsix` · **Runs in:** VS Code and code-server, on macOS and Linux
 
@@ -893,7 +904,15 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.69
+## NERVIS — 0.34.70
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge 0.17.28+, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Chat's notes follow Clarvis 0.17.28:** the sandbox answer is kept on the machine now too, by
+  the owner's decision.
+
+### 0.34.69
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge 0.17.27+, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

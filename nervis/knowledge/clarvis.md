@@ -220,10 +220,14 @@ other's stale answer.
 
 Since Clarvis 0.17.27 everything else a project remembers is on the machine too: a planning
 interview paused halfway, the task NERVIS handed over, the log-copy approval and how far it has been
-copied, the branch question, offers you declined, and what blocked the last run. **Two are left with
-the editor on purpose** — the permission to run unconfined commands in a project, because moving it
-would widen a permission granted in one browser to every browser on the machine, and the token a
-window registers to NERVIS with, which belongs where the editor keeps credentials.
+copied, the branch question, offers you declined, and what blocked the last run.
+
+Since 0.17.28 that includes **the answer to "this machine has no sandbox — run commands anyway?"**,
+by the owner's decision: answered in one browser it holds for every browser on that machine, for
+that project, because the question is about the machine. It is still asked per project, Clarvis
+still asks before each command, and your files are still snapshotted first. **One thing is still
+kept by the editor on purpose:** the token a window registers to NERVIS with, which belongs where
+the editor keeps credentials.
 
 **Why it changed:** until that day chats lived in the editor's workspace storage, which VS Code
 keeps *in the browser* when the editor is code-server. So a conversation belonged to one browser

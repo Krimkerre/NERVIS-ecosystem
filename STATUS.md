@@ -20013,6 +20013,24 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## The sandbox answer moved too, as the owner's decision — 2026-09-20 (Clarvis 0.17.28, NERVIS 0.34.70)
+
+`clarvis.agent.allowUnconfinedCommands` was held back from the move an hour earlier and named in `MACHINE_KEYS`
+as the owner's to decide, because it is the one key that **widens** rather than restores: it records the answer
+to "I can't confine commands on this machine — run them anyway?", and moving it means an answer given in one
+browser holds for every browser on that machine. The owner: "move the unconfined commands permission too."
+Done, with the reasoning kept next to the key — the question is about the machine, which is where a sandbox is
+or is not, so answering it once per browser was an accident of where the answer was kept. What does not change:
+it is still per project, Clarvis still asks before each command, and files are still snapshotted first.
+
+**The old test failed first, which is how it should have gone.** `machineMemento.spec.ts` asserted the
+permission never reached the file ("a permission granted in one browser must not silently widen to every
+browser on the machine"), and the host run came back 43 passing, 1 failing on exactly that line before the
+assertion was rewritten to record the decision and its date. The delegation case it used to prove is now pinned
+on `clarvis.bridge.identity`, which stays with the editor as a credential — the only key left there on purpose,
+besides the two that rebuild themselves. Clarvis 2,226 fast and 44 host; packaged and force-installed into both
+editors at 0.17.28, `dist/extension.js` matching the package byte for byte.
+
 ## Everything a project remembers, off the browser — 2026-09-20 (Clarvis 0.17.27, NERVIS 0.34.69)
 
 The owner: "go ahead with the remaining ones". `MACHINE_KEYS` is now the list and says what each key is doing
