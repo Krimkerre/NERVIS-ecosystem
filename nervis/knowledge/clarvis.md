@@ -170,7 +170,7 @@ source" (`clarvis.voice.source`: nervis or own) can make that permanent. Preview
 still plays that voice. NERVIS's mute button doesn't silence Clarvis. If NERVIS can't be reached, the
 window isn't registered, or NERVIS has no key or no voice for Clarvis, Clarvis uses its own key; if
 NERVIS refuses a line on privacy or its daily cap, or doesn't answer in time, Clarvis says it with the
-computer's built-in voice instead, so it never pays twice. **Not yet heard live** as of 19 September.
+computer's built-in voice instead, so it never pays twice. **Heard live**, with the Fish Audio key entered on both machines, on 20 September 2026.
 
 Off unless configured. A daily request cap, a chosen voice and engine, and a
 setting that trims a spoken reply past about twenty seconds to its opening and
@@ -201,8 +201,8 @@ personal data, stored data, other files or the network gets the full interview. 
 filled-in answer reads **Default (not asked)**, and what the program reads or writes is left as
 an open question rather than guessed. A task too small for a plan at all skips plan.md and is
 offered straight to building, which still asks first. The short way was seen live on 19 September
-(a one-line script built in about a minute); the **Draft it now** button inside a longer interview
-has not been seen live yet.
+(a one-line script built in about a minute), and the **Draft it now** button inside a longer
+interview on 20 September.
 
 ## Copying the editor's log for troubleshooting
 

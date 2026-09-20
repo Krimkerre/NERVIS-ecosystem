@@ -4,7 +4,7 @@ NERVIS is the control plane: the dashboard, the diagnostics centre, the general
 chat, and the thing that watches the other services. It holds no models of its
 own and runs no benchmarks — it reads what the others publish and presents it.
 
-**What NERVIS can do, in short** (as of 20 September 2026, NERVIS 0.34.64). Each has its own
+**What NERVIS can do, in short** (as of 20 September 2026, NERVIS 0.34.65). Each has its own
 section in these notes:
 
 - **Chat** with any model RAVIS can reach — local ones in LM Studio and Ollama, hosted ones with a
@@ -326,8 +326,12 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–20 September 2026** (now NERVIS 0.34.64, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–20 September 2026** (now NERVIS 0.34.65, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.24). Each has its own section in these notes.
+
+- **Tried for real on 20 September:** Clarvis speaking in its own voice through NERVIS, "Draft it
+  now" inside a longer planning interview, and a Mac model loaded from the ThinkPad over LM Link
+  with a load cancelled part-way. All behaved as these notes describe.
 
 - **A skill removed on Linux now goes to the desktop's Trash** (20 September), where the file
   manager lists it and can put it back, instead of a hidden folder nothing showed.
@@ -955,7 +959,7 @@ described, because the page kept its own copy of the list.
 **Clarvis's voice** is chosen here too (NERVIS 0.34.57): Settings → Voice → "Clarvis speaks with", separate
 from NERVIS's own. A Clarvis window with the Bridge on asks for it and NERVIS says its lines, under the same
 privacy check and daily cap. Rick Sanchez and DramaButler were added once, with Rick chosen for Clarvis.
-Not yet heard live as of 19 September 2026.
+Heard live on 20 September 2026.
 
 A fresh installation (since NERVIS 0.34.56, 19 September 2026) starts with the owner's voices:
 JARVIS in three Fish engines and Miku in two, with "JARVIS S2.1 PRO" chosen. They're added once,

@@ -859,7 +859,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.64
+## NERVIS — 0.34.65
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Chat's notes record what was tried for real on 20 September:** Clarvis's own voice through
+  NERVIS, "Draft it now" in a longer planning interview, and a Mac model used from the ThinkPad
+  over LM Link with a load cancelled part-way. Where they said "not yet heard live" they now say
+  what happened.
+
+### 0.34.64
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
