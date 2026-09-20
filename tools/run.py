@@ -80,12 +80,26 @@ PIDFILE = RUN / "services.json"
 SIRVIS_PORT = 8721
 RAVIS_PORT = 8731
 NERVIS_PORT = 8790
-#: Where the other laptop's SIRVIS appears on this one, once the link is up, and where this
-#: machine's SIRVIS appears on the other. **Both are loopback at both ends**: the SSH tunnel
-#: is the only way through, so neither port is reachable from anything else on the network,
-#: and the second one exists only when its own setting says so (`configured_link`).
+#: Where the other laptop's services appear on this one, once the link is up, and where this
+#: machine's appear on the other. **All four are loopback at both ends**: the SSH tunnel is the
+#: only way through, so none of them is reachable from anything else on the network, and the
+#: two `BACK` ones exist only when their own setting says so (`configured_link`).
+#:
+#: **SIRVIS and NERVIS, not SIRVIS alone.** SIRVIS is what the link was built for — the other
+#: laptop's models — and NERVIS is what makes it useful to a person: settings and, later, the
+#: conversations, which live in NERVIS's database and are read over its API.
 LINK_LOCAL_PORT = 18721
+LINK_LOCAL_NERVIS_PORT = 18790
 LINK_BACK_PORT = 8722
+LINK_BACK_NERVIS_PORT = 8791
+
+#: The key this machine dials the other laptop with, beside the credentials `.run/` already
+#: holds. **Its own key, not the owner's**, and without a passphrase — which is safe here for
+#: one reason worth stating: at the far end it is authorised for nothing but the forwarded
+#: ports (`link_authorized_line`: `restrict`, no shell, no agent, no terminal), so a copy of it
+#: opens those ports and nothing else. A passphrase would instead mean the tunnel could never
+#: start unattended, which is the whole point of it starting with the stack.
+LINK_KEY = RUN / "link-key"
 OLLAMA_PORT = 11434
 
 # **What Ollama loads a model with, and what RAVIS is told about it.**
@@ -710,10 +724,12 @@ def configured_link() -> dict[str, object]:
     defaults to off or empty: a machine nobody configured opens nothing.
 
     **Two separate answers, because they open two different doors.** `enabled` with an
-    `address` opens a port *here* that reaches the other laptop's SIRVIS. `inbound` opens a
-    port *there* that reaches this machine's SIRVIS — the more consequential of the two, and
-    the reason it is its own checkbox rather than part of the first. Neither is implied by
-    the other, and both are the owner's to give (NERVIS → Settings → This laptop's link).
+    `address` opens ports *here* that reach the other laptop's SIRVIS and NERVIS. `inbound`
+    opens ports *there* that reach this machine's — the more consequential of the two, and the
+    reason it is its own checkbox rather than part of the first. Neither is implied by the
+    other, and both are the owner's to give (NERVIS → Settings → Another laptop).
+
+    Written by that screen, or by `tools/run.py link add`, which is the same row.
     """
     stored = stored_setting("link.peer")
     if not isinstance(stored, dict):
@@ -723,6 +739,146 @@ def configured_link() -> dict[str, object]:
         "address": str(stored.get("address") or "").strip(),
         "inbound": bool(stored.get("inbound")),
     }
+
+
+def link_command(address: str, inbound: bool) -> list[str]:
+    """The `ssh` that *is* the link, built in one place so enrolment tests what start runs.
+
+    Forwards this machine's `18721` and `18790` to the other laptop's SIRVIS and NERVIS, and —
+    only when `inbound` — the other laptop's `8722` and `8791` back to this machine's. The
+    reverse forwards name their bind address in full (`127.0.0.1:8722:…`), because the far
+    end's key restriction matches `permitlisten` against **what the client asks for**: a bare
+    `-R 8722:…` is refused, which was measured on 20 September 2026 and is the restriction
+    doing its job.
+
+    The options, in order: `ExitOnForwardFailure` so a tunnel that could not open its ports
+    fails loudly instead of sitting there half-connected; `BatchMode` so it never waits at a
+    password or a host-key prompt that no detached process can answer — an unknown host fails
+    here rather than hanging; `ConnectTimeout` so a laptop that is simply asleep costs ten
+    seconds and not a start; `IdentitiesOnly` with the dedicated key so an agent full of the
+    owner's other keys cannot offer one of those instead.
+    """
+    forwards = ["-L", f"{LINK_LOCAL_PORT}:127.0.0.1:{SIRVIS_PORT}",
+                "-L", f"{LINK_LOCAL_NERVIS_PORT}:127.0.0.1:{NERVIS_PORT}"]
+    if inbound:
+        forwards += ["-R", f"127.0.0.1:{LINK_BACK_PORT}:127.0.0.1:{SIRVIS_PORT}",
+                     "-R", f"127.0.0.1:{LINK_BACK_NERVIS_PORT}:127.0.0.1:{NERVIS_PORT}"]
+    identity = ["-i", str(LINK_KEY), "-o", "IdentitiesOnly=yes"] if LINK_KEY.is_file() else []
+    return [shutil.which("ssh") or "ssh", "-N",
+            "-o", "ExitOnForwardFailure=yes",
+            "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+            "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
+            *identity, *forwards, address]
+
+
+def link_authorized_line(public_key: str) -> str:
+    """The one line the other laptop needs in `~/.ssh/authorized_keys`, and nothing more.
+
+    **Everything this key may do is in this line.** `restrict` turns off all of it — no shell,
+    no command, no terminal, no agent or X11 forwarding, no tunnel device — and
+    `port-forwarding` then turns back on the one thing the link needs, narrowed to four
+    loopback addresses. Somebody who took a copy of the key could open those ports on that
+    machine and could not run a single command on it.
+    """
+    return (
+        'restrict,port-forwarding,'
+        f'permitopen="127.0.0.1:{SIRVIS_PORT}",permitopen="127.0.0.1:{NERVIS_PORT}",'
+        f'permitlisten="127.0.0.1:{LINK_BACK_PORT}",'
+        f'permitlisten="127.0.0.1:{LINK_BACK_NERVIS_PORT}" '
+        + public_key.strip()
+    )
+
+
+def link_key_pair() -> tuple[str, str]:
+    """This machine's link key, made if it is not there yet; (public key, what happened).
+
+    `ssh-keygen` rather than anything written here: key generation is exactly the kind of
+    thing that should be done by the program everyone else's is done by.
+    """
+    public = LINK_KEY.with_suffix(".pub")
+    if LINK_KEY.is_file() and public.is_file():
+        return public.read_text(encoding="utf-8").strip(), "already made"
+    RUN.mkdir(parents=True, exist_ok=True)
+    # Left behind by a half-finished earlier attempt, otherwise `ssh-keygen` stops to ask.
+    LINK_KEY.unlink(missing_ok=True)
+    public.unlink(missing_ok=True)
+    done = subprocess.run(
+        [shutil.which("ssh-keygen") or "ssh-keygen", "-q", "-t", "ed25519", "-N", "",
+         "-C", f"nervis link from {platform.node()}", "-f", str(LINK_KEY)],
+        capture_output=True, text=True, check=False,
+    )
+    if done.returncode != 0 or not public.is_file():
+        raise SystemExit(f"could not make the link key: {(done.stderr or done.stdout).strip()}")
+    LINK_KEY.chmod(0o600)
+    return public.read_text(encoding="utf-8").strip(), f"made {LINK_KEY}"
+
+
+def _link_install_command(line: str) -> str:
+    """The shell the other laptop runs to authorise this one. Idempotent, and adds nothing else.
+
+    `grep -qxF` so running enrolment twice does not leave two copies of the same line, and
+    `umask 077` because a world-readable `~/.ssh` is refused by sshd on the far end — which
+    would fail *later*, as a link that never connects and says nothing about why.
+    """
+    return ("umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; "
+            f"grep -qxF '{line}' ~/.ssh/authorized_keys || printf '%s\n' '{line}'"
+            " >> ~/.ssh/authorized_keys")
+
+
+def link_save(address: str, inbound: bool, enabled: bool = True) -> None:
+    """Write `link.peer` where NERVIS's Settings screen writes it, and the launcher reads it.
+
+    Straight into the database rather than through NERVIS's API: enrolment runs from a
+    terminal, on a machine whose stack may not be started yet, and a setup step that needed
+    the dashboard to be running first would be a worse instruction than "run this one line".
+    SQLite is built for the other writer, and NERVIS reads this row per request rather than
+    holding it, so a change lands without a restart.
+    """
+    database = ROOT / "nervis" / "nervis.db"
+    if not database.is_file():
+        raise SystemExit(f"no settings database at {database} — run the installer first")
+    value = json.dumps({"enabled": enabled, "address": address, "inbound": inbound})
+    with sqlite3.connect(database, timeout=10) as held:
+        held.execute("INSERT INTO setting (key, value) VALUES ('link.peer', ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (value,))
+
+
+def link_probe(address: str, inbound: bool, seconds: float = 20.0) -> dict[str, object]:
+    """Open the link for as long as it takes to ask, and say what answered.
+
+    The same command `start` uses, so what this proves is what will run — an enrolment that
+    tested a simpler connection would be testing something nobody else uses.
+
+    **`connected` and `sirvis` are different answers, and the difference is the diagnosis.**
+    `ssh` still running means the key was accepted and all the forwards were allowed; nothing
+    answering behind them means the other laptop's stack is not started, which is not a fault
+    of the link and must not be reported as one.
+    """
+    opened = subprocess.Popen(link_command(address, inbound),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        deadline = time.monotonic() + seconds
+        answers: dict[str, object] = {"sirvis": False, "nervis": False}
+        while time.monotonic() < deadline and not (answers["sirvis"] and answers["nervis"]):
+            answers["sirvis"] = answers["sirvis"] or responds(
+                f"http://127.0.0.1:{LINK_LOCAL_PORT}/ecosystem/health", 2.0)
+            answers["nervis"] = answers["nervis"] or responds(
+                f"http://127.0.0.1:{LINK_LOCAL_NERVIS_PORT}/api/v1/health", 2.0)
+            if opened.poll() is not None:
+                break
+            time.sleep(0.5)
+        answers["connected"] = opened.poll() is None
+        return answers
+    finally:
+        opened.terminate()
+        try:
+            _, said = opened.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            opened.kill()
+            said = ""
+        if not answers.get("connected"):
+            complaint = (said or "").strip().splitlines()
+            answers["trouble"] = complaint[-1] if complaint else "ssh stopped without saying why"
 
 
 def _link() -> list[tuple[str, list[str], str, dict[str, str], str]]:
@@ -750,19 +906,9 @@ def _link() -> list[tuple[str, list[str], str, dict[str, str], str]]:
     binary = shutil.which("ssh")
     if not binary:
         return []
-    forwards = ["-L", f"{LINK_LOCAL_PORT}:127.0.0.1:{SIRVIS_PORT}"]
-    if peer["inbound"]:
-        # The address is part of what the far end authorises: its `authorized_keys` line
-        # restricts this key to `permitlisten="127.0.0.1:8722"`, and `permitlisten` is
-        # matched against what is *requested*, so a bare `-R 8722:` is refused there.
-        forwards += ["-R", f"127.0.0.1:{LINK_BACK_PORT}:127.0.0.1:{SIRVIS_PORT}"]
     return [(
         "Link",
-        [binary, "-N",
-         "-o", "ExitOnForwardFailure=yes",
-         "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
-         "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
-         *forwards, str(peer["address"])],
+        link_command(str(peer["address"]), bool(peer["inbound"])),
         # This machine's own forward, which no other `ssh` on it carries.
         f"{LINK_LOCAL_PORT}:127.0.0.1:{SIRVIS_PORT}",
         dict(os.environ),
@@ -2907,6 +3053,109 @@ def codex_calibrate(arguments: argparse.Namespace) -> int:
     return subprocess.run(command, check=False).returncode
 
 
+def _link_arguments() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=f"{Path(__file__).name} link",
+        description="Hook this machine up to another one running NERVIS, over SSH.",
+    )
+    actions = parser.add_subparsers(dest="action", required=True)
+    add = actions.add_parser("add", help="authorise this machine on another one and save it")
+    add.add_argument("address", help="the other machine, as you would give it to ssh: you@host")
+    add.add_argument("--inbound", action="store_true",
+                     help="also let the other machine reach this one's SIRVIS and NERVIS")
+    add.add_argument("--show-only", action="store_true",
+                     help="print the line to paste there yourself, and change nothing")
+    actions.add_parser("test", help="open the link once and say what answered")
+    actions.add_parser("off", help="stop opening the link, keeping the address")
+    actions.add_parser("status", help="what is configured, and what it would open")
+    return parser
+
+
+def _link_add(address: str, inbound: bool, show_only: bool) -> int:
+    """Authorise this machine on the other one, prove it works, and save it. One command.
+
+    **The password is typed by the person, into their own terminal.** This runs `ssh` with its
+    output left alone, so the far machine's own prompt appears; nothing here reads it, stores it
+    or passes it on. That one password is the last one: everything after it uses the key.
+    """
+    public, made = link_key_pair()
+    line = link_authorized_line(public)
+    print(f"This machine's link key: {made}")
+    if show_only:
+        print("\nAdd this one line to ~/.ssh/authorized_keys on the other machine:\n")
+        print(line)
+        print("\nThen run:  python3 tools/run.py link test")
+        return 0
+    print(f"\nAuthorising this machine on {address}.")
+    print("It will ask for that machine's password once — that is the last time; after this")
+    print("the link uses the key. Nothing here reads or stores what you type.\n")
+    reached = subprocess.run(
+        [shutil.which("ssh") or "ssh", "-o", "ConnectTimeout=10", address,
+         _link_install_command(line)], check=False,
+    )
+    if reached.returncode != 0:
+        print(f"\nCould not reach {address}. The usual reasons:")
+        print("  * the other machine does not accept SSH yet —")
+        print("      macOS: System Settings → General → Sharing → Remote Login")
+        print("      Linux: sudo systemctl enable --now sshd")
+        print("  * the address or user name is wrong — try it by hand: ssh " + address)
+        print("\nOr paste the line there yourself:")
+        print(f"    python3 tools/run.py link add {address} --show-only")
+        return 1
+    print("\nAuthorised. Opening the link once to check it…")
+    return _link_report(address, inbound, save=True)
+
+
+def _link_report(address: str, inbound: bool, save: bool) -> int:
+    """Open the link, say what answered in plain words, and save it when asked to."""
+    found = link_probe(address, inbound)
+    if not found.get("connected"):
+        print(f"  the link did not stay open: {found.get('trouble')}")
+        print("  nothing was saved; the address stays off until this works.")
+        return 1
+    print(f"  connected to {address}")
+    print(f"  its SIRVIS   {'answers' if found['sirvis'] else 'did not answer'}"
+          f"   (http://127.0.0.1:{LINK_LOCAL_PORT})")
+    print(f"  its NERVIS   {'answers' if found['nervis'] else 'did not answer'}"
+          f"   (http://127.0.0.1:{LINK_LOCAL_NERVIS_PORT})")
+    if not (found["sirvis"] or found["nervis"]):
+        # The tunnel is fine and the far stack is not started. Saying "the link failed" here
+        # would send somebody to fix the one part that is working.
+        print("  the tunnel itself is fine — start the stack on that machine to use it.")
+    if save:
+        link_save(address, inbound)
+        print(f"\nSaved. The link opens with the stack from now on"
+              f"{', in both directions' if inbound else ''}.")
+        print("  Start it now with:  python3 tools/run.py start")
+        print("  Turn it off any time in NERVIS → Settings → Another laptop.")
+    return 0
+
+
+def _run_link() -> int:
+    arguments = _link_arguments().parse_args(sys.argv[2:])
+    peer = configured_link()
+    if arguments.action == "add":
+        return _link_add(arguments.address, arguments.inbound, arguments.show_only)
+    if arguments.action == "test":
+        if not peer["address"]:
+            print("No other machine is configured. Add one with:"
+                  "  python3 tools/run.py link add you@their-machine")
+            return 1
+        return _link_report(str(peer["address"]), bool(peer["inbound"]), save=False)
+    if arguments.action == "off":
+        if not peer["address"]:
+            print("No other machine is configured, so there is nothing to turn off.")
+            return 0
+        link_save(str(peer["address"]), False, enabled=False)
+        print(f"Off. {peer['address']} is remembered but nothing will be opened.")
+        return 0
+    print(f"  other machine   {peer['address'] or 'none configured'}")
+    print(f"  link            {'on' if peer['enabled'] else 'off'}")
+    print(f"  lets it reach   {'this machine too' if peer['inbound'] else 'nothing here'}")
+    print(f"  this key        {LINK_KEY if LINK_KEY.is_file() else 'not made yet'}")
+    return 0
+
+
 def _run_models() -> int:
     print(json.dumps(models_report()))
     return 0
@@ -3016,7 +3265,7 @@ def _run_status() -> int:
 COMMANDS = {
     "start": start, "stop": stop, "status": _run_status, "setup": _run_setup,
     "models": _run_models, "load": _run_load, "unload": _run_unload, "renew": _run_renew,
-    "codex": _run_codex, "clarvis-settings": _run_clarvis_settings,
+    "codex": _run_codex, "clarvis-settings": _run_clarvis_settings, "link": _run_link,
 }
 
 if __name__ == "__main__":
@@ -3024,6 +3273,7 @@ if __name__ == "__main__":
     if action not in COMMANDS:
         print(
             f"usage: {Path(__file__).name} [setup|start|stop|status [--json]|clarvis-settings"
+            "|link add ADDRESS [--inbound]|link test|link off|link status"
             "|models|load KEY|unload KEY"
             "|renew|codex sign-in|codex cancel-sign-in|codex stop ID --project NAME --turn TURN"
             "|codex reprove|codex calibrate --project-a PATH --project-b PATH]",

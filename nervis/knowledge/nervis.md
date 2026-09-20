@@ -326,8 +326,15 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–20 September 2026** (now NERVIS 0.34.72, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–20 September 2026** (now NERVIS 0.34.73, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
+
+- **Hooking up a second laptop is one command** (20 September, NERVIS 0.34.73):
+  `python3 tools/run.py link add you@their-machine --inbound` makes the key, authorises this
+  machine on the other one (it asks for that machine's password once, and never again), checks
+  the link works and saves it. After that you can **bring settings over** from the other laptop:
+  Settings → Another laptop shows exactly what would change before anything does. See *Linking
+  two laptops*.
 
 - **Windows starts with a double-click again** (20 September, NERVIS 0.34.72): `start-windows.bat`
   and `stop-windows.bat` hand the launcher to WSL 2, where the stack actually lives. They used to
@@ -1319,6 +1326,32 @@ icon turns red — start the stack again once the other computer is awake.
 
 Changing the switches takes effect at the **next start**: the page cannot open or close a
 tunnel by itself, and it says so rather than pretending otherwise.
+
+**Setting it up is one command.** In the folder, run:
+
+```
+python3 tools/run.py link add you@their-machine --inbound
+```
+
+It makes a key just for the link, authorises this machine on the other one, opens the link once
+to check it really works, and saves it. The other machine asks for its password once, in your
+terminal — nothing reads or keeps it, and after that everything uses the key. If the other
+machine does not accept SSH yet it says so and tells you where to switch it on (macOS: System
+Settings → General → Sharing → Remote Login; Linux: `sudo systemctl enable --now sshd`). Leave
+off `--inbound` if you only want to reach the other laptop and not the other way round. The
+other commands are `link test` (open it once and say what answers), `link off` and `link status`.
+
+The key that gets added to the other machine can do **nothing but** open those forwarded ports:
+no shell, no commands, no terminal. That is what the `restrict` in its line means.
+
+**Bringing settings over.** Once two laptops are linked, Settings → Another laptop can copy that
+machine's settings here: press *See what the other laptop has* and it lists exactly which
+settings would change and what to, before anything happens. Only then does *Bring these over*
+apply them. Nothing is ever removed, and only the same safe list of settings that a backup file
+carries can cross — no passwords, no paths belonging to the other machine. It is deliberately a
+thing you ask for rather than a constant sync: two machines quietly mirroring each other have to
+decide what happens when you delete something on one of them, and every answer to that is a
+surprise you did not ask for.
 
 ## Watching Clarvis in the editor
 

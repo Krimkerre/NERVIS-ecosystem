@@ -61,7 +61,7 @@ def test_a_plain_linux_is_not_mistaken_for_wsl(monkeypatch: pytest.MonkeyPatch) 
     run = _load()
     monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
     monkeypatch.delenv("WSL_INTEROP", raising=False)
-    monkeypatch.setattr(run.Path, "read_text", lambda *a, **k: "6.8.0-45-generic\n")
+    monkeypatch.setattr(run.Path, "read_text", lambda *_, **__: "6.8.0-45-generic\n")
 
     assert run.in_wsl() is False
 
@@ -74,7 +74,7 @@ def test_wsl_is_recognised_by_the_kernel_when_the_environment_says_nothing(
     monkeypatch.delenv("WSL_DISTRO_NAME", raising=False)
     monkeypatch.delenv("WSL_INTEROP", raising=False)
     monkeypatch.setattr(run.Path, "read_text",
-                        lambda *a, **k: "5.15.167.4-microsoft-standard-WSL2\n")
+                        lambda *_, **__: "5.15.167.4-microsoft-standard-WSL2\n")
 
     assert run.in_wsl() is True
 
@@ -85,7 +85,7 @@ def _opened(monkeypatch: pytest.MonkeyPatch, run: ModuleType, *, have: set[str],
     tried: list[list[str]] = []
     monkeypatch.setattr(run.shutil, "which", lambda name: name if name in have else None)
 
-    def _run(command: list[str], **kwargs: object) -> SimpleNamespace:
+    def _run(command: list[str], **_: object) -> SimpleNamespace:
         tried.append(command)
         return SimpleNamespace(returncode=1 if command[0] in fails else 0)
 

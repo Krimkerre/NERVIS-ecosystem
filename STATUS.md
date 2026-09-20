@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4578 tests, no network, no live service
+.venv/bin/pytest                      # part of 4594 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1846 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1862 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4578 passing across the four, conformance `PASS`.
+Expected: all clean, 4594 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,44 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## One command hooks up a laptop, and settings can be brought over it — 2026-09-20 (NERVIS 0.34.73)
+
+Two asks: make the SSH linking easy enough to hook up a new device, and start on the pull, settings first.
+
+**`python3 tools/run.py link add you@their-machine [--inbound]`** does the whole enrolment. It makes a
+dedicated ed25519 key in `.run/link-key`, builds the one `authorized_keys` line that authorises it —
+`restrict,port-forwarding` with four `permit*` addresses and nothing else, so a copy of that key opens
+those ports and cannot run a command — installs it on the far machine over one `ssh` whose output is left
+alone (**the owner types that machine's password once, into their own terminal; nothing here reads or
+stores it**), opens the link with the same command `start` uses to prove it works, and writes `link.peer`.
+A machine that does not accept SSH yet is told where to switch it on, per platform, and
+`link add … --show-only` prints the line to paste by hand instead. Also `link test`, `link off`,
+`link status`. The install shell is idempotent (`grep -qxF`) and sets `umask 077`, because sshd refuses a
+world-readable `~/.ssh` and does it silently.
+
+**The link now carries NERVIS as well as SIRVIS** — `18790` here to the far NERVIS, and `8791` back when
+inbound is on — because settings and conversations live in NERVIS's database and are read over its API.
+The key's restriction line permits exactly those four addresses. `IdentitiesOnly=yes` with the dedicated
+key, so an agent holding the owner's other keys cannot offer one that would have a shell at the far end.
+
+**Settings can be brought over, as a pull with a preview** (`nervis/src/nervis/peers/laptop.py`,
+`GET`/`POST /api/v1/settings/peer`). The preview lists every setting that would change and what to, counts
+the ones that already agree, and leaves out what only this machine has — a pull never removes anything.
+Applying re-reads the other laptop rather than taking a body, so what is applied is what that machine holds
+at the moment somebody says yes, and it goes through the same `import_settings` a saved file does: **one
+allowlist for both doors**, so the link is not a wider one than the export file ever was. A laptop that is
+asleep is an ordinary answer with a sentence, not an error. **Deliberately not a sync**: two machines
+mirroring each other must answer "what happens when one deletes something", and both answers — it comes
+back, or it spreads — are surprises nobody asked for.
+
+Checked by `nervis/tests/test_peer_laptop.py` (12 tests, including that the forwarded port matches the
+launcher's constant, that a posted body cannot decide what is applied, and that a peer naming
+`files.share` or `link.peer` has them skipped) and four more in `nervis/tests/test_launcher_link.py`
+(both forwards, the dedicated key, what the authorised line permits, and the install shell). All 43
+dashboard gates, `tools/check.py`, ruff and mypy pass; NERVIS's suite is 1862. **Not yet seen live:** no
+laptop has been enrolled with the new command, and no settings have been pulled — both need the ThinkPad
+awake, and the enrolment is the owner's to run because it asks for their password.
 
 ## Windows starts the stack in WSL, from a double-click — 2026-09-20 (NERVIS 0.34.72)
 

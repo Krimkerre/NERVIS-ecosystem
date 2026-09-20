@@ -46,6 +46,11 @@ def _launcher(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stored: object) -
     """
     run = _load()
     monkeypatch.setattr(run, "ROOT", tmp_path)
+    # **`RUN` and `LINK_KEY` are computed at import, from the real checkout**, so moving `ROOT`
+    # alone leaves them pointing at `.run/` — where this suite would write, beside the owner's
+    # live credentials. Found by writing a fake key into the real one, 20 September 2026.
+    monkeypatch.setattr(run, "RUN", tmp_path / ".run")
+    monkeypatch.setattr(run, "LINK_KEY", tmp_path / ".run" / "link-key")
     # A real `ssh` path is not this test's subject, and a machine without one would
     # otherwise decide the result.
     monkeypatch.setattr(run.shutil, "which", lambda name: "/usr/bin/ssh" if name == "ssh" else None)
@@ -80,10 +85,76 @@ def test_an_address_with_the_switch_off_stays_shut(
     not asked to retype the address next week, and a launcher that read the address as
     consent would reopen the door on the next start.
     """
-    run = _launcher(monkeypatch, tmp_path, {"enabled": False, "address": "me@thinkpad", "inbound": True})
+    run = _launcher(monkeypatch, tmp_path,
+                    {"enabled": False, "address": "me@thinkpad", "inbound": True})
 
     assert run.configured_link()["address"] == "me@thinkpad"
     assert _link_rows(run) == []
+
+
+def test_it_carries_nervis_as_well_as_sirvis(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Both services, because the link is for a person as well as for models.
+
+    SIRVIS is what the link was built for. NERVIS is what makes it useful to somebody: the
+    settings and the conversations live in its database and are read over its API, so a link
+    that carried only SIRVIS would have to be widened the first time anyone asked for either.
+    """
+    run = _launcher(monkeypatch, tmp_path, {"enabled": True, "address": "me@thinkpad"})
+
+    (_, command, _, _, _), = _link_rows(run)
+    forwarded = [command[i + 1] for i, part in enumerate(command) if part == "-L"]
+    assert forwarded == [f"{run.LINK_LOCAL_PORT}:127.0.0.1:{run.SIRVIS_PORT}",
+                         f"{run.LINK_LOCAL_NERVIS_PORT}:127.0.0.1:{run.NERVIS_PORT}"]
+
+
+def test_the_key_it_offers_is_its_own(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The dedicated key, and only that one.
+
+    Without `IdentitiesOnly` an agent holding the owner's other keys offers those first, and an
+    `ssh` that authenticated as the owner rather than as the link would have a shell at the far
+    end — everything `restrict` in the authorised line exists to prevent.
+    """
+    run = _launcher(monkeypatch, tmp_path, {"enabled": True, "address": "me@thinkpad"})
+    run.LINK_KEY.parent.mkdir(parents=True, exist_ok=True)
+    run.LINK_KEY.write_text("not a real key", encoding="utf-8")
+
+    command = run.link_command("me@thinkpad", False)
+
+    assert "-i" in command and str(run.LINK_KEY) in command
+    assert "IdentitiesOnly=yes" in command
+
+
+def test_the_authorised_line_permits_two_ports_and_nothing_else() -> None:
+    """What a copy of this key could do on the other machine, in one line.
+
+    `restrict` turns everything off; `port-forwarding` turns back on the one thing needed, and
+    the four `permit*` addresses say exactly which. No shell, no command, no agent forwarding.
+    """
+    run = _load()
+
+    line = run.link_authorized_line("ssh-ed25519 AAAAC3Nz… nervis link from thinkpad")
+
+    assert line.startswith("restrict,port-forwarding,")
+    for port in (run.SIRVIS_PORT, run.NERVIS_PORT):
+        assert f'permitopen="127.0.0.1:{port}"' in line
+    for port in (run.LINK_BACK_PORT, run.LINK_BACK_NERVIS_PORT):
+        assert f'permitlisten="127.0.0.1:{port}"' in line
+    assert "command=" not in line and "pty" not in line
+    assert line.endswith("ssh-ed25519 AAAAC3Nz… nervis link from thinkpad")
+
+
+def test_enrolment_adds_the_line_once_and_asks_for_nothing_else() -> None:
+    """The shell run on the other machine: idempotent, private, and nothing but the one line."""
+    run = _load()
+
+    shell = run._link_install_command("restrict,port-forwarding,… ssh-ed25519 AAAA test")
+
+    assert "grep -qxF" in shell, "enrolling twice must not leave two copies of the same line"
+    assert "umask 077" in shell, "sshd refuses a world-readable ~/.ssh, and does it silently"
+    assert ">> ~/.ssh/authorized_keys" in shell and "> ~/.ssh/authorized_keys" in shell
+    assert "rm " not in shell and "chmod 777" not in shell
 
 
 def test_switched_on_it_forwards_one_way_only(
@@ -120,8 +191,9 @@ def test_the_way_back_is_opened_only_when_asked_and_named_in_full(
                     {"enabled": True, "address": "me@thinkpad", "inbound": True})
 
     (_, command, _, _, _), = _link_rows(run)
-    back = command[command.index("-R") + 1]
-    assert back == f"127.0.0.1:{run.LINK_BACK_PORT}:127.0.0.1:{run.SIRVIS_PORT}"
+    back = [command[i + 1] for i, part in enumerate(command) if part == "-R"]
+    assert back == [f"127.0.0.1:{run.LINK_BACK_PORT}:127.0.0.1:{run.SIRVIS_PORT}",
+                    f"127.0.0.1:{run.LINK_BACK_NERVIS_PORT}:127.0.0.1:{run.NERVIS_PORT}"]
 
 
 def test_a_sleeping_laptop_is_not_a_failed_start(
@@ -139,9 +211,7 @@ def test_a_sleeping_laptop_is_not_a_failed_start(
     assert ".run/link.log" not in said, "there is no fault on this machine to send anyone to"
 
 
-def test_it_closes_before_the_rooms_it_leads_to(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_it_closes_before_the_rooms_it_leads_to() -> None:
     run = _load()
 
     assert run.STOP_ORDER[0] == "Link", "a door closes before the room is emptied"
