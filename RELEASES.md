@@ -125,7 +125,18 @@ recovery and restore rehearsals — their last runs (12–17 September) are reco
 
 ---
 
-## Clarvis — 0.17.25
+## Clarvis — 0.17.26
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `clarvis-0.17.26.vsix` · **Runs in:** VS Code and code-server, on macOS and Linux
+
+- **What Clarvis remembers about your branches is kept on your machine too.** The branch a run
+  started from — where "fold it back" lands — and the record of the last run, which "Start fresh"
+  commits for you, were held by the browser in the browser editor. In a second browser they were
+  simply absent, which could send a run's work to the wrong branch. They now live beside your
+  conversations, are moved across on first use, and are re-read before anything acts on them, so
+  two editor windows can't act on each other's stale answer.
+
+### 0.17.25
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `clarvis-0.17.25.vsix` · **Runs in:** VS Code and code-server, on macOS and Linux
 
@@ -870,7 +881,15 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.67
+## NERVIS — 0.34.68
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge 0.17.26+, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Chat's notes follow Clarvis 0.17.26:** the branch a run started from and the last run's record
+  are kept on the machine now, not by the browser.
+
+### 0.34.67
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge 0.17.25+, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

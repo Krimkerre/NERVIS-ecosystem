@@ -20013,6 +20013,32 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## The branch memory followed — 2026-09-20 (Clarvis 0.17.26, NERVIS 0.34.68)
+
+The owner picked the next thing to move off the browser, and the CLARVIS session named these two as the ones
+that matter: `clarvis.agent.baseBranch`, the branch a run is folded back into, and `clarvis.agent.lastRun`,
+whose file list "Start fresh" commits. Unlike a conversation these are wrong *actions* rather than lost text —
+a base branch read from another browser profile merges a run into the wrong branch. **`storage/MachineMemento`**
+is a `Memento` owning exactly those keys, keeping them in `globalStorageUri/state/<hash>.json` and passing every
+other key through to `workspaceState`; `activate` wraps the context in it once (`Object.create`, so the rest of
+the context is untouched), which is why no service needed a constructor of its own for them. The atomic
+temp-and-rename write moved into **`storage/WorkspaceFile`**, so the transcript store and this share one copy.
+
+**The CLARVIS session's review shaped three things.** The write replaces one key rather than the file: window A
+loads at activation, B changes the base branch, A finishes a run and writes its record — a whole-file write
+would carry A's stale base back over B's. The value is re-read from disk at the moments that act on it —
+`AgentBranch` before it picks a base and before it continues a branch, `RunSession` before merge-back and before
+finding left work — rather than trusting the activation-time copy, since `get` must stay synchronous.
+`keys()` answers with both stores, so anything enumerating them still sees these two.
+
+**Checked:** 5 fast tests on the rules and 4 host tests through the editor's own file API, among them the two
+the CLARVIS session asked for — these keys never reach `workspaceState` again, and a workspace that already had
+them keeps them with the old copy left in place. `branchContinuation.spec.ts` now builds its context through the
+same wrapper, so what it asserts is what runs. A whole-file write in a scratch copy fails two of the new tests.
+Clarvis 2,226 fast and 42 host (38 before). Packaged, force-installed into code-server and VS Code, both at
+0.17.26 with `dist/extension.js` matching the package byte for byte. **Not exercised live:** no run has started
+since, so the migration and the re-read have only been seen in tests.
+
 ## Conversations moved onto the machine — 2026-09-20 (Clarvis 0.17.25, NERVIS 0.34.67)
 
 The owner's decision, straight after the entry below found that a browser editor keeps Clarvis's chats in the

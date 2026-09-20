@@ -211,6 +211,15 @@ Clarvis's other notes (one file per project, under the editor's storage folder f
 same machine whether the editor is desktop VS Code or the browser one. Conversations already there
 are moved across the first time and the old copy is left where it was.
 
+Since Clarvis 0.17.26 the same is true of **what Clarvis remembers about your branches**: the branch
+a run started from — where "fold it back" puts the work — and the record of the last run, which
+"Start fresh" commits for you. Those were the browser's too, so in a second browser they were simply
+missing, and a run could be folded back into the wrong branch. They are read again from the machine
+just before a run starts, continues or is folded back, so two editor windows never act on each
+other's stale answer. Everything else Clarvis remembers per project — a paused planning interview,
+the log-copy approval, a declined offer — is still the browser's in the browser editor, and costs a
+repeated question rather than a wrong branch.
+
 **Why it changed:** until that day chats lived in the editor's workspace storage, which VS Code
 keeps *in the browser* when the editor is code-server. So a conversation belonged to one browser
 profile: it wasn't in another browser, and clearing that browser's site data for the editor's
