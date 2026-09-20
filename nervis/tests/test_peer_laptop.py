@@ -72,26 +72,74 @@ def test_the_port_is_the_one_the_launcher_forwards() -> None:
     files because a service reading the launcher would be worse — so this fails the moment
     they stop matching, which is the only way that mistake is ever noticed.
     """
-    declared = re.search(r"^LINK_LOCAL_NERVIS_PORT = (\d+)$", RUN_PY.read_text(encoding="utf-8"),
-                         re.MULTILINE)
+    launcher = RUN_PY.read_text(encoding="utf-8")
 
-    assert declared is not None, "the launcher no longer declares the forwarded NERVIS port"
-    assert int(declared.group(1)) == laptop.LINK_NERVIS_PORT
+    for name, here in (("LINK_LOCAL_NERVIS_PORT", laptop.LINK_NERVIS_PORT),
+                       ("LINK_BACK_NERVIS_PORT", laptop.LINK_BACK_NERVIS_PORT)):
+        declared = re.search(rf"^{name} = (\d+)$", launcher, re.MULTILINE)
+        assert declared is not None, f"the launcher no longer declares {name}"
+        assert int(declared.group(1)) == here
 
 
-def test_with_no_laptop_linked_nothing_is_read(client: Any, monkeypatch: Any) -> None:
-    """The ordinary state of most machines, answered without dialling anything."""
-    def _never(*_: object, **__: object) -> None:
-        raise AssertionError("a machine with no link must not be read over one")
-
-    monkeypatch.setattr(laptop, "peer_settings", _never)
-    monkeypatch.setattr("nervis.api.settings_transfer.peer_settings", _never)
+def test_with_no_laptop_linked_it_says_so_in_words(client: Any, monkeypatch: Any) -> None:
+    """The ordinary state of most machines: nothing answers at either end of the tunnel."""
+    monkeypatch.setattr(laptop, "peer_settings", lambda *_, **__: (None, "nothing answered"))
+    monkeypatch.setattr("nervis.api.settings_transfer.peer_settings",
+                        lambda *_, **__: (None, "nothing answered"))
 
     answer = client.get("/api/v1/settings/peer").json()
 
     assert answer["linked"] is False and answer["reachable"] is False
     assert answer["changes"] == []
     assert "Another laptop" in answer["detail"] or "link add" in answer["detail"]
+
+
+def test_the_machine_that_was_dialled_can_pull_too(client: Any, monkeypatch: Any) -> None:
+    """A link has two ends, and only the dialling one has an address in its settings.
+
+    The Mac accepts rather than dials, so a pull offered only where `link.peer` is set would be
+    missing from exactly the laptop it is used from most. What makes a pull possible is the
+    other machine answering, not this machine holding its address.
+    """
+    monkeypatch.setattr("nervis.api.settings_transfer.peer_settings",
+                        lambda *_, **__: peer_holding({"chat.mode": "build"}))
+
+    answer = client.get("/api/v1/settings/peer").json()
+
+    assert answer["linked"] is True and answer["reachable"] is True
+    assert answer["address"] == "the laptop that linked to this one"
+    assert [change["key"] for change in answer["changes"]] == ["chat.mode"]
+
+
+def test_both_ends_of_the_tunnel_are_tried(monkeypatch: Any) -> None:
+    """Whichever port carries the link, the answer is the same.
+
+    The dialling machine has the other's NERVIS on its own forward; the machine that accepted
+    has it on the one opened backwards. Neither knows which it is, so both are asked.
+    """
+    asked: list[str] = []
+
+    class _Answer:
+        status_code = 200
+
+        @staticmethod
+        def json() -> Any:
+            return {"format": FORMAT, "version": FORMAT_VERSION, "settings": {"chat.mode": "ask"}}
+
+    def _get(url: str, **_: object) -> Any:
+        asked.append(url)
+        if str(laptop.LINK_BACK_NERVIS_PORT) not in url:
+            raise httpx.ConnectError("nothing is listening on this one")
+        return _Answer()
+
+    monkeypatch.setattr(laptop.httpx, "get", _get)
+
+    body, trouble = laptop.peer_settings()
+
+    assert trouble == "" and body is not None
+    assert len(asked) == 2 and str(laptop.LINK_NERVIS_PORT) in asked[0], (
+        "this machine's own forward first — it is the one it opened itself"
+    )
 
 
 def test_a_sleeping_laptop_is_an_answer_not_an_error(client: Any, monkeypatch: Any) -> None:

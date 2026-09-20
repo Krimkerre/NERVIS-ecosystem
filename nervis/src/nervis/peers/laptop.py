@@ -27,13 +27,23 @@ import httpx
 
 from nervis.storage.database import Database
 
-#: Where the other laptop's NERVIS appears on this machine once the link is up.
+#: Where the other laptop's NERVIS appears on this machine once the link is up — **two places,
+#: because only one of the two machines dials**.
 #:
-#: **The same number as `tools/run.py`'s `LINK_LOCAL_NERVIS_PORT`**, which is what forwards it.
-#: Two places is one more than ideal, and the alternative — reading the launcher from inside a
-#: service — is worse; `test_peer_laptop.py` fails if the two ever stop agreeing.
+#: The laptop that opens the connection gets the other's NERVIS on `18790` (its own forward).
+#: The laptop that *accepts* it gets the other's on `8791`, which the dialling machine opened
+#: backwards. Neither knows which it is without looking, and it does not matter: both are
+#: loopback, both exist only while the link is up, so asking each in turn is the whole answer.
+#: (Found on the Mac, 20 September 2026: it accepts rather than dials, so a pull that only ever
+#: looked at `18790` would have been dead on exactly the machine it is used from most.)
+#:
+#: **The same numbers as `tools/run.py`'s `LINK_LOCAL_NERVIS_PORT` and `LINK_BACK_NERVIS_PORT`**,
+#: which are what forward them. Two files is one more than ideal, and the alternative — a service
+#: reading the launcher — is worse; `test_peer_laptop.py` fails if they ever stop agreeing.
 LINK_NERVIS_PORT = 18790
+LINK_BACK_NERVIS_PORT = 8791
 LINK_NERVIS_URL = f"http://127.0.0.1:{LINK_NERVIS_PORT}"
+PEER_URLS = (LINK_NERVIS_URL, f"http://127.0.0.1:{LINK_BACK_NERVIS_PORT}")
 
 #: How long the other laptop has to answer. Short on purpose: this backs a screen, the tunnel
 #: is loopback on both sides, and a laptop that is asleep should read as absent in a moment
@@ -65,27 +75,39 @@ def linked_peer(database: Database) -> dict[str, Any]:
     }
 
 
-def peer_settings(url: str = LINK_NERVIS_URL) -> tuple[dict[str, Any] | None, str]:
+def peer_settings(urls: tuple[str, ...] = PEER_URLS) -> tuple[dict[str, Any] | None, str]:
     """The other laptop's exported settings, or nothing and why not.
+
+    Both addresses are tried, in order, because which one carries the link depends on which
+    machine dialled (`PEER_URLS`). A closed port on loopback refuses at once, so the machine
+    that has no link pays two instant refusals rather than a wait.
 
     Never raises: every way this can fail — the link not open, the far stack not started, a
     NERVIS too old to export — is an ordinary state of somebody's second laptop, and a screen
     that had to catch exceptions to say "it is asleep" would be the wrong shape for all of them.
+    The sentence returned is the *last* real refusal, or the plain "nothing answered" when
+    nothing was listening at either address.
     """
-    try:
-        answer = httpx.get(f"{url}/api/v1/settings/export", timeout=PEER_TIMEOUT_SECONDS)
-    except httpx.HTTPError:
-        return None, ("the other laptop did not answer — the link is not open, or its stack "
-                      "is not started")
-    if answer.status_code != 200:
-        return None, f"the other laptop refused the read (HTTP {answer.status_code})"
-    try:
-        body = answer.json()
-    except ValueError:
-        return None, "the other laptop answered with something that is not settings"
-    if not isinstance(body, dict) or "settings" not in body:
-        return None, "the other laptop answered with something that is not settings"
-    return body, ""
+    trouble = ("the other laptop did not answer — the link is not open, or its stack "
+               "is not started")
+    for url in urls:
+        try:
+            answer = httpx.get(f"{url}/api/v1/settings/export", timeout=PEER_TIMEOUT_SECONDS)
+        except httpx.HTTPError:
+            continue
+        if answer.status_code != 200:
+            trouble = f"the other laptop refused the read (HTTP {answer.status_code})"
+            continue
+        try:
+            body = answer.json()
+        except ValueError:
+            trouble = "the other laptop answered with something that is not settings"
+            continue
+        if not isinstance(body, dict) or "settings" not in body:
+            trouble = "the other laptop answered with something that is not settings"
+            continue
+        return body, ""
+    return None, trouble
 
 
 def differences(theirs: Mapping[str, Any], ours: Mapping[str, Any]) -> list[dict[str, Any]]:

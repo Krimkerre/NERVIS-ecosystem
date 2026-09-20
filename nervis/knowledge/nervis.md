@@ -326,7 +326,7 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–20 September 2026** (now NERVIS 0.34.74, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–20 September 2026** (now NERVIS 0.34.75, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
 - **Hooking up a second laptop is one command** (20 September, NERVIS 0.34.73):
@@ -1345,7 +1345,7 @@ The key that gets added to the other machine can do **nothing but** open those f
 no shell, no commands, no terminal. That is what the `restrict` in its line means.
 
 **Bringing settings over.** Once two laptops are linked, Settings → Another laptop can copy that
-machine's settings here: press *See what the other laptop has* and it lists exactly which
+machine's settings here — **on either laptop**, whichever one dialled: press *See what the other laptop has* and it lists exactly which
 settings would change and what to, before anything happens. Only then does *Bring these over*
 apply them. Nothing is ever removed, and only the same safe list of settings that a backup file
 carries can cross — no passwords, no paths belonging to the other machine. It is deliberately a

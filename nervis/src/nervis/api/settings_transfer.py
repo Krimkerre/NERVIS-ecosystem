@@ -55,22 +55,27 @@ async def peer_preview(request: Request) -> dict[str, Any]:
     than a status code to interpret.
     """
     peer = linked_peer(request.app.state.database)
+    dials = bool(peer["enabled"] and peer["address"])
     answer: dict[str, Any] = {
-        "linked": bool(peer["enabled"] and peer["address"]),
+        "linked": dials,
         "address": peer["address"],
         "reachable": False,
         "detail": "",
         "changes": [],
         "unchanged": 0,
     }
-    if not answer["linked"]:
-        answer["detail"] = ("no other laptop is linked — Settings → Another laptop, or "
-                            "tools/run.py link add")
-        return answer
+    # **Asked even when this machine dials nobody**, because a link has two ends and only one
+    # of them holds the address: the machine that *accepts* the connection has nothing in its
+    # settings, and a pull offered only to the dialling side would be missing from whichever
+    # laptop is sitting still. Two refused loopback connections is what that costs.
     theirs, trouble = peer_settings()
     if theirs is None:
-        answer["detail"] = trouble
+        answer["detail"] = trouble if dials else (
+            "no other laptop is linked — Settings → Another laptop, or tools/run.py link add")
         return answer
+    if not dials:
+        answer["linked"] = True
+        answer["address"] = peer["address"] or "the laptop that linked to this one"
     ours = export_settings(request.app.state.database)["settings"]
     changes = differences(theirs.get("settings") or {}, ours)
     answer["reachable"] = True
@@ -90,10 +95,10 @@ async def peer_apply(request: Request) -> dict[str, Any]:
     The preview is then a preview of this, rather than of a different request.
     """
     peer = linked_peer(request.app.state.database)
-    if not (peer["enabled"] and peer["address"]):
-        return {"applied": [], "skipped": [], "detail": "no other laptop is linked"}
     theirs, trouble = peer_settings()
     if theirs is None:
-        return {"applied": [], "skipped": [], "detail": trouble}
+        return {"applied": [], "skipped": [],
+                "detail": trouble if peer["address"] else "no other laptop is linked"}
     outcome = import_settings(request.app.state.database, theirs)
-    return {**outcome.as_dict(), "address": peer["address"], "detail": ""}
+    address = peer["address"] or "the laptop that linked to this one"
+    return {**outcome.as_dict(), "address": address, "detail": ""}

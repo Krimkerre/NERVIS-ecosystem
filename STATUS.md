@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4594 tests, no network, no live service
+.venv/bin/pytest                      # part of 4596 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1862 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1864 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4594 passing across the four, conformance `PASS`.
+Expected: all clean, 4596 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20043,11 +20043,18 @@ asleep is an ordinary answer with a sentence, not an error. **Deliberately not a
 mirroring each other must answer "what happens when one deletes something", and both answers — it comes
 back, or it spreads — are surprises nobody asked for.
 
-Checked by `nervis/tests/test_peer_laptop.py` (12 tests, including that the forwarded port matches the
-launcher's constant, that a posted body cannot decide what is applied, and that a peer naming
-`files.share` or `link.peer` has them skipped) and four more in `nervis/tests/test_launcher_link.py`
+**Both ends of the tunnel can pull, not just the one that dialled.** Caught before it was used: the
+machine that *accepts* the connection has nothing in its settings and sees the other's NERVIS on `8791`,
+not `18790`, so a pull that only ever looked at its own forward would have been dead on the Mac — the
+laptop this is used from most. `peer_settings` asks both addresses in turn (a closed loopback port refuses
+at once), and what makes a pull possible is the other machine answering rather than this one holding its
+address.
+
+Checked by `nervis/tests/test_peer_laptop.py` (14 tests, including that both forwarded ports match the
+launcher's constants, that the dialled machine can pull too, that a posted body cannot decide what is
+applied, and that a peer naming `files.share` or `link.peer` has them skipped) and four more in `nervis/tests/test_launcher_link.py`
 (both forwards, the dedicated key, what the authorised line permits, and the install shell). All 43
-dashboard gates, `tools/check.py`, ruff and mypy pass; NERVIS's suite is 1862. **Not yet seen live:** no
+dashboard gates, `tools/check.py`, ruff and mypy pass; NERVIS's suite is 1864. **Not yet seen live:** no
 laptop has been enrolled with the new command, and no settings have been pulled — both need the ThinkPad
 awake, and the enrolment is the owner's to run because it asks for their password.
 
