@@ -2424,6 +2424,17 @@ async function _workspaceDid(response){
  return {ok:false,detail:detail||`NERVIS refused (${response.status})`};
 }
 
+/* One stored setting, or an empty object. Absent is the ordinary state for every
+   setting read this way — no NAS, no second laptop — so a caller gets something it
+   can read fields off rather than an error it would have to catch. */
+async function _storedSetting(key){
+ try{
+  const r=await fetch('/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(r.ok)return ((await r.json()).items||{})[key]||{};
+ }catch(e){}
+ return {};
+}
+
 function control_headers(){return{'content-type':'application/json','x-nervis-control':CONTROL_TOKEN}}
 /* RAVIS is read through NERVIS rather than dialled from the page, since 12 September
    2026. Measured that day: the overview alone read RAVIS about twenty-seven times a
@@ -3900,16 +3911,24 @@ const API={
    /* What Settings stored, if anything. An absent share is the ordinary state
       — most machines have no NAS — so this answers with an empty object rather
       than an error nobody should have to catch. */
-   try{
-    const r=await fetch('/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-    if(r.ok)return ((await r.json()).items||{})['files.share']||{};
-   }catch(e){}
-   return {};
+   return _storedSetting('files.share');
   },
 
   async saveFileShare(share){
    return _workspaceDid(await fetch('/api/v1/settings/files.share',
      {method:'PUT',headers:control_headers(),body:JSON.stringify({value:share})}));
+  },
+
+  /* The other laptop this one dials, if the owner asked for a link. Absent is
+     the ordinary state — one laptop is one laptop — and reads as an empty
+     object, which the card renders as "off". */
+  async peerLink(){
+   return _storedSetting('link.peer');
+  },
+
+  async savePeerLink(link){
+   return _workspaceDid(await fetch('/api/v1/settings/link.peer',
+     {method:'PUT',headers:control_headers(),body:JSON.stringify({value:link})}));
   },
 
   async workspaceTrash(){
@@ -9055,6 +9074,68 @@ function screenSection(){
     code-server keeps the files and the folder it had open.</small></label>`,'nervis')}</div>`;
 }
 
+/* The link to another laptop, and the one card here whose two switches each open a
+   port — so each is asked separately, and both start off.
+
+   **What the switches actually do.** The launcher reads this row before it starts
+   anything (`tools/run.py`, `configured_link`) and opens an SSH tunnel to the address
+   below. *Link* forwards a port on **this** machine to the other laptop's SIRVIS.
+   *Let it reach this one* forwards a port on **the other** machine back to this SIRVIS
+   — a door into this laptop, which is why it is a separate answer rather than part of
+   the first. Both ends are loopback-only: nothing listens on the network, and the
+   tunnel is the only way through.
+
+   It takes effect at the next start, and says so: this page cannot open or close a
+   tunnel, and a switch that looked instant would be a claim it is. */
+async function linkSection(){
+ const link=await API.nervis.peerLink();
+ const on=!!(link.enabled&&link.address);
+ const state=on?'<span class="chip">on — opens at the next start</span>'
+               :'<span class="chip">off — no port is opened</span>';
+ return `<div class="card wide${on?' live':''}"><h3>Link to another laptop</h3>${cell(`
+  <div class="trace-step"><b>state</b><span>${state}</span></div>
+  <div class="trace-step"><b>link</b><span><label><input type="checkbox" id="linkOn"
+    ${link.enabled?'checked':''}> reach the other laptop's SIRVIS from this one</label></span></div>
+  <div class="trace-step"><b>address</b><span><input id="linkPeer" class="mono"
+    placeholder="mathias@thinkpad.local" value="${escapeHtml(link.address||'')}"
+    style="width:100%;background:#0e151d;border:1px solid var(--line);border-radius:4px;
+    padding:6px 8px;color:inherit;font:inherit"></span></div>
+  <div class="trace-step"><b>the other way</b><span><label><input type="checkbox" id="linkIn"
+    ${link.inbound?'checked':''}> let the other laptop reach <b>this</b> one's SIRVIS</label></span></div>
+  <div class="trace-step"><b></b><span><button class="btn primary" id="saveLink">Save</button>
+   <button class="btn" id="clearLink">Turn it off</button></span></div>
+  <small class="mono dim">Over <b>SSH</b>, with the key that laptop already trusts — nothing is
+  stored here but the address, and no password is ever asked for or kept. Both forwarded ports
+  are <b>loopback</b> at both ends (<span class="mono">127.0.0.1</span>), so neither is reachable
+  from anything else on the network. Off is the default and off opens nothing. Applied by the
+  launcher at the next <b>start</b>; the link stops when the stack does.</small>`,'nervis')}</div>`;
+}
+
+/* Saving is a mutation and carries the page's own token, like every other one.
+   Wired after the screen is drawn, because the screen is a string until then. */
+function wireLinkCard(){
+ const save=$('#saveLink'),off=$('#clearLink');
+ if(save)save.onclick=async()=>{
+  const address=($('#linkPeer').value||'').trim();
+  const enabled=!!$('#linkOn').checked&&!!address;
+  const outcome=await API.nervis.savePeerLink(
+    {enabled,address,inbound:!!$('#linkIn').checked});
+  notify(outcome.ok
+    ?(enabled?'Saved — the link opens at the next start':'Saved — no link will be opened')
+    :(outcome.detail||'NERVIS refused that'));
+  if(outcome.ok)await settingsView();
+ };
+ /* Off keeps the address: turning a link off and typing the address again next week
+    are two different requests, and only one of them was made. */
+ if(off)off.onclick=async()=>{
+  const outcome=await API.nervis.savePeerLink(
+    {enabled:false,address:($('#linkPeer').value||'').trim(),inbound:false});
+  notify(outcome.ok?'Link off — nothing is opened at the next start'
+                   :(outcome.detail||'NERVIS refused that'));
+  if(outcome.ok)await settingsView();
+ };
+}
+
 /* Saving is a mutation and carries the page's own token, like every other one.
    Wired after the screen is drawn, because the screen is a string until then. */
 function wireShareCard(){
@@ -9141,6 +9222,7 @@ async function settingsView(){
    <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.<br>each endpoint is NERVIS's <b>copy</b> of where a peer said it listens — the peer sets its own bind address at start, and NERVIS records it. When the two disagree the service reads as <b>unreachable</b>, not as misconfigured, because from here those are indistinguishable: a peer that moved and a peer that stopped both fail to answer. The health test above is what tells them apart.</small></div>`)
   + section('Screen', screenSection())
   + section('Files', await shareSection())
+  + section('Another laptop', await linkSection())
   + section('Voice', await voiceSection())
   + section('Privacy and retention', `<div class="card wide"><h3>Privacy</h3>
    <div class="table-row head"><span>Setting</span><span>State</span><span style="grid-column:3/-1">Why it is here</span></div>
@@ -9163,6 +9245,7 @@ async function settingsView(){
    <div class="table-row"><span>observed only</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.observed.join(' · '))}</span></div>
    <small class="mono dim">${escapeHtml(s.supervision.observed.length)} of ${escapeHtml(s.supervision.observed.length+s.supervision.restartable.length)} services are observe-only. That is the safe default: NERVIS earns the right to stop something by having started it.</small></div>`, false);
  wireShareCard();
+ wireLinkCard();
 }
 
 

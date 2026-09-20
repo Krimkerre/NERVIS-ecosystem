@@ -326,8 +326,16 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–20 September 2026** (now NERVIS 0.34.70, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–20 September 2026** (now NERVIS 0.34.71, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
+
+- **Two laptops can be linked, if you ask for it** (20 September, NERVIS 0.34.71): the Mac and the
+  ThinkPad can reach each other's SIRVIS through an SSH tunnel that the launcher opens when the
+  stack starts and closes when it stops. It is off until you switch it on, under Settings →
+  Another laptop, where there are two separate switches: one to reach the other laptop from this
+  one, and one to let the other laptop reach this one. Both ends stay loopback-only, so nothing is
+  exposed to the network, and the other laptop being asleep is not treated as the stack being
+  broken. See "Linking two laptops" below.
 
 - **Everything a Clarvis project remembers is on the machine** (20 September, Clarvis 0.17.27):
   a paused planning interview, approvals already given, what blocked the last run. Two things stay
@@ -1270,6 +1278,35 @@ path was chosen, so a fresh copy runs the dashboard's checks before a commit.
 Every commit also gets a secret scan: a line that looks like a provider key or
 private key, or carries one of the launcher's own secrets, stops the commit, and
 the refusal names the file and line but never the secret.
+
+## Linking two laptops
+
+If you have NERVIS on more than one computer — the Mac and the ThinkPad here — they can be
+linked so that each one can see and use the other's models through SIRVIS. It is **off until
+you turn it on**, and it opens nothing before then.
+
+**Where to turn it on:** Settings → Another laptop. You give the other machine's address the
+way you would to SSH (`you@thinkpad.local`), and there are two switches, because they open two
+different doors:
+
+- **Link** — this laptop can reach the other one's SIRVIS.
+- **Let the other laptop reach this one** — the other machine can reach *this* SIRVIS. That one
+  is a way into this computer, which is why it is asked separately rather than coming along with
+  the first.
+
+**How it works.** The connection is an ordinary SSH tunnel, using the key the other laptop
+already trusts — no password is asked for or stored here, only the address. The launcher opens
+it when you start the stack and closes it when you stop the stack, so there is nothing to
+install, enable or remember. Both forwarded ports are loopback (`127.0.0.1`) at both ends: the
+tunnel is the only way through, and nothing is visible to anything else on the network. On the
+Mac side the key is restricted to exactly those two ports and no shell at all.
+
+**If the other laptop is asleep**, the link simply does not come up, and the start says so
+naming that machine. Nothing else is affected, the stack is not "down", and neither menu bar
+icon turns red — start the stack again once the other computer is awake.
+
+Changing the switches takes effect at the **next start**: the page cannot open or close a
+tunnel by itself, and it says so rather than pretending otherwise.
 
 ## Watching Clarvis in the editor
 

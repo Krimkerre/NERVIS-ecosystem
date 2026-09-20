@@ -80,6 +80,12 @@ PIDFILE = RUN / "services.json"
 SIRVIS_PORT = 8721
 RAVIS_PORT = 8731
 NERVIS_PORT = 8790
+#: Where the other laptop's SIRVIS appears on this one, once the link is up, and where this
+#: machine's SIRVIS appears on the other. **Both are loopback at both ends**: the SSH tunnel
+#: is the only way through, so neither port is reachable from anything else on the network,
+#: and the second one exists only when its own setting says so (`configured_link`).
+LINK_LOCAL_PORT = 18721
+LINK_BACK_PORT = 8722
 OLLAMA_PORT = 11434
 
 # **What Ollama loads a model with, and what RAVIS is told about it.**
@@ -624,7 +630,7 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         ("NERVIS", [str(venv_bin("nervis")), "serve"], _serve_marker(venv_bin("nervis")),
          env_for("NERVIS", NERVIS_PORT),
          f"http://127.0.0.1:{NERVIS_PORT}/api/v1/health"),
-    ] + _ollama() + _code_server()
+    ] + _ollama() + _code_server() + _link()
 
 
 def _code_server() -> list[tuple[str, list[str], str, dict[str, str], str]]:
@@ -694,6 +700,77 @@ def _ollama() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         _serve_marker(binary),
         {**os.environ, "OLLAMA_CONTEXT_LENGTH": str(OLLAMA_CONTEXT)},
         f"http://127.0.0.1:{OLLAMA_PORT}/",
+    )]
+
+
+def configured_link() -> dict[str, object]:
+    """The other laptop this machine dials, as its Settings screen left it.
+
+    `link.peer` is `{"enabled": …, "address": "user@host", "inbound": …}`, and every field
+    defaults to off or empty: a machine nobody configured opens nothing.
+
+    **Two separate answers, because they open two different doors.** `enabled` with an
+    `address` opens a port *here* that reaches the other laptop's SIRVIS. `inbound` opens a
+    port *there* that reaches this machine's SIRVIS — the more consequential of the two, and
+    the reason it is its own checkbox rather than part of the first. Neither is implied by
+    the other, and both are the owner's to give (NERVIS → Settings → This laptop's link).
+    """
+    stored = stored_setting("link.peer")
+    if not isinstance(stored, dict):
+        return {"enabled": False, "address": "", "inbound": False}
+    return {
+        "enabled": bool(stored.get("enabled")),
+        "address": str(stored.get("address") or "").strip(),
+        "inbound": bool(stored.get("inbound")),
+    }
+
+
+def _link() -> list[tuple[str, list[str], str, dict[str, str], str]]:
+    """The tunnel to the other laptop, when this machine's Settings screen asked for one.
+
+    Same shape and the same reason as `_code_server()` and `_ollama()`: appended to the
+    table, so `start`, `stop` and `status` gain it without being told it is conditional.
+    It was going to be a systemd unit, which would have been a second thing to install, to
+    enable, to stop — and one with no answer on macOS. The stack already has something that
+    owns processes; this is one of them.
+
+    **`ssh` itself, not `autossh`.** `ServerAliveInterval` is how a dropped link is noticed,
+    and the next `start` is how it comes back; a supervisor that redials forever would keep
+    a door open long after the stack it belongs to was stopped.
+
+    The options that matter, in order: `ExitOnForwardFailure` so a tunnel that could not
+    open its ports fails loudly instead of sitting there half-connected; `BatchMode` so it
+    never waits at a password or a host-key prompt no detached process can answer — an
+    unknown host fails here rather than hanging; `ConnectTimeout` so a laptop that is simply
+    asleep costs ten seconds, not a start.
+    """
+    peer = configured_link()
+    if not peer["enabled"] or not peer["address"]:
+        return []
+    binary = shutil.which("ssh")
+    if not binary:
+        return []
+    forwards = ["-L", f"{LINK_LOCAL_PORT}:127.0.0.1:{SIRVIS_PORT}"]
+    if peer["inbound"]:
+        # The address is part of what the far end authorises: its `authorized_keys` line
+        # restricts this key to `permitlisten="127.0.0.1:8722"`, and `permitlisten` is
+        # matched against what is *requested*, so a bare `-R 8722:` is refused there.
+        forwards += ["-R", f"127.0.0.1:{LINK_BACK_PORT}:127.0.0.1:{SIRVIS_PORT}"]
+    return [(
+        "Link",
+        [binary, "-N",
+         "-o", "ExitOnForwardFailure=yes",
+         "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+         "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
+         *forwards, str(peer["address"])],
+        # This machine's own forward, which no other `ssh` on it carries.
+        f"{LINK_LOCAL_PORT}:127.0.0.1:{SIRVIS_PORT}",
+        dict(os.environ),
+        # **The far SIRVIS through the tunnel**, which is the only question worth asking: a
+        # live `ssh` to a laptop whose stack is down is not a link anybody can use. It is
+        # also why silence here never fails a start (`OPTIONAL`) — the other laptop being
+        # asleep is the ordinary case, not a broken stack.
+        f"http://127.0.0.1:{LINK_LOCAL_PORT}/ecosystem/health",
     )]
 
 
@@ -1468,15 +1545,13 @@ FILE_MOUNTS = [
 ]
 
 
-def configured_share() -> str:
-    """The share NERVIS was pointed at on its Settings screen, or nothing.
+def stored_setting(key: str) -> object:
+    """One value out of NERVIS's own settings database, decoded, or None.
 
-    **Read out of NERVIS's own database rather than kept here.** A share typed
-    into Settings and a share named in a launcher variable are two places to
+    **Read out of NERVIS's database rather than kept here.** A thing typed into
+    Settings and the same thing named in a launcher variable are two places to
     say one thing, and the pair drifts the first time somebody edits the
-    convenient one. The screen writes `files.share`; this reads it; an empty or
-    absent value means there is nothing to mount, which is every machine that
-    was never told about a NAS.
+    convenient one. The screen writes the setting; this reads it.
 
     Read-only and forgiving: the database may not exist yet on a first run, and
     a launcher that refused to start over a missing settings table would be
@@ -1484,19 +1559,29 @@ def configured_share() -> str:
     """
     database = ROOT / "nervis" / "nervis.db"
     if not database.is_file():
-        return ""
+        return None
     try:
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True, timeout=2) as held:
-            row = held.execute(
-                "SELECT value FROM setting WHERE key = 'files.share'"
-            ).fetchone()
+            row = held.execute("SELECT value FROM setting WHERE key = ?", (key,)).fetchone()
     except sqlite3.Error:
-        return ""
+        return None
     if not row:
-        return ""
+        return None
     try:
-        return str((json.loads(row[0]) or {}).get("url") or "").strip()
-    except (TypeError, ValueError, AttributeError):
+        return json.loads(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def configured_share() -> str:
+    """The share NERVIS was pointed at on its Settings screen, or nothing.
+
+    The screen writes `files.share`; an empty or absent value means there is
+    nothing to mount, which is every machine that was never told about a NAS.
+    """
+    try:
+        return str((stored_setting("files.share") or {}).get("url") or "").strip()
+    except AttributeError:
         return ""
 
 
@@ -1590,11 +1675,20 @@ def _mount_share_with_gio(url: str) -> str:
 
 
 #: The order `start` brings services up in, from runbook §12.1: SIRVIS, then the local
-#: runtimes it and RAVIS use, then RAVIS, NERVIS, and code-server behind NERVIS.
-START_ORDER = ("SIRVIS", "Ollama", "RAVIS", "NERVIS", "code-server")
-#: The order `stop` takes them down in, from §12.1's shutdown paragraph: code-server's sessions
-#: first, then NERVIS, RAVIS and SIRVIS, and the runtimes last, once nothing is using them.
-STOP_ORDER = ("code-server", "NERVIS", "RAVIS", "SIRVIS", "Ollama")
+#: runtimes it and RAVIS use, then RAVIS, NERVIS, and code-server behind NERVIS. The link
+#: to the other laptop comes last: it forwards to SIRVIS, so it has nothing to offer the
+#: other end until SIRVIS is answering.
+START_ORDER = ("SIRVIS", "Ollama", "RAVIS", "NERVIS", "code-server", "Link")
+#: The order `stop` takes them down in, from §12.1's shutdown paragraph: the link first,
+#: because it is a door and a door closes before the room is emptied; then code-server's
+#: sessions, then NERVIS, RAVIS and SIRVIS, and the runtimes last, once nothing is using them.
+STOP_ORDER = ("Link", "code-server", "NERVIS", "RAVIS", "SIRVIS", "Ollama")
+
+#: Services whose silence is not a failed start. The link's far end is another laptop, which
+#: is asleep more often than not; a stack that reported itself broken because somebody's
+#: other computer was shut would be a stack nobody believes. Everything else here is local,
+#: and local silence really is a failure.
+OPTIONAL = ("Link",)
 
 
 def in_order(names: Iterable[str], order: tuple[str, ...]) -> list[str]:
@@ -1653,6 +1747,10 @@ def _still_ours(record: object, current_marker: str) -> int:
 #: How long `start` waits for each service to answer — and so how old a silent process must
 #: be before `status --json` calls it hung rather than still booting (`_problem`).
 START_WAIT_SECONDS = 30.0
+#: Services that get a different wait. **The link gets twelve seconds**: its `ConnectTimeout`
+#: is ten, so a laptop that is asleep has already failed by then, and thirty would mean every
+#: start on a machine whose peer is off stood still for half a minute waiting for nothing.
+WAIT_SECONDS = {"Link": 12.0}
 
 
 def _elapsed_seconds(etime: str) -> float | None:
@@ -1715,6 +1813,13 @@ def _readiness(name: str, answering: bool, booting_pid: int, status: int | None 
     """
     if answering:
         return "ready"
+    if name == "Link":
+        # The far end is somebody's other laptop. Asleep, shut, or its stack not started are
+        # all ordinary, and none of them is something to fix here — so this says which end is
+        # quiet rather than pointing at a log on this one.
+        peer = configured_link()["address"]
+        return (f"not up — {peer} is not answering, which is what an asleep laptop looks like."
+                " Nothing else is affected; start this again when it is awake.")
     if status is not None:
         return (f"NOT ready — its health address answers HTTP {status}, not success; see"
                 f" .run/{name.lower()}.log, and check nothing else holds its port")
@@ -1765,11 +1870,11 @@ def start() -> int:
         with PIDFILE.open("w", encoding="utf-8") as handle:
             json.dump(recorded, handle, indent=2, sort_keys=True)
         url = services[name][4]
-        deadline = time.monotonic() + START_WAIT_SECONDS
+        deadline = time.monotonic() + WAIT_SECONDS.get(name, START_WAIT_SECONDS)
         while time.monotonic() < deadline and not ready(url):
             time.sleep(0.4)
         healthy = ready(url)
-        all_ready = all_ready and healthy
+        all_ready = all_ready and (healthy or name in OPTIONAL)
         said = None if healthy else answer_status(url)
         print(f"  {name:<11} {_readiness(name, healthy, booting, said)}")
 
@@ -1983,7 +2088,8 @@ def status_report() -> dict[str, object]:
     whether it is up — stays known in one place, this file. `group` is what the
     menu sorts by: "stack" for what this launcher starts, "runtime" for LM Studio
     and Ollama, "editor" for CLARVIS, whose open windows NERVIS's
-    registry counts.
+    registry counts, and "link" for the tunnel to the other laptop — its own group
+    because a laptop that is asleep must not read as this stack being down.
 
     Probed in parallel. One at a time, a stack that is down costs a second per
     service, and the menu asks every time it is opened.
@@ -1993,7 +2099,7 @@ def status_report() -> dict[str, object]:
     """
     owned = _services()
     probes = [
-        (name, url, "runtime" if name == "Ollama" else "stack")
+        (name, url, {"Ollama": "runtime", "Link": "link"}.get(name, "stack"))
         for name, _, _, _, url in owned
     ] + [(name, url, "runtime") for name, url in EXTERNAL]
     with ThreadPoolExecutor(max_workers=len(probes)) as pool:

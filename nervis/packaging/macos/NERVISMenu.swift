@@ -149,8 +149,12 @@ struct StackReport: Decodable {
     }
 
     var stack: [Service] { services.filter { $0.group == "stack" } }
-    /// The menu's Stack section: the stack with CLARVIS, in the launcher's order.
-    var stackSection: [Service] { services.filter { $0.group == "stack" || $0.group == "editor" } }
+    /// The menu's Stack section: the stack with CLARVIS and the link to the other laptop,
+    /// in the launcher's order. Neither counts toward `stackIsUp` — no editor window open
+    /// and a peer laptop that is asleep are both ordinary, not a stack that is down.
+    var stackSection: [Service] {
+        services.filter { $0.group == "stack" || $0.group == "editor" || $0.group == "link" }
+    }
     var runtimes: [Service] { services.filter { $0.group == "runtime" } }
     var stackIsUp: Bool { !stack.isEmpty && stack.allSatisfy { $0.answering } }
 
@@ -1283,7 +1287,8 @@ final class MenuBar: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// row is for.
     private func row(for service: StackReport.Service) -> NSMenuItem {
         let font = NSFont.menuFont(ofSize: 0)
-        let idle = service.group == "editor" ? NSColor.tertiaryLabelColor : NSColor.systemRed
+        let idle = ["editor", "link"].contains(service.group)
+            ? NSColor.tertiaryLabelColor : NSColor.systemRed
         let dot = service.answering ? NSColor.systemGreen : idle
         // "not answering" when its process is there and silent, so the line agrees with the
         // detail under it; "not running" when there is no such process.

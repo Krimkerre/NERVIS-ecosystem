@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4565 tests, no network, no live service
+.venv/bin/pytest                      # part of 4571 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1833 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1839 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4565 passing across the four, conformance `PASS`.
+Expected: all clean, 4571 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,47 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## The link starts with the stack, and only if the owner says so — 2026-09-20 (NERVIS 0.34.71)
+
+The tunnel above was a terminal window, and the plan was a systemd user unit. The owner's answer was
+"instead of a service, can we have the tunnel start when we start the stack?", and then: "make it a toggle in
+NERVIS settings — users should have a say in whether they want a port open or not." Both are now true.
+
+**The launcher owns it.** `tools/run.py` has a `Link` service beside SIRVIS, RAVIS, NERVIS, Ollama and
+code-server: `_link()` returns a row only when the setting says so, so `start`, `stop` and `status` gain it
+without being told it is conditional. It starts last (it forwards to SIRVIS, so it has nothing to offer until
+SIRVIS answers) and stops first (a door closes before the room is emptied). `ssh` itself, not `autossh`:
+`ServerAliveInterval=30` notices a dropped link and the next `start` reopens it, where a supervisor would keep
+a door open long after the stack it belongs to was stopped. `ExitOnForwardFailure=yes` so a half-open tunnel
+fails loudly, `BatchMode=yes` so it never waits at a prompt no detached process can answer, `ConnectTimeout=10`
+so a sleeping laptop costs ten seconds rather than a start. `tools/nervis-link.service` was written and deleted
+the same hour, unused.
+
+**Two switches, because they open two doors.** NERVIS → Settings → Another laptop writes `link.peer`
+(`{enabled, address, inbound}`), read by the launcher before anything starts — the same pattern as
+`files.share`, and now through one `stored_setting()` both use. *Link* forwards a port on **this** machine to
+the other laptop's SIRVIS. *Let the other laptop reach this one* forwards a port on **the other** machine back
+to this SIRVIS, which is a door into this laptop and so a separate answer rather than a consequence of the
+first. Both default off; both ends are loopback, so neither port is reachable from the network. Turning the
+link off keeps the address — switching off and retyping next week are different requests — and the card says
+it applies at the next start, because this page cannot open or close a tunnel and a switch that looked instant
+would be a claim that it can.
+
+**A sleeping laptop is not a broken stack.** The link's health address is the far SIRVIS *through* the tunnel,
+since a live `ssh` to a machine whose stack is down is not a link anybody can use — and because that is the
+honest check, its silence had to stop being a failure: `OPTIONAL` keeps it out of `start`'s verdict,
+`WAIT_SECONDS` gives it twelve seconds instead of thirty, and `_readiness` names the quiet laptop rather than
+pointing at a log on this one. Both tray apps gained the group: `link` is listed with the stack and greys out
+when idle, like CLARVIS, so neither menu bar turns red because somebody's other computer is asleep
+(`nervis/packaging/macos/NERVISMenu.swift`, `nervis/packaging/linux/nervis_tray/menu.py`).
+
+Checked by `nervis/tests/test_launcher_link.py` (6 tests): nothing configured opens nothing, a saved address
+with the switch off stays shut, the outward forward carries no `-R` unless asked, the reverse forward is
+written `127.0.0.1:8722:…` in full because `permitlisten` matches what was requested, the link is optional and
+explains itself, and it closes before the rooms it leads to. All 43 dashboard gates and `tools/check.py` pass;
+NERVIS's suite is 1839. **Not yet seen live:** the setting has not been switched on on either laptop, so the
+launcher has not opened the tunnel yet — the ThinkPad is where it belongs, since that is the machine that dials.
 
 ## Two SIRVISes can reach each other, over SSH — 2026-09-20 (no code)
 
