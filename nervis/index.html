@@ -9135,12 +9135,16 @@ async function linkSection(){
    One shape for every outcome — not linked, asleep, nothing to do, something to do —
    because a card with four different empty states is four things to get wrong. */
 function peerSettingsPreview(found){
- if(!found.linked||!found.reachable)
-  return `<small class="mono dim">${escapeHtml(found.detail||'not linked')}</small>`;
+ /* **Not `<small class="mono dim">`.** That pair is this page's footnote convention and is
+    folded away behind a "?" by the card renderer — which is right for a footnote and wrong
+    for an answer somebody just asked for. Found by clicking it: the sentence was there and
+    invisible (20 September 2026). */
+ const said=text=>`<span class="mono" style="opacity:.75">${text}</span>`;
+ if(!found.linked||!found.reachable)return said(escapeHtml(found.detail||'not linked'));
  const changes=found.changes||[];
  if(!changes.length)
-  return `<small class="mono dim">nothing to bring over — both laptops agree
-   (${escapeHtml(String(found.unchanged||0))} settings)</small>`;
+  return said(`nothing to bring over — both laptops agree
+   (${escapeHtml(String(found.unchanged||0))} settings)`);
  /* Values, not just names: "chat.mode" tells nobody whether they want it, and the
     whole point of a preview is that the answer is visible before it is applied. */
  const rows=changes.map(one=>`<div class="trace-step"><b>${escapeHtml(one.key)}</b><span>
@@ -9150,7 +9154,7 @@ function peerSettingsPreview(found){
  return `<div style="margin-top:6px">${rows}
   <div class="trace-step"><b></b><span><button class="btn primary" id="applyPull">Bring these
    ${escapeHtml(String(changes.length))} over</button>
-   <small class="mono dim">nothing here is removed, and only these change</small></span></div></div>`;
+   ${said('nothing here is removed, and only these change')}</span></div></div>`;
 }
 
 /* Saving is a mutation and carries the page's own token, like every other one.
