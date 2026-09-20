@@ -125,7 +125,19 @@ recovery and restore rehearsals — their last runs (12–17 September) are reco
 
 ---
 
-## Clarvis — 0.17.26
+## Clarvis — 0.17.27
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `clarvis-0.17.27.vsix` · **Runs in:** VS Code and code-server, on macOS and Linux
+
+- **Everything a project remembers is now kept on your machine.** A planning interview you paused
+  halfway, the task NERVIS handed over, the permission you gave to copy the editor's log and how far
+  it has been copied, the branch question, offers you declined, and what blocked the last run. In
+  the browser editor all of these belonged to one browser: absent in another, gone when its site
+  data was cleared. Two are deliberately left with the editor — the permission to run unconfined
+  commands, so a grant in one browser doesn't silently widen to all of them, and the token a window
+  registers to NERVIS with, which belongs where the editor keeps credentials.
+
+### 0.17.26
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `clarvis-0.17.26.vsix` · **Runs in:** VS Code and code-server, on macOS and Linux
 
@@ -881,7 +893,15 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.68
+## NERVIS — 0.34.69
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge 0.17.27+, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Chat's notes follow Clarvis 0.17.27:** everything a project remembers is on the machine now,
+  except a permission and a credential that stay with the editor on purpose.
+
+### 0.34.68
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge 0.17.26+, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

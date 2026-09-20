@@ -20013,6 +20013,33 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## Everything a project remembers, off the browser — 2026-09-20 (Clarvis 0.17.27, NERVIS 0.34.69)
+
+The owner: "go ahead with the remaining ones". `MACHINE_KEYS` is now the list and says what each key is doing
+there — work in progress (a paused planning interview, the NERVIS task handed over), answers already given (the
+log copy's approval and its byte offset, the branch-flow question, a declined planning offer, a declined offer
+to set git up), and what was in the way last time (the blocker record, the last failing command, which chat
+answers "why did that fail" from). Their consumers were given the wrapped context in `activate`
+(`startBriefing`, `startBranchFlow`, `registerPlanningCommand`, `registerLogTailing`; the rest already had it
+through `startChat` and `registerAgentCommands`), so nothing needed a constructor of its own.
+
+**Two were left behind on purpose, and the list says so rather than leaving it to look like an oversight.**
+`clarvis.agent.allowUnconfinedCommands` is a permission the owner grants for a project: moving it would widen a
+grant made in one browser to every browser on the machine, which is the owner's decision rather than a side
+effect of a storage change. `clarvis.bridge.identity` holds the token a window registers to NERVIS with, and a
+credential belongs where the editor keeps credentials rather than in a plain file. `clarvis.recentFiles` and
+the agent checkpoint rebuild themselves from use.
+
+**One thing the wider set forced.** `Memento.get` is synchronous and `activate` cannot await, so until now the
+file was read after activation returned — fine for a base branch read at the start of a run, wrong for a paused
+interview, which would read as absent for the first moments and look abandoned. The memento now reads the file
+with Node's own `readFileSync` when it is built, and every write still goes through the editor's file API.
+
+**Checked:** 44 host tests (42 before), among them a moved key never reaching `workspaceState`, the permission
+left behind still working through the editor's store, and a value on disk readable before any load; 2,226 fast.
+Packaged and force-installed into code-server and VS Code, both at 0.17.27, `dist/extension.js` matching the
+package byte for byte. **Not exercised live:** nothing has paused an interview or approved a log copy since.
+
 ## The branch memory followed — 2026-09-20 (Clarvis 0.17.26, NERVIS 0.34.68)
 
 The owner picked the next thing to move off the browser, and the CLARVIS session named these two as the ones

@@ -4,7 +4,7 @@ NERVIS is the control plane: the dashboard, the diagnostics centre, the general
 chat, and the thing that watches the other services. It holds no models of its
 own and runs no benchmarks — it reads what the others publish and presents it.
 
-**What NERVIS can do, in short** (as of 20 September 2026, NERVIS 0.34.68). Each has its own
+**What NERVIS can do, in short** (as of 20 September 2026, NERVIS 0.34.69). Each has its own
 section in these notes:
 
 - **Chat** with any model RAVIS can reach — local ones in LM Studio and Ollama, hosted ones with a
@@ -326,8 +326,13 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–20 September 2026** (now NERVIS 0.34.68, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
-0.17.26). Each has its own section in these notes.
+**Newest first: 18–20 September 2026** (now NERVIS 0.34.69, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+0.17.27). Each has its own section in these notes.
+
+- **Everything a Clarvis project remembers is on the machine** (20 September, Clarvis 0.17.27):
+  a paused planning interview, approvals already given, what blocked the last run. Two things stay
+  with the editor on purpose — the permission to run unconfined commands and the token a window
+  registers to NERVIS with.
 
 - **What Clarvis remembers about your branches is on the machine too** (20 September, Clarvis
   0.17.26): the branch a run started from and the last run's record, which the browser used to

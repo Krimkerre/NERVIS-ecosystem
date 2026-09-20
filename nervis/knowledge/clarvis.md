@@ -216,9 +216,14 @@ a run started from — where "fold it back" puts the work — and the record of 
 "Start fresh" commits for you. Those were the browser's too, so in a second browser they were simply
 missing, and a run could be folded back into the wrong branch. They are read again from the machine
 just before a run starts, continues or is folded back, so two editor windows never act on each
-other's stale answer. Everything else Clarvis remembers per project — a paused planning interview,
-the log-copy approval, a declined offer — is still the browser's in the browser editor, and costs a
-repeated question rather than a wrong branch.
+other's stale answer.
+
+Since Clarvis 0.17.27 everything else a project remembers is on the machine too: a planning
+interview paused halfway, the task NERVIS handed over, the log-copy approval and how far it has been
+copied, the branch question, offers you declined, and what blocked the last run. **Two are left with
+the editor on purpose** — the permission to run unconfined commands in a project, because moving it
+would widen a permission granted in one browser to every browser on the machine, and the token a
+window registers to NERVIS with, which belongs where the editor keeps credentials.
 
 **Why it changed:** until that day chats lived in the editor's workspace storage, which VS Code
 keeps *in the browser* when the editor is code-server. So a conversation belonged to one browser
