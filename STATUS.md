@@ -20034,6 +20034,10 @@ on the rules (`chat/transcriptFile.test.ts`) and 4 through the editor's own file
 read once and left alone, two stores keep both sessions, a crashed window's conversation is filed and a clear
 takes it out of the file. Clarvis 2,221 fast and 38 host tests (34 before). Packaged and force-installed into
 code-server and VS Code, both reporting 0.17.25 with `dist/extension.js` matching the package byte for byte.
+**Seen live the same morning.** The owner reloaded a code-server window and found the history there; the file
+it wrote is `globalStorage/krimkerre.clarvis/chats/a1c72d0d58cc1318.json`, 10:15:43, naming its workspace
+(`NERVIS workspace/clarvis/nervis-tasks/today-date-script`) with **nine earlier conversations carried across**
+from the browser-side store and the live one beside them. Desktop VS Code migrates when its next window opens.
 **Still per-browser in code-server, named in Clarvis's own `../clarvis/plan.md` as the candidates to follow:** a paused planning
 interview, the log-copy approval, the branch-flow answers, the last failing command and blocker, the last run
 and `clarvis.agent.baseBranch`, and the NERVIS task track.
