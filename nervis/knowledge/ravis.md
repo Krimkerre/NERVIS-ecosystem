@@ -406,7 +406,9 @@ for Codex and for the other models, so the owner decides when it gets used; a sk
 folder by hand still starts on. **Update** fetches the skill again from where it came from and shows
 what changed; if its SKILL.md or a script changed, both switches go off again, and it never updates
 by itself. **Remove** moves the skill's folder to the Trash, and works only for skills RAVIS
-installed. The marketplace lists skills from anthropics/skills, openai/skills (marked deprecated by
+installed — since RAVIS 0.30.16 into this machine's own Trash: the Mac's Finder Trash, and on
+Linux the desktop's Trash, where the file manager lists it and offers to put it back. Before that
+it went to a hidden `~/.Trash` on Linux that nothing showed. The marketplace lists skills from anthropics/skills, openai/skills (marked deprecated by
 its owner), ComposioHQ/awesome-claude-skills, the VoltAgent/awesome-agent-skills link list, and
 skills.sh's search, plus GitHub repositories, link lists and websites the owner adds. Listings are
 kept for a day, and a link list's links are looked up only when shown, to stay inside GitHub's

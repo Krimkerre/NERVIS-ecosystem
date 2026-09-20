@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4558 tests, no network, no live service
+.venv/bin/pytest                      # part of 4565 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -47,7 +47,7 @@ cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1833 tests
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4558 passing across the four, conformance `PASS`.
+Expected: all clean, 4565 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,28 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## A removed skill goes to the Trash the desktop shows — 2026-09-20 (RAVIS 0.30.16)
+
+Noticed while the service READMEs were rewritten, then started by the owner from its task card.
+`skill_installs.move_to_trash` moved a removed skill into `Path.home() / ".Trash"` on every system. That is
+Finder's Trash on a Mac and, on Linux, a hidden folder no file manager lists — so on the owner's CachyOS laptop
+a removed skill was out of sight, with nothing offering to put it back. **Fixed:** macOS unchanged; Linux and
+WSL get the freedesktop Trash (`$XDG_DATA_HOME/Trash`, else `~/.local/share/Trash`), the folder under `files/`
+and its `.trashinfo` under `info/`, which is what makes a file manager show it and offer Restore. The
+information file is written first with `O_EXCL` and removed again if the move fails, so two removals in one
+second cannot take one name and no record survives a skill that is still installed; the numbered
+`<label> <date and time>` naming and the never-overwrite rule are unchanged, and the refusal wording no longer
+says "macOS" on a machine that isn't one. **Where it lives, and why not shared:** RAVIS keeps its own copy of
+these few lines beside SIRVIS's (`sirvis/model_files.to_trash`), because the package both depend on is the wire
+protocol (`ECOSYSTEM_RUNBOOK.md` §4) and a Trash is not part of it; each file now names the other. RAVIS writes
+the layout by hand rather than calling `gio trash` as SIRVIS does, because RAVIS reports where the skill went
+and `gio` does not say. **Checked:** `ravis/tests/test_skill_trash.py` (7) — the Linux landing place and a
+readable `.trashinfo` naming the original path, the Mac's flat Trash with no information file, numbering on
+both, the default Trash under `XDG_DATA_HOME`, a failed move leaving no record, and refusal words that name no
+single system. Three fail with the old one-Trash-for-all behaviour restored in a copy. The store rig's `trash`
+now follows the system and points `XDG_DATA_HOME` inside the test's own home, which is what three existing
+route tests needed on Linux; all 47 of those pass on the Linux bench. RAVIS 2,086.
 
 ## A Mac's code-server comes from its own release, not Homebrew — 2026-09-20 (NERVIS 0.34.64)
 

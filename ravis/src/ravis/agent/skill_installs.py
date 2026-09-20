@@ -30,13 +30,17 @@ answers what the first did**, so a retry after a lost answer changes nothing.
   half-written.
 - *Remove*: only a skill RAVIS installed (decided 15 September 2026: a skill put in the folder by
   hand is the owner's to move in Finder, and personal and built-in skills are never touched). Its
-  folder moves to `~/.Trash/<name> <date and time>`, then its switches and its record go.
+  folder moves to this machine's Trash as `<name> <date and time>`, then its switches and its
+  record go.
 
-**The Trash.** A plain move into `~/.Trash`, which Finder shows as any other item there. Finder's
-Put Back isn't offered: only Finder's own deletion records where an item came from, and asking
-Finder to delete needs macOS's permission to control Finder, which a background service can't ask
-for without a dialog. When the skills folder is on another disk than the Trash, RAVIS refuses
-rather than copying and deleting.
+**The Trash, each system's own** (20 September 2026). On a Mac, a plain move into `~/.Trash`, which
+Finder shows as any other item there; Finder's Put Back isn't offered, because only Finder's own
+deletion records where an item came from, and asking Finder to delete needs macOS's permission to
+control Finder, which a background service can't ask for without a dialog. On Linux and under WSL,
+the freedesktop Trash (`$XDG_DATA_HOME/Trash`, else `~/.local/share/Trash`) with the `.trashinfo`
+beside it, so the file manager lists the skill and offers to put it back — `~/.Trash` there is a
+hidden folder nothing shows, which is what RAVIS wrote until this date. When the skills folder is
+on another disk than the Trash, RAVIS refuses rather than copying and deleting.
 
 After every install, update and removal, Codex is told to apply the switches again
 (`CodexService.skills_moved`). Audited by the routes without any file's contents.
@@ -50,6 +54,7 @@ import errno
 import functools
 import logging
 import os
+import platform
 import secrets
 import shutil
 from collections.abc import Callable
@@ -57,6 +62,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib import parse as urllib_parse
 
 from ravis.agent import store_refusals as refusals
 from ravis.agent.skill_catalog import SKILL_FILE, front_matter, read_catalog
@@ -684,19 +690,74 @@ def swap_in(staged: Path, target: Path, folder: Path) -> Path:
         raise
 
 
-def move_to_trash(path: Path, label: str, now: datetime) -> Path:
-    """`path` moved to `~/.Trash/<label> <date and time>`, numbered when that name is taken."""
-    trash = Path.home() / ".Trash"
-    trash.mkdir(mode=0o700, parents=True, exist_ok=True)
+def move_to_trash(path: Path, label: str, now: datetime, *, system: str | None = None,
+                  trash: Path | None = None) -> Path:
+    """`path` moved to this user's Trash as `<label> <date and time>`, numbered when that name is
+    taken. Never overwrites, and never erases.
+
+    **Each system's own Trash** (20 September 2026). On a Mac, `~/.Trash`, which Finder lists.
+    On Linux and under WSL, the freedesktop Trash — `$XDG_DATA_HOME/Trash`, else
+    `~/.local/share/Trash` — with the `.trashinfo` file beside it that makes a file manager list
+    the skill and offer to put it back. Until this date RAVIS wrote `~/.Trash` on every system:
+    on Linux that is a hidden folder no file manager shows, so a removed skill was gone from the
+    owner's view with no way to restore it, which is what the owner's CachyOS laptop would have
+    done. `system` and `trash` stand in for this machine and its Trash in tests.
+
+    SIRVIS moves a deleted model the same way (`sirvis/src/sirvis/model_files.py`, `to_trash`) and
+    keeps its own copy of these few lines: the package both services share is the wire protocol
+    (`ECOSYSTEM_RUNBOOK.md` §4), and a Trash is not part of it.
+    """
+    system = system or platform.system()
     stamp = now.astimezone().strftime("%Y-%m-%d %H.%M.%S")
+    if system == "Darwin":
+        folder = Path.home() / ".Trash" if trash is None else trash
+        folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return _first_free(path, folder, label, stamp, information=None)
+    root = trash if trash is not None else Path(
+        os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "Trash"
+    (root / "files").mkdir(mode=0o700, parents=True, exist_ok=True)
+    (root / "info").mkdir(mode=0o700, parents=True, exist_ok=True)
+    return _first_free(path, root / "files", label, stamp, information=root / "info")
+
+
+def _first_free(path: Path, folder: Path, label: str, stamp: str, *,
+                information: Path | None) -> Path:
+    """The first name in `folder` nothing holds, with its `.trashinfo` where the system wants one.
+
+    The information file is written first and with `O_EXCL`, as the freedesktop layout asks, so
+    two removals in the same second cannot land on one name; a move that then fails takes its
+    information file with it rather than leaving a record of something that is still installed.
+    """
     for count in range(1, 100):
-        destination = trash / (f"{label} {stamp}" if count == 1 else f"{label} {stamp} {count}")
-        try:
-            rename(path, destination, RENAME_EXCL)
-        except FileExistsError:
+        name = f"{label} {stamp}" if count == 1 else f"{label} {stamp} {count}"
+        note = information / f"{name}.trashinfo" if information is not None else None
+        if note is not None and not _wrote_information(note, path):
             continue
-        return destination
+        try:
+            rename(path, folder / name, RENAME_EXCL)
+        except FileExistsError:
+            if note is not None:
+                note.unlink(missing_ok=True)
+            continue
+        except OSError:
+            if note is not None:
+                note.unlink(missing_ok=True)
+            raise
+        return folder / name
     raise OSError(errno.EEXIST, "every name RAVIS tried in the Trash was taken")
+
+
+def _wrote_information(note: Path, path: Path) -> bool:
+    """The `.trashinfo` a file manager reads to offer Put Back, or False when that name is taken."""
+    try:
+        handle = os.open(note, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    with os.fdopen(handle, "w", encoding="utf-8") as writing:
+        writing.write("[Trash Info]\n"
+                      f"Path={urllib_parse.quote(str(path.resolve()))}\n"
+                      f"DeletionDate={datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}\n")
+    return True
 
 
 def trash_words(failure: OSError) -> str:
@@ -704,7 +765,7 @@ def trash_words(failure: OSError) -> str:
         return ("NERVIS's skills folder is on another disk than your Trash, so RAVIS can't move "
                 "it there")
     if failure.errno in (errno.EPERM, errno.EACCES):
-        return "macOS didn't let RAVIS move it to the Trash"
+        return "this machine didn't let RAVIS move it to the Trash"
     return f"RAVIS couldn't move it to the Trash ({failure.strerror or type(failure).__name__})"
 
 

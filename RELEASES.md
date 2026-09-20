@@ -2502,7 +2502,16 @@ whether those pages travel.
 
 ---
 
-## RAVIS — 0.30.15
+## RAVIS — 0.30.16
+
+**Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
+
+- **A removed skill goes to this machine's own Trash.** On a Mac that was always Finder's Trash;
+  on Linux RAVIS wrote a hidden `~/.Trash` that no file manager shows, so a removed skill was out
+  of sight with nothing offering to put it back. It now goes to the desktop's own Trash, with the
+  record beside it that makes "Restore" work. Nothing is ever overwritten or erased.
+
+### 0.30.15
 
 **Protocol:** MEP 1.0.0 · **Ships as:** `ravis serve` · **Runs on:** macOS, Linux
 

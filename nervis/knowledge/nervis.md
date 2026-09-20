@@ -326,8 +326,11 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–20 September 2026** (now NERVIS 0.34.64, RAVIS 0.30.15, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–20 September 2026** (now NERVIS 0.34.64, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.24). Each has its own section in these notes.
+
+- **A skill removed on Linux now goes to the desktop's Trash** (20 September), where the file
+  manager lists it and can put it back, instead of a hidden folder nothing showed.
 
 - **A fresh Mac install now gets the current code-server** (20 September), from code-server's own
   standalone release rather than Homebrew's, which stopped at 4.112.0 and goes away in April 2027.

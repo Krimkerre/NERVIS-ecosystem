@@ -14,7 +14,8 @@ one. The fakes answer the way the real services were read to answer:
 
 `store_rig` builds a RAVIS whose Codex can't run (the skill store never needs it), with the skill
 store on these fakes, a clock the test moves, and a home folder of the test's own, so the Trash is
-`<tmp>/home/.Trash`.
+this system's own inside it: `<tmp>/home/.Trash` on a Mac, `<tmp>/home/.local/share/Trash/files`
+on Linux (`skill_installs.move_to_trash`, 20 September 2026).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import platform
 import tarfile
 import zipfile
 from collections.abc import Callable
@@ -299,7 +301,11 @@ class StoreRig:
 
     @property
     def trash(self) -> Path:
-        return real(self.tmp_path) / "home" / ".Trash"
+        """Where a removed skill lands on this system, inside the test's own home folder."""
+        home = real(self.tmp_path) / "home"
+        if platform.system() == "Darwin":
+            return home / ".Trash"
+        return home / ".local" / "share" / "Trash" / "files"
 
     @property
     def installs(self) -> SkillInstalls:
@@ -315,6 +321,9 @@ class StoreRig:
 
 def store_rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **settings: Any) -> StoreRig:
     monkeypatch.setenv("HOME", str(real(tmp_path) / "home"))
+    # Linux's Trash is under `$XDG_DATA_HOME` where that is set, which is the machine's own on
+    # the bench; pointed inside the test's home, so nothing lands outside `tmp_path`.
+    monkeypatch.setenv("XDG_DATA_HOME", str(real(tmp_path) / "home" / ".local" / "share"))
     rig = codex_rig(tmp_path, app_server=False, **settings)
     clock = Clock()
     fake = internet(clock)
