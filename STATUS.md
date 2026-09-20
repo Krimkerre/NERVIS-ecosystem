@@ -20013,6 +20013,36 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## Two SIRVISes can reach each other, over SSH — 2026-09-20 (no code)
+
+The owner asked how a SIRVIS-to-SIRVIS link would work, and then for it to be tried rather than argued about.
+**The transport question is now answered by demonstration.** Each service still binds loopback only, as §15.1
+requires; the link is one SSH connection the ThinkPad opens to the Mac, carrying both directions
+(`-L 18721:127.0.0.1:8721 -R 127.0.0.1:8722:127.0.0.1:8721`). Nothing new listens on either machine — the
+laptop refuses every inbound port (22, 1234, 8080 and 8790 all silent from the Mac, while LM Link works because
+that connection goes outward), and the Mac's Remote Login, which the owner switched on, is the only listener.
+The key it uses is `restrict,port-forwarding,permitopen="127.0.0.1:8721",permitlisten="127.0.0.1:8722"`: no
+shell, no terminal, two ports and nothing else. `permitlisten` matches the address the client asks for, so the
+reverse forward has to be written `-R 127.0.0.1:8722:…`; `-R 8722:…` is refused, which is the restriction doing
+its job.
+
+**What it showed, first time it was used.** Both machines' model lists read end to end: ten builds each, each
+labelling the other's under its device name (`Govert.local`, `ThinkPadX13G2`) from SIRVIS 0.19.9's LM Link work.
+And a real defect: the ThinkPad's SIRVIS reported `build_version` **0.19.8** while its code was 0.19.11 or
+newer — `counted_toward_max` was in its residency answer. The pull had landed and the stack restarted, but the
+editable install was never refreshed, so the version it declares itself as was the one pip last recorded. That
+matters beyond cosmetics, because a peer's declared version is part of what NERVIS negotiates capabilities on: a
+service can be refused something it can actually do. After `pip install -e` and a restart it reports 0.19.12 and
+declares its capabilities normally.
+
+**Not built:** everything above the transport — a peer in NERVIS's registry, the other machine's models and
+loads on the dashboard, evidence import, loads and benchmarks delegated to the machine that owns the model
+(RAVIS M27 was struck on 18 September as needing hardware this stack lacks; LM Link and this link are what
+changed those facts). The tunnel is a terminal window, not a service: on the laptop it wants a systemd user unit
+with autossh before anything depends on it. **Also worth deciding:** the Mac now accepts SSH with password
+authentication; with the key working, password logins can be turned off, or Remote Login switched on only when
+the link is wanted.
+
 ## The sandbox answer moved too, as the owner's decision — 2026-09-20 (Clarvis 0.17.28, NERVIS 0.34.70)
 
 `clarvis.agent.allowUnconfinedCommands` was held back from the move an hour earlier and named in `MACHINE_KEYS`
