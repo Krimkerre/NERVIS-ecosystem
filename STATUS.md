@@ -20013,6 +20013,17 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## "Another computer", not "another laptop" — 2026-09-21 (NERVIS 0.34.76)
+
+The owner's wording: "instead of 'another laptop' call it 'another computer'". The link works with any
+machine running NERVIS — a desktop, a Windows machine through WSL — and "easy to hook up a new device"
+is exactly what invites a third one, so the section, the card, the preview, the launcher's messages, the
+API's sentences and chat's knowledge (*Linking two computers*) now say computer. The module followed so
+the code's vocabulary matches what a person reads: `nervis/src/nervis/peers/computer.py`,
+`nervis/tests/test_peer_computer.py`. Lines that really do mean the owner's laptop were left alone. The
+preview's "asking…" line also moved off the footnote class that folds text behind a "?", the same fix as
+its answer an hour earlier. No behaviour changed; the suite is unchanged at 1864.
+
 ## One command hooks up a laptop, and settings can be brought over it — 2026-09-20 (NERVIS 0.34.73)
 
 Two asks: make the SSH linking easy enough to hook up a new device, and start on the pull, settings first.
@@ -20033,7 +20044,7 @@ inbound is on — because settings and conversations live in NERVIS's database a
 The key's restriction line permits exactly those four addresses. `IdentitiesOnly=yes` with the dedicated
 key, so an agent holding the owner's other keys cannot offer one that would have a shell at the far end.
 
-**Settings can be brought over, as a pull with a preview** (`nervis/src/nervis/peers/laptop.py`,
+**Settings can be brought over, as a pull with a preview** (`nervis/src/nervis/peers/computer.py`,
 `GET`/`POST /api/v1/settings/peer`). The preview lists every setting that would change and what to, counts
 the ones that already agree, and leaves out what only this machine has — a pull never removes anything.
 Applying re-reads the other laptop rather than taking a body, so what is applied is what that machine holds
@@ -20050,7 +20061,7 @@ laptop this is used from most. `peer_settings` asks both addresses in turn (a cl
 at once), and what makes a pull possible is the other machine answering rather than this one holding its
 address.
 
-Checked by `nervis/tests/test_peer_laptop.py` (14 tests, including that both forwarded ports match the
+Checked by `nervis/tests/test_peer_computer.py` (14 tests, including that both forwarded ports match the
 launcher's constants, that the dialled machine can pull too, that a posted body cannot decide what is
 applied, and that a peer naming `files.share` or `link.peer` has them skipped) and four more in `nervis/tests/test_launcher_link.py`
 (both forwards, the dedicated key, what the authorised line permits, and the install shell). All 43

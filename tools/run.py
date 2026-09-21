@@ -80,20 +80,20 @@ PIDFILE = RUN / "services.json"
 SIRVIS_PORT = 8721
 RAVIS_PORT = 8731
 NERVIS_PORT = 8790
-#: Where the other laptop's services appear on this one, once the link is up, and where this
+#: Where the other computer's services appear on this one, once the link is up, and where this
 #: machine's appear on the other. **All four are loopback at both ends**: the SSH tunnel is the
 #: only way through, so none of them is reachable from anything else on the network, and the
 #: two `BACK` ones exist only when their own setting says so (`configured_link`).
 #:
 #: **SIRVIS and NERVIS, not SIRVIS alone.** SIRVIS is what the link was built for — the other
-#: laptop's models — and NERVIS is what makes it useful to a person: settings and, later, the
+#: computer's models — and NERVIS is what makes it useful to a person: settings and, later, the
 #: conversations, which live in NERVIS's database and are read over its API.
 LINK_LOCAL_PORT = 18721
 LINK_LOCAL_NERVIS_PORT = 18790
 LINK_BACK_PORT = 8722
 LINK_BACK_NERVIS_PORT = 8791
 
-#: The key this machine dials the other laptop with, beside the credentials `.run/` already
+#: The key this machine dials the other computer with, beside the credentials `.run/` already
 #: holds. **Its own key, not the owner's**, and without a passphrase — which is safe here for
 #: one reason worth stating: at the far end it is authorised for nothing but the forwarded
 #: ports (`link_authorized_line`: `restrict`, no shell, no agent, no terminal), so a copy of it
@@ -718,16 +718,16 @@ def _ollama() -> list[tuple[str, list[str], str, dict[str, str], str]]:
 
 
 def configured_link() -> dict[str, object]:
-    """The other laptop this machine dials, as its Settings screen left it.
+    """The other computer this machine dials, as its Settings screen left it.
 
     `link.peer` is `{"enabled": …, "address": "user@host", "inbound": …}`, and every field
     defaults to off or empty: a machine nobody configured opens nothing.
 
     **Two separate answers, because they open two different doors.** `enabled` with an
-    `address` opens ports *here* that reach the other laptop's SIRVIS and NERVIS. `inbound`
+    `address` opens ports *here* that reach the other computer's SIRVIS and NERVIS. `inbound`
     opens ports *there* that reach this machine's — the more consequential of the two, and the
     reason it is its own checkbox rather than part of the first. Neither is implied by the
-    other, and both are the owner's to give (NERVIS → Settings → Another laptop).
+    other, and both are the owner's to give (NERVIS → Settings → Another computer).
 
     Written by that screen, or by `tools/run.py link add`, which is the same row.
     """
@@ -744,8 +744,8 @@ def configured_link() -> dict[str, object]:
 def link_command(address: str, inbound: bool) -> list[str]:
     """The `ssh` that *is* the link, built in one place so enrolment tests what start runs.
 
-    Forwards this machine's `18721` and `18790` to the other laptop's SIRVIS and NERVIS, and —
-    only when `inbound` — the other laptop's `8722` and `8791` back to this machine's. The
+    Forwards this machine's `18721` and `18790` to the other computer's SIRVIS and NERVIS, and —
+    only when `inbound` — the other computer's `8722` and `8791` back to this machine's. The
     reverse forwards name their bind address in full (`127.0.0.1:8722:…`), because the far
     end's key restriction matches `permitlisten` against **what the client asks for**: a bare
     `-R 8722:…` is refused, which was measured on 20 September 2026 and is the restriction
@@ -754,7 +754,7 @@ def link_command(address: str, inbound: bool) -> list[str]:
     The options, in order: `ExitOnForwardFailure` so a tunnel that could not open its ports
     fails loudly instead of sitting there half-connected; `BatchMode` so it never waits at a
     password or a host-key prompt that no detached process can answer — an unknown host fails
-    here rather than hanging; `ConnectTimeout` so a laptop that is simply asleep costs ten
+    here rather than hanging; `ConnectTimeout` so a computer that is simply asleep costs ten
     seconds and not a start; `IdentitiesOnly` with the dedicated key so an agent full of the
     owner's other keys cannot offer one of those instead.
     """
@@ -772,7 +772,7 @@ def link_command(address: str, inbound: bool) -> list[str]:
 
 
 def link_authorized_line(public_key: str) -> str:
-    """The one line the other laptop needs in `~/.ssh/authorized_keys`, and nothing more.
+    """The one line the other computer needs in `~/.ssh/authorized_keys`, and nothing more.
 
     **Everything this key may do is in this line.** `restrict` turns off all of it — no shell,
     no command, no terminal, no agent or X11 forwarding, no tunnel device — and
@@ -814,7 +814,7 @@ def link_key_pair() -> tuple[str, str]:
 
 
 def _link_install_command(line: str) -> str:
-    """The shell the other laptop runs to authorise this one. Idempotent, and adds nothing else.
+    """The shell the other computer runs to authorise this one. Idempotent, and adds nothing else.
 
     `grep -qxF` so running enrolment twice does not leave two copies of the same line, and
     `umask 077` because a world-readable `~/.ssh` is refused by sshd on the far end — which
@@ -851,7 +851,7 @@ def link_probe(address: str, inbound: bool, seconds: float = 20.0) -> dict[str, 
 
     **`connected` and `sirvis` are different answers, and the difference is the diagnosis.**
     `ssh` still running means the key was accepted and all the forwards were allowed; nothing
-    answering behind them means the other laptop's stack is not started, which is not a fault
+    answering behind them means the other computer's stack is not started, which is not a fault
     of the link and must not be reported as one.
     """
     opened = subprocess.Popen(link_command(address, inbound),
@@ -882,7 +882,7 @@ def link_probe(address: str, inbound: bool, seconds: float = 20.0) -> dict[str, 
 
 
 def _link() -> list[tuple[str, list[str], str, dict[str, str], str]]:
-    """The tunnel to the other laptop, when this machine's Settings screen asked for one.
+    """The tunnel to the other computer, when this machine's Settings screen asked for one.
 
     Same shape and the same reason as `_code_server()` and `_ollama()`: appended to the
     table, so `start`, `stop` and `status` gain it without being told it is conditional.
@@ -897,7 +897,7 @@ def _link() -> list[tuple[str, list[str], str, dict[str, str], str]]:
     The options that matter, in order: `ExitOnForwardFailure` so a tunnel that could not
     open its ports fails loudly instead of sitting there half-connected; `BatchMode` so it
     never waits at a password or a host-key prompt no detached process can answer — an
-    unknown host fails here rather than hanging; `ConnectTimeout` so a laptop that is simply
+    unknown host fails here rather than hanging; `ConnectTimeout` so a computer that is simply
     asleep costs ten seconds, not a start.
     """
     peer = configured_link()
@@ -913,8 +913,8 @@ def _link() -> list[tuple[str, list[str], str, dict[str, str], str]]:
         f"{LINK_LOCAL_PORT}:127.0.0.1:{SIRVIS_PORT}",
         dict(os.environ),
         # **The far SIRVIS through the tunnel**, which is the only question worth asking: a
-        # live `ssh` to a laptop whose stack is down is not a link anybody can use. It is
-        # also why silence here never fails a start (`OPTIONAL`) — the other laptop being
+        # live `ssh` to a computer whose stack is down is not a link anybody can use. It is
+        # also why silence here never fails a start (`OPTIONAL`) — the other computer being
         # asleep is the ordinary case, not a broken stack.
         f"http://127.0.0.1:{LINK_LOCAL_PORT}/ecosystem/health",
     )]
@@ -1863,7 +1863,7 @@ def _mount_share_with_gio(url: str) -> str:
 
 #: The order `start` brings services up in, from runbook §12.1: SIRVIS, then the local
 #: runtimes it and RAVIS use, then RAVIS, NERVIS, and code-server behind NERVIS. The link
-#: to the other laptop comes last: it forwards to SIRVIS, so it has nothing to offer the
+#: to the other computer comes last: it forwards to SIRVIS, so it has nothing to offer the
 #: other end until SIRVIS is answering.
 START_ORDER = ("SIRVIS", "Ollama", "RAVIS", "NERVIS", "code-server", "Link")
 #: The order `stop` takes them down in, from §12.1's shutdown paragraph: the link first,
@@ -1871,7 +1871,7 @@ START_ORDER = ("SIRVIS", "Ollama", "RAVIS", "NERVIS", "code-server", "Link")
 #: sessions, then NERVIS, RAVIS and SIRVIS, and the runtimes last, once nothing is using them.
 STOP_ORDER = ("Link", "code-server", "NERVIS", "RAVIS", "SIRVIS", "Ollama")
 
-#: Services whose silence is not a failed start. The link's far end is another laptop, which
+#: Services whose silence is not a failed start. The link's far end is another computer, which
 #: is asleep more often than not; a stack that reported itself broken because somebody's
 #: other computer was shut would be a stack nobody believes. Everything else here is local,
 #: and local silence really is a failure.
@@ -1935,7 +1935,7 @@ def _still_ours(record: object, current_marker: str) -> int:
 #: be before `status --json` calls it hung rather than still booting (`_problem`).
 START_WAIT_SECONDS = 30.0
 #: Services that get a different wait. **The link gets twelve seconds**: its `ConnectTimeout`
-#: is ten, so a laptop that is asleep has already failed by then, and thirty would mean every
+#: is ten, so a computer that is asleep has already failed by then, and thirty would mean every
 #: start on a machine whose peer is off stood still for half a minute waiting for nothing.
 WAIT_SECONDS = {"Link": 12.0}
 
@@ -2001,11 +2001,11 @@ def _readiness(name: str, answering: bool, booting_pid: int, status: int | None 
     if answering:
         return "ready"
     if name == "Link":
-        # The far end is somebody's other laptop. Asleep, shut, or its stack not started are
+        # The far end is somebody's other computer. Asleep, shut, or its stack not started are
         # all ordinary, and none of them is something to fix here — so this says which end is
         # quiet rather than pointing at a log on this one.
         peer = configured_link()["address"]
-        return (f"not up — {peer} is not answering, which is what an asleep laptop looks like."
+        return (f"not up — {peer} is not answering, which is what an asleep computer looks like."
                 " Nothing else is affected; start this again when it is awake.")
     if status is not None:
         return (f"NOT ready — its health address answers HTTP {status}, not success; see"
@@ -2275,8 +2275,8 @@ def status_report() -> dict[str, object]:
     whether it is up — stays known in one place, this file. `group` is what the
     menu sorts by: "stack" for what this launcher starts, "runtime" for LM Studio
     and Ollama, "editor" for CLARVIS, whose open windows NERVIS's
-    registry counts, and "link" for the tunnel to the other laptop — its own group
-    because a laptop that is asleep must not read as this stack being down.
+    registry counts, and "link" for the tunnel to the other computer — its own group
+    because a computer that is asleep must not read as this stack being down.
 
     Probed in parallel. One at a time, a stack that is down costs a second per
     service, and the menu asks every time it is opened.
@@ -3127,7 +3127,7 @@ def _link_report(address: str, inbound: bool, save: bool) -> int:
         print(f"\nSaved. The link opens with the stack from now on"
               f"{', in both directions' if inbound else ''}.")
         print("  Start it now with:  python3 tools/run.py start")
-        print("  Turn it off any time in NERVIS → Settings → Another laptop.")
+        print("  Turn it off any time in NERVIS → Settings → Another computer.")
     return 0
 
 

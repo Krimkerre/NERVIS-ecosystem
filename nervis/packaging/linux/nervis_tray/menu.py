@@ -83,9 +83,9 @@ def stack(report: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def stack_section(report: dict[str, Any]) -> list[dict[str, Any]]:
-    """The menu's Stack section: the stack with CLARVIS and the link to the other laptop, in
+    """The menu's Stack section: the stack with CLARVIS and the link to the other computer, in
     the launcher's order. Neither of those counts toward `stack_is_up`: no editor window open
-    and a peer laptop that is asleep are both ordinary, not a stack that is down."""
+    and a peer computer that is asleep are both ordinary, not a stack that is down."""
     return [one for one in report.get("services", [])
             if one.get("group") in ("stack", "editor", "link")]
 

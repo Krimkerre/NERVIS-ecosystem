@@ -1,4 +1,4 @@
-"""Bringing settings over from the owner's other laptop, through the link.
+"""Bringing settings over from the owner's other computer, through the link.
 
 The link (`tools/run.py`, 20 September 2026) forwards the other machine's NERVIS to a
 loopback port here. This is what NERVIS does with it: read that machine's exported settings,
@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 
 from nervis.app import create_app
 from nervis.config import Settings
-from nervis.peers import laptop
+from nervis.peers import computer
 from nervis.settings_transfer import FORMAT, FORMAT_VERSION
 from nervis.storage import prepare_database
 
@@ -56,7 +56,7 @@ def link_to(client: Any, address: str = "me@thinkpad", enabled: bool = True) -> 
 
 
 def peer_holding(settings: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    """What the other laptop's `/export` answers with, in its own words.
+    """What the other computer's `/export` answers with, in its own words.
 
     The format name comes from the code rather than being spelled here: a fixture that hard-
     codes it keeps passing after a rename, while the real pull stops working.
@@ -68,22 +68,22 @@ def peer_holding(settings: dict[str, Any]) -> tuple[dict[str, Any], str]:
 def test_the_port_is_the_one_the_launcher_forwards() -> None:
     """The two numbers that have to agree, checked rather than trusted.
 
-    NERVIS reads the other laptop at a port `tools/run.py` opens. They are declared in two
+    NERVIS reads the other computer at a port `tools/run.py` opens. They are declared in two
     files because a service reading the launcher would be worse — so this fails the moment
     they stop matching, which is the only way that mistake is ever noticed.
     """
     launcher = RUN_PY.read_text(encoding="utf-8")
 
-    for name, here in (("LINK_LOCAL_NERVIS_PORT", laptop.LINK_NERVIS_PORT),
-                       ("LINK_BACK_NERVIS_PORT", laptop.LINK_BACK_NERVIS_PORT)):
+    for name, here in (("LINK_LOCAL_NERVIS_PORT", computer.LINK_NERVIS_PORT),
+                       ("LINK_BACK_NERVIS_PORT", computer.LINK_BACK_NERVIS_PORT)):
         declared = re.search(rf"^{name} = (\d+)$", launcher, re.MULTILINE)
         assert declared is not None, f"the launcher no longer declares {name}"
         assert int(declared.group(1)) == here
 
 
-def test_with_no_laptop_linked_it_says_so_in_words(client: Any, monkeypatch: Any) -> None:
+def test_with_no_computer_linked_it_says_so_in_words(client: Any, monkeypatch: Any) -> None:
     """The ordinary state of most machines: nothing answers at either end of the tunnel."""
-    monkeypatch.setattr(laptop, "peer_settings", lambda *_, **__: (None, "nothing answered"))
+    monkeypatch.setattr(computer, "peer_settings", lambda *_, **__: (None, "nothing answered"))
     monkeypatch.setattr("nervis.api.settings_transfer.peer_settings",
                         lambda *_, **__: (None, "nothing answered"))
 
@@ -91,14 +91,14 @@ def test_with_no_laptop_linked_it_says_so_in_words(client: Any, monkeypatch: Any
 
     assert answer["linked"] is False and answer["reachable"] is False
     assert answer["changes"] == []
-    assert "Another laptop" in answer["detail"] or "link add" in answer["detail"]
+    assert "Another computer" in answer["detail"] or "link add" in answer["detail"]
 
 
 def test_the_machine_that_was_dialled_can_pull_too(client: Any, monkeypatch: Any) -> None:
     """A link has two ends, and only the dialling one has an address in its settings.
 
     The Mac accepts rather than dials, so a pull offered only where `link.peer` is set would be
-    missing from exactly the laptop it is used from most. What makes a pull possible is the
+    missing from exactly the computer it is used from most. What makes a pull possible is the
     other machine answering, not this machine holding its address.
     """
     monkeypatch.setattr("nervis.api.settings_transfer.peer_settings",
@@ -107,7 +107,7 @@ def test_the_machine_that_was_dialled_can_pull_too(client: Any, monkeypatch: Any
     answer = client.get("/api/v1/settings/peer").json()
 
     assert answer["linked"] is True and answer["reachable"] is True
-    assert answer["address"] == "the laptop that linked to this one"
+    assert answer["address"] == "the computer that linked to this one"
     assert [change["key"] for change in answer["changes"]] == ["chat.mode"]
 
 
@@ -128,23 +128,23 @@ def test_both_ends_of_the_tunnel_are_tried(monkeypatch: Any) -> None:
 
     def _get(url: str, **_: object) -> Any:
         asked.append(url)
-        if str(laptop.LINK_BACK_NERVIS_PORT) not in url:
+        if str(computer.LINK_BACK_NERVIS_PORT) not in url:
             raise httpx.ConnectError("nothing is listening on this one")
         return _Answer()
 
-    monkeypatch.setattr(laptop.httpx, "get", _get)
+    monkeypatch.setattr(computer.httpx, "get", _get)
 
-    body, trouble = laptop.peer_settings()
+    body, trouble = computer.peer_settings()
 
     assert trouble == "" and body is not None
-    assert len(asked) == 2 and str(laptop.LINK_NERVIS_PORT) in asked[0], (
+    assert len(asked) == 2 and str(computer.LINK_NERVIS_PORT) in asked[0], (
         "this machine's own forward first — it is the one it opened itself"
     )
 
 
-def test_a_sleeping_laptop_is_an_answer_not_an_error(client: Any, monkeypatch: Any) -> None:
+def test_a_sleeping_computer_is_an_answer_not_an_error(client: Any, monkeypatch: Any) -> None:
     link_to(client)
-    monkeypatch.setattr(laptop.httpx, "get",
+    monkeypatch.setattr(computer.httpx, "get",
                         lambda *_, **__: (_ for _ in ()).throw(httpx.ConnectError("refused")))
 
     response = client.get("/api/v1/settings/peer")
@@ -189,7 +189,7 @@ def test_a_setting_only_this_machine_has_is_not_a_change(client: Any, monkeypatc
     assert answer["changes"] == []
 
 
-def test_applying_takes_what_the_other_laptop_holds_now(client: Any, monkeypatch: Any) -> None:
+def test_applying_takes_what_the_other_computer_holds_now(client: Any, monkeypatch: Any) -> None:
     """Applied from a fresh read, not from a body the page has been holding."""
     link_to(client)
     put(client, "chat.mode", "ask")
@@ -205,7 +205,7 @@ def test_applying_takes_what_the_other_laptop_holds_now(client: Any, monkeypatch
     # test that knew that would be pinning the storage detail instead of the behaviour.
     held = client.get("/api/v1/settings").json()["items"]
     assert held["chat.mode"] == "build", (
-        "what a caller posted must not decide what is applied — the other laptop does"
+        "what a caller posted must not decide what is applied — the other computer does"
     )
 
 
@@ -229,10 +229,10 @@ def test_the_link_is_not_a_wider_door_than_the_export_file(client: Any, monkeypa
         "SELECT value FROM setting WHERE key = 'files.share'").fetchone() is None
 
 
-def test_applying_with_no_laptop_linked_writes_nothing(client: Any) -> None:
+def test_applying_with_no_computer_linked_writes_nothing(client: Any) -> None:
     outcome = client.post("/api/v1/settings/peer").json()
 
-    assert outcome["applied"] == [] and "no other laptop" in outcome["detail"]
+    assert outcome["applied"] == [] and "no other computer" in outcome["detail"]
 
 
 @pytest.mark.parametrize("status,payload,expected", [
@@ -255,9 +255,9 @@ def test_a_peer_that_answers_with_something_else_is_refused_in_words(
         def json() -> Any:
             return payload
 
-    monkeypatch.setattr(laptop.httpx, "get", lambda *_, **__: _Answer())
+    monkeypatch.setattr(computer.httpx, "get", lambda *_, **__: _Answer())
 
-    body, trouble = laptop.peer_settings()
+    body, trouble = computer.peer_settings()
 
     assert body is None
     assert expected in trouble
@@ -269,4 +269,4 @@ def test_the_stored_link_row_reads_as_off_when_it_is_nonsense(tmp_path: Any) -> 
     with database.connection as connection:
         connection.execute("INSERT INTO setting (key, value) VALUES ('link.peer', 'nonsense')")
 
-    assert laptop.linked_peer(database) == {"enabled": False, "address": "", "inbound": False}
+    assert computer.linked_peer(database) == {"enabled": False, "address": "", "inbound": False}

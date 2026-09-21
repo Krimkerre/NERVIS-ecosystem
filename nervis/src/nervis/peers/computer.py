@@ -1,4 +1,4 @@
-"""The other laptop's NERVIS, read through the link the launcher opens.
+"""The other computer's NERVIS, read through the link the launcher opens.
 
 This is the one peer in this package that is not another *service* but another *machine*:
 the owner's second computer, running its own whole stack. It is reached the same way
@@ -27,11 +27,11 @@ import httpx
 
 from nervis.storage.database import Database
 
-#: Where the other laptop's NERVIS appears on this machine once the link is up — **two places,
+#: Where the other computer's NERVIS appears on this machine once the link is up — **two places,
 #: because only one of the two machines dials**.
 #:
-#: The laptop that opens the connection gets the other's NERVIS on `18790` (its own forward).
-#: The laptop that *accepts* it gets the other's on `8791`, which the dialling machine opened
+#: The computer that opens the connection gets the other's NERVIS on `18790` (its own forward).
+#: The computer that *accepts* it gets the other's on `8791`, which the dialling machine opened
 #: backwards. Neither knows which it is without looking, and it does not matter: both are
 #: loopback, both exist only while the link is up, so asking each in turn is the whole answer.
 #: (Found on the Mac, 20 September 2026: it accepts rather than dials, so a pull that only ever
@@ -39,20 +39,20 @@ from nervis.storage.database import Database
 #:
 #: **The same numbers as `tools/run.py`'s `LINK_LOCAL_NERVIS_PORT` and `LINK_BACK_NERVIS_PORT`**,
 #: which are what forward them. Two files is one more than ideal, and the alternative — a service
-#: reading the launcher — is worse; `test_peer_laptop.py` fails if they ever stop agreeing.
+#: reading the launcher — is worse; `test_peer_computer.py` fails if they ever stop agreeing.
 LINK_NERVIS_PORT = 18790
 LINK_BACK_NERVIS_PORT = 8791
 LINK_NERVIS_URL = f"http://127.0.0.1:{LINK_NERVIS_PORT}"
 PEER_URLS = (LINK_NERVIS_URL, f"http://127.0.0.1:{LINK_BACK_NERVIS_PORT}")
 
-#: How long the other laptop has to answer. Short on purpose: this backs a screen, the tunnel
-#: is loopback on both sides, and a laptop that is asleep should read as absent in a moment
+#: How long the other computer has to answer. Short on purpose: this backs a screen, the tunnel
+#: is loopback on both sides, and a computer that is asleep should read as absent in a moment
 #: rather than hold a request open for as long as a network timeout would.
 PEER_TIMEOUT_SECONDS = 5.0
 
 
 def linked_peer(database: Database) -> dict[str, Any]:
-    """What this machine's Settings screen says about the other laptop.
+    """What this machine's Settings screen says about the other computer.
 
     The same row the launcher reads before it starts anything (`link.peer`), read here so a
     screen can say *which* machine a pull would reach rather than "the other one".
@@ -76,19 +76,19 @@ def linked_peer(database: Database) -> dict[str, Any]:
 
 
 def peer_settings(urls: tuple[str, ...] = PEER_URLS) -> tuple[dict[str, Any] | None, str]:
-    """The other laptop's exported settings, or nothing and why not.
+    """The other computer's exported settings, or nothing and why not.
 
     Both addresses are tried, in order, because which one carries the link depends on which
     machine dialled (`PEER_URLS`). A closed port on loopback refuses at once, so the machine
     that has no link pays two instant refusals rather than a wait.
 
     Never raises: every way this can fail — the link not open, the far stack not started, a
-    NERVIS too old to export — is an ordinary state of somebody's second laptop, and a screen
+    NERVIS too old to export — is an ordinary state of somebody's second computer, and a screen
     that had to catch exceptions to say "it is asleep" would be the wrong shape for all of them.
     The sentence returned is the *last* real refusal, or the plain "nothing answered" when
     nothing was listening at either address.
     """
-    trouble = ("the other laptop did not answer — the link is not open, or its stack "
+    trouble = ("the other computer did not answer — the link is not open, or its stack "
                "is not started")
     for url in urls:
         try:
@@ -96,15 +96,15 @@ def peer_settings(urls: tuple[str, ...] = PEER_URLS) -> tuple[dict[str, Any] | N
         except httpx.HTTPError:
             continue
         if answer.status_code != 200:
-            trouble = f"the other laptop refused the read (HTTP {answer.status_code})"
+            trouble = f"the other computer refused the read (HTTP {answer.status_code})"
             continue
         try:
             body = answer.json()
         except ValueError:
-            trouble = "the other laptop answered with something that is not settings"
+            trouble = "the other computer answered with something that is not settings"
             continue
         if not isinstance(body, dict) or "settings" not in body:
-            trouble = "the other laptop answered with something that is not settings"
+            trouble = "the other computer answered with something that is not settings"
             continue
         return body, ""
     return None, trouble

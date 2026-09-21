@@ -1,14 +1,14 @@
-"""The link to the other laptop: what the launcher opens, and what it refuses to open.
+"""The link to the other computer: what the launcher opens, and what it refuses to open.
 
-Two laptops reach each other's SIRVIS through an SSH tunnel the stack owns (STATUS.md,
+Two computers reach each other's SIRVIS through an SSH tunnel the stack owns (STATUS.md,
 20 September 2026). The tunnel was going to be a systemd unit and is a service in
 `tools/run.py` instead, so it starts and stops with everything else — which means the
 question "is a port open?" is now answered by this file's table, and the answer has to be
 *only when the owner said so*.
 
 **Both switches are off until somebody turns them on**, and they are two switches because
-they open two different doors: one lets this machine reach the other laptop, the other lets
-the other laptop reach this one. A test that only checked the first would let the second
+they open two different doors: one lets this machine reach the other computer, the other lets
+the other computer reach this one. A test that only checked the first would let the second
 turn itself on, which is the whole reason the setting has two fields.
 
 Nothing here reaches the machine: the settings database is a temporary file, and `ssh` is
@@ -166,7 +166,7 @@ def test_switched_on_it_forwards_one_way_only(
     assert name == "Link"
     assert "-L" in command and f"{run.LINK_LOCAL_PORT}:127.0.0.1:{run.SIRVIS_PORT}" in command
     assert "-R" not in command, (
-        "the other laptop reaching this one is a second answer, and it was not given"
+        "the other computer reaching this one is a second answer, and it was not given"
     )
     # Never a prompt and never a wait: this runs detached, with nobody to answer either.
     assert "BatchMode=yes" in command and "ExitOnForwardFailure=yes" in command
@@ -196,7 +196,7 @@ def test_the_way_back_is_opened_only_when_asked_and_named_in_full(
                     f"127.0.0.1:{run.LINK_BACK_NERVIS_PORT}:127.0.0.1:{run.NERVIS_PORT}"]
 
 
-def test_a_sleeping_laptop_is_not_a_failed_start(
+def test_a_sleeping_computer_is_not_a_failed_start(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The link is optional, waits briefly, and its silence is explained in the right place."""
@@ -204,7 +204,7 @@ def test_a_sleeping_laptop_is_not_a_failed_start(
 
     assert "Link" in run.OPTIONAL
     assert run.WAIT_SECONDS["Link"] < run.START_WAIT_SECONDS, (
-        "ConnectTimeout is ten seconds, so a laptop that is off has already failed by then"
+        "ConnectTimeout is ten seconds, so a computer that is off has already failed by then"
     )
     said = run._readiness("Link", False, 0)
     assert "me@thinkpad" in said, "it names the quiet end, which is the other computer"

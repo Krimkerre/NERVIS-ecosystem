@@ -2,7 +2,7 @@
 
 The allowlist that decides what may cross lives in `nervis.settings_transfer`, not here.
 This file is the routes that call it: two for a file somebody saves and picks, and two for
-the other laptop, read live through the link (`nervis.peers.laptop`).
+the other computer, read live through the link (`nervis.peers.computer`).
 
 **The same allowlist for all four.** A pull from the other machine is applied through
 `import_settings`, exactly as a chosen file is, so there is one answer to "what may cross"
@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from nervis.peers.laptop import differences, linked_peer, peer_settings
+from nervis.peers.computer import differences, linked_peer, peer_settings
 from nervis.settings_transfer import export_settings, import_settings
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
@@ -48,7 +48,7 @@ async def import_(request: Request) -> dict[str, Any]:
 
 @router.get("/peer")
 async def peer_preview(request: Request) -> dict[str, Any]:
-    """What the other laptop has, and what a pull would change here. Changes nothing.
+    """What the other computer has, and what a pull would change here. Changes nothing.
 
     Answers with the same shape whether or not there is a link, whether or not the other
     machine is awake: a screen asking "should I offer this?" gets one object to read rather
@@ -67,15 +67,15 @@ async def peer_preview(request: Request) -> dict[str, Any]:
     # **Asked even when this machine dials nobody**, because a link has two ends and only one
     # of them holds the address: the machine that *accepts* the connection has nothing in its
     # settings, and a pull offered only to the dialling side would be missing from whichever
-    # laptop is sitting still. Two refused loopback connections is what that costs.
+    # computer is sitting still. Two refused loopback connections is what that costs.
     theirs, trouble = peer_settings()
     if theirs is None:
         answer["detail"] = trouble if dials else (
-            "no other laptop is linked — Settings → Another laptop, or tools/run.py link add")
+            "no other computer is linked — Settings → Another computer, or tools/run.py link add")
         return answer
     if not dials:
         answer["linked"] = True
-        answer["address"] = peer["address"] or "the laptop that linked to this one"
+        answer["address"] = peer["address"] or "the computer that linked to this one"
     ours = export_settings(request.app.state.database)["settings"]
     changes = differences(theirs.get("settings") or {}, ours)
     answer["reachable"] = True
@@ -87,7 +87,7 @@ async def peer_preview(request: Request) -> dict[str, Any]:
 
 @router.post("/peer")
 async def peer_apply(request: Request) -> dict[str, Any]:
-    """Apply what the other laptop has now, and report what was applied and skipped.
+    """Apply what the other computer has now, and report what was applied and skipped.
 
     **Read again rather than taking a body.** The page has just shown a preview, and the
     honest thing to apply is what the other machine holds at the moment somebody says yes —
@@ -98,7 +98,7 @@ async def peer_apply(request: Request) -> dict[str, Any]:
     theirs, trouble = peer_settings()
     if theirs is None:
         return {"applied": [], "skipped": [],
-                "detail": trouble if peer["address"] else "no other laptop is linked"}
+                "detail": trouble if peer["address"] else "no other computer is linked"}
     outcome = import_settings(request.app.state.database, theirs)
-    address = peer["address"] or "the laptop that linked to this one"
+    address = peer["address"] or "the computer that linked to this one"
     return {**outcome.as_dict(), "address": address, "detail": ""}

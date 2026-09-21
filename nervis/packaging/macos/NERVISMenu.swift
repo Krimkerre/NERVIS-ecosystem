@@ -149,9 +149,9 @@ struct StackReport: Decodable {
     }
 
     var stack: [Service] { services.filter { $0.group == "stack" } }
-    /// The menu's Stack section: the stack with CLARVIS and the link to the other laptop,
+    /// The menu's Stack section: the stack with CLARVIS and the link to the other computer,
     /// in the launcher's order. Neither counts toward `stackIsUp` — no editor window open
-    /// and a peer laptop that is asleep are both ordinary, not a stack that is down.
+    /// and a peer computer that is asleep are both ordinary, not a stack that is down.
     var stackSection: [Service] {
         services.filter { $0.group == "stack" || $0.group == "editor" || $0.group == "link" }
     }

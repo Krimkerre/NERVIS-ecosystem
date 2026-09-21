@@ -3919,8 +3919,8 @@ const API={
      {method:'PUT',headers:control_headers(),body:JSON.stringify({value:share})}));
   },
 
-  /* The other laptop this one dials, if the owner asked for a link. Absent is
-     the ordinary state — one laptop is one laptop — and reads as an empty
+  /* The other computer this one dials, if the owner asked for a link. Absent is
+     the ordinary state — one computer is one computer — and reads as an empty
      object, which the card renders as "off". */
   async peerLink(){
    return _storedSetting('link.peer');
@@ -3931,8 +3931,8 @@ const API={
      {method:'PUT',headers:control_headers(),body:JSON.stringify({value:link})}));
   },
 
-  /* What the other laptop's settings are, and what taking them would change here.
-     Reads only. Every way it can fail — no link, laptop asleep, its stack not
+  /* What the other computer's settings are, and what taking them would change here.
+     Reads only. Every way it can fail — no link, computer asleep, its stack not
      started — comes back as a sentence in `detail`, so the card renders one shape. */
   async peerSettings(){
    try{
@@ -9090,14 +9090,14 @@ function screenSection(){
     code-server keeps the files and the folder it had open.</small></label>`,'nervis')}</div>`;
 }
 
-/* The link to another laptop, and the one card here whose two switches each open a
+/* The link to another computer, and the one card here whose two switches each open a
    port — so each is asked separately, and both start off.
 
    **What the switches actually do.** The launcher reads this row before it starts
    anything (`tools/run.py`, `configured_link`) and opens an SSH tunnel to the address
-   below. *Link* forwards a port on **this** machine to the other laptop's SIRVIS.
+   below. *Link* forwards a port on **this** machine to the other computer's SIRVIS.
    *Let it reach this one* forwards a port on **the other** machine back to this SIRVIS
-   — a door into this laptop, which is why it is a separate answer rather than part of
+   — a door into this computer, which is why it is a separate answer rather than part of
    the first. Both ends are loopback-only: nothing listens on the network, and the
    tunnel is the only way through.
 
@@ -9108,20 +9108,20 @@ async function linkSection(){
  const on=!!(link.enabled&&link.address);
  const state=on?'<span class="chip">on — opens at the next start</span>'
                :'<span class="chip">off — no port is opened</span>';
- return `<div class="card wide${on?' live':''}"><h3>Link to another laptop</h3>${cell(`
+ return `<div class="card wide${on?' live':''}"><h3>Link to another computer</h3>${cell(`
   <div class="trace-step"><b>state</b><span>${state}</span></div>
   <div class="trace-step"><b>link</b><span><label><input type="checkbox" id="linkOn"
-    ${link.enabled?'checked':''}> reach the other laptop's SIRVIS and NERVIS from this one</label></span></div>
+    ${link.enabled?'checked':''}> reach the other computer's SIRVIS and NERVIS from this one</label></span></div>
   <div class="trace-step"><b>address</b><span><input id="linkPeer" class="mono"
     placeholder="mathias@thinkpad.local" value="${escapeHtml(link.address||'')}"
     style="width:100%;background:#0e151d;border:1px solid var(--line);border-radius:4px;
     padding:6px 8px;color:inherit;font:inherit"></span></div>
   <div class="trace-step"><b>the other way</b><span><label><input type="checkbox" id="linkIn"
-    ${link.inbound?'checked':''}> let the other laptop reach <b>this</b> one</label></span></div>
+    ${link.inbound?'checked':''}> let the other computer reach <b>this</b> one</label></span></div>
   <div class="trace-step"><b></b><span><button class="btn primary" id="saveLink">Save</button>
    <button class="btn" id="clearLink">Turn it off</button></span></div>
   <div class="trace-step"><b>settings</b><span><button class="btn" id="pullSettings">See what
-   the other laptop has</button> <span id="linkPull"></span></span></div>
+   the other computer has</button> <span id="linkPull"></span></span></div>
   <small class="mono dim">Set this up in one command, which makes the key and authorises this
   machine on the other one: <span class="mono">python3 tools/run.py link add you@their-machine
   --inbound</span> — it asks for that machine's password once, in your terminal, and never
@@ -9143,7 +9143,7 @@ function peerSettingsPreview(found){
  if(!found.linked||!found.reachable)return said(escapeHtml(found.detail||'not linked'));
  const changes=found.changes||[];
  if(!changes.length)
-  return said(`nothing to bring over — both laptops agree
+  return said(`nothing to bring over — both computers agree
    (${escapeHtml(String(found.unchanged||0))} settings)`);
  /* Values, not just names: "chat.mode" tells nobody whether they want it, and the
     whole point of a preview is that the answer is visible before it is applied. */
@@ -9176,7 +9176,7 @@ function wireLinkCard(){
  const pull=$('#pullSettings');
  if(pull)pull.onclick=async()=>{
   const where=$('#linkPull');
-  where.innerHTML='<small class="mono dim">asking the other laptop…</small>';
+  where.innerHTML='<span class="mono" style="opacity:.75">asking the other computer…</span>';
   where.innerHTML=peerSettingsPreview(await API.nervis.peerSettings());
   const apply=$('#applyPull');
   if(apply)apply.onclick=async()=>{
@@ -9284,7 +9284,7 @@ async function settingsView(){
    <small class="mono dim">supervision acts only on what NERVIS started, by explicit executable identity. It never kills a process group, never touches an instance it did not launch, and never assumes a stale PID is still that service.<br>each endpoint is NERVIS's <b>copy</b> of where a peer said it listens — the peer sets its own bind address at start, and NERVIS records it. When the two disagree the service reads as <b>unreachable</b>, not as misconfigured, because from here those are indistinguishable: a peer that moved and a peer that stopped both fail to answer. The health test above is what tells them apart.</small></div>`)
   + section('Screen', screenSection())
   + section('Files', await shareSection())
-  + section('Another laptop', await linkSection())
+  + section('Another computer', await linkSection())
   + section('Voice', await voiceSection())
   + section('Privacy and retention', `<div class="card wide"><h3>Privacy</h3>
    <div class="table-row head"><span>Setting</span><span>State</span><span style="grid-column:3/-1">Why it is here</span></div>
