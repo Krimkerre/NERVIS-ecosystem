@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4614 tests, no network, no live service
+.venv/bin/pytest                      # part of 4623 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1882 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1891 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4614 passing across the four, conformance `PASS`.
+Expected: all clean, 4623 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20043,13 +20043,23 @@ link from it instead". Linking itself stays in the terminal, because it asks for
 password once. Under WSL an empty search says why it may be empty. Routes: `GET /api/v1/link/discover`,
 `GET`/`PUT /api/v1/link/findable` (`nervis/src/nervis/api/link.py`).
 
-Checked by `nervis/tests/test_discovery.py` (18 tests: both tools' output, de-duplication, names with spaces,
-a computer that leaves mid-search, the three-field announcement, self-exclusion, the per-distribution Avahi
-sentence, Avahi's refusal, on/off/twice, a NERVIS nobody asked announcing nothing, and the setting kept off
-the export). **Seen live on the Mac:** the real `Announcer` announced this Mac as `Govert` through `dns-sd`,
-and the real search found it as `mathias@Govert.local`, accepting links, in 4.0 s. All 43 dashboard gates,
-`tools/check.py`, ruff and mypy pass; NERVIS's suite is 1882. **Not yet seen live on Linux** — the Linux
-bench needs Avahi installed into its container, and the ThinkPad needs this build.
+Checked by `nervis/tests/test_discovery.py` (19 tests: both tools' real output, de-duplication, names with
+spaces, a computer that leaves mid-search, the three-field announcement, self-exclusion, the per-distribution
+Avahi sentence, Avahi's refusal, on/off/twice, a NERVIS nobody asked announcing nothing, and the setting kept
+off the export) and `nervis/tests/test_install_avahi.py` (8: the step lifted out of `install.sh` and run by
+bash with stand-ins — skipped on a Mac, each package manager's own names, a stopped daemon enabled, a running
+one left alone, no systemd said rather than tried, a dry run changing nothing).
+
+**Seen live on both platforms.** On the Mac, the real `Announcer` announced this Mac as `Govert` through
+`dns-sd` and the real search found it as `mathias@Govert.local`, accepting links, in 4.0 s. On Linux, in the
+test container with Avahi 0.8 installed into it (the owner's go-ahead, 21 September 2026 — the image runs as
+an ordinary user, so that one container ran as root), `avahi-publish` announced the container, `avahi-browse
+-rtp` printed exactly the format the parser was written for — so that capture now replaces the hand-written
+sample as the test's evidence — `find_computers()` found it in 1.0 s, and switching it off removed the
+announcement. The discovery, pull, link, Windows-launcher and installer tests all pass on Linux as well. All
+43 dashboard gates, `tools/check.py`, ruff and mypy pass; NERVIS's suite is 1891. **Not yet seen between two
+real computers** — that needs the ThinkPad on this build: tick *be findable* on the Mac, search from the
+ThinkPad.
 
 ## "Another computer", not "another laptop" — 2026-09-21 (NERVIS 0.34.76)
 

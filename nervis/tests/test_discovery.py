@@ -5,9 +5,9 @@ scanned for — it has to *announce* itself, over multicast DNS, with the operat
 own tool: `dns-sd` on macOS, Avahi on Linux. These tests pin the three things that decide
 whether the button in Settings is honest:
 
-- **what the tools print is read correctly** — the macOS samples below are real output,
-  captured on the owner's Mac on 21 September 2026; the Linux ones follow Avahi's parsable
-  format (`avahi-browse -p`) and are proven live separately, on a Linux machine;
+- **what the tools print is read correctly** — the samples below are real output: macOS's
+  captured on the owner's Mac, Linux's from Avahi 0.8 in the Linux test container, both on
+  21 September 2026, each with the real announcer running and the real search finding it;
 - **announcing is off until the owner turns it on**, and turning it off stops it at once;
 - **nothing is announced by a NERVIS nobody asked**, including every one built for a test.
 
@@ -50,14 +50,30 @@ DATE: ---Mon 21 Sep 2026---
  user=test ssh=yes
 """
 
-# Avahi's parsable format: `+` lines as found, `=` lines once resolved, `;` between fields,
-# a space in a name escaped as `\032`. One computer, answering over IPv6 and IPv4.
+# The same format, written out for what the captured sample does not show: a space in a name
+# (escaped as `\032`), an IPv6 link-local line first, and a second computer.
 AVAHI_BROWSE = """+;wlan0;IPv6;Mathias\\032ThinkPad;_nervis._tcp;local
 +;wlan0;IPv4;Mathias\\032ThinkPad;_nervis._tcp;local
 =;wlan0;IPv6;Mathias\\032ThinkPad;_nervis._tcp;local;ThinkPadX13G2.local;fe80::1c2b:3a4d:5e6f:7a8b;22;"ssh=no" "user=mathias"
 =;wlan0;IPv4;Mathias\\032ThinkPad;_nervis._tcp;local;ThinkPadX13G2.local;192.168.1.23;22;"ssh=no" "user=mathias"
 =;wlan0;IPv4;Govert;_nervis._tcp;local;Govert.local;192.168.1.10;22;"ssh=yes" "user=mathias"
 """
+
+
+# Captured from Avahi 0.8 (avahi-utils 0.8-13ubuntu6.2) in the Linux test container, 21 September
+# 2026, with `Announcer` announcing the container. Like the Mac, one computer is listed more than
+# once — here on `eth0` and on loopback.
+AVAHI_REAL = """+;eth0;IPv4;6805ef65cc90;_nervis._tcp;local
++;lo;IPv4;6805ef65cc90;_nervis._tcp;local
+=;eth0;IPv4;6805ef65cc90;_nervis._tcp;local;6805ef65cc90.local;172.17.0.2;22;"ssh=no" "user=root"
+=;lo;IPv4;6805ef65cc90;_nervis._tcp;local;6805ef65cc90.local;127.0.0.1;22;"ssh=no" "user=root"
+"""
+
+
+def test_real_avahi_output_gives_one_computer_with_what_it_announced() -> None:
+    assert discovery.parse_avahi(AVAHI_REAL) == [
+        Found(name="6805ef65cc90", host="6805ef65cc90.local", port=22, user="root",
+              accepts=False)]
 
 
 def test_the_macs_browse_lists_each_computer_once() -> None:
