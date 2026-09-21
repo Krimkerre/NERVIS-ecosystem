@@ -326,8 +326,14 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–20 September 2026** (now NERVIS 0.34.76, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.77, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
+
+- **NERVIS can find your other computers with one click** (21 September, NERVIS 0.34.77):
+  Settings → Another computer → *Find computers on this network* lists every computer on the
+  same network that is running NERVIS and has said it may be found, with the exact command to
+  link to it. A computer is only findable after you tick *Let other computers find this one* on
+  it. Works on Mac and Linux. See *Linking two computers*.
 
 - **Hooking up another computer is one command** (20 September, NERVIS 0.34.73):
   `python3 tools/run.py link add you@their-machine --inbound` makes the key, authorises this
@@ -1344,6 +1350,26 @@ other commands are `link test` (open it once and say what answers), `link off` a
 
 The key that gets added to the other machine can do **nothing but** open those forwarded ports:
 no shell, no commands, no terminal. That is what the `restrict` in its line means.
+
+**Finding your other computers.** You don't need to know the other computer's address. On the
+computer you want to reach, open Settings → Another computer and tick **Let other computers on this
+network find this one** — it starts at once, no restart. Then on the computer you are sitting at,
+press **Find computers on this network**: after a few seconds it lists every computer running
+NERVIS that has said it may be found, by name, with its address and the exact `link add` command
+to run in a terminal. A computer whose SSH is switched off is shown as *does not accept links*:
+link *from* it instead, pointing at this one.
+
+Being findable opens no port and shares very little: the computer's name, the user name to link
+as, and whether it accepts SSH. Nothing about models or versions. It is off until you turn it on,
+and untick it to stop at once. Why a computer has to announce itself rather than be scanned for:
+every NERVIS service listens on its own computer only, so there is nothing on the network to scan
+— that is deliberate, and it is what keeps them private.
+
+It uses the system's own network discovery (the same thing printers and AirPlay speakers use):
+built into macOS, and **Avahi** on Linux, which the installer adds (Debian/Ubuntu `avahi-utils`,
+Arch/CachyOS `avahi`, Fedora `avahi-tools`, plus the `avahi-daemon` service). Under Windows
+through WSL the network Linux sees is usually a private one inside Windows, so finding may come up
+empty there — typing the address into `link add` still works.
 
 **Bringing settings over.** Once two computers are linked, Settings → Another computer can copy that
 machine's settings here — **on either computer**, whichever one dialled: press *See what the other computer has* and it lists exactly which

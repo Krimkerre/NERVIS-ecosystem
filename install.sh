@@ -583,6 +583,38 @@ else
   install_codex_from_npm
 fi
 
+# ── Finding the owner's other computers ───────────────────────────────────────
+# NERVIS → Settings → Another computer can find other computers running NERVIS on the same
+# network, and announce this one, with multicast DNS. macOS has that built in (`dns-sd`);
+# Linux has Avahi, which most desktops run already but whose command-line tools
+# (avahi-browse, avahi-publish) are a separate package on Debian, Ubuntu and Fedora. Nothing
+# is announced until the owner switches it on in Settings; this only makes the switch work.
+if [ "$OS" != macos ]; then
+  step "Avahi — so Settings can find your other computers on this network"
+  case "$PM" in
+    apt) install_packages "Avahi and its tools" avahi-daemon avahi-utils ;;
+    dnf) install_packages "Avahi and its tools" avahi avahi-tools ;;
+    pacman) install_packages "Avahi and its tools" avahi ;;
+  esac
+  # The daemon is what actually talks to the network. Enabled only where systemd is running —
+  # WSL without systemd has none to ask, and there the announcement rarely reaches the real
+  # network anyway, which the Settings card says when it finds nothing.
+  if [ -d /run/systemd/system ] && have systemctl; then
+    if systemctl is-active --quiet avahi-daemon 2>/dev/null; then
+      good "Avahi: the daemon is running"
+    elif [ "$DRY_RUN" = 1 ]; then
+      say "Avahi: would enable and start avahi-daemon"
+    else
+      need_root
+      run "${SUDO[@]}" systemctl enable --now avahi-daemon >>"$REPO/.run/install.log" 2>&1 \
+        && good "Avahi: the daemon is enabled and running" \
+        || later "Avahi's daemon didn't start — run: sudo systemctl enable --now avahi-daemon"
+    fi
+  else
+    skipped "Avahi's daemon: no systemd here to start it with — finding computers may not work"
+  fi
+fi
+
 # ── Opening NERVIS from the desktop ───────────────────────────────────────────
 
 if [ "$WANT_DESKTOP" = 0 ]; then

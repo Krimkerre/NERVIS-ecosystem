@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4596 tests, no network, no live service
+.venv/bin/pytest                      # part of 4614 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1864 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1882 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4596 passing across the four, conformance `PASS`.
+Expected: all clean, 4614 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,44 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## One click finds your other computers — 2026-09-21 (NERVIS 0.34.77)
+
+The owner asked for other computers running SIRVIS to be discoverable "with a click on a button in the
+interface", and then: "remember we are also using linux, so it must work on there too".
+
+**Why they have to announce themselves.** Every service here listens on its own machine only (§15.1), so
+there is nothing on the network to scan for, by design. What can be seen is a multicast-DNS announcement —
+the mechanism printers and AirPlay use — so a computer running NERVIS may say "I am here, link to me over
+SSH" as `_nervis._tcp` on port 22, with three TXT fields and nothing else: `user=`, and `ssh=yes|no` from
+whether anything answers on its own port 22 (plus its name). No versions, no models.
+
+**The operating system's own tool on both platforms, no new dependency** (`nervis/src/nervis/discovery.py`):
+`dns-sd` on macOS (built in), Avahi on Linux (`avahi-browse -rtp`, `avahi-publish -s`). `install.sh` gained
+an Avahi step for Linux — `avahi-daemon avahi-utils` (apt), `avahi avahi-tools` (dnf), `avahi` (pacman) —
+and enables the daemon where systemd runs; a Linux without it is told the package for its distribution, and
+Avahi's own refusal ("Daemon not running") is passed on with the command that fixes it. The parsers were
+written against real `dns-sd` output captured on the Mac (each computer is listed once per interface, so
+names are de-duplicated), and against Avahi's documented parsable format for Linux.
+
+**Announcing is off until the owner ticks it**, per their rule that users should have a say: NERVIS →
+Settings → Another computer → *Let other computers on this network find this one* (`link.findable`, not
+exportable). It is applied when ticked, not at the next start — being found is for the computer somebody is
+about to sit down at — so NERVIS owns the announcing process (`Announcer`), starts it from its lifespan only
+if the setting says so, and stops it first on the way down. *Find computers on this network* listens for a
+few seconds (on a worker thread, not the event loop), leaves this computer out of its own list, and shows
+each one's address with the exact `link add` command — or, for one with SSH off, "does not accept links:
+link from it instead". Linking itself stays in the terminal, because it asks for the other computer's
+password once. Under WSL an empty search says why it may be empty. Routes: `GET /api/v1/link/discover`,
+`GET`/`PUT /api/v1/link/findable` (`nervis/src/nervis/api/link.py`).
+
+Checked by `nervis/tests/test_discovery.py` (18 tests: both tools' output, de-duplication, names with spaces,
+a computer that leaves mid-search, the three-field announcement, self-exclusion, the per-distribution Avahi
+sentence, Avahi's refusal, on/off/twice, a NERVIS nobody asked announcing nothing, and the setting kept off
+the export). **Seen live on the Mac:** the real `Announcer` announced this Mac as `Govert` through `dns-sd`,
+and the real search found it as `mathias@Govert.local`, accepting links, in 4.0 s. All 43 dashboard gates,
+`tools/check.py`, ruff and mypy pass; NERVIS's suite is 1882. **Not yet seen live on Linux** — the Linux
+bench needs Avahi installed into its container, and the ThinkPad needs this build.
 
 ## "Another computer", not "another laptop" — 2026-09-21 (NERVIS 0.34.76)
 

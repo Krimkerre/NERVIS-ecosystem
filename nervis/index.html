@@ -3947,6 +3947,30 @@ const API={
      {method:'POST',headers:control_headers()}));
   },
 
+  /* Whether this computer announces itself on the local network, and under what name. */
+  async findable(){
+   try{
+    const r=await fetch('/api/v1/link/findable',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)return await r.json();
+   }catch(e){}
+   return {findable:false,announcing:false,name:'',detail:''};
+  },
+
+  async setFindable(value){
+   return _workspaceDid(await fetch('/api/v1/link/findable',
+     {method:'PUT',headers:control_headers(),body:JSON.stringify({value})}));
+  },
+
+  /* Other computers announcing NERVIS on this network. Listening takes a few seconds, so
+     this gets its own, longer timeout rather than the live-read one. */
+  async discoverComputers(){
+   try{
+    const r=await fetch('/api/v1/link/discover',{signal:AbortSignal.timeout(20000)});
+    if(r.ok)return await r.json();
+   }catch(e){}
+   return {computers:[],detail:'NERVIS did not answer the search'};
+  },
+
   async workspaceTrash(){
    try{
     const r=await fetch('/api/v1/workspace/trash',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
@@ -9105,6 +9129,7 @@ function screenSection(){
    tunnel, and a switch that looked instant would be a claim it is. */
 async function linkSection(){
  const link=await API.nervis.peerLink();
+ const seen=await API.nervis.findable();
  const on=!!(link.enabled&&link.address);
  const state=on?'<span class="chip">on — opens at the next start</span>'
                :'<span class="chip">off — no port is opened</span>';
@@ -9122,6 +9147,12 @@ async function linkSection(){
    <button class="btn" id="clearLink">Turn it off</button></span></div>
   <div class="trace-step"><b>settings</b><span><button class="btn" id="pullSettings">See what
    the other computer has</button> <span id="linkPull"></span></span></div>
+  <div class="trace-step"><b>be findable</b><span><label><input type="checkbox" id="linkFindable"
+    ${seen.findable?'checked':''}> let other computers on this network find this one
+    ${seen.name?`(as <span class="mono">${escapeHtml(seen.name)}</span>)`:''}</label>
+    <span id="findableSaid">${findableWords(seen)}</span></span></div>
+  <div class="trace-step"><b>find</b><span><button class="btn" id="findComputers">Find computers
+   on this network</button> <span id="foundComputers"></span></span></div>
   <small class="mono dim">Set this up in one command, which makes the key and authorises this
   machine on the other one: <span class="mono">python3 tools/run.py link add you@their-machine
   --inbound</span> — it asks for that machine's password once, in your terminal, and never
@@ -9129,6 +9160,33 @@ async function linkSection(){
   are <b>loopback</b> at both ends (<span class="mono">127.0.0.1</span>), so neither is reachable
   from anything else on the network. Off is the default and off opens nothing. Applied by the
   launcher at the next <b>start</b>; the link stops when the stack does.</small>`,'nervis')}</div>`;
+}
+
+/* The announcement's state in words. On and not announcing is the case worth a sentence:
+   a Linux without Avahi, say, where the switch is remembered but nothing is going out. */
+function findableWords(seen){
+ const said=text=>`<span class="mono" style="opacity:.75">${text}</span>`;
+ if(seen.detail)return said(escapeHtml(seen.detail));
+ if(seen.findable&&seen.announcing)return said('announcing now');
+ return seen.findable?said('on, but not announcing'):'';
+}
+
+/* The computers a search found. Each says whether it accepts a link, because one that can
+   only dial out must be linked *from*, and offering it as something to dial would send
+   somebody to a command that cannot work. Linking itself happens in a terminal: it asks
+   for the other computer's password once, and a web page is the wrong place to type that. */
+function foundComputersList(found){
+ const said=text=>`<span class="mono" style="opacity:.75">${text}</span>`;
+ const computers=found.computers||[];
+ if(!computers.length)return said(escapeHtml(found.detail||'nothing found'));
+ return `<div style="margin-top:6px">${computers.map(one=>`<div class="trace-step">
+   <b>${escapeHtml(one.name)}</b><span><span class="mono">${escapeHtml(one.address)}</span>
+   ${one.accepts
+     ?`<span class="chip">accepts links</span> ${said('to link, run this here in a terminal:')}
+       <span class="mono">python3 tools/run.py link add ${escapeHtml(one.address)} --inbound</span>`
+     :`<span class="chip warn">does not accept links</span> ${said(
+       'it can link to this computer instead: run link add on it, pointing here')}`}
+   </span></div>`).join('')}</div>`;
 }
 
 /* What a pull would change, as a list somebody reads before agreeing to it.
@@ -9186,6 +9244,21 @@ function wireLinkCard(){
      :(outcome.detail||'NERVIS refused that'));
    if(outcome.ok)await settingsView();
   };
+ };
+ /* Applied the moment it is ticked: being found is for the other computer somebody is
+    about to sit down at, so waiting for a restart would defeat it. */
+ const findableBox=$('#linkFindable');
+ if(findableBox)findableBox.onchange=async()=>{
+  const outcome=await API.nervis.setFindable(!!findableBox.checked);
+  $('#findableSaid').innerHTML=findableWords(outcome.ok?outcome:{detail:outcome.detail});
+  notify(outcome.ok?(outcome.findable?'This computer can now be found':'No longer announcing')
+                   :(outcome.detail||'NERVIS refused that'));
+ };
+ const find=$('#findComputers');
+ if(find)find.onclick=async()=>{
+  const where=$('#foundComputers');
+  where.innerHTML='<span class="mono" style="opacity:.75">listening for a few seconds…</span>';
+  where.innerHTML=foundComputersList(await API.nervis.discoverComputers());
  };
  /* Off keeps the address: turning a link off and typing the address again next week
     are two different requests, and only one of them was made. */

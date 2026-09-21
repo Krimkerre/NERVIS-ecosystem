@@ -54,6 +54,7 @@ from nervis.api import (
     inspector_router,
     instances_router,
     learned_router,
+    link_router,
     logs_router,
     notifications_router,
     proposals_router,
@@ -69,10 +70,12 @@ from nervis.api.code import UPSTREAM_TIMEOUT as CODE_UPSTREAM_TIMEOUT
 from nervis.api.control import control_refusal, needs_control, presents_control
 from nervis.api.events import event_frames
 from nervis.api.files import prune_trash
+from nervis.api.link import findable
 from nervis.api.origin_guard import expected_origins, refuses_cross_origin_mutation
 from nervis.code_extension import ensure as ensure_clarvis
 from nervis.code_proxy import Sessions as CodeSessions
 from nervis.config import Settings
+from nervis.discovery import Announcer
 from nervis.ecosystem import (
     BUILD_VERSION,
     advertise_chat,
@@ -150,6 +153,7 @@ def create_app(settings: Settings) -> FastAPI:
     api.include_router(proposals_router)
     api.include_router(recall_router)
     api.include_router(settings_transfer_router)
+    api.include_router(link_router)
     api.include_router(commands_router)
     api.include_router(voice_router)
     api.include_router(code_router)
@@ -173,6 +177,10 @@ def _attach_shared_state(api: FastAPI, settings: Settings) -> None:
     api.state.control_token = secrets.token_urlsafe(32)
     api.state.settings = settings
     api.state.database = prepare_database(settings.database_path)
+    # The process that announces this computer on the local network, when the owner has
+    # switched that on (`discovery.Announcer`). Created here and started by the lifespan,
+    # so a NERVIS built for a test never announces anything.
+    api.state.announcer = Announcer()
     # The owner's voices on a fresh installation, once (`voice.seed_default_profiles`).
     if settings.seed_default_voices:
         seed_default_voices(api.state.database)
@@ -575,6 +583,10 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     if getattr(api.state.settings, "clarvis_auto_install", False):
         asyncio.create_task(asyncio.to_thread(_install_clarvis, api))
     settling = asyncio.create_task(_settle_events_periodically(api))
+    # **Announced only if the owner said so**, and never fatal: a Linux without Avahi says
+    # why on the Settings card, and NERVIS starts either way.
+    with contextlib.suppress(Exception):
+        api.state.announcer.sync(findable(api.state.database))
     # §18's other notices (`alerts.py`): fed by the hub as events are stored, and by
     # the probe timer's readings below.
     api.state.alerts = Alerts(lambda **note: _post_quietly(api, note))
@@ -583,6 +595,9 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         api.state.stopping.set()
+        # First, so a NERVIS on its way down stops saying it is here.
+        with contextlib.suppress(Exception):
+            api.state.announcer.stop()
         task.cancel()
         settling.cancel()
         alerting.cancel()
