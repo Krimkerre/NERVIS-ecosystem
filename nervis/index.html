@@ -3942,6 +3942,21 @@ const API={
    return {linked:false,reachable:false,changes:[],detail:'NERVIS did not answer about the link'};
   },
 
+  /* The other computer's conversations, and bringing the ticked ones here. Each one is a
+     separate read across the link, so this gets the longer timeout. */
+  async peerConversations(){
+   try{
+    const r=await fetch('/api/v1/chat/peer',{signal:AbortSignal.timeout(20000)});
+    if(r.ok)return await r.json();
+   }catch(e){}
+   return {changes:[],detail:'NERVIS did not answer about the other computer'};
+  },
+
+  async bringConversations(ids){
+   return _workspaceDid(await fetch('/api/v1/chat/peer',
+     {method:'POST',headers:control_headers(),body:JSON.stringify({ids})}));
+  },
+
   /* `keys` is which settings to take; leaving it out takes all of them. The *values* always
      come from the other computer, read again at that moment — the page only chooses. */
   async applyPeerSettings(keys){
@@ -9227,7 +9242,9 @@ async function linkSection(){
   ${allowedComputers(seen.allowed)}
   ${on||seen.linked_in?`<div class="trace-step"><b>settings</b><span><button class="btn"
    id="pullSettings">See what the other computer has</button>
-   <span id="linkPull"></span></span></div>`:''}
+   <span id="linkPull"></span></span></div>
+  <div class="trace-step"><b>conversations</b><span><button class="btn" id="pullChats">See its
+   conversations</button> <span id="chatPull"></span></span></div>`:''}
   ${linkByHandRow(link)}
   <small class="mono dim">Two computers pair the way two devices pair: press <b>Link to this
   computer</b> on one, <b>Allow</b> on the other, and the link opens itself — no password is
@@ -9308,6 +9325,38 @@ function allowedComputers(allowed){
   <span class="mono" style="opacity:.6">${escapeHtml(one.fingerprint||'')}</span>
   <button class="btn" data-revoke="${jsAttr(one.name)}">Stop allowing</button></span></div>`
  ).join('');
+}
+
+/* The other computer's conversations, as a list to tick through.
+
+   **Ticked off rather than on**, unlike settings: a settings pull is a short list somebody
+   almost always wants all of, and a history is long and personal — bringing every
+   conversation anybody ever had is not a thing to do by accident. Each row says what it
+   would add, because "new" and "twelve more turns than here" are different decisions. */
+function peerConversationRow(one){
+ const said=text=>`<span class="mono" style="opacity:.6">${text}</span>`;
+ const when=String(one.updated_at||one.created_at||'').slice(0,16).replace('T',' ');
+ const what=one.state==='new'
+  ?`<span class="chip">new</span> ${said(escapeHtml(String(one.adds||0))+' turns')}`
+  :`<span class="chip warn">${escapeHtml(String(one.adds||0))} more</span> ${said(
+     escapeHtml(String(one.ours||0))+' here')}`;
+ return `<div class="trace-step"><b><label><input type="checkbox" class="chatPick"
+   value="${jsAttr(one.conversation_id)}"> ${escapeHtml(one.title||'(untitled)')}</label></b>
+  <span>${what} ${said(escapeHtml(when))}</span></div>`;
+}
+
+function peerConversationsList(found){
+ const said=text=>`<span class="mono" style="opacity:.75">${text}</span>`;
+ const changes=found.changes||[];
+ if(!changes.length)return said(escapeHtml(found.detail||'nothing to bring over'));
+ return `<div style="margin-top:6px">
+  ${said(`${escapeHtml(String(changes.length))} to bring over · ${
+    escapeHtml(String(found.same||0))} already here`)}
+  ${changes.map(peerConversationRow).join('')}
+  <div class="trace-step"><b></b><span><button class="btn primary" id="bringChats">Bring the
+   ticked conversations over</button> <button class="btn" id="chatAll">Tick all</button>
+   ${said('they are added, never merged into what is here — and nothing is removed')}
+   </span></div></div>`;
 }
 
 /* Which part of NERVIS a setting belongs to, so a preview reads as a few small groups
@@ -9490,6 +9539,35 @@ function wireLinkCard(){
      ?`Brought over ${(outcome.applied||[]).length} setting(s)`
      :(outcome.detail||'NERVIS refused that'));
    if(outcome.ok)await settingsView();
+  };
+ };
+ /* Conversations: look, tick, bring. The list is read first and the bringing is a second,
+    separate press on what that list showed. */
+ const chats=$('#pullChats');
+ if(chats)chats.onclick=async()=>{
+  const where=$('#chatPull');
+  where.innerHTML='<span class="mono" style="opacity:.75">asking the other computer…</span>';
+  where.innerHTML=peerConversationsList(await API.nervis.peerConversations());
+  const all=$('#chatAll');
+  if(all)all.onclick=()=>{
+   const boxes=[...document.querySelectorAll('.chatPick')];
+   const anyTicked=boxes.some(box=>box.checked);
+   boxes.forEach(box=>{box.checked=!anyTicked});
+   all.textContent=anyTicked?'Tick all':'Untick all';
+  };
+  const bring=$('#bringChats');
+  if(bring)bring.onclick=async()=>{
+   const ids=[...document.querySelectorAll('.chatPick')].filter(box=>box.checked)
+     .map(box=>box.value);
+   if(!ids.length){notify('Nothing is ticked, so nothing was brought over');return}
+   bring.disabled=true;
+   const outcome=await API.nervis.bringConversations(ids);
+   bring.disabled=false;
+   notify(outcome.ok
+     ?`Brought over ${(outcome.brought||[]).length} conversation(s), ${
+        outcome.messages||0} turn(s)`
+     :(outcome.detail||'NERVIS refused that'));
+   if(outcome.ok)chats.onclick();
   };
  };
  /* Applied the moment it is ticked: being found is for the other computer somebody is

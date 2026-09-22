@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4651 tests, no network, no live service
+.venv/bin/pytest                      # part of 4667 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1919 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1935 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4651 passing across the four, conformance `PASS`.
+Expected: all clean, 4667 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,38 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Conversations cross the link, the ones you tick — 2026-09-22 (NERVIS 0.34.82)
+
+*"What I'm also missing is conversation history — that was the main thing I wanted to sync."*
+
+Every NERVIS now has both halves: `GET /api/v1/chat/transfer` offers this computer's conversations as a
+list with counts and **no message bodies** (233 conversations and 846 turns on the Mac would be megabytes
+fetched just to be counted), `GET /api/v1/chat/transfer/{id}` offers one with its turns, and
+`GET`/`POST /api/v1/chat/peer` is the other side: preview what the linked computer has, then bring over the
+ones that were ticked. Which half a computer uses depends on which one somebody is sitting at, not on which
+one dialled — `peers/computer.py` gained a general `peer_json` so both pulls try both ends of the link.
+
+**The rules that make a history safe to move** (`nervis/src/nervis/conversations_transfer.py`): adds only,
+never overwrites, never deletes. Conversations and messages keep the identifiers they were born with —
+`uuid4`, so two computers cannot mint the same one — and every insert is `INSERT OR IGNORE`: bringing the
+same conversation twice adds nothing, and one that grew on the other computer gains only the turns this one
+has never seen. **Times are written rather than stamped**, because `chat.append` stamps "now", which is
+right for a turn being spoken and wrong for one being carried: Sunday's conversation must arrive dated
+Sunday. A title typed here survives a pull that carries a different one.
+
+**Nothing is ticked to begin with**, the opposite of the settings pull and deliberate: a settings list is
+short and usually wanted whole, a history is long and personal, and bringing every conversation anybody
+ever had should not happen by pressing one button twice. What the far end sends is read rather than
+trusted — a turn with no identifier or a role that is not user, assistant or system is left out.
+
+Checked by `nervis/tests/test_conversations_transfer.py` (16 tests: the listing carries counts and no
+bodies, times and identifiers survive, twice adds nothing, a grown conversation gains only its new turns,
+what is here is never replaced, rubbish is refused, strange turns are dropped, the difference is what a
+pull would add, nothing ticked brings nothing, only the ticked ones are fetched, and a sleeping computer is
+an answer). NERVIS's suite is 1935; gates, ruff and mypy pass. **Seen live on the Mac:** it offers its 233
+conversations through the real route. **Not yet carried between the two** — the ThinkPad needs this build,
+and its tunnel was down while this was written.
 
 ## Pairing could never finish where a link was already open — 2026-09-22 (NERVIS 0.34.81)
 

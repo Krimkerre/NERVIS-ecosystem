@@ -5,6 +5,7 @@ from nervis.api.chat import router as chat_router
 from nervis.api.code import proxy as code_proxy_router
 from nervis.api.code import router as code_router
 from nervis.api.commands import router as commands_router
+from nervis.api.conversations_transfer import router as conversations_transfer_router
 from nervis.api.diagnostics import router as diagnostics_router
 from nervis.api.documents import router as documents_router
 from nervis.api.events import router as events_router
@@ -42,6 +43,7 @@ __all__ = [
     "notifications_router",
     "proposals_router",
     "recall_router",
+    "conversations_transfer_router",
     "link_router",
     "settings_transfer_router",
     "router",

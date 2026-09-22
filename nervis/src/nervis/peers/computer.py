@@ -21,6 +21,7 @@ neither, and the link is only up while both stacks are running anyway.
 from __future__ import annotations
 
 import json
+import urllib.parse
 from typing import Any, Mapping
 
 import httpx
@@ -75,39 +76,69 @@ def linked_peer(database: Database) -> dict[str, Any]:
     }
 
 
-def peer_settings(urls: tuple[str, ...] = PEER_URLS) -> tuple[dict[str, Any] | None, str]:
-    """The other computer's exported settings, or nothing and why not.
+def peer_json(path: str, *, urls: tuple[str, ...] = PEER_URLS,
+              timeout: float = PEER_TIMEOUT_SECONDS) -> tuple[Any, str]:
+    """One read of the other computer, at whichever end of the link this machine is.
 
     Both addresses are tried, in order, because which one carries the link depends on which
     machine dialled (`PEER_URLS`). A closed port on loopback refuses at once, so the machine
     that has no link pays two instant refusals rather than a wait.
 
     Never raises: every way this can fail — the link not open, the far stack not started, a
-    NERVIS too old to export — is an ordinary state of somebody's second computer, and a screen
-    that had to catch exceptions to say "it is asleep" would be the wrong shape for all of them.
-    The sentence returned is the *last* real refusal, or the plain "nothing answered" when
-    nothing was listening at either address.
+    NERVIS too old to answer that path — is an ordinary state of somebody's second computer,
+    and a screen that had to catch exceptions to say "it is asleep" would be the wrong shape
+    for all of them. The sentence returned is the *last* real refusal, or the plain "nothing
+    answered" when nothing was listening at either address.
     """
     trouble = ("the other computer did not answer — the link is not open, or its stack "
                "is not started")
     for url in urls:
         try:
-            answer = httpx.get(f"{url}/api/v1/settings/export", timeout=PEER_TIMEOUT_SECONDS)
+            answer = httpx.get(f"{url}{path}", timeout=timeout)
         except httpx.HTTPError:
             continue
         if answer.status_code != 200:
             trouble = f"the other computer refused the read (HTTP {answer.status_code})"
             continue
         try:
-            body = answer.json()
+            return answer.json(), ""
         except ValueError:
-            trouble = "the other computer answered with something that is not settings"
-            continue
-        if not isinstance(body, dict) or "settings" not in body:
-            trouble = "the other computer answered with something that is not settings"
-            continue
-        return body, ""
+            trouble = "the other computer answered with something unreadable"
     return None, trouble
+
+
+def peer_settings(urls: tuple[str, ...] = PEER_URLS) -> tuple[dict[str, Any] | None, str]:
+    """The other computer's exported settings, or nothing and why not."""
+    body, trouble = peer_json("/api/v1/settings/export", urls=urls)
+    if body is None:
+        return None, trouble
+    if not isinstance(body, dict) or "settings" not in body:
+        return None, "the other computer answered with something that is not settings"
+    return body, ""
+
+
+def peer_conversations(urls: tuple[str, ...] = PEER_URLS) -> tuple[list[Any] | None, str]:
+    """The other computer's conversations, listed without their messages."""
+    body, trouble = peer_json("/api/v1/chat/transfer", urls=urls)
+    if body is None:
+        return None, trouble
+    listed = body.get("conversations") if isinstance(body, dict) else None
+    if not isinstance(listed, list):
+        return None, ("the other computer did not answer with conversations — it may be "
+                      "running an older NERVIS")
+    return listed, ""
+
+
+def peer_conversation(conversation_id: str,
+                      urls: tuple[str, ...] = PEER_URLS) -> tuple[dict[str, Any] | None, str]:
+    """One conversation from the other computer, with its turns."""
+    body, trouble = peer_json(f"/api/v1/chat/transfer/{urllib.parse.quote(conversation_id)}",
+                              urls=urls, timeout=PEER_TIMEOUT_SECONDS * 4)
+    if body is None:
+        return None, trouble
+    if not isinstance(body, dict) or "messages" not in body:
+        return None, "that conversation did not come back whole"
+    return body, ""
 
 
 def differences(theirs: Mapping[str, Any], ours: Mapping[str, Any]) -> list[dict[str, Any]]:

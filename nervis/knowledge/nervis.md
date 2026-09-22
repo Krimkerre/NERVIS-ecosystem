@@ -326,9 +326,13 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.81, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.82, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
+- **Conversations can be brought over from your other computer** (22 September, NERVIS 0.34.82):
+  Settings → Another computer → *See its conversations* lists what that computer has, says what
+  each one would add, and brings over only the ones you tick. Nothing is overwritten and nothing
+  is removed — a conversation you already have simply gains the turns this computer never saw.
 - **Two computers can be linked from their screens, with no password and no terminal**
   (22 September, NERVIS 0.34.79): press *Link to this computer* on one, *Allow* on the other,
   and the link opens itself. They pair the way two devices pair, and both screens show the same
@@ -1392,6 +1396,21 @@ built into macOS, and **Avahi** on Linux, which the installer adds (Debian/Ubunt
 Arch/CachyOS `avahi`, Fedora `avahi-tools`, plus the `avahi-daemon` service). Under Windows
 through WSL the network Linux sees is usually a private one inside Windows, so finding may come up
 empty there — typing the address into `link add` still works.
+
+**Bringing conversations over.** This is the one most people want. Settings → Another computer →
+**See its conversations**: every conversation on the other computer is listed with its title, when
+it was last used, and what bringing it here would add — *new*, or *4 more* turns than the copy
+here. Tick the ones you want and press **Bring the ticked conversations over**. Nothing is ticked
+to begin with, because a history is long and personal and "bring everything" should never happen
+by accident.
+
+What arrives keeps its own identity: the same conversation, dated when it really happened, not
+when it was copied. Bringing the same one twice adds nothing. A conversation you already have and
+have added to **is not overwritten** — it only gains the turns this computer had never seen, and a
+title you typed yourself stays yours. Nothing is ever deleted by bringing things over, which is
+also why this is a button rather than a constant sync: two computers mirroring each other have to
+decide what happens when you delete something on one of them, and every answer to that is a
+surprise you did not ask for.
 
 **Bringing settings over.** Once two computers are linked, Settings → Another computer can copy that
 machine's settings here — **on either computer**, whichever one dialled. **You choose which**: every
