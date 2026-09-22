@@ -31,6 +31,21 @@ from nervis.storage import prepare_database
 RUN_PY = Path(__file__).resolve().parents[2] / "tools" / "run.py"
 
 
+@pytest.fixture(autouse=True)
+def no_real_peer(monkeypatch: Any) -> None:
+    """**No test here may reach the owner's other computer.**
+
+    Found on 22 September 2026, with the ThinkPad's tunnel open on this Mac: the port a peer
+    is read on was live, so a test that meant "nothing is linked" dialled the real machine
+    and applied its real settings. The suite now refuses that connection by default; a test
+    that wants a peer says so by replacing `peer_settings` itself.
+    """
+    def _refuse(*_: object, **__: object) -> None:
+        raise httpx.ConnectError("no test may dial the owner's other computer")
+
+    monkeypatch.setattr(computer.httpx, "get", _refuse)
+
+
 @pytest.fixture()
 def client(tmp_path: Any) -> Any:
     settings = Settings(  # type: ignore[call-arg]

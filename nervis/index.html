@@ -3961,6 +3961,35 @@ const API={
      {method:'PUT',headers:control_headers(),body:JSON.stringify({value})}));
   },
 
+  /* Pairing: ask another computer to let this one in, allow one that is asking, check
+     whether the answer has come, and take an allowance back. None of these ever carries a
+     password — the other computer's own screen is where its owner says yes. */
+  async askToLink(address,name,inbound){
+   return _workspaceDid(await fetch('/api/v1/link/request',
+     {method:'POST',headers:control_headers(),
+      body:JSON.stringify({address,name,inbound:!!inbound})}));
+  },
+
+  async cancelLinkRequest(){
+   return _workspaceDid(await fetch('/api/v1/link/request/cancel',
+     {method:'POST',headers:control_headers()}));
+  },
+
+  async approveComputer(name){
+   return _workspaceDid(await fetch('/api/v1/link/approve',
+     {method:'POST',headers:control_headers(),body:JSON.stringify({name})}));
+  },
+
+  async revokeComputer(name){
+   return _workspaceDid(await fetch('/api/v1/link/revoke',
+     {method:'POST',headers:control_headers(),body:JSON.stringify({name})}));
+  },
+
+  async checkLink(){
+   return _workspaceDid(await fetch('/api/v1/link/check',
+     {method:'POST',headers:control_headers()}));
+  },
+
   /* Other computers announcing NERVIS on this network. Listening takes a few seconds, so
      this gets its own, longer timeout rather than the live-read one. */
   async discoverComputers(){
@@ -9153,6 +9182,8 @@ async function linkSection(){
     <span id="findableSaid">${findableWords(seen)}</span></span></div>
   <div class="trace-step"><b>find</b><span><button class="btn" id="findComputers">Find computers
    on this network</button> <span id="foundComputers"></span></span></div>
+  ${waitingToLink(seen.waiting_for)}
+  ${allowedComputers(seen.allowed)}
   <small class="mono dim">Set this up in one command, which makes the key and authorises this
   machine on the other one: <span class="mono">python3 tools/run.py link add you@their-machine
   --inbound</span> — it asks for that machine's password once, in your terminal, and never
@@ -9171,22 +9202,66 @@ function findableWords(seen){
  return seen.findable?said('on, but not announcing'):'';
 }
 
-/* The computers a search found. Each says whether it accepts a link, because one that can
-   only dial out must be linked *from*, and offering it as something to dial would send
-   somebody to a command that cannot work. Linking itself happens in a terminal: it asks
-   for the other computer's password once, and a web page is the wrong place to type that. */
+/* One computer a search found, as a row with the one thing to do about it.
+
+   **Three kinds of row, because there are three situations.** A computer asking to link to
+   *this* one is answered with Allow, and shows the fingerprint so it can be compared with
+   the one on its own screen. A computer that accepts links is offered Link, which asks it
+   rather than logging in — nobody types a password anywhere. A computer with SSH switched
+   off cannot be dialled at all, and says so instead of offering something that would fail.
+   The terminal command stays, folded, for whoever prefers it. */
+function foundComputerRow(one,me){
+ const said=text=>`<span class="mono" style="opacity:.75">${text}</span>`;
+ const address=escapeHtml(one.address);
+ if(one.want===me)
+  return `<div class="trace-step"><b>${escapeHtml(one.name)}</b><span>
+   <span class="chip warn">asking to link</span> <span class="mono">${address}</span>
+   ${one.fingerprint?said('fingerprint '+escapeHtml(one.fingerprint)):''}
+   <button class="btn primary" data-allow="${jsAttr(one.name)}">Allow</button>
+   ${said('check the fingerprint matches the one on its screen')}</span></div>`;
+ if(!one.accepts)
+  return `<div class="trace-step"><b>${escapeHtml(one.name)}</b><span>
+   <span class="mono">${address}</span> <span class="chip warn">does not accept links</span>
+   ${said('link from that computer instead — it can reach this one')}</span></div>`;
+ return `<div class="trace-step"><b>${escapeHtml(one.name)}</b><span>
+  <span class="mono">${address}</span> <span class="chip">accepts links</span>
+  <button class="btn primary" data-link="${jsAttr(one.address)}"
+   data-name="${jsAttr(one.name)}">Link to this computer</button>
+  <details style="margin-top:2px"><summary class="mono" style="cursor:pointer;opacity:.55">
+   or do it in a terminal</summary><span class="mono">python3 tools/run.py link add
+   ${address} --inbound</span></details></span></div>`;
+}
+
 function foundComputersList(found){
  const said=text=>`<span class="mono" style="opacity:.75">${text}</span>`;
  const computers=found.computers||[];
  if(!computers.length)return said(escapeHtml(found.detail||'nothing found'));
- return `<div style="margin-top:6px">${computers.map(one=>`<div class="trace-step">
-   <b>${escapeHtml(one.name)}</b><span><span class="mono">${escapeHtml(one.address)}</span>
-   ${one.accepts
-     ?`<span class="chip">accepts links</span> ${said('to link, run this here in a terminal:')}
-       <span class="mono">python3 tools/run.py link add ${escapeHtml(one.address)} --inbound</span>`
-     :`<span class="chip warn">does not accept links</span> ${said(
-       'it can link to this computer instead: run link add on it, pointing here')}`}
-   </span></div>`).join('')}</div>`;
+ return `<div style="margin-top:6px">${
+   computers.map(one=>foundComputerRow(one,found.name)).join('')}</div>`;
+}
+
+/* While this computer waits to be allowed in. The fingerprint is here so it can be read out
+   against the one on the other screen; the wait ends by itself, because the card asks every
+   few seconds whether the link works yet. */
+function waitingToLink(waiting){
+ const said=text=>`<span class="mono" style="opacity:.75">${text}</span>`;
+ if(!waiting||!waiting.name)return '';
+ return `<div class="trace-step"><b>waiting</b><span>
+  <span class="chip warn">asking ${escapeHtml(waiting.name)}</span>
+  ${said('on that computer: Settings → Another computer → Allow')}
+  ${waiting.fingerprint?said('fingerprint '+escapeHtml(waiting.fingerprint)):''}
+  <button class="btn" id="cancelAsk">Stop asking</button>
+  <span id="askProgress"></span></span></div>`;
+}
+
+/* The computers this one has let in, and the way to take that back. */
+function allowedComputers(allowed){
+ if(!allowed||!allowed.length)return '';
+ return allowed.map(one=>`<div class="trace-step"><b>allowed</b><span>
+  <span class="mono">${escapeHtml(one.name)}</span>
+  <span class="mono" style="opacity:.6">${escapeHtml(one.fingerprint||'')}</span>
+  <button class="btn" data-revoke="${jsAttr(one.name)}">Stop allowing</button></span></div>`
+ ).join('');
 }
 
 /* Which part of NERVIS a setting belongs to, so a preview reads as a few small groups
@@ -9275,6 +9350,58 @@ function peerSettingsPreview(found){
    ${said('nothing here is removed, and only these change')}</span></div></div>`;
 }
 
+/* The buttons on the rows a search wrote. Link asks the other computer; Allow answers a
+   computer that is asking this one. Neither sends a password anywhere: Allow runs where its
+   owner is already signed in, which is the whole point of pairing this way. */
+function wireFoundComputers(where){
+ where.querySelectorAll('[data-link]').forEach(button=>{
+  button.onclick=async()=>{
+   const outcome=await API.nervis.askToLink(button.dataset.link,button.dataset.name,
+     !!($('#linkIn')||{}).checked);
+   notify(outcome.ok?`Asked ${button.dataset.name} — allow it on that computer`
+                    :(outcome.detail||'NERVIS refused that'));
+   if(outcome.ok)await settingsView();
+  };
+ });
+ where.querySelectorAll('[data-allow]').forEach(button=>{
+  button.onclick=async()=>{
+   const outcome=await API.nervis.approveComputer(button.dataset.allow);
+   notify(outcome.ok?`${button.dataset.allow} may now link to this computer`
+                    :(outcome.detail||'NERVIS refused that'));
+   if(outcome.ok)await settingsView();
+  };
+ });
+}
+
+/* While this computer waits to be allowed: ask every few seconds whether the link works yet,
+   and finish by itself when it does. **Bounded**, because a question nobody answers should
+   stop being asked rather than run until the tab is closed — two minutes is long enough to
+   walk to the other computer and press Allow. */
+async function watchForTheAnswer(){
+ const until=Date.now()+120000;
+ while(Date.now()<until){
+  const progress=$('#askProgress');
+  if(!progress)return;                       // the card was redrawn or the screen left
+  progress.innerHTML='<span class="mono" style="opacity:.55">checking…</span>';
+  /* A NERVIS that is restarting mid-wait must not end the wait, and must not throw into
+     nothing: a failed check is simply "not yet", and the next one is five seconds away. */
+  let outcome;
+  try{outcome=await API.nervis.checkLink()}
+  catch(e){outcome={ok:false,detail:'NERVIS did not answer — still waiting'}}
+  if(outcome.ok&&outcome.linked){
+   notify(outcome.detail||'Linked — it is open now');
+   await settingsView();
+   return;
+  }
+  progress.innerHTML=`<span class="mono" style="opacity:.55">${
+    escapeHtml(outcome.detail||'waiting')}</span>`;
+  await new Promise(resolve=>setTimeout(resolve,5000));
+ }
+ const progress=$('#askProgress');
+ if(progress)progress.innerHTML='<span class="mono" style="opacity:.55">'
+   +'no answer yet — press Find computers again when it has been allowed</span>';
+}
+
 /* Saving is a mutation and carries the page's own token, like every other one.
    Wired after the screen is drawn, because the screen is a string until then. */
 function wireLinkCard(){
@@ -9319,7 +9446,27 @@ function wireLinkCard(){
   const where=$('#foundComputers');
   where.innerHTML='<span class="mono" style="opacity:.75">listening for a few seconds…</span>';
   where.innerHTML=foundComputersList(await API.nervis.discoverComputers());
+  wireFoundComputers(where);
  };
+ /* Delegated, because these rows are written after the card was drawn and again after every
+    search. `#linkIn` is read here so "let the other computer reach this one" means the same
+    thing when pairing as it does when typing an address by hand. */
+ const revokes=$('#content');
+ if(revokes)revokes.querySelectorAll('[data-revoke]').forEach(button=>{
+  button.onclick=async()=>{
+   const outcome=await API.nervis.revokeComputer(button.dataset.revoke);
+   notify(outcome.ok?`${button.dataset.revoke} can no longer link to this computer`
+                    :(outcome.detail||'NERVIS refused that'));
+   if(outcome.ok)await settingsView();
+  };
+ });
+ const cancel=$('#cancelAsk');
+ if(cancel)cancel.onclick=async()=>{
+  const outcome=await API.nervis.cancelLinkRequest();
+  notify(outcome.ok?'Stopped asking':(outcome.detail||'NERVIS refused that'));
+  if(outcome.ok)await settingsView();
+ };
+ if($('#askProgress'))watchForTheAnswer();
  /* Off keeps the address: turning a link off and typing the address again next week
     are two different requests, and only one of them was made. */
  if(off)off.onclick=async()=>{

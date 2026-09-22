@@ -326,9 +326,13 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.78, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.79, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
+- **Two computers can be linked from their screens, with no password and no terminal**
+  (22 September, NERVIS 0.34.79): press *Link to this computer* on one, *Allow* on the other,
+  and the link opens itself. They pair the way two devices pair, and both screens show the same
+  fingerprint so you can see it is the right one. See *Linking two computers*.
 - **NERVIS can find your other computers with one click** (21 September, NERVIS 0.34.77):
   Settings → Another computer → *Find computers on this network* lists every computer on the
   same network that is running NERVIS and has said it may be found, with the exact command to
@@ -1334,7 +1338,25 @@ icon turns red — start the stack again once the other computer is awake.
 Changing the switches takes effect at the **next start**: the page cannot open or close a
 tunnel by itself, and it says so rather than pretending otherwise.
 
-**Setting it up is one command.** In the folder, run:
+**Setting it up: press two buttons, one on each computer.** No password, no terminal.
+
+1. On the computer you want to reach, tick **Let other computers on this network find this one**
+   (Settings → Another computer).
+2. On the computer you are sitting at, press **Find computers on this network**, then **Link to
+   this computer** next to it.
+3. Walk to the other computer. Its card now shows *asking to link* with a fingerprint — check it
+   matches the one on the first computer's screen — and press **Allow**.
+
+That is it. The first computer notices within a few seconds, saves the address and **opens the
+link straight away** — nothing to restart. What *Allow* actually does is write the other
+computer's key into this one's `~/.ssh/authorized_keys`, which is possible without a password
+because NERVIS is already running there as you. The key can do nothing but open the forwarded
+ports: no shell, no commands.
+
+Under *allowed*, each computer you have let in is listed with its fingerprint, and **Stop
+allowing** takes its key back out again.
+
+**Or set it up with one command**, if you prefer a terminal. In the folder, run:
 
 ```
 python3 tools/run.py link add you@their-machine --inbound

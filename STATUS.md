@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4623 tests, no network, no live service
+.venv/bin/pytest                      # part of 4641 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1891 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1909 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4623 passing across the four, conformance `PASS`.
+Expected: all clean, 4641 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,48 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Two computers link from their screens, with no password anywhere — 2026-09-22 (NERVIS 0.34.79)
+
+The owner, after linking the two machines: *"i didn't like that i needed to copy a command in the
+terminal… can we link them through the interface?"*
+
+**They pair, rather than one logging in to the other.** Pressing *Link to this computer* makes this one
+announce its public link key and the name of the computer it is asking (`key=`, `want=` in the mDNS TXT,
+which is why an announcement restarts when what it says changes). On the other computer the same card shows
+*asking to link* with the key's fingerprint — the same string both screens show, so a person can compare
+them — and *Allow* writes it. **Allow needs no password because NERVIS is already running there as its
+owner**, which is the whole reason this design was chosen over a form asking for one; nothing types,
+carries or stores a password at any point. The asking computer polls `/api/v1/link/check` while it waits,
+and when the tunnel opens it saves the address and opens the link **immediately** (`link open`), so pairing
+from the screen never ends with "now restart the stack". The terminal path (`link add`) is untouched, and
+is folded into each row for whoever prefers it.
+
+**Every SSH fact stays in the launcher** (`nervis/src/nervis/launcher.py` asks; `tools/run.py link …
+--json` answers): `key`, `fingerprint`, `authorize`, `revoke`, `save`, `test`, `open`, `close`. NERVIS
+never reimplements where the key lives, what a restriction line may say, or which ports are forwarded — it
+asks the file that already owns all three, and `NERVIS_LAUNCHER` in its environment is how it knows where
+that file is. A NERVIS started by hand has no launcher and says so.
+
+**The boundary that matters is `authorized_keys`**, because the key arrives from the local network and one
+stray word in that file is a shell. `link_key_body` takes exactly two fields and only when they are an
+ed25519 key; the restrictions are written here rather than accepted from anywhere; the line is appended and
+nothing else in the file is touched; `revoke` removes only lines carrying that key. Tested with options in
+front of a key, a second key smuggled after a good one, another algorithm, and rubbish — none of which is
+written (`nervis/tests/test_launcher_link.py`, now 19 tests). Pairing itself is checked by
+`nervis/tests/test_link_pairing.py` (9): what an announcement says while asking, that the question stops
+being asked when answered, that Allow authorises the key being announced *now* rather than one a browser
+sent, that a computer nobody is asking about is refused, waiting, finishing, revoking, and the sentence a
+NERVIS without a launcher gives.
+
+**A real defect the live link exposed**, found while running the suite with the ThinkPad's tunnel open:
+`test_applying_with_no_computer_linked_writes_nothing` dialled the **real** ThinkPad, because the port a
+peer is read on was live on this Mac. A test meaning "nothing is linked" was reading another computer's
+settings. `nervis/tests/test_peer_computer.py` now refuses that connection for every test in the file by
+default.
+
+NERVIS's suite is 1909; all 43 dashboard gates, `tools/check.py`, ruff and mypy pass. **Not yet paired
+live** — that needs this build on the ThinkPad too.
 
 ## The link ran between the two real computers, and the preview stopped shouting — 2026-09-22 (NERVIS 0.34.78)
 

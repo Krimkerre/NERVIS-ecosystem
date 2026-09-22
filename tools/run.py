@@ -43,6 +43,7 @@ teaches its own output to be ignored.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import ipaddress
 import json
 import os
@@ -585,6 +586,10 @@ def _services() -> list[tuple[str, list[str], str, dict[str, str], str]]:
             # thing anyone runs point at the wrong ports.
             env["NERVIS_RAVIS_BASE_URL"] = f"http://127.0.0.1:{RAVIS_PORT}"
             env["NERVIS_SIRVIS_BASE_URL"] = f"http://127.0.0.1:{SIRVIS_PORT}"
+            # **Where this launcher is**, so NERVIS can ask it to do the SSH things when two
+            # computers pair from their screens: make the key, authorise the other one, test,
+            # save, open. Everything about SSH stays in this file; NERVIS only asks.
+            env["NERVIS_LAUNCHER"] = str(Path(__file__).resolve())
             # A directory that exists for this and holds nothing else.
             #
             # `workspace_path` defaults to empty because the setting governs
@@ -811,6 +816,95 @@ def link_key_pair() -> tuple[str, str]:
         raise SystemExit(f"could not make the link key: {(done.stderr or done.stdout).strip()}")
     LINK_KEY.chmod(0o600)
     return public.read_text(encoding="utf-8").strip(), f"made {LINK_KEY}"
+
+
+#: What an announcement may carry as a key, and what may be written into `authorized_keys`.
+#: **Deliberately one algorithm and nothing after the key itself.** A line in that file can
+#: carry *options* — `command=`, `environment=`, a whole shell — so anything taken from the
+#: network and written there has to be provably just a key. Ed25519 is what `link key` makes
+#: at both ends, so accepting only that costs nothing and leaves no room to negotiate down.
+LINK_KEY_SHAPE = re.compile(r"^ssh-ed25519 [A-Za-z0-9+/]{40,100}={0,3}$")
+
+
+def link_key_body(public_key: str) -> str:
+    """The key itself — `ssh-ed25519 AAAA…` — or "" for anything that is not one.
+
+    **Everything that touches a key goes through here.** A public key file ends in a comment
+    ("nervis link from Govert"), an announcement carries no comment at all, and a line in
+    `authorized_keys` may carry *options* in front — so the two fields that are the key are
+    taken out and the rest is dropped, rather than each caller deciding what to trust.
+    """
+    fields = str(public_key or "").strip().split()
+    body = " ".join(fields[:2])
+    return body if LINK_KEY_SHAPE.match(body) else ""
+
+
+def link_key_fingerprint(public_key: str) -> str:
+    """`SHA256:…` for a public key, as `ssh-keygen` computes it, or "" if it will not.
+
+    The same string both computers show while pairing: if the two match, the key being
+    authorised is the key that asked, and nothing on the network got between them.
+    """
+    body = link_key_body(public_key)
+    if not body:
+        return ""
+    done = subprocess.run([shutil.which("ssh-keygen") or "ssh-keygen", "-lf", "-"],
+                          input=body + "\n", capture_output=True, text=True,
+                          check=False)
+    for word in (done.stdout or "").split():
+        if word.startswith("SHA256:"):
+            return word
+    return ""
+
+
+def link_authorize(public_key: str, label: str = "") -> dict[str, object]:
+    """Let one other computer open this one's forwarded ports, and nothing else.
+
+    **The whole pairing rests on this function refusing everything that is not a key.** The
+    key arrives from the local network (a computer announcing that it wants to link), and
+    `authorized_keys` is a file where one stray word is a shell: so the key is matched against
+    `LINK_KEY_SHAPE` first, the restrictions are written by `link_authorized_line` here rather
+    than taken from anywhere, and the label is stripped of everything but plain words.
+
+    Appends; never rewrites. Running it twice adds nothing.
+    """
+    body = link_key_body(public_key)
+    if not body:
+        return {"ok": False, "detail": "that is not an ed25519 public key"}
+    named = re.sub(r"[^A-Za-z0-9 ._-]", "", label)[:60].strip()
+    line = link_authorized_line(f"{body} nervis link {named}".strip())
+    keys = Path.home() / ".ssh" / "authorized_keys"
+    keys.parent.mkdir(mode=0o700, exist_ok=True)
+    existing = keys.read_text(encoding="utf-8") if keys.is_file() else ""
+    if line in existing.splitlines():
+        return {"ok": True, "already": True, "fingerprint": link_key_fingerprint(body)}
+    with keys.open("a", encoding="utf-8") as handle:
+        if existing and not existing.endswith("\n"):
+            handle.write("\n")
+        handle.write(line + "\n")
+    keys.chmod(0o600)
+    return {"ok": True, "already": False, "fingerprint": link_key_fingerprint(body)}
+
+
+def link_revoke(public_key: str) -> dict[str, object]:
+    """Stop letting one computer in: the lines carrying that key go, and nothing else does.
+
+    Matched on the key itself, so a line somebody wrote by hand for the same key is removed
+    too — that is what "stop letting it in" has to mean — while every other line, including
+    the owner's own keys for their own SSH, is written back exactly as it was.
+    """
+    body = link_key_body(public_key)
+    if not body:
+        return {"ok": False, "detail": "that is not an ed25519 public key"}
+    keys = Path.home() / ".ssh" / "authorized_keys"
+    if not keys.is_file():
+        return {"ok": True, "removed": 0}
+    lines = keys.read_text(encoding="utf-8").splitlines()
+    kept = [line for line in lines if body not in line]
+    if len(kept) != len(lines):
+        keys.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        keys.chmod(0o600)
+    return {"ok": True, "removed": len(lines) - len(kept)}
 
 
 def _link_install_command(line: str) -> str:
@@ -3054,6 +3148,14 @@ def codex_calibrate(arguments: argparse.Namespace) -> int:
 
 
 def _link_arguments() -> argparse.ArgumentParser:
+    """The link's commands.
+
+    **Half of these exist for NERVIS rather than for a person**, which is what lets two
+    computers pair from their screens with nobody typing a password: NERVIS runs this script
+    with `--json` and reads the answer. Everything about SSH — where the key lives, what a
+    restriction line may say, what the tunnel forwards — therefore stays in this one file,
+    and a service never grows its own second opinion about any of it.
+    """
     parser = argparse.ArgumentParser(
         prog=f"{Path(__file__).name} link",
         description="Hook this machine up to another one running NERVIS, over SSH.",
@@ -3065,10 +3167,67 @@ def _link_arguments() -> argparse.ArgumentParser:
                      help="also let the other machine reach this one's SIRVIS and NERVIS")
     add.add_argument("--show-only", action="store_true",
                      help="print the line to paste there yourself, and change nothing")
-    actions.add_parser("test", help="open the link once and say what answered")
+    test = actions.add_parser("test", help="open the link once and say what answered")
+    test.add_argument("--address", default="", help="try this address instead of the saved one")
+    test.add_argument("--inbound", action="store_true", help="test the way back as well")
     actions.add_parser("off", help="stop opening the link, keeping the address")
     actions.add_parser("status", help="what is configured, and what it would open")
+    actions.add_parser("key", help="this machine's link key and its fingerprint")
+    named = actions.add_parser("fingerprint", help="the fingerprint of a key, for pairing")
+    named.add_argument("--key", required=True, help="a public key: ssh-ed25519 AAAA…")
+    allow = actions.add_parser("authorize",
+                               help="let one other computer open this one's forwarded ports")
+    allow.add_argument("--key", required=True, help="its public key: ssh-ed25519 AAAA…")
+    allow.add_argument("--label", default="", help="the computer's name, for the file")
+    deny = actions.add_parser("revoke", help="stop letting one computer in")
+    deny.add_argument("--key", required=True, help="its public key")
+    save = actions.add_parser("save", help="remember another computer's address")
+    save.add_argument("--address", required=True)
+    save.add_argument("--inbound", action="store_true")
+    save.add_argument("--off", action="store_true", help="remember it, but open nothing")
+    actions.add_parser("open", help="open the saved link now, without restarting the stack")
+    actions.add_parser("close", help="close the link this launcher opened")
+    for action in (parser, *actions.choices.values()):
+        action.add_argument("--json", action="store_true", help="answer as JSON, for NERVIS")
     return parser
+
+
+def _link_open() -> dict[str, object]:
+    """Start the tunnel now, recorded where `stop` will find it.
+
+    **So that pairing from the screen never sends somebody to a terminal.** The link is a
+    service in this launcher's own table, so this launches exactly that row and writes the
+    same PID file — `stop` takes it down with everything else, and a second `start` sees it
+    already running rather than opening a second one.
+    """
+    row = {service[0]: service for service in _services()}.get("Link")
+    if row is None:
+        return {"ok": False, "detail": "no other computer is saved, or the link is switched off"}
+    recorded = _recorded()
+    RUN.mkdir(parents=True, exist_ok=True)
+    # `_launch` talks to a person; here the answer is JSON, so its lines go to stderr.
+    with contextlib.redirect_stdout(sys.stderr):
+        _launch(row, {"Link": ready(row[4])}, recorded)
+    with PIDFILE.open("w", encoding="utf-8") as handle:
+        json.dump(recorded, handle, indent=2, sort_keys=True)
+    deadline = time.monotonic() + WAIT_SECONDS.get("Link", START_WAIT_SECONDS)
+    while time.monotonic() < deadline and not ready(row[4]):
+        time.sleep(0.4)
+    return {"ok": True, "answering": ready(row[4])}
+
+
+def _link_close() -> dict[str, object]:
+    """Close the tunnel this launcher opened, leaving everything else running."""
+    recorded = _recorded()
+    pid, marker = _pid_and_marker(recorded.get("Link"), None)
+    if not pid:
+        return {"ok": True, "detail": "the link was not open"}
+    with contextlib.redirect_stdout(sys.stderr):
+        _ask_then_force("Link", pid, marker)
+    recorded.pop("Link", None)
+    with PIDFILE.open("w", encoding="utf-8") as handle:
+        json.dump(recorded, handle, indent=2, sort_keys=True)
+    return {"ok": True, "closed": pid}
 
 
 def _link_add(address: str, inbound: bool, show_only: bool) -> int:
@@ -3131,17 +3290,57 @@ def _link_report(address: str, inbound: bool, save: bool) -> int:
     return 0
 
 
+def _link_json(action: str, arguments: argparse.Namespace, peer: dict[str, object]) -> int:
+    """The commands NERVIS runs, which answer with one JSON object and nothing else."""
+    if action == "key":
+        public, _ = link_key_pair()
+        answer: dict[str, object] = {"ok": True, "public_key": public,
+                                     "fingerprint": link_key_fingerprint(public),
+                                     "authorized_line": link_authorized_line(public)}
+    elif action == "fingerprint":
+        body = link_key_body(arguments.key)
+        answer = {"ok": bool(body), "fingerprint": link_key_fingerprint(body), "key": body}
+    elif action == "authorize":
+        answer = link_authorize(arguments.key, arguments.label)
+    elif action == "revoke":
+        answer = link_revoke(arguments.key)
+    elif action == "save":
+        link_save(arguments.address, arguments.inbound, enabled=not arguments.off)
+        answer = {"ok": True, "address": arguments.address, "inbound": arguments.inbound,
+                  "enabled": not arguments.off}
+    elif action == "open":
+        answer = _link_open()
+    elif action == "close":
+        answer = _link_close()
+    elif action == "test":
+        address = arguments.address or str(peer["address"])
+        if not address:
+            answer = {"ok": False, "detail": "no other computer is saved"}
+        else:
+            found = link_probe(address, arguments.inbound or bool(peer["inbound"]))
+            answer = {"ok": bool(found.get("connected")), **found, "address": address}
+    else:
+        answer = {"ok": True, **{key: peer[key] for key in ("enabled", "address", "inbound")},
+                  "key_made": LINK_KEY.is_file()}
+    print(json.dumps(answer))
+    return 0 if answer.get("ok", True) else 1
+
+
 def _run_link() -> int:
     arguments = _link_arguments().parse_args(sys.argv[2:])
     peer = configured_link()
+    if arguments.json or arguments.action in ("key", "fingerprint", "authorize", "revoke",
+                                              "save", "open", "close"):
+        return _link_json(arguments.action, arguments, peer)
     if arguments.action == "add":
         return _link_add(arguments.address, arguments.inbound, arguments.show_only)
     if arguments.action == "test":
-        if not peer["address"]:
+        address = arguments.address or str(peer["address"])
+        if not address:
             print("No other machine is configured. Add one with:"
                   "  python3 tools/run.py link add you@their-machine")
             return 1
-        return _link_report(str(peer["address"]), bool(peer["inbound"]), save=False)
+        return _link_report(address, arguments.inbound or bool(peer["inbound"]), save=False)
     if arguments.action == "off":
         if not peer["address"]:
             print("No other machine is configured, so there is nothing to turn off.")

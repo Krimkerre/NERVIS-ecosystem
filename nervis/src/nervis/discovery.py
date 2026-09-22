@@ -36,7 +36,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +66,21 @@ _REACHED = re.compile(r"can be reached at (?P<host>\S+?)\.?:(?P<port>\d+)")
 
 @dataclass(frozen=True)
 class Found:
-    """One computer that announced itself, in the words a screen needs."""
+    """One computer that announced itself, in the words a screen needs.
+
+    `key` is its link key, which is public and is what the *other* computer authorises when
+    somebody presses Allow; `want` is the name of the computer it is asking to link to, set
+    only while somebody there is waiting for an answer. Both are absent from an ordinary
+    announcement — a computer that is merely findable asks for nothing.
+    """
 
     name: str
     host: str
     port: int
     user: str
     accepts: bool
+    key: str = ""
+    want: str = ""
 
     @property
     def address(self) -> str:
@@ -81,7 +89,8 @@ class Found:
 
     def as_dict(self) -> dict[str, Any]:
         return {"name": self.name, "host": self.host, "port": self.port, "user": self.user,
-                "accepts": self.accepts, "address": self.address}
+                "accepts": self.accepts, "address": self.address, "key": self.key,
+                "want": self.want}
 
 
 def tool() -> str | None:
@@ -192,7 +201,8 @@ def parse_avahi(text: str) -> list[Found]:
             continue
         txt = _pairs(re.findall(r'"([^"]*)"', ";".join(fields[9:])))
         found[name] = Found(name=name, host=_unescape_avahi(fields[6]), port=int(fields[8]),
-                            user=txt.get("user", ""), accepts=txt.get("ssh") == "yes")
+                            user=txt.get("user", ""), accepts=txt.get("ssh") == "yes",
+                            key=txt.get("key", ""), want=txt.get("want", ""))
     return list(found.values())
 
 
@@ -226,7 +236,8 @@ def _find_with_dnssd() -> list[Found]:
             return None
         host, port, txt = where
         return Found(name=name, host=host, port=port, user=txt.get("user", ""),
-                     accepts=txt.get("ssh") == "yes")
+                     accepts=txt.get("ssh") == "yes", key=txt.get("key", ""),
+                     want=txt.get("want", ""))
 
     # In parallel: each resolve waits its full window, and five computers one after another
     # would turn a button into a seven-second pause.
@@ -279,9 +290,16 @@ def find_computers(
 # ── Announcing ───────────────────────────────────────────────────────────────
 
 
-def announce_command(using: str | None, name: str, user: str, accepts: bool) -> list[str] | None:
-    """The command that keeps this computer's announcement up for as long as it runs."""
+def announce_command(using: str | None, name: str, user: str, accepts: bool,
+                     extra: Mapping[str, str] | None = None) -> list[str] | None:
+    """The command that keeps this computer's announcement up for as long as it runs.
+
+    `extra` is what pairing adds: `key`, this computer's public link key, and `want`, the
+    name of the computer it is asking to link to. Both are dropped when empty, so an
+    announcement says the least it can — a computer that is only findable carries neither.
+    """
     txt = [f"user={user}", f"ssh={'yes' if accepts else 'no'}"]
+    txt += [f"{name_}={value}" for name_, value in sorted((extra or {}).items()) if value]
     if using == "dns-sd":
         return ["dns-sd", "-R", name, SERVICE_TYPE, "local", str(SSH_PORT), *txt]
     if using == "avahi":
@@ -301,19 +319,29 @@ class Announcer:
     def __init__(self, spawn: Callable[..., Any] = subprocess.Popen) -> None:
         self._spawn = spawn
         self._process: Any = None
+        self._saying: dict[str, str] = {}
 
     @property
     def running(self) -> bool:
         return self._process is not None and self._process.poll() is None
 
-    def sync(self, wanted: bool) -> str:
-        """Make the announcement match the setting. Returns a sentence when it cannot."""
+    def sync(self, wanted: bool, extra: Mapping[str, str] | None = None) -> str:
+        """Make the announcement match the setting. Returns a sentence when it cannot.
+
+        **An announcement that has to say something new is restarted**, because what it says
+        is fixed when it starts: pressing *Link to this computer* has to reach the other
+        computer's screen within seconds, not at the next restart.
+        """
+        saying = {key: value for key, value in (extra or {}).items() if value}
         if not wanted:
             self.stop()
+            self._saying = {}
             return ""
-        if self.running:
+        if self.running and saying == self._saying:
             return ""
-        command = announce_command(tool(), own_name(), getpass.getuser(), accepts_ssh())
+        self.stop()
+        self._saying = saying
+        command = announce_command(tool(), own_name(), getpass.getuser(), accepts_ssh(), saying)
         if command is None:
             return ("this computer has no mDNS tool to announce with" if platform.system() ==
                     "Darwin" else AVAHI_MISSING)
