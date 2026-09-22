@@ -20013,6 +20013,28 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## The link ran between the two real computers, and the preview stopped shouting — 2026-09-22 (NERVIS 0.34.78)
+
+**Seen live, between the Mac and the ThinkPad.** The owner ran `tools/run.py link add … --inbound` on the
+ThinkPad and reported "the link worked". From the Mac, both reverse forwards are held by one `sshd-sess`:
+its SIRVIS answers on `8722` and its NERVIS on `8791`, both healthy. `GET /api/v1/settings/peer` on the Mac
+— the machine that was *dialled into*, which has no address of its own in `link.peer` — answered
+`linked: true`, `address: mathias@ThinkPadX13G2-8.local`, `reachable: true`, with two real differences and
+twelve settings already agreeing. That is the both-ends fix of 20 September proven on the computer it was
+written for, without being able to test it at the time.
+
+**And it showed the preview was unreadable.** One of those two differences is `chat.presets`, which holds a
+persona's entire system prompt: 8,105 characters on their side, 7,286 on this one, printed whole. The owner:
+"the see what the other computer has button just shows a giant wall of text too… can we organize that more?"
+The preview now groups changes by the part of NERVIS they belong to (Chat, Voice, Memory, Unattended work,
+Interface, You), names each setting in words rather than as a dotted key, and **summarises values instead of
+printing them**: a list becomes "6 items: NERVIS, Miku, Just the facts…", an object becomes "5 settings
+inside", a long string is cut at sixty characters, a boolean reads on or off. Anything whose two sides
+together run past 120 characters gets a folded "see both in full" with the whole value, because wanting to
+read eight thousand characters is the rare case rather than the normal one. Measured on the same live data:
+310 characters where there were more than fifteen thousand, and the voice-profile change is now visible
+beside the presets instead of buried under them.
+
 ## One click finds your other computers — 2026-09-21 (NERVIS 0.34.77)
 
 The owner asked for other computers running SIRVIS to be discoverable "with a click on a button in the

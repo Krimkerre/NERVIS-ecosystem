@@ -9189,7 +9189,66 @@ function foundComputersList(found){
    </span></div>`).join('')}</div>`;
 }
 
-/* What a pull would change, as a list somebody reads before agreeing to it.
+/* Which part of NERVIS a setting belongs to, so a preview reads as a few small groups
+   rather than one long list of dotted keys. */
+const SETTING_AREAS={chat:'Chat',voice:'Voice',background:'Unattended work',recall:'Memory',
+  ui:'Interface',inspector:'Inspector',supervision:'Supervision',user:'You'};
+function settingArea(key){return SETTING_AREAS[String(key).split('.')[0]]||'Other';}
+
+/* `chat.presets` → "Presets". The area is already the heading above it, so the prefix would
+   only be said twice. */
+function settingLabel(key){
+ const rest=String(key).includes('.')?String(key).slice(String(key).indexOf('.')+1):String(key);
+ const words=rest.replace(/[._]/g,' ');
+ return words.charAt(0).toUpperCase()+words.slice(1);
+}
+
+/* A value in a few words. **Never the value itself when it is long**: the first preview
+   printed a chat preset whole, which is a persona's entire system prompt — about eight
+   thousand characters of wall, hiding the one line next to it that said the voice changed. */
+function settingSummary(value){
+ if(value===null||value===undefined)return 'not set';
+ if(Array.isArray(value)){
+  const named=value.map(one=>one&&typeof one==='object'?one.name:null).filter(Boolean);
+  const count=`${value.length} ${value.length===1?'item':'items'}`;
+  return named.length===value.length&&named.length?`${count}: ${shorten(named.join(', '),48)}`:count;
+ }
+ if(typeof value==='object'){
+  const keys=Object.keys(value);
+  return `${keys.length} ${keys.length===1?'setting':'settings'} inside`;
+ }
+ if(typeof value==='boolean')return value?'on':'off';
+ return shorten(String(value),60);
+}
+
+function shorten(text,limit){
+ const flat=String(text).replace(/\s+/g,' ').trim();
+ return flat.length>limit?flat.slice(0,limit)+'…':flat;
+}
+
+/* The whole value, for the one person who wants to check it before agreeing — folded away,
+   because wanting to read eight thousand characters is the rare case, not the normal one. */
+function settingDetail(change){
+ const both=JSON.stringify(change.ours)+JSON.stringify(change.theirs);
+ if(both.length<=120)return '';
+ const side=(label,value)=>`${label}:\n${JSON.stringify(value,null,1)}`;
+ return `<details style="margin-top:2px"><summary class="mono" style="cursor:pointer;opacity:.55">
+   see both in full</summary><pre class="mono" style="white-space:pre-wrap;max-height:220px;
+   overflow:auto;opacity:.8;margin:4px 0 0">${escapeHtml(side('this computer',change.ours)
+   +'\n\n'+side('the other computer',change.theirs))}</pre></details>`;
+}
+
+function peerSettingRow(change){
+ const said=text=>`<span class="mono" style="opacity:.6">${text}</span>`;
+ const arrow=change.state==='new'
+  ?`${said('not set here')} → <span class="mono">${escapeHtml(settingSummary(change.theirs))}</span>`
+  :`${said(escapeHtml(settingSummary(change.ours)))} → <span class="mono">${
+     escapeHtml(settingSummary(change.theirs))}</span>`;
+ return `<div class="trace-step"><b>${escapeHtml(settingLabel(change.key))}</b><span>${arrow}
+  ${settingDetail(change)}</span></div>`;
+}
+
+/* What a pull would change, as a few small groups somebody reads before agreeing to it.
    One shape for every outcome — not linked, asleep, nothing to do, something to do —
    because a card with four different empty states is four things to get wrong. */
 function peerSettingsPreview(found){
@@ -9203,13 +9262,14 @@ function peerSettingsPreview(found){
  if(!changes.length)
   return said(`nothing to bring over — both computers agree
    (${escapeHtml(String(found.unchanged||0))} settings)`);
- /* Values, not just names: "chat.mode" tells nobody whether they want it, and the
-    whole point of a preview is that the answer is visible before it is applied. */
- const rows=changes.map(one=>`<div class="trace-step"><b>${escapeHtml(one.key)}</b><span>
-   <span class="mono" style="opacity:.6">${escapeHtml(one.state==='new'?'not set here'
-     :JSON.stringify(one.ours))}</span>
-   → <span class="mono">${escapeHtml(JSON.stringify(one.theirs))}</span></span></div>`).join('');
- return `<div style="margin-top:6px">${rows}
+ const areas=[...new Set(changes.map(one=>settingArea(one.key)))];
+ const groups=areas.map(area=>`<div class="mono" style="margin:8px 0 2px;opacity:.5;
+   text-transform:uppercase;letter-spacing:.08em">${escapeHtml(area)}</div>`
+   +changes.filter(one=>settingArea(one.key)===area).map(peerSettingRow).join('')).join('');
+ return `<div style="margin-top:6px">
+  ${said(`${escapeHtml(String(changes.length))} would change · ${
+    escapeHtml(String(found.unchanged||0))} already agree`)}
+  ${groups}
   <div class="trace-step"><b></b><span><button class="btn primary" id="applyPull">Bring these
    ${escapeHtml(String(changes.length))} over</button>
    ${said('nothing here is removed, and only these change')}</span></div></div>`;

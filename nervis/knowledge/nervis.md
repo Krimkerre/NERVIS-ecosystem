@@ -326,7 +326,7 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.77, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.78, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
 - **NERVIS can find your other computers with one click** (21 September, NERVIS 0.34.77):
