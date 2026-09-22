@@ -3931,6 +3931,21 @@ const API={
      {method:'PUT',headers:control_headers(),body:JSON.stringify({value:link})}));
   },
 
+  /* Every stored setting, decoded — with whether NERVIS actually answered, so a card that
+     shows one can say whether it is reporting a live value or a default it assumed. */
+  async settingsItems(){
+   try{
+    const r=await fetch('/api/v1/settings',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)return {items:(await r.json()).items||{},live:true};
+   }catch(e){}
+   return {items:{},live:false};
+  },
+
+  async writeSetting(key,value){
+   return _workspaceDid(await fetch('/api/v1/settings/'+encodeURIComponent(key),
+     {method:'PUT',headers:control_headers(),body:JSON.stringify({value})}));
+  },
+
   /* What the other computer's settings are, and what taking them would change here.
      Reads only. Every way it can fail — no link, computer asleep, its stack not
      started — comes back as a sentence in `detail`, so the card renders one shape. */
@@ -9520,6 +9535,20 @@ async function watchForTheAnswer(){
    +'no answer yet — press Find computers again when it has been allowed</span>';
 }
 
+/* The one switch on the Long conversations card. Its own function rather than another
+   branch of the link card's: they are different cards, and that one had grown to the edge of
+   what the complexity gate allows. */
+function wireCompactionCard(){
+ const compacting=$('#compactionOn');
+ if(!compacting)return;
+ compacting.onchange=async()=>{
+  const outcome=await API.nervis.writeSetting('chat.compaction',!!compacting.checked);
+  notify(outcome.ok?(compacting.checked?'Long conversations will be shortened'
+                                       :'Whole conversations will be sent')
+                   :(outcome.detail||'NERVIS refused that'));
+ };
+}
+
 /* Saving is a mutation and carries the page's own token, like every other one.
    Wired after the screen is drawn, because the screen is a string until then. */
 function wireLinkCard(){
@@ -9770,7 +9799,8 @@ async function settingsView(){
    <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>`, false)
   + section('Backup', backupSection())
   + section('Unattended work', await backgroundSection())
-  + section('What NERVIS remembers', await recallSection() + await learnedSection() + await rememberedSection())
+  + section('What NERVIS remembers', await compactionSection() + await recallSection()
+      + await learnedSection() + await rememberedSection())
   + section('Supervision', await supervisionSection() + `<div class="card wide"><h3>Ownership</h3>
    <div class="table-row head"><span>Mode</span><span style="grid-column:2/-1">Services</span></div>
    <div class="table-row"><span>restartable</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.restartable.join(' · '))}</span></div>
@@ -9778,6 +9808,7 @@ async function settingsView(){
    <small class="mono dim">${escapeHtml(s.supervision.observed.length)} of ${escapeHtml(s.supervision.observed.length+s.supervision.restartable.length)} services are observe-only. That is the safe default: NERVIS earns the right to stop something by having started it.</small></div>`, false);
  wireShareCard();
  wireLinkCard();
+ wireCompactionCard();
 }
 
 
@@ -10082,6 +10113,27 @@ function backupSection(){
    may read. Its own card rather than a line in another, because what it turns
    on is a search across every conversation stored on this machine — a wider
    read than answering one question needs, and worth choosing deliberately. */
+/* Long conversations, and what a model is actually sent.
+
+   **Measured before it was built** (22 September 2026): every prior turn was sent with every
+   message, so a 138-turn conversation re-sent all 138 — cost and latency growing with the
+   conversation, and eventually a wall the model hits mid-answer. The conversation itself is
+   never trimmed; what is trimmed is the request. */
+async function compactionSection(){
+ const held=await API.nervis.settingsItems();
+ const on=held.items['chat.compaction']!==false;
+ return `<div class="card wide${held.live?' live':''}"><h3>Long conversations</h3>${cell(`
+  <div class="trace-step"><b>state</b><span><label><input type="checkbox" id="compactionOn"
+    ${on?'checked':''}> shorten what is sent when a conversation gets long</label></span></div>
+  <small class="mono dim">A model can only read so much at once. With this on, the <b>recent</b>
+  part of a long conversation is sent as it is, and everything older is sent as a short summary
+  NERVIS keeps up to date in the background — on the model you chose under <b>Unattended work</b>,
+  so it costs nothing on a free or local one. <b>Nothing is deleted</b>: every turn stays in the
+  conversation, in the history drawer, in search and in an export. With it off, the whole
+  conversation is sent every time, which is what happened before — fine for short chats, and for
+  a long one it ends in a refusal or a silently cut-off history.</small>`,'nervis')}</div>`;
+}
+
 async function recallSection(){
  let r=null;
  try{

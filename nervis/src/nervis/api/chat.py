@@ -39,6 +39,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from nervis import chat as store
 from nervis import (
     commands,
+    compaction,
     documents,
     knowledge,
     proposals,
@@ -98,6 +99,7 @@ from nervis.api.chat_reads import (
 from nervis.api.chat_titles import (
     _attachment_name,
     _attachment_title,
+    _fold_later,
     _reply_title,
     _stored_title,
     _title_later,
@@ -158,9 +160,17 @@ async def read_conversation(conversation_id: str, request: Request) -> dict[str,
     database = request.app.state.database
     if not store.exists(database, conversation_id):
         raise NotFoundError(f"no conversation {conversation_id!r}")
+    turns = store.history(database, conversation_id)
+    held = compaction.stored_summary(database, conversation_id)
+    older, _ = compaction.split(turns)
     return {
         "conversation_id": conversation_id,
         "items": [message.as_dict() for message in store.messages(database, conversation_id)],
+        # **What the model is actually being sent**, so a screen can say so. Every turn is
+        # still here in `items`; this is how many of them travel as a summary instead.
+        "compaction": {"summarised": len(older) if compaction.switched_on(database) else 0,
+                       "summary": held["summary"],
+                       "on": compaction.switched_on(database)},
     }
 
 
@@ -1076,7 +1086,7 @@ def _placement(
         # keeps meaning what it means everywhere else.
         held = str(body.get("conversation_id") or "")
         known = bool(held) and store.exists(database, held)
-        return held, (store.history(database, held) if known else []), False
+        return held, (compaction.what_to_send(database, held) if known else []), False
     conversation_id = str(body.get("conversation_id") or "")
     if conversation_id and not store.exists(database, conversation_id):
         raise NotFoundError(f"no conversation {conversation_id!r}")
@@ -1093,8 +1103,10 @@ def _placement(
             database, profile=profile, title=opening_title(content)
         )
     # Prior turns are read *before* the new question is stored, so the question
-    # is not sent twice.
-    prior = store.history(database, conversation_id)
+    # is not sent twice — and **trimmed to what a model can read**: the recent turns in full,
+    # with one note standing in for everything older (`compaction`). Nothing is dropped from
+    # the conversation itself; this is only what travels in this request.
+    prior = compaction.what_to_send(database, conversation_id)
     store.append(
         database,
         conversation_id,
@@ -1202,6 +1214,9 @@ async def _relay(
                 ),
             )
             _title_later(request, conversation_id, trace_id, model)
+            # And roll the summary forward if this conversation has outgrown what is sent.
+            # Same moment and the same reason: after the reply, never in front of it.
+            _fold_later(request, conversation_id, trace_id, model)
         # **The caller's span needs an end, or its bar has no length.** §11.2's
         # waterfall draws durations, and a root span with only a start drew the
         # calling service as a lane with nothing in it — the one lane whose

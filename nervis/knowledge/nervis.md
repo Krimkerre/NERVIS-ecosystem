@@ -326,7 +326,7 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.85, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.86, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
 - **Conversations can be brought over from your other computer** (22 September, NERVIS 0.34.82):
@@ -1410,6 +1410,16 @@ built into macOS, and **Avahi** on Linux, which the installer adds (Debian/Ubunt
 Arch/CachyOS `avahi`, Fedora `avahi-tools`, plus the `avahi-daemon` service). Under Windows
 through WSL the network Linux sees is usually a private one inside Windows, so finding may come up
 empty there — typing the address into `link add` still works.
+
+**Long conversations are shortened for the model, never on disk.** A model can only read so
+much at once, and every conversation used to be sent whole with every message — a 138-turn chat
+re-sent all 138 turns each time, which gets slower and more expensive as it grows and eventually
+hits a wall mid-answer. Now the **recent** part is sent as it is and everything older is sent as
+a short summary NERVIS keeps up to date in the background, on the model chosen under *Unattended
+work* (so on a free or local one it costs nothing). **Nothing is deleted**: every turn stays in
+the conversation, in the history drawer, in search and in an export — only the *request* is
+shortened. Switch it off under Settings → What NERVIS remembers → *Long conversations*, and whole
+conversations are sent again.
 
 **Searching your conversations.** Chat → history has a **search** box at the top: type a word
 somebody said and it lists every conversation that mentions it, with the sentence it appears in,

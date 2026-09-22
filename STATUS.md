@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4680 tests, no network, no live service
+.venv/bin/pytest                      # part of 4691 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1948 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1959 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4680 passing across the four, conformance `PASS`.
+Expected: all clean, 4691 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,45 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Long conversations are compacted for the model — 2026-09-22 (NERVIS 0.34.86)
+
+*"Do we need some form of compaction for longer sessions in NERVIS, like we have here?"* Measured before
+answering rather than guessed at: `chat.history` returned **every** prior turn, so the Mac's 138-turn
+conversation re-sent all 138 with each new message. Cost and latency growing with the conversation, and a
+wall it hits mid-answer — on a local model a refusal or a silent truncation, not a warning.
+
+**What is sent is trimmed; what is stored never is.** `nervis/src/nervis/compaction.py` keeps the recent
+turns verbatim and replaces everything older with one `system` note holding a rolling summary. Every turn
+stays in the database, the history drawer, a search and an export; `what_to_send` is the single place both
+ways into a conversation go through, because a request that carried the whole conversation once and a
+summary the next time would be a model told two different stories.
+
+**In characters, not turns** (12,000 — about three thousand tokens, comfortable for an 8k local model
+once a system prompt, NERVIS's knowledge and the reply's own room are counted), because ten turns of one
+word and ten of an essay are not the same thing, and a turn limit fails exactly when somebody pastes
+something long. **The newest turn is always kept**, however long: a budget that could drop the question
+being asked breaks the conversation to protect it.
+
+**The summary is rolled and made in the background**, the same machinery as a title (`_fold_later`, after
+the reply streams, marked so RAVIS refuses any model that costs money, on the pool chosen under Unattended
+work). Each fold is told what the summary says so far and only what happened since, so an evening's
+conversation costs a short call now and then rather than a re-reading of the whole thing. The consequence
+is deliberate and bounded: on the one turn where a conversation first outgrows its budget, the oldest
+turns are not in that request; from the next turn on they are, as a summary. A new table, `chat_summary`
+(migration 13), holds it beside the conversation rather than inside it.
+
+**Off means off**: `chat.compaction` under Settings → What NERVIS remembers → *Long conversations*, on
+unless somebody turns it off, and off sends exactly what was sent before. The conversation read also now
+says how many turns travel as a summary, so a screen can be honest about it.
+
+Checked by `nervis/tests/test_compaction.py` (11 tests: a short conversation is untouched, the newest turn
+is kept however long, the line is drawn in characters, the note says what it is, the recent turns go alone
+before the first summary exists, a stored summary is used and the conversation is whole, off sends
+everything, a fold is only worth a call when there is enough new to say, the first fold happens anyway,
+the prompt rolls rather than rewrites, and the read reports it). NERVIS's suite is 1959; gates, ruff and
+mypy pass. **Not yet seen folding live** — that needs a conversation to cross 12,000 characters with the
+stack running.
 
 ## A search box for the history, and a breaker that stopped shouting "closed" — 2026-09-22 (NERVIS 0.34.85)
 

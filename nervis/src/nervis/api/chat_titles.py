@@ -24,7 +24,7 @@ import httpx
 from ecosystem_protocol import new_request_id
 from fastapi import Request
 
-from nervis import background, documents
+from nervis import background, compaction, documents
 from nervis import chat as store
 from nervis.api.chat_calls import _forwarded
 from nervis.registry import RegistryEntry
@@ -314,3 +314,84 @@ def _is_a_title(line: str) -> bool:
     # that it is a sentence, and a sentence in this column is what the person
     # reported as broken.
     return len(line.split()) <= 12
+
+
+# ── Folding a long conversation's older turns into a summary ─────────────────────────────
+#
+# Same machinery as a title, for the same reasons: a background call, marked so RAVIS refuses
+# any model that costs money, scheduled after the reply rather than before it. What differs is
+# only what is asked for — see `nervis.compaction` for why a conversation is folded at all.
+
+#: A fold reads more than a title does, so it is allowed more room to answer and more time.
+FOLD_MAX_TOKENS = 700
+FOLD_TIMEOUT_SECONDS = 60.0
+
+
+def _fold_later(request: Request, conversation_id: str, trace_id: str, served: str = "") -> None:
+    """Roll this conversation's summary forward, if it has outgrown what is sent. Never waits.
+
+    Scheduled in the streaming response's `finally`, exactly like `_title_later`: awaiting a
+    second model call there would hold somebody's finished reply open while it ran.
+    """
+    with contextlib.suppress(RuntimeError):  # no running loop, in a sync test
+        asyncio.get_running_loop().create_task(
+            _fold_now(request, conversation_id, trace_id, served)
+        )
+
+
+async def _fold_now(
+    request: Request, conversation_id: str, trace_id: str, served: str = ""
+) -> None:
+    """Summarise the turns that no longer fit, and remember how far the summary reaches."""
+    settings = request.app.state.settings
+    entry: RegistryEntry | None = request.app.state.registry.get("ravis")
+    if not settings.ravis_client_credential or entry is None or not entry.is_usable:
+        return
+    database = request.app.state.database
+    if not compaction.switched_on(database):
+        return
+    turns = store.history(database, conversation_id)
+    held = compaction.stored_summary(database, conversation_id)
+    uncovered = compaction.needs_folding(turns, held)
+    if not uncovered:
+        return
+    config = background.settings(database)
+    prompt = compaction.fold_prompt(held["summary"], uncovered)
+    for model in background.route(config, served):
+        summary = await _fold_by(request, entry, model, prompt, trace_id,
+                                 background.marker(config))
+        if summary:
+            older, _ = compaction.split(turns)
+            compaction.remember_summary(database, conversation_id, summary, "", len(older))
+            return
+
+
+async def _fold_by(
+    request: Request, entry: RegistryEntry, model: str, prompt: str, trace_id: str,
+    said: dict[str, object],
+) -> str:
+    """One model's attempt at the rolled summary, or nothing when it had none to give."""
+    client: httpx.AsyncClient = request.app.state.probe_client
+    payload = {
+        "model": model,
+        "max_tokens": FOLD_MAX_TOKENS,
+        "messages": [{"role": "user", "content": prompt}],
+        # Somebody's conversation travels in this body, so what may serve it is declared
+        # rather than left to the chain (`background.marker`), exactly as for a title.
+        "metadata": said,
+    }
+    headers = _forwarded(
+        new_request_id(), trace_id, request.app.state.settings.ravis_client_credential
+    )
+    try:
+        response = await client.post(
+            entry.declaration.base_url + "/v1/chat/completions",
+            json=payload, headers=headers, timeout=FOLD_TIMEOUT_SECONDS,
+        )
+        if response.status_code >= 400:
+            return ""
+        said_back = response.json()
+        choice = (said_back.get("choices") or [{}])[0]
+        return str((choice.get("message") or {}).get("content") or "").strip()
+    except (httpx.HTTPError, ValueError, AttributeError, IndexError):
+        return ""

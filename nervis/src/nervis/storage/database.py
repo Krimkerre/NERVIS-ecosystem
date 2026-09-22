@@ -408,6 +408,28 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE event ADD COLUMN last_received_at TEXT NOT NULL DEFAULT '';
         """,
     ),
+    (
+        13,
+        "a running summary of a conversation's older turns, for compaction",
+        # **Because every turn was sent, every time.** A conversation of 138 turns
+        # re-sent all 138 on each new message: cost and latency growing with the
+        # conversation, and a hard wall when it passes what the model can read —
+        # on a local model, a failure or a silent truncation rather than a warning.
+        #
+        # The turns themselves are never touched. This is a *second* record beside
+        # them, covering the older ones, and `through_message_id` says how far it
+        # reaches so the next fold can carry on from there rather than start again.
+        """
+        CREATE TABLE IF NOT EXISTS chat_summary (
+            conversation_id     TEXT PRIMARY KEY
+                REFERENCES chat_conversation(conversation_id) ON DELETE CASCADE,
+            summary             TEXT    NOT NULL DEFAULT '',
+            through_message_id  TEXT    NOT NULL DEFAULT '',
+            covered             INTEGER NOT NULL DEFAULT 0,
+            updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+        );
+        """,
+    ),
 ]
 
 
