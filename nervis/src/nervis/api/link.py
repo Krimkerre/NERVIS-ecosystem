@@ -225,7 +225,10 @@ async def allow_a_computer(request: Request) -> dict[str, Any]:
         return {"ok": False, "detail": f"{name or 'that computer'} is not asking to link now"}
     written = ask_launcher("authorize", "--key", str(match["key"]), "--label", name)
     if not written.get("ok"):
-        return {"ok": False, "detail": written.get("detail", "the key was not written")}
+        # The one way this fails in practice is a key that did not arrive whole, which means
+        # the other computer is announcing it the way the build before 0.34.80 did.
+        return {"ok": False, "detail": f"{written.get('detail', 'the key was not written')}"
+                                       " — that computer may be running an older NERVIS"}
     database = request.app.state.database
     kept = [one for one in allowed_computers(database) if one.get("key") != match["key"]]
     kept.append({"name": name, "key": match["key"],

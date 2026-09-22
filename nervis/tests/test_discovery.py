@@ -108,6 +108,58 @@ def test_linux_lists_each_computer_once_by_its_host_name() -> None:
     assert found[1].address == "mathias@Govert.local"
 
 
+PAIRING_KEY = ("ssh-ed25519 "
+               "AAAAC3NzaC1lZDI1NTE5AAAAIHZBEWrJ0hYdfrLfiu0Uq1VkKLsH5VoGxD0QhXQWvJ9y")
+
+# What `dns-sd -L` prints for a computer that is asking to link: the TXT record on one line,
+# fields separated by spaces — which is why no value may contain one.
+DNSSD_PAIRING = """Lookup ThinkPadX13G2._nervis._tcp.local.
+23:00:53.169  ThinkPadX13G2._nervis._tcp.local. can be reached at ThinkPadX13G2.local.:22 (interface 12)
+ user=mathias ssh=yes key=ssh-ed25519%20AAAAC3NzaC1lZDI1NTE5AAAAIHZBEWrJ0hYdfrLfiu0Uq1VkKLsH5VoGxD0QhXQWvJ9y want=Mathias%27s%20MacBook
+"""
+
+
+def test_no_announced_value_can_contain_a_space() -> None:
+    """**The bug that broke the first real pairing** (22 September 2026).
+
+    `dns-sd` prints a TXT record's fields separated by spaces, so `key=ssh-ed25519 AAAA…`
+    arrived as two fields and the key was cut at the space: the Mac saw `ssh-ed25519`, refused
+    it as not a public key, and Allow failed. Linux quotes its values, so the same
+    announcement worked there — which is why every value is encoded now, on both.
+    """
+    command = discovery.announce_command("dns-sd", "Govert", "mathias", True,
+                                         {"key": PAIRING_KEY, "want": "Mathias's MacBook"})
+
+    assert command is not None
+    for field in command[6:]:
+        assert " " not in field, f"{field} would be split in two on the way"
+
+
+def test_a_key_from_an_older_computer_is_put_back_together() -> None:
+    """The build before this one announced the key with a space in it; `dns-sd` split it.
+
+    Rather than telling somebody to update the other computer before they can allow it, the
+    halves are joined back on the way in — the same key, read out of an announcement written
+    by a NERVIS that did not know better.
+    """
+    older = DNSSD_PAIRING.replace(
+        "key=ssh-ed25519%20AAAAC3", "key=ssh-ed25519 AAAAC3").replace(
+        "want=Mathias%27s%20MacBook", "want=Govert")
+
+    where = discovery.parse_dnssd_resolve(older)
+
+    assert where is not None and where[2]["key"] == PAIRING_KEY
+
+
+def test_a_key_and_a_name_with_a_space_arrive_whole() -> None:
+    where = discovery.parse_dnssd_resolve(DNSSD_PAIRING)
+
+    assert where is not None
+    _, _, txt = where
+    assert txt["key"] == PAIRING_KEY, "the whole key, or Allow has nothing it can authorise"
+    assert txt["want"] == "Mathias's MacBook"
+
+
 @pytest.mark.parametrize("using,expected", [
     ("dns-sd", ["dns-sd", "-R", "Govert", "_nervis._tcp", "local", "22",
                 "user=mathias", "ssh=yes"]),

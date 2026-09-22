@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4641 tests, no network, no live service
+.venv/bin/pytest                      # part of 4644 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1909 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1912 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4641 passing across the four, conformance `PASS`.
+Expected: all clean, 4644 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,28 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## The first real pairing failed on a space — 2026-09-22 (NERVIS 0.34.80)
+
+The owner pressed Allow and got *"that is not an ed25519 public key"*.
+
+**A TXT value may not contain a space.** The key travelled as `key=ssh-ed25519 AAAA…`, and `dns-sd` prints
+a record's fields separated by spaces — so on the Mac it arrived as two fields, the reader took the first,
+and `link_authorize` correctly refused `ssh-ed25519` as not a key. Avahi quotes its values, so the identical
+announcement would have worked on Linux: a bug that fails on one platform and not the other, in the one
+step where two platforms have to agree.
+
+Every announced value is now percent-encoded (`discovery.announced`), one rule for all of them rather than
+a special case for keys — a computer's name can carry a space too (`want=Mathias's MacBook`). And the
+reader was made to cope rather than to complain: a piece with no `=` is joined back onto the value before
+it, so this NERVIS can read an announcement written by the build that did not know better, instead of
+telling somebody to go and update the other computer first. Allow's refusal now also says that is the
+likely cause.
+
+Checked by three tests in `nervis/tests/test_discovery.py`: no announced field may contain a space, a key
+and a name with a space arrive whole, and a key split by an older computer is put back together. NERVIS's
+suite is 1912; gates, ruff and mypy pass. **Still not paired live** — both computers need this build, since
+the one announcing has to encode and the one allowing has to decode.
 
 ## Two computers link from their screens, with no password anywhere — 2026-09-22 (NERVIS 0.34.79)
 

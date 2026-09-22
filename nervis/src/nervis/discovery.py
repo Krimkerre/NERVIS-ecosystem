@@ -33,6 +33,7 @@ import shutil
 import socket
 import subprocess
 import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -133,9 +134,41 @@ def in_wsl() -> bool:
 # ── Reading what the tools print ─────────────────────────────────────────────
 
 
+def announced(value: str) -> str:
+    """One value, encoded so it can cross an announcement whole.
+
+    **A TXT value may not contain a space.** `dns-sd` prints a record's fields separated by
+    spaces, so `key=ssh-ed25519 AAAA…` arrives as two fields and the key is cut at the space
+    — which is exactly what happened the first time two computers paired for real (22
+    September 2026): the Mac received `ssh-ed25519` and refused it as not a public key. Avahi
+    quotes its values, so the same announcement survived on Linux and failed on macOS, which
+    is the worst kind of bug to have to guess at.
+
+    Percent-encoding rather than a rule for keys alone: a computer's name can contain a space
+    too (`want=Mathias's MacBook`), and one rule for every value leaves no second case to
+    forget. An older NERVIS announces plain values, and decoding one of those is harmless.
+    """
+    return urllib.parse.quote(str(value or ""), safe="")
+
+
 def _pairs(items: list[str]) -> dict[str, str]:
-    """TXT record entries (`user=mathias`) as a mapping; anything without `=` is ignored."""
-    return dict(item.split("=", 1) for item in items if "=" in item)
+    """TXT record entries (`user=mathias`) as a mapping, values decoded.
+
+    **A piece with no `=` is joined back onto the one before it**, with the space that split
+    them. Values are encoded now, so nothing this NERVIS announces can arrive in pieces — but
+    a computer still running the build that announced `key=ssh-ed25519 AAAA…` would otherwise
+    be unreadable here, and "update the other computer first" is a poor answer when the
+    reader can simply put the halves back together.
+    """
+    pairs: dict[str, str] = {}
+    last = ""
+    for item in items:
+        if "=" in item:
+            last, _, value = item.partition("=")
+            pairs[last] = value
+        elif last:
+            pairs[last] += " " + item
+    return {key: urllib.parse.unquote(value) for key, value in pairs.items()}
 
 
 def parse_dnssd_browse(text: str) -> list[str]:
@@ -298,8 +331,9 @@ def announce_command(using: str | None, name: str, user: str, accepts: bool,
     name of the computer it is asking to link to. Both are dropped when empty, so an
     announcement says the least it can — a computer that is only findable carries neither.
     """
-    txt = [f"user={user}", f"ssh={'yes' if accepts else 'no'}"]
-    txt += [f"{name_}={value}" for name_, value in sorted((extra or {}).items()) if value]
+    txt = [f"user={announced(user)}", f"ssh={'yes' if accepts else 'no'}"]
+    txt += [f"{name_}={announced(value)}" for name_, value in sorted((extra or {}).items())
+            if value]
     if using == "dns-sd":
         return ["dns-sd", "-R", name, SERVICE_TYPE, "local", str(SSH_PORT), *txt]
     if using == "avahi":

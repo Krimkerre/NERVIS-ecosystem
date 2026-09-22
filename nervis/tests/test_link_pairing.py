@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -132,7 +133,9 @@ def test_asking_announces_this_computers_key_and_who_it_is_asking(client: Any) -
     )
     assert answer["findable"] is True, "a question nobody can hear is not a question"
     said = announcing(client)
-    assert f"key={OUR_KEY}" in said and "want=Govert" in said
+    # Encoded, because a TXT value with a space in it is cut in two by `dns-sd` — which is
+    # what stopped the first real pairing (22 September 2026).
+    assert f"key={quote(OUR_KEY, safe='')}" in said and "want=Govert" in said
 
 
 @pytest.mark.usefixtures("launcher")
