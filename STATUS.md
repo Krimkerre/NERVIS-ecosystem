@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4667 tests, no network, no live service
+.venv/bin/pytest                      # part of 4669 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1935 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1937 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4667 passing across the four, conformance `PASS`.
+Expected: all clean, 4669 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,27 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## A one-way link looks like no link from the other end — 2026-09-22 (NERVIS 0.34.83)
+
+*"Tunnel is not down"* — and it was not. What was missing was the way back.
+
+The ThinkPad's connection to the Mac was up and healthy: an `sshd-session` for the owner, its outbound
+forwards working, chat and settings readable from the ThinkPad. From the Mac there was nothing at all —
+no listener on `8722` or `8791`, so `linked_in` was false, the card read "not linked to anything", and the
+conversation pull answered "the other computer did not answer". **Both screens were telling the truth**:
+the link had been saved without `inbound`, so there was no way back to see.
+
+Two fixes, because the confusion had two halves. On the computer that dialled, *both ways* is now a single
+switch on the state row — the one control, rather than a second one beside Find — and with a link saved it
+is applied at once: `POST /api/v1/link/both-ways` saves the address with or without `--inbound`, then
+closes and reopens the tunnel, because what a tunnel forwards is fixed when it starts. On the computer that
+allowed it, an allowed computer with nothing coming through is now named as exactly that, with what to do
+about it, instead of being invisible.
+
+Checked by two tests in `nervis/tests/test_link_pairing.py`: turning the way back on saves with `--inbound`
+and reopens in that order, and it is refused before any link is saved. NERVIS's suite is 1937; gates, ruff
+and mypy pass.
 
 ## Conversations cross the link, the ones you tick — 2026-09-22 (NERVIS 0.34.82)
 

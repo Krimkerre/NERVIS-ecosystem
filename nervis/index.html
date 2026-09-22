@@ -4007,6 +4007,12 @@ const API={
      {method:'POST',headers:control_headers()}));
   },
 
+  /* Which ways the saved link goes, applied now rather than at the next start. */
+  async setBothWays(value){
+   return _workspaceDid(await fetch('/api/v1/link/both-ways',
+     {method:'POST',headers:control_headers(),body:JSON.stringify({value})}));
+  },
+
   async closeLink(){
    return _workspaceDid(await fetch('/api/v1/link/close',
      {method:'POST',headers:control_headers()}));
@@ -9228,18 +9234,17 @@ async function linkSection(){
  const state=linkStateChip(link,seen,on);
  return `<div class="card wide${on?' live':''}"><h3>Link to another computer</h3>${cell(`
   <div class="trace-step"><b>state</b><span>${state}
-   ${on&&link.inbound?'<span class="chip">both ways</span>':''}</span></div>
+   <label style="margin-left:8px"><input type="checkbox" id="linkIn"
+    ${link.inbound!==false?'checked':''}> both ways${on?'':' (for the next one)'}</label>
+   ${on?'<span id="bothWaysSaid" class="mono" style="opacity:.55"></span>':''}</span></div>
   <div class="trace-step"><b>be findable</b><span><label><input type="checkbox" id="linkFindable"
     ${seen.findable?'checked':''}> let other computers on this network find this one
     ${seen.name?`(as <span class="mono">${escapeHtml(seen.name)}</span>)`:''}</label>
     <span id="findableSaid">${findableWords(seen)}</span></span></div>
   <div class="trace-step"><b>find</b><span><button class="btn" id="findComputers">Find computers
-   on this network</button>
-   <label style="margin-left:8px"><input type="checkbox" id="linkIn"
-    ${link.inbound!==false?'checked':''}> link both ways</label>
-   <span id="foundComputers"></span></span></div>
+   on this network</button> <span id="foundComputers"></span></span></div>
   ${waitingToLink(seen.waiting_for)}
-  ${allowedComputers(seen.allowed)}
+  ${allowedComputers(seen.allowed,seen.linked_in)}
   ${on||seen.linked_in?`<div class="trace-step"><b>settings</b><span><button class="btn"
    id="pullSettings">See what the other computer has</button>
    <span id="linkPull"></span></span></div>
@@ -9317,13 +9322,20 @@ function waitingToLink(waiting){
   <span id="askProgress"></span></span></div>`;
 }
 
-/* The computers this one has let in, and the way to take that back. */
-function allowedComputers(allowed){
+/* The computers this one has let in, and the way to take that back.
+
+   **A computer that is allowed but sending nothing through is worth a sentence.** A link is
+   one way unless somebody asked for both, and from this end that is indistinguishable from no
+   link at all: on 22 September 2026 the ThinkPad's link was up and healthy, this computer
+   could see nothing of it, and both screens were telling the truth. */
+function allowedComputers(allowed,linkedIn){
  if(!allowed||!allowed.length)return '';
+ const hint=linkedIn?'':`<span class="mono" style="opacity:.6">— nothing is coming through; if
+   that computer says it is linked, tick <b>both ways</b> there</span>`;
  return allowed.map(one=>`<div class="trace-step"><b>allowed</b><span>
   <span class="mono">${escapeHtml(one.name)}</span>
   <span class="mono" style="opacity:.6">${escapeHtml(one.fingerprint||'')}</span>
-  <button class="btn" data-revoke="${jsAttr(one.name)}">Stop allowing</button></span></div>`
+  <button class="btn" data-revoke="${jsAttr(one.name)}">Stop allowing</button> ${hint}</span></div>`
  ).join('');
 }
 
@@ -9540,6 +9552,21 @@ function wireLinkCard(){
      :(outcome.detail||'NERVIS refused that'));
    if(outcome.ok)await settingsView();
   };
+ };
+ /* One switch for which ways the link goes. With a link saved it is applied at once — the
+    tunnel is closed and reopened, because what it forwards is fixed when it starts; with none
+    saved it is simply what the next pairing will ask for. A link that is one way looks *down*
+    from the other computer, which is how an evening went missing. */
+ const bothWays=$('#linkIn');
+ const bothSaid=$('#bothWaysSaid');
+ if(bothWays&&bothSaid)bothWays.onchange=async()=>{
+  bothSaid.textContent='applying…';
+  const outcome=await API.nervis.setBothWays(!!bothWays.checked);
+  bothSaid.textContent=outcome.ok?(outcome.detail||'applied'):'';
+  notify(outcome.ok
+    ?(bothWays.checked?'The other computer can reach this one now'
+                      :'The other computer can no longer reach this one')
+    :(outcome.detail||'NERVIS refused that'));
  };
  /* Conversations: look, tick, bring. The list is read first and the bringing is a second,
     separate press on what that list showed. */

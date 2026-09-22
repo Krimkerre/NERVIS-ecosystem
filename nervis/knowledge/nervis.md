@@ -326,7 +326,7 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.82, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.83, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
 - **Conversations can be brought over from your other computer** (22 September, NERVIS 0.34.82):
@@ -1376,6 +1376,14 @@ other commands are `link test` (open it once and say what answers), `link off` a
 
 The key that gets added to the other machine can do **nothing but** open those forwarded ports:
 no shell, no commands, no terminal. That is what the `restrict` in its line means.
+
+**One way or both ways.** A link carries traffic in the direction it was set up for. *Both ways*
+on the card means the other computer can reach this one as well — which is what you need for that
+computer to bring over *your* settings or conversations. If a computer says it is linked and the
+other one seems to see nothing, that is almost always a one-way link: tick **both ways** on the
+computer that did the linking, and it is applied straight away (the tunnel is closed and
+reopened). The computer at the other end says so too: an allowed computer with nothing coming
+through is named on the card, with what to do.
 
 **Finding your other computers.** You don't need to know the other computer's address. On the
 computer you want to reach, open Settings → Another computer and tick **Let other computers on this

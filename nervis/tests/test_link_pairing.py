@@ -265,3 +265,35 @@ def test_the_computer_that_was_dialled_into_says_it_is_linked(
 
 def test_with_nothing_dialled_in_it_says_so(client: Any) -> None:
     assert client.get("/api/v1/link/findable").json()["linked_in"] in (True, False)
+
+
+def test_turning_on_the_way_back_saves_and_reopens_the_link(
+    client: Any, launcher: FakeLauncher
+) -> None:
+    """**A link is one way until somebody asks for both**, and from the other end that looks
+    exactly like no link at all — the evening of 22 September 2026, where the ThinkPad's link
+    was up and healthy and the Mac could see nothing of it.
+
+    What the tunnel forwards is fixed when it starts, so this closes and opens it.
+    """
+    # What a real `link save` leaves behind: the launcher writes this row itself, and the
+    # fake one cannot, so the test puts the link where the launcher would have.
+    client.put("/api/v1/settings/link.peer", json={"value": {
+        "enabled": True, "address": "mathias@Govert.local", "inbound": False}})
+    launcher.asked.clear()
+
+    answer = client.post("/api/v1/link/both-ways", json={"value": True}).json()
+
+    assert answer["ok"] is True and answer["inbound"] is True
+    saved = next(one for one in launcher.asked if one[0] == "save")
+    assert "--inbound" in saved and "mathias@Govert.local" in saved
+    assert [one[0] for one in launcher.asked if one[0] in ("close", "open")] == ["close", "open"]
+
+
+def test_the_way_back_cannot_be_set_before_a_link_is_saved(
+    client: Any, launcher: FakeLauncher
+) -> None:
+    answer = client.post("/api/v1/link/both-ways", json={"value": True}).json()
+
+    assert answer["ok"] is False and "no other computer is saved" in answer["detail"]
+    assert launcher.asked == []

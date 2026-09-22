@@ -276,6 +276,37 @@ async def stop_allowing(request: Request) -> dict[str, Any]:
     return {"ok": True, "name": name, "removed": removed.get("removed", 0)}
 
 
+@router.post("/both-ways")
+async def set_both_ways(request: Request) -> dict[str, Any]:
+    """Turn the way back on or off for the link that is already saved, and apply it now.
+
+    **A link is one-way until somebody says otherwise, and that is invisible from the other
+    end.** Found on 22 September 2026: the ThinkPad's connection was up and healthy, and the
+    Mac could see nothing of it — no way back had been asked for, so there was nothing to see.
+    From the Mac it looked like the link was down; from the ThinkPad it looked fine. Both were
+    right, which is why this is a switch on the card rather than something to re-pair for.
+
+    The tunnel is closed and opened again, because what it forwards is fixed when it starts.
+    """
+    body = await _body(request)
+    if not isinstance(body.get("value"), bool):
+        raise InvalidConfigurationError("body must be {\"value\": true} or {\"value\": false}")
+    database = request.app.state.database
+    saved = _stored(database, "link.peer", {})
+    address = str(saved.get("address", "")) if isinstance(saved, dict) else ""
+    if not address:
+        return {"ok": False, "detail": "no other computer is saved yet"}
+    stored = ask_launcher("save", "--address", address,
+                          *(["--inbound"] if body["value"] else []))
+    if not stored.get("ok"):
+        return {"ok": False, "detail": stored.get("detail", "the link was not saved")}
+    ask_launcher("close")
+    opened = ask_launcher("open")
+    return {"ok": True, "inbound": body["value"], "answering": bool(opened.get("answering")),
+            "detail": "" if opened.get("answering") else
+                      "saved — the other computer's stack is not answering yet"}
+
+
 @router.post("/close")
 def close_the_link() -> dict[str, Any]:
     """Close the tunnel now, leaving the rest of the stack running.
