@@ -242,6 +242,46 @@ def test_a_matching_turn_too_long_for_the_budget_is_trimmed_not_dropped() -> Non
     assert len(quoted["content"]) <= compaction.QUOTE_BUDGET + 1
 
 
+def test_the_quoted_turns_ride_with_the_question_not_in_front_of_the_history(
+    database: Any
+) -> None:
+    """**Where they sit decides what a long conversation costs.**
+
+    Providers reuse a prompt by matching its opening bytes. Quotes are chosen per question, so
+    they change every turn — in front of the history they would break that match on every
+    message and the whole conversation would be re-read each time, which is the expensive
+    mistake `nervis.md` records from 9 September 2026. They go at the end, with the readings.
+    """
+    conversation_id = store.start_conversation(database, profile="ravis/chat", title="Long one")
+    for number in range(8):
+        store.append(database, conversation_id,
+                     Message(message_id=f"m{number}",
+                             role="user" if number % 2 == 0 else "assistant",
+                             content=(f"turn {number} about the tray icon"
+                                      if number < 3 else f"turn {number} " + "x" * 4_000)))
+    older, _ = compaction.split(store.history(database, conversation_id))
+    compaction.remember_summary(database, conversation_id, "they talked about things", "",
+                                len(older))
+
+    prior = compaction.what_to_send(database, conversation_id)
+    quotes = compaction.quoted_for(database, conversation_id, "what about the tray icon?")
+
+    assert len([one for one in prior if one["role"] == "system"]) == 1, (
+        "only the summary is in front of the question, and it changes rarely"
+    )
+    assert "tray icon" not in prior[0]["content"], "the quotes are not in the history"
+    assert quotes.startswith(compaction.QUOTE_PREFACE[:40]) and "tray icon" in quotes
+
+
+def test_a_question_that_drags_nothing_back_adds_nothing(database: Any) -> None:
+    conversation_id = a_long_conversation(database)
+    older, _ = compaction.split(store.history(database, conversation_id))
+    compaction.remember_summary(database, conversation_id, "a summary", "", len(older))
+
+    assert compaction.quoted_for(database, conversation_id, "about lunch tomorrow") == ""
+    assert compaction.quoted_for(database, conversation_id, "") == ""
+
+
 def test_what_is_sent_carries_the_summary_then_the_words_themselves(database: Any) -> None:
     conversation_id = store.start_conversation(database, profile="ravis/chat", title="Long one")
     for number in range(8):
@@ -254,12 +294,12 @@ def test_what_is_sent_carries_the_summary_then_the_words_themselves(database: An
     compaction.remember_summary(database, conversation_id, "they talked about several things",
                                 "", len(older))
 
-    sent = compaction.what_to_send(database, conversation_id, question="what about the tray icon?")
+    sent = compaction.what_to_send(database, conversation_id)
+    quotes = compaction.quoted_for(database, conversation_id, "what about the tray icon?")
 
     assert sent[0]["content"].startswith(compaction.SUMMARY_PREFACE[:40])
-    assert sent[1]["content"].startswith(compaction.QUOTE_PREFACE[:40])
-    assert "tray icon" in sent[1]["content"], "in the words they were said in"
-    assert all(one["role"] == "system" for one in sent[:2])
+    assert quotes.startswith(compaction.QUOTE_PREFACE[:40])
+    assert "tray icon" in quotes, "in the words they were said in"
 
 
 def test_a_reopened_conversation_asks_nothing_and_quotes_nothing(database: Any) -> None:

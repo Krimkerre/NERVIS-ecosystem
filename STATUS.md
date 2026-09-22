@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4701 tests, no network, no live service
+.venv/bin/pytest                      # part of 4703 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1969 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1971 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4701 passing across the four, conformance `PASS`.
+Expected: all clean, 4703 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,19 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## The quoted turns were breaking every cache — 2026-09-23 (NERVIS 0.34.89)
+
+Caught while reading `nervis.md`'s own "How a question is assembled, and why the order costs money" for the
+memory inventory: the quotes added hours earlier sat at the **front** of the history, and they are chosen
+per question, so they changed on every single turn. That is precisely the mistake that section records from
+9 September 2026 — the readings sat at the front, the prefix never matched, and every long conversation was
+re-read from scratch by the provider on every message.
+
+The summary note stays where it was, in front of the history: it changes only when the fold rolls, which is
+rare, so the prefix survives. The quotes moved to the end, joined to the per-turn readings that already ride
+with the question (`compaction.quoted_for`, appended to `turn_context`). Two tests hold the placement, and
+they say why, because the next person to "tidy" this will want to put the quotes back beside the summary.
 
 ## What compaction keeps: sections, the words themselves, and a visible mark — 2026-09-23 (NERVIS 0.34.88)
 

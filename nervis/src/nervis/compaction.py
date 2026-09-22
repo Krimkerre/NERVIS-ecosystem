@@ -133,31 +133,28 @@ SUMMARY_PREFACE = (
 )
 
 
-def folded(turns: list[dict[str, Any]], summary: str, budget: int = RECENT_BUDGET,
-           question: str = "") -> tuple[list[dict[str, Any]], int]:
+def folded(turns: list[dict[str, Any]], summary: str, budget: int = RECENT_BUDGET
+           ) -> tuple[list[dict[str, Any]], int]:
     """What to send, and how many turns it stands in for.
 
     With nothing to summarise this is the conversation exactly as it is. With a summary, the
-    note goes first as a `system` turn — context about the conversation rather than something
-    anybody said in it — followed, when `question` mentions something the summarised turns
-    talked about, by those turns in their own words (`relevant_older`).
+    note goes first as a `system` turn: context about the conversation rather than something
+    anybody said in it. **It changes only when the summary is rolled**, which is rare, so the
+    history in front of the question stays byte-identical from one turn to the next — which is
+    what a provider needs to reuse it (`nervis.md`, "How a question is assembled").
+
+    The turns quoted for a particular question are **not** here, for exactly that reason: they
+    change every turn. They ride with the question instead (`quoted_for`).
     """
     older, recent = split(turns, budget)
     if not older:
         return turns, 0
-    quoted = relevant_older(older, question)
-    notes: list[dict[str, Any]] = []
-    if summary:
-        notes.append({"role": "system", "content": SUMMARY_PREFACE + summary[:SUMMARY_LIMIT]})
-    if quoted:
-        said = "\n\n".join(f"{turn.get('role', 'user')}: {turn.get('content', '')}"
-                            for turn in quoted)
-        notes.append({"role": "system", "content": QUOTE_PREFACE + said})
-    if not notes:
+    if not summary:
         # Nothing to say about them yet — the first fold is still to happen. The recent turns
         # go on their own rather than a request being held up for a summary.
         return recent, len(older)
-    return [*notes, *recent], len(older)
+    note = {"role": "system", "content": SUMMARY_PREFACE + summary[:SUMMARY_LIMIT]}
+    return [note, *recent], len(older)
 
 
 def needs_folding(turns: list[dict[str, Any]], held: dict[str, Any],
@@ -288,19 +285,38 @@ QUOTE_PREFACE = ("Some of the earlier turns themselves, word for word, because t
                  "what was just asked about:\n\n")
 
 
-def what_to_send(database: Database, conversation_id: str,
-                 question: str = "") -> list[dict[str, Any]]:
+def quoted_for(database: Database, conversation_id: str, question: str) -> str:
+    """The summarised turns that mention this question, as a block to ride *with* the question.
+
+    **At the end of the request, never in front of the history.** Providers reuse a prompt by
+    matching its opening bytes, so anything that changes every turn has to come last or the
+    whole conversation is re-read every time — the lesson of 9 September 2026, when the
+    readings sat at the front and nothing was ever cached. These quotes are chosen per
+    question, so they are the most turn-varying thing there is.
+    """
+    if not question.strip() or not switched_on(database):
+        return ""
+    older, _ = split(history(database, conversation_id))
+    quoted = relevant_older(older, question)
+    if not quoted:
+        return ""
+    said = "\n\n".join(f"{turn.get('role', 'user')}: {turn.get('content', '')}"
+                        for turn in quoted)
+    return QUOTE_PREFACE + said
+
+
+def what_to_send(database: Database, conversation_id: str) -> list[dict[str, Any]]:
     """The prior turns as they should travel: whole, or recent plus what stands in for the rest.
 
     One place, because both ways into a conversation — a new message and a reopened one — have
     to send the same thing, and a request that carried the whole conversation once and a
     summary the next time would be a model told two different stories.
 
-    `question` is the message being asked now, used to find the summarised turns that mention
-    it. A reopened conversation has no question yet, which is why it defaults to none.
+    What a particular question drags back from the summarised part is separate, and rides with
+    the question (`quoted_for`), so that this — the part in front of the question — stays the
+    same from turn to turn.
     """
     turns = history(database, conversation_id)
     if not switched_on(database):
         return turns
-    return folded(turns, stored_summary(database, conversation_id)["summary"],
-                  question=question)[0]
+    return folded(turns, stored_summary(database, conversation_id)["summary"])[0]

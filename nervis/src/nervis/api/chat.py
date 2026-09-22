@@ -514,6 +514,10 @@ async def send(request: Request) -> Any:
         # nothing is lost by breaking the prefix on it.
         system = "\n\n".join(part for part in (system, directive, recall) if part)
         asked = NUDGE_OPENER
+    # **The turns a long conversation's summary cannot answer for**, chosen by this question
+    # and therefore different every turn — so they ride here, with the readings, at the end.
+    quoted = compaction.quoted_for(database, conversation_id, content)
+    context = "\n\n".join(part for part in (context, quoted) if part)
     body = {**body, "system": system, "turn_context": context}
     payload = _completion_payload(body, profile, prior, asked, pages)
     # Assembled here and sent as a header, so the browser prints it verbatim.
@@ -1106,7 +1110,7 @@ def _placement(
     # is not sent twice — and **trimmed to what a model can read**: the recent turns in full,
     # with one note standing in for everything older (`compaction`). Nothing is dropped from
     # the conversation itself; this is only what travels in this request.
-    prior = compaction.what_to_send(database, conversation_id, question=content)
+    prior = compaction.what_to_send(database, conversation_id)
     store.append(
         database,
         conversation_id,
