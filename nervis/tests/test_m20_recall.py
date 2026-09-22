@@ -24,6 +24,7 @@ from nervis import recall
 from nervis.app import create_app
 from nervis.config import Settings
 from nervis.diagnostics import FENCE
+from nervis.recall import MAX_PASSAGE_CHARS
 from nervis.storage import prepare_database
 
 
@@ -393,3 +394,51 @@ def test_both_ways_of_remembering_read_the_same_list(database: Any) -> None:
     _bar(database, "one", "two")
 
     assert _excluded(database) == store.barred(database) == {"one", "two"}
+
+
+# ── What the block delivers, as opposed to what the search finds ─────────────────────────
+#
+# `block()` fenced its passages without saying how long they were allowed to be, so it
+# inherited `fenced()`'s default of 400 characters — one short diagnostic field — for the whole
+# joined block. `fenced()`'s own docstring warns about exactly that for callers with a bound of
+# their own; two other callers were fixed when it was written and this one was missed.
+
+def _passage(number: int, size: int = MAX_PASSAGE_CHARS) -> recall.Passage:
+    return recall.Passage(
+        conversation_id=f"c{number}", title=f"Conversation {number}",
+        at="2026-09-20 10:00", role="user", content=f"start{number} " + "x" * size,
+        answer=f"answer{number} " + "y" * size, score=3.0,
+    )
+
+
+def test_every_passage_the_search_found_reaches_the_model() -> None:
+    """Measured before the fix: 3,600 characters of found material arrived as 1,398, naming one
+    conversation of three and cutting the rest mid-sentence."""
+    said = recall.block([_passage(number) for number in range(recall.MAX_PASSAGES)])
+
+    for number in range(recall.MAX_PASSAGES):
+        assert f"Conversation {number}" in said, "a passage found and not delivered is work wasted"
+        assert f"start{number}" in said and f"answer{number}" in said
+
+
+def test_a_passage_keeps_the_length_this_module_declares() -> None:
+    """`MAX_PASSAGE_CHARS` was declared, exported, and never applied on the way out: the clip
+    took `fenced()`'s 400 instead, cutting a third off every passage."""
+    said = recall.block([_passage(0)])
+
+    kept = said.split("start0 ")[1].split("\n")[0]
+    assert len(kept) > 500, "600 characters of passage, not 400"
+
+
+def test_the_block_is_still_bounded() -> None:
+    """A bound that is merely larger is still a bound: one enormous turn cannot become the
+    whole prompt."""
+    said = recall.block([_passage(number, size=20_000) for number in range(3)])
+
+    assert len(said) < recall.MAX_BLOCK_CHARS + 2_000, "the fence's own preamble is the rest"
+    assert "…" in said, "and what was cut says so"
+
+
+def test_the_bound_is_derived_from_the_two_it_depends_on() -> None:
+    """So that raising the passage size cannot silently start losing passages again."""
+    assert recall.MAX_BLOCK_CHARS >= recall.MAX_PASSAGES * 2 * recall.MAX_PASSAGE_CHARS

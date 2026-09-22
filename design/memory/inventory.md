@@ -60,7 +60,7 @@ described two different ways.
 
 Each of these was verified against the running system, not inferred.
 
-> **Items 1, 4 and 5 were settled the same day.** The bar now applies to both paths
+> **Items 1, 2, 4 and 5 were settled the same day.** The bar now applies to both paths
 > (NERVIS 0.34.90); `learned.md` is git-ignored because the repository is public, and notes
 > cross the link instead. The rest stand as written.
 
@@ -72,7 +72,8 @@ marked private is still searched, and still quotable into any other conversation
 two exclusion policies, one screen. **This is the one to fix first**, because it is the only
 finding here that breaks a promise the interface makes.
 
-**2. Recall delivers a third of what it finds.** `recall.block()` fences its passages without
+**2. Recall delivers a third of what it finds.** *(fixed, 23 September 2026 — the block and each
+passage now carry this module's own bounds; three of three conversations delivered.)* `recall.block()` fences its passages without
 passing a size, so it inherits `MAX_FIELD_CHARS = 400` and clips the *whole joined block*.
 Measured: three 600-character passages plus their answers — 3,600 characters — arrive as 1,398
 characters of which only **one conversation of the three is named**. Passages two and three are

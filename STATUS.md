@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4717 tests, no network, no live service
+.venv/bin/pytest                      # part of 4721 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1985 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1989 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4717 passing across the four, conformance `PASS`.
+Expected: all clean, 4721 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,29 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Recall delivers what it finds — 2026-09-23 (NERVIS 0.34.91)
+
+The inventory's second item, and it turned out to be two bugs sharing a cause.
+
+`block()` fenced its passages without saying how long they were allowed to be, so it inherited
+`fenced()`'s default of `MAX_FIELD_CHARS = 400` — **one short diagnostic field** — for the whole joined
+block. And each passage was clipped by the same default on the way out, although this module declares
+`MAX_PASSAGE_CHARS = 600` and reads every passage from the database already cut to it: the figure was
+declared, exported in `__all__`, and never applied. Measured before and after, with three 600-character
+passages carrying their answers — 3,600 characters of found material: **1,398 characters delivered,
+naming one conversation of three**, and now 4,842 characters naming all three. The search had always
+worked; two thirds of it was thrown away on the way to the model.
+
+`fenced()`'s own docstring warns about that default for a caller with a bound of its own, and names the
+two callers fixed when it was written (`knowledge.reading()`, `documents.as_reading()`). This one was
+missed. The new bound is derived rather than chosen — `MAX_BLOCK_CHARS = MAX_PASSAGES * (2 *
+MAX_PASSAGE_CHARS + 160)` — so raising the passage size cannot quietly start losing passages again.
+
+Four tests in `nervis/tests/test_m20_recall.py`: every passage found reaches the model, a passage keeps
+the length this module declares, the block is still bounded against one enormous turn, and the bound
+stays derived. NERVIS's suite is 1989; gates, ruff and mypy pass. **Not seen live** — recall is off on
+this machine, which is why the loss went unnoticed for as long as it did.
 
 ## The Private bar means one thing, and notes cross the link — 2026-09-23 (NERVIS 0.34.90)
 

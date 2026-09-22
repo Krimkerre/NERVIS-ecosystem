@@ -50,6 +50,17 @@ ENABLED = "recall.enabled"
 MAX_PASSAGES = 3
 MAX_PASSAGE_CHARS = 600
 
+#: What the whole recalled block may come to, derived from the two bounds above rather than
+#: guessed: every passage may carry its own answer, plus the line that says where it came from.
+#:
+#: **Without it the block was cut to 400 characters** — `fenced()`'s default, which is one short
+#: diagnostic field. Measured 23 September 2026: three 600-character passages with their answers
+#: (3,600 characters of found material) arrived as 1,398, naming **one** of the three
+#: conversations and cutting the rest mid-sentence. `fenced()`'s own docstring warns about this
+#: default for callers with a bound of their own; `knowledge.reading()` and
+#: `documents.as_reading()` were fixed when it was written and this caller was missed.
+MAX_BLOCK_CHARS = MAX_PASSAGES * (2 * MAX_PASSAGE_CHARS + 160)
+
 # How many stored turns to consider. Bounded because this runs on the chat path
 # and a machine with a year of conversations should not pay for all of them.
 SEARCH_LIMIT = 400
@@ -240,12 +251,16 @@ def block(passages: list[Passage]) -> str:
     quoted = []
     for passage in passages:
         who = "the user" if passage.role == "user" else "NERVIS"
+        # **`MAX_PASSAGE_CHARS`, the bound this module declares**, rather than `clip()`'s own
+        # default of 400: a passage is read from the database already cut to 600, and clipping
+        # it again to 400 threw away a third of every one of them on the way out.
         quoted.append(
             f"[from \"{clip(passage.title)}\" on {passage.at}, said by {who}] "
-            f"{clip(passage.content)}"
+            f"{clip(passage.content, max_chars=MAX_PASSAGE_CHARS)}"
         )
         if passage.answer:
-            quoted.append(f"[NERVIS answered] {clip(passage.answer)}")
+            quoted.append(
+                f"[NERVIS answered] {clip(passage.answer, max_chars=MAX_PASSAGE_CHARS)}")
     return "\n\n".join([
         "Earlier conversations on this machine, recalled because they use the "
         "same words as the question. They are older than the reading below and "
@@ -257,11 +272,13 @@ def block(passages: list[Passage]) -> str:
             "written by a model",
             "\n".join(quoted),
             provenance="this machine's own chat history",
+            max_chars=MAX_BLOCK_CHARS,
         ),
     ])
 
 
 __all__ = [
-    "ENABLED", "MAX_PASSAGES", "MAX_PASSAGE_CHARS", "MIN_SCORE", "Passage",
+    "ENABLED", "MAX_BLOCK_CHARS", "MAX_PASSAGES", "MAX_PASSAGE_CHARS", "MIN_SCORE",
+    "Passage",
     "block", "enabled", "search", "set_enabled", "terms",
 ]
