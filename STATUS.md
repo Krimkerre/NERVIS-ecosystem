@@ -20013,6 +20013,36 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## An inventory of what NERVIS remembers — 2026-09-23 (no code)
+
+The owner asked whether the project needs an "AI second brain", and whether that means Obsidian. Rather
+than answer from the outside, three readers mapped every store that holds something a person would call
+knowledge. `design/memory/inventory.md` is the result: what each store holds, who writes it, where it
+lives, what is read back at question time, and a proposed owner per kind of fact.
+
+**The finding that matters: there are four separate paths carrying memory into a single prompt**, and they
+are blind to each other — the conversation's own rolling summary, cross-conversation recall, a persona
+digest that sends the tail of the five newest conversations every turn with no matching at all, and the
+verbatim quotes compaction pulls back. Plus the notes. Five framings, no shared budget, no de-duplication.
+
+**Two defects were verified while mapping, not inferred.** `chat.memory_excluded` — the "Private" bar on a
+conversation — is honoured by the persona digest and **ignored by `recall.py`**, whose only filter is "not
+the conversation I am in": a conversation marked private is still searched and still quotable elsewhere.
+And `recall.block()` fences without a size, inheriting `MAX_FIELD_CHARS = 400` for the whole joined block:
+measured, three 600-character passages plus their answers (3,600 characters) arrive as 1,398 with **one of
+the three conversations named**. The search works; two thirds of the delivery is thrown away.
+
+Also recorded: three of four conversation paths hand the model undated text; capture exists and has never
+been used (`learned.md` does not exist on this machine, though saying "remember that…" has offered the
+button all along); that file is git-tracked, so learned facts would travel in commits; recall's reach ends
+at the newest 400 messages, already well under half this machine's history; `recall.enabled` is a raw
+`"1"` where its neighbours are JSON, the same confusion migration 11 was written to repair; and three
+fields that look alive are always empty.
+
+**Nothing was changed.** The document proposes one owner per kind of fact, a rule of no new stores, and an
+order to work in — the Private bar first, because it is the only finding that breaks a promise the
+interface makes.
+
 ## The quoted turns were breaking every cache — 2026-09-23 (NERVIS 0.34.89)
 
 Caught while reading `nervis.md`'s own "How a question is assembled, and why the order costs money" for the
