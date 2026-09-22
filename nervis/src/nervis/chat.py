@@ -16,6 +16,7 @@ timestamps, messages, RAVIS route IDs — local only, and deletable.
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -161,6 +162,38 @@ def search(database: Database, term: str, limit: int = SEARCH_LIMIT) -> list[dic
              "messages": row["messages"], "hits": row["hits"],
              "snippet": _snippet(row["matched"] or "", wanted) if row["matched"] else ""}
             for row in rows]
+
+
+#: The conversations barred from being remembered — the "Private" mark on a conversation.
+#:
+#: **One list, read in one place, honoured by every path that remembers.** It was written for
+#: the persona digest and read only by it: `recall.py` filtered on "not the conversation I am
+#: in" and nothing else, so with cross-conversation memory switched on a conversation somebody
+#: had marked private was still searched and still quotable into a different conversation
+#: (found while inventorying memory, 23 September 2026). A bar that applies to one of the ways
+#: a thing is remembered is not a bar.
+MEMORY_EXCLUDED_SETTING = "chat.memory_excluded"
+
+
+def barred(database: Database) -> set[str]:
+    """Conversation ids barred from being remembered. Empty when absent or unreadable.
+
+    **Failing to *empty* rather than to everything** is deliberate, and is the less obvious
+    direction: a store that cannot be read should not silently bar every conversation, because
+    that turns a corrupt setting into "memory quietly stopped working" — which nobody reports.
+    A conversation somebody meant to bar is visibly still listed on the screen that bars it,
+    so the other failure is one a person can see.
+    """
+    row = database.connection.execute(
+        "SELECT value FROM setting WHERE key = ?", (MEMORY_EXCLUDED_SETTING,)
+    ).fetchone()
+    if not row:
+        return set()
+    try:
+        found = json.loads(row["value"])
+    except (TypeError, ValueError):
+        return set()
+    return {str(one) for one in found} if isinstance(found, list) else set()
 
 
 def messages(database: Database, conversation_id: str) -> list[Message]:

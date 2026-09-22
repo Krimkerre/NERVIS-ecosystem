@@ -100,7 +100,8 @@ MEMORY_SETTING = "chat.memory"
 # unconditional rule with no setting, and the switch means what somebody reading
 # it assumes it means — *keep this conversation out of the pool*, still true
 # tomorrow, from whichever other conversation is asking.
-MEMORY_EXCLUDED_SETTING = "chat.memory_excluded"
+#: Re-exported for the screens that name it; the reader and the reasoning live in `chat`.
+MEMORY_EXCLUDED_SETTING = store.MEMORY_EXCLUDED_SETTING
 
 # How much of the past is worth carrying. Bounded twice, because either bound
 # alone fails: a per-conversation cap still lets fifty conversations fill a
@@ -668,21 +669,10 @@ def _one_recall(database: Any, record: dict[str, Any], conversation_id: str) -> 
 
 
 def _excluded(database: Any) -> set[str]:
-    """Conversation ids barred from the pool. Empty when absent or unreadable.
+    """Conversation ids barred from the pool.
 
-    Failing to *empty* rather than to everything is deliberate and is the less
-    obvious direction: a store that cannot be read should not silently bar every
-    conversation, because that turns a corrupt setting into "recall quietly
-    stopped working" — which nobody reports. A conversation somebody meant to
-    bar is visibly still listed on the screen that bars it.
+    **Read from `chat.barred`, not from here.** This function used to own the rule, and owning
+    it was the bug: `recall.py` had no idea the setting existed, so the same bar applied to one
+    way of remembering and not the other (23 September 2026). One reader, one meaning.
     """
-    row = database.connection.execute(
-        "SELECT value FROM setting WHERE key = ?", (MEMORY_EXCLUDED_SETTING,)
-    ).fetchone()
-    if not row:
-        return set()
-    try:
-        found = json.loads(row["value"])
-    except ValueError:
-        return set()
-    return {str(one) for one in found} if isinstance(found, list) else set()
+    return store.barred(database)

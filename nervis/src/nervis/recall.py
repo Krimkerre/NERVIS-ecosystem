@@ -35,6 +35,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from nervis import chat as store
 from nervis.diagnostics import clip, fenced
 from nervis.storage import Database
 from nervis.voice import read_setting, write_setting
@@ -140,18 +141,30 @@ def search(
     **The current conversation is excluded**, because its turns are already in
     the prompt as history. Recalling them would quote the conversation to
     itself, which reads as confirmation and is not.
+
+    **So is anything marked private** (`chat.barred`). That bar was written for
+    the persona digest and honoured only there; this path filtered on the
+    current conversation and nothing else, so a conversation somebody had marked
+    private was still searched and still quotable into another one. Barred in
+    the query rather than after it: `SEARCH_LIMIT` is applied by the database,
+    so rows dropped afterwards would still have spent the window they were
+    counted in — a private conversation would have gone on narrowing what recall
+    could see even while being excluded from what it said.
     """
     wanted = terms(question)
     if not wanted:
         return []
+    private = sorted(store.barred(database))
+    holes = ", ".join("?" for _ in private)
     rows = database.connection.execute(
         "SELECT m.conversation_id, m.role, m.content, m.created_at, m.rowid AS ordinal, "
         "       COALESCE(c.title, '') AS title "
         "FROM chat_message m "
         "LEFT JOIN chat_conversation c ON c.conversation_id = m.conversation_id "
         "WHERE m.conversation_id != ? AND m.content != '' "
-        "ORDER BY m.created_at DESC LIMIT ?",
-        (exclude, SEARCH_LIMIT),
+        + (f"AND m.conversation_id NOT IN ({holes}) " if private else "")
+        + "ORDER BY m.created_at DESC LIMIT ?",
+        (exclude, *private, SEARCH_LIMIT),
     ).fetchall()
 
     scored: list[tuple[float, int, Passage]] = []

@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4703 tests, no network, no live service
+.venv/bin/pytest                      # part of 4717 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1971 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1985 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4703 passing across the four, conformance `PASS`.
+Expected: all clean, 4717 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,41 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## The Private bar means one thing, and notes cross the link — 2026-09-23 (NERVIS 0.34.90)
+
+The inventory's first item, and then a decision that followed from it.
+
+**One bar, honoured everywhere.** `chat.memory_excluded` was owned by `api/chat_personas.py` and read
+only there, so marking a conversation private kept it out of the persona digest and did nothing at all to
+`recall.py`, whose only filter was "not the conversation I am in". A private conversation was still
+searched and still quotable into another one. The reader moved to `nervis/src/nervis/chat.py` as
+`chat.barred()` — conversations are what it is about — and both paths read it; the digest's own copy is
+now a one-line delegation whose docstring says why. Recall excludes them **in the query**, because
+`SEARCH_LIMIT` is applied by SQL: rows dropped afterwards would still have spent the window they were
+counted in, so a long private conversation would have gone on narrowing what recall could see while being
+excluded from what it said. Failing *open* on an unreadable list is kept, with its original reasoning — a
+corrupt setting must not become "memory quietly stopped working", and a bar that vanished is visible on
+the screen that sets it.
+
+Five tests in `nervis/tests/test_m20_recall.py`. Writing them caught that the first one passed for the
+wrong reason: the question shared too few distinctive words to match anything, so it proved nothing until
+the fixtures were changed.
+
+**And `learned.md` is now git-ignored** (owner's decision, asked and answered in the same hour: *"ignore
+it, the repo is public"*). What somebody tells NERVIS to remember is their own, and this repository is
+public. That cost something — notes no longer travel between the owner's computers in a `git pull` — so
+they now cross **the link** instead, which was the owner's next sentence: `GET`/`POST
+/api/v1/learned/peer`, beside the settings and conversation pulls, with a row on the same card. A note is
+identified by what it says (`learned.note_id`), so the same fact taught on both computers is one note; its
+date and the sentence that prompted it travel with it; the body chooses which notes cross and the other
+computer supplies their text; and a second note under a known heading is offered as such rather than
+treated as a conflict, because that file is append-only on purpose.
+
+Nine tests in `nervis/tests/test_learned_transfer.py`. The card's wiring was split — `wirePullCards()`
+now owns the three pulls, `wireLinkCard()` owns whether two computers are joined at all — because the one
+function had reached the complexity ceiling and they are different subjects. NERVIS's suite is 1985;
+gates, ruff and mypy pass. **Not yet carried live**: no notes exist on either computer to carry.
 
 ## An inventory of what NERVIS remembers — 2026-09-23 (no code)
 

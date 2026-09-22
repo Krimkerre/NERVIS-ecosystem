@@ -326,7 +326,7 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.89, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.90, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
 - **Conversations can be brought over from your other computer** (22 September, NERVIS 0.34.82):
@@ -1442,6 +1442,19 @@ holds them all: a conversation NERVIS has that this browser has never seen is li
 this browser*, and opening it fetches it and gives this browser a copy. So a conversation brought
 over from another computer is there straight away, and so are older ones this browser has
 forgotten.
+
+**Privacy, and what "Private" now means.** Marking a conversation private bars it from being
+remembered — and that bar is now honoured by **both** ways NERVIS remembers. Until 23 September
+2026 it applied only to the digest of recent conversations; cross-conversation memory never read
+it, so a private conversation was still searched and still quotable elsewhere. One list, one
+meaning, both paths.
+
+**Bringing notes over.** The things you told NERVIS to remember (*"remember that…"*) are kept on
+the computer that learned them — the file is deliberately not in the repository, because that
+repository is public. To share them, Settings → Another computer → **See what it was told to
+remember** lists the other computer's notes, ticked by default, and brings over the ones you
+keep ticked. A note keeps the day it was learned and the sentence that prompted it, and the same
+fact taught on both computers counts as one note. Nothing here is changed or removed.
 
 **Bringing conversations over.** This is the one most people want. Settings → Another computer →
 **See its conversations**: every conversation on the other computer is listed with its title, when

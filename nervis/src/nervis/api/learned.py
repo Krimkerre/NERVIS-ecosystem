@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from nervis import learned, logs
 from nervis.errors import NotFoundError
+from nervis.peers.computer import linked_peer, peer_json
 
 router = APIRouter(prefix="/api/v1/learned", tags=["learned"])
 
@@ -39,6 +40,65 @@ async def list_notes() -> dict[str, Any]:
         "count": len(found),
         "path": logs.shown(learned.path()),
     }
+
+
+@router.get("/peer")
+def what_they_know(request: Request) -> dict[str, Any]:
+    """The other computer's notes, and which of them this one does not have.
+
+    Notes are the third thing that crosses the link, after settings and conversations, and for
+    the same reason: they are kept per machine on purpose — `learned.md` is git-ignored because
+    the repository is public (owner's decision, 23 September 2026) — so without this a fact
+    taught to one computer would be known only there.
+
+    Reads only, and answers in one shape whether or not there is a link.
+    """
+    peer = linked_peer(request.app.state.database)
+    answer: dict[str, Any] = {"address": peer["address"], "detail": "", "changes": [],
+                              "same": 0, "reachable": False}
+    theirs, trouble = peer_json("/api/v1/learned")
+    listed = theirs.get("items") if isinstance(theirs, dict) else None
+    if not isinstance(listed, list):
+        answer["detail"] = trouble or (
+            "the other computer did not answer with notes — it may be running an older NERVIS"
+        ) if peer["address"] or trouble else (
+            "no other computer is linked — Settings → Another computer")
+        return answer
+    changes = learned.differences([one for one in listed if isinstance(one, dict)],
+                                  learned.notes())
+    answer["reachable"] = True
+    answer["changes"] = changes
+    answer["same"] = max(0, len(listed) - len(changes))
+    if not changes:
+        answer["detail"] = "nothing to bring over — this computer knows them all already"
+    return answer
+
+
+@router.post("/peer")
+async def bring_them_over(request: Request) -> dict[str, Any]:
+    """Bring the ticked notes here, read again from the other computer.
+
+    **The body chooses which; the other computer supplies what.** `{"ids": [...]}` names notes
+    by what they say (`learned.note_id`), and the text is taken from a fresh read — so what is
+    written is what that computer holds now, not what a browser was holding a minute ago.
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    wanted = {str(one) for one in body.get("ids", [])} if isinstance(body, dict) else set()
+    if not wanted:
+        return {"ok": False, "written": [], "detail": "nothing was ticked"}
+    theirs, trouble = peer_json("/api/v1/learned")
+    listed = theirs.get("items") if isinstance(theirs, dict) else None
+    if not isinstance(listed, list):
+        return {"ok": False, "written": [],
+                "detail": trouble or "the other computer did not answer"}
+    chosen = [one for one in listed if isinstance(one, dict)
+              and learned.note_id(str(one.get("heading", "")), str(one.get("body", ""))) in wanted]
+    written = learned.take(chosen)
+    return {"ok": bool(written), "written": [note.as_dict() for note in written],
+            "detail": "" if written else "none of those could be written"}
 
 
 @router.delete("/{heading}")

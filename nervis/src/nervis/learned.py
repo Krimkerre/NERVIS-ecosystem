@@ -25,6 +25,7 @@ NERVIS learned"; the endpoints exist for convenience, not as the only door.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -121,6 +122,69 @@ def remember(
     # until the next restart — which looks exactly like the feature not working.
     knowledge.forget_cached()
     return note
+
+
+def note_id(heading: str, body: str) -> str:
+    """A short, stable name for one note, the same on both computers.
+
+    Derived from what the note *says* rather than from where it sits in a file: the file is
+    append-only and hand-editable, so any position-based identifier would name a different
+    note the moment somebody tidied it. Used to tick one note in a list on this computer and
+    have the other computer know which one was meant.
+    """
+    digest = hashlib.sha1(f"{_clean(heading, MAX_HEADING)}\u0000{_clean(body, MAX_BODY)}"
+                          .encode()).hexdigest()
+    return digest[:12]
+
+
+def differences(theirs: list[dict[str, Any]], ours: list[Note]) -> list[dict[str, Any]]:
+    """The other computer's notes that this one does not have, in a shape a screen can render.
+
+    `state` is `new` when nothing here shares the heading, and `another` when the heading is
+    here already but this note is not — which is an ordinary thing rather than a conflict: the
+    file is append-only on purpose, and two notes under one heading are two notes.
+
+    Matched on heading *and* body, so the same fact taught to both computers on different days
+    is recognised as the same note even though its date and the sentence that prompted it
+    differ. What is compared is what was said, not when.
+    """
+    mine = {note_id(note.heading, note.body) for note in ours}
+    headings = {_clean(note.heading, MAX_HEADING).lower() for note in ours}
+    changes: list[dict[str, Any]] = []
+    for note in theirs:
+        heading, body = str(note.get("heading", "")), str(note.get("body", ""))
+        if not heading or not body:
+            continue
+        identifier = note_id(heading, body)
+        if identifier in mine:
+            continue
+        changes.append({
+            "id": identifier, "heading": heading, "body": body,
+            "learned_on": str(note.get("learned_on", "")),
+            "prompted_by": str(note.get("prompted_by", "")),
+            "state": "another" if _clean(heading, MAX_HEADING).lower() in headings else "new",
+        })
+    return changes
+
+
+def take(chosen: list[dict[str, Any]], *, root: Path | None = None) -> list[Note]:
+    """Write notes that came from another computer, keeping what they already carried.
+
+    **The date and the sentence that prompted it travel with the note.** A fact learned on
+    Sunday is a fact from Sunday wherever it is read, and rewriting either would turn somebody
+    else's note into this computer's own — the same rule conversations cross under.
+    """
+    written: list[Note] = []
+    for note in chosen:
+        try:
+            written.append(remember(
+                str(note.get("heading", "")), str(note.get("body", "")),
+                str(note.get("prompted_by", "")), root=root,
+                today=str(note.get("learned_on", "")),
+            ))
+        except ValueError:
+            continue
+    return written
 
 
 def notes(root: Path | None = None) -> list[Note]:

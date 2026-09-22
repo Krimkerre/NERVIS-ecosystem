@@ -60,7 +60,12 @@ described two different ways.
 
 Each of these was verified against the running system, not inferred.
 
-**1. The "Private" bar does not apply to recall.** Marking a conversation private writes its id
+> **Items 1, 4 and 5 were settled the same day.** The bar now applies to both paths
+> (NERVIS 0.34.90); `learned.md` is git-ignored because the repository is public, and notes
+> cross the link instead. The rest stand as written.
+
+**1. The "Private" bar does not apply to recall.** *(fixed, 23 September 2026 — one reader in
+`chat.barred()`, honoured by both paths, excluded in the query rather than after it.)* Marking a conversation private writes its id
 into `chat.memory_excluded`. The persona digest (C) honours that list. `recall.py` never reads it
 — its only filter is *"not the conversation I am in"*. So with recall on, a conversation the owner
 marked private is still searched, and still quotable into any other conversation. Two switches,
@@ -84,7 +89,8 @@ offers a button; pressing it files the sentence with its date and origin. The ma
 tested and documented — and `learned.md` does not exist on this machine. Nothing has ever been
 filed. Worth knowing before building anything new: the gap is not capability, it is habit.
 
-**5. Learned notes would be committed to git.** `nervis/knowledge/learned.md` is not ignored, so
+**5. Learned notes would be committed to git.** *(settled, 23 September 2026: ignored, and
+carried over the link instead — `GET`/`POST /api/v1/learned/peer`.)* `nervis/knowledge/learned.md` is not ignored, so
 personal facts would land in the repository and travel to the other computer with a `git pull`.
 That may be exactly what is wanted — it is a free sync — but it should be a decision rather than
 an accident, because "remember that my sister's birthday is…" would be in a public-ish repo.
@@ -129,9 +135,9 @@ cannot see.
    per block. Today two thirds is thrown away after the work of finding it.
 3. **Put a date on every remembered thing that reaches the model.** Recall already does it; the
    other three paths need one line each.
-4. **Decide about `learned.md` and git** — ignore it (private, per machine, travels only through
+4. ~~**Decide about `learned.md` and git** — ignore it (private, per machine, travels only through
    the link) or keep it tracked (shared, in history, visible in diffs). Either is defensible; the
-   accident is not.
+   accident is not.~~ **Done:** ignored, and shared through the link.
 5. **Then, and only then, links.** A note that can point at another note, and retrieval that
    follows the pointer one hop. That is the genuinely new capability, and it is worth having the
    house in order first.

@@ -16,6 +16,18 @@ __pycache__/
 # state, like the databases below, and belong to nobody but the machine.
 *.enrollment
 
+# **What NERVIS is told, which is nobody's business but the owner's.**
+# `knowledge/learned.md` is written when somebody presses "remember that…", and it holds
+# their own sentences — birthdays, hardware, whatever they wanted kept. This repository is
+# public (owner's decision, 23 September 2026), so the file stays on the machine that learned
+# it. `tools/check_status.py` already exempts it as written-at-runtime, and
+# `tools/knowledge_check.py` still checks it locally like any other note.
+#
+# The cost, stated: learned notes no longer travel between the owner's computers through a
+# `git pull`. Nothing else carries them yet — the link pulls settings and conversations, not
+# notes — so a fact taught to one computer is known only there until that is built.
+nervis/knowledge/learned.md
+
 # SQLite databases created by running the service. `ravis serve` writes
 # `ravis.db` into its working directory by default, and a database committed
 # alongside the code is a state file masquerading as source.

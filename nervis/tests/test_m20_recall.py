@@ -297,3 +297,99 @@ def test_a_request_with_no_persona_gets_no_recall() -> None:
     assert "memorable thing about badgers" in with_persona, (
         "recall stopped working for NERVIS's own assistant, which is who it is for"
     )
+
+
+# ── The Private bar, which this path used to ignore ──────────────────────────────────────
+#
+# Marking a conversation private writes its id into `chat.memory_excluded`. The persona digest
+# honoured that list; this one never read it, so a conversation somebody had marked private was
+# still searched and still quotable into a different conversation (found 23 September 2026 while
+# inventorying memory). One list, one meaning, every path that remembers.
+
+def _bar(database: Any, *conversation_ids: str) -> None:
+    with database.connection as connection:
+        connection.execute(
+            "INSERT INTO setting (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (store.MEMORY_EXCLUDED_SETTING, json.dumps(list(conversation_ids))),
+        )
+
+
+def _said(database: Any, title: str, *turns: str) -> str:
+    conversation_id = store.start_conversation(database, profile="ravis/chat", title=title)
+    for number, content in enumerate(turns):
+        store.append(database, conversation_id,
+                     store.Message(message_id=f"{conversation_id}-{number}",
+                                   role="user" if number % 2 == 0 else "assistant",
+                                   content=content))
+    return conversation_id
+
+
+def test_a_private_conversation_is_never_recalled(database: Any) -> None:
+    """The bar the interface offers, applied where it was not."""
+    private = _said(database, "Private one", "the graphics card lives in the cupboard upstairs")
+    _bar(database, private)
+
+    found = recall.search(database, "which cupboard holds the graphics card",
+                          exclude="somewhere-else")
+
+    assert found == [], "a conversation marked private is not searched"
+
+
+def test_an_unbarred_conversation_is_still_recalled(database: Any) -> None:
+    """The bar bars what was barred, and nothing else."""
+    _said(database, "Ordinary one", "the graphics card lives in the cupboard upstairs")
+    _bar(database, "some-other-conversation")
+
+    found = recall.search(database, "which cupboard holds the graphics card",
+                          exclude="somewhere-else")
+
+    assert [one.title for one in found] == ["Ordinary one"]
+
+
+def test_barring_happens_in_the_query_so_it_does_not_spend_the_window(database: Any) -> None:
+    """**Dropped by the database, not afterwards.**
+
+    `SEARCH_LIMIT` is applied by SQL, so rows filtered out in Python would still have spent the
+    window they were counted in: a long private conversation would go on narrowing what recall
+    could see, while being excluded from what it said.
+    """
+    private = store.start_conversation(database, profile="ravis/chat", title="Noisy private one")
+    for number in range(recall.SEARCH_LIMIT + 20):
+        store.append(database, private,
+                     store.Message(message_id=f"p{number}", role="user",
+                                   content=f"private chatter number {number}"))
+    _bar(database, private)
+    _said(database, "The old one", "the graphics card lives in the cupboard upstairs")
+
+    found = recall.search(database, "which cupboard holds the graphics card",
+                          exclude="somewhere-else")
+
+    assert [one.title for one in found] == ["The old one"], (
+        "the private conversation did not push the answer out of reach"
+    )
+
+
+def test_an_unreadable_bar_list_bars_nothing_and_says_nothing(database: Any) -> None:
+    """Failing to empty rather than to everything, deliberately: a corrupt setting must not
+    turn into "memory quietly stopped working", which nobody reports. The other failure — a
+    bar that vanished — is visible on the screen that sets it."""
+    _said(database, "Ordinary one", "the graphics card lives in the cupboard upstairs")
+    with database.connection as connection:
+        connection.execute(
+            "INSERT INTO setting (key, value) VALUES (?, 'not json at all')",
+            (store.MEMORY_EXCLUDED_SETTING,))
+
+    assert store.barred(database) == set()
+    found = recall.search(database, "cupboard graphics card", exclude="x")
+    assert [one.title for one in found] == ["Ordinary one"]
+
+
+def test_both_ways_of_remembering_read_the_same_list(database: Any) -> None:
+    """The defect was two readers, not a wrong one: the digest owned the rule and this path had
+    never heard of it."""
+    from nervis.api.chat_personas import _excluded
+
+    _bar(database, "one", "two")
+
+    assert _excluded(database) == store.barred(database) == {"one", "two"}
