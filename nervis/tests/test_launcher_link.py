@@ -64,6 +64,13 @@ def _launcher(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stored: object) -
     return run
 
 
+def _refuse_to_open(why: str):
+    """A `Popen` that fails the test if anything tries to start a process."""
+    def refuse(*_: object, **__: object) -> None:
+        raise AssertionError(f"opened {why}")
+    return refuse
+
+
 def _link_rows(run: ModuleType) -> list[tuple]:
     return [row for row in run._link() if row[0] == "Link"]
 
@@ -337,3 +344,56 @@ def test_a_keys_fingerprint_is_what_ssh_keygen_says(tmp_path: Path) -> None:
 
     assert run.link_key_fingerprint(public) == expected
     assert run.link_key_fingerprint("nonsense") == ""
+
+
+def test_a_link_that_is_already_open_is_not_opened_a_second_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """**Why pairing said "it has not allowed it yet" when it had** (22 September 2026).
+
+    Each forwarded port can be bound once, so a second `ssh` carrying the same forwards exits
+    immediately — and that reads as "did not connect". Pairing with a computer this one was
+    already linked to could therefore never finish, however many times Allow was pressed.
+    """
+    run = _launcher(monkeypatch, tmp_path, {"enabled": True, "address": "me@thinkpad"})
+    monkeypatch.setattr(run, "_recorded", lambda: {"Link": {"pid": 4242, "marker": "link"}})
+    monkeypatch.setattr(run, "_alive", lambda *_: True)
+    monkeypatch.setattr(run, "responds", lambda url, *_: "8721" in url)
+    monkeypatch.setattr(run.subprocess, "Popen",
+                        _refuse_to_open("a second tunnel over the one already running"))
+
+    found = run.link_probe("me@thinkpad", True)
+
+    assert found["connected"] is True and found["already"] is True
+    assert found["sirvis"] is True, "what answers through the link that is already there"
+    assert found["nervis"] is False
+
+
+def test_a_different_computer_is_still_tried_for_real(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The shortcut is only for the link that is open; another address is opened as usual."""
+    run = _launcher(monkeypatch, tmp_path, {"enabled": True, "address": "me@thinkpad"})
+    monkeypatch.setattr(run, "_recorded", lambda: {"Link": {"pid": 4242, "marker": "link"}})
+    monkeypatch.setattr(run, "_alive", lambda *_: True)
+    tried: list[list[str]] = []
+
+    class _Ssh:
+        def __init__(self, command: list[str], **_: object) -> None:
+            tried.append(command)
+
+        def poll(self) -> int | None:
+            return 1
+
+        def terminate(self) -> None:
+            return None
+
+        def communicate(self, timeout: float | None = None) -> tuple[str, str]:  # noqa: ARG002
+            return "", "ssh: Could not resolve hostname"
+
+    monkeypatch.setattr(run.subprocess, "Popen", _Ssh)
+    monkeypatch.setattr(run, "responds", lambda *_: False)
+
+    run.link_probe("someone@elsewhere", False)
+
+    assert tried and tried[0][-1] == "someone@elsewhere"

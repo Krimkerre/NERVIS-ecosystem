@@ -89,16 +89,41 @@ async def peer_preview(request: Request) -> dict[str, Any]:
 async def peer_apply(request: Request) -> dict[str, Any]:
     """Apply what the other computer has now, and report what was applied and skipped.
 
-    **Read again rather than taking a body.** The page has just shown a preview, and the
-    honest thing to apply is what the other machine holds at the moment somebody says yes —
-    not what a browser is holding from a minute ago, and not whatever a caller chose to post.
-    The preview is then a preview of this, rather than of a different request.
+    **Values are read again rather than taken from the body.** The page has just shown a
+    preview, and the honest thing to apply is what the other computer holds at the moment
+    somebody says yes — not what a browser is holding from a minute ago.
+
+    **The body chooses *which*, and only that.** `{"keys": [...]}` keeps the named settings
+    and drops the rest, because "bring everything or nothing" is not a choice anybody wants
+    to make about their own chat presets ("i want to be able to select which things i want to
+    bring over", 22 September 2026). A key that is not on the allowlist is skipped by
+    `import_settings` exactly as before — choosing fewer can never choose something wider.
     """
     peer = linked_peer(request.app.state.database)
     theirs, trouble = peer_settings()
     if theirs is None:
         return {"applied": [], "skipped": [],
                 "detail": trouble if peer["address"] else "no other computer is linked"}
+    chosen = await _chosen_keys(request)
+    if chosen is not None:
+        theirs = {**theirs, "settings": {key: value
+                                         for key, value in (theirs.get("settings") or {}).items()
+                                         if key in chosen}}
     outcome = import_settings(request.app.state.database, theirs)
     address = peer["address"] or "the computer that linked to this one"
     return {**outcome.as_dict(), "address": address, "detail": ""}
+
+
+async def _chosen_keys(request: Request) -> set[str] | None:
+    """The settings a person ticked, or None when they asked for all of them.
+
+    An absent or unreadable body means "everything", which is what the button did before
+    there were tick boxes and what a caller with no opinion should still get.
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or not isinstance(body.get("keys"), list):
+        return None
+    return {str(key) for key in body["keys"]}

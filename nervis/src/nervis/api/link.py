@@ -8,6 +8,7 @@ computer's password once and a web page is the wrong place to type that.
 from __future__ import annotations
 
 import json
+import socket
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -15,6 +16,7 @@ from fastapi import APIRouter, Request
 from nervis.discovery import Announcer, find_computers, own_name, tool
 from nervis.errors import InvalidConfigurationError
 from nervis.launcher import ask_launcher
+from nervis.peers.computer import LINK_BACK_NERVIS_PORT
 from nervis.storage.database import Database
 
 router = APIRouter(prefix="/api/v1/link", tags=["link"])
@@ -84,6 +86,24 @@ def findable(database: Database) -> bool:
         return False
 
 
+def linked_in() -> bool:
+    """Whether another computer has a link open *into* this one, right now.
+
+    **The two ends of a link do not look the same.** The computer that dialled has the address
+    in its settings; the one that was dialled has nothing at all — its evidence is the port the
+    other one opened backwards, which exists only while that link is up. Without this, the card
+    on the Mac said "not linked to anything" while the ThinkPad was linked into it and its
+    settings were being read through that very tunnel.
+
+    A loopback connect, so it costs nothing and cannot be wrong about a remote machine.
+    """
+    try:
+        with socket.create_connection(("127.0.0.1", LINK_BACK_NERVIS_PORT), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
 def _state(request: Request, detail: str = "") -> dict[str, Any]:
     announcer: Announcer = request.app.state.announcer
     database = request.app.state.database
@@ -95,6 +115,7 @@ def _state(request: Request, detail: str = "") -> dict[str, Any]:
         "detail": detail,
         "waiting_for": pending_request(database),
         "allowed": allowed_computers(database),
+        "linked_in": linked_in(),
     }
 
 
@@ -253,6 +274,17 @@ async def stop_allowing(request: Request) -> dict[str, Any]:
     _store(database, ALLOWED_KEY,
            [one for one in allowed_computers(database) if one.get("name") != name])
     return {"ok": True, "name": name, "removed": removed.get("removed", 0)}
+
+
+@router.post("/close")
+def close_the_link() -> dict[str, Any]:
+    """Close the tunnel now, leaving the rest of the stack running.
+
+    What *Unlink* presses after it has forgotten the address: a link that is no longer wanted
+    should stop being open, rather than staying up until the next time somebody stops the
+    stack.
+    """
+    return ask_launcher("close")
 
 
 @router.post("/check")

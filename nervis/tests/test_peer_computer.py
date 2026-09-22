@@ -204,6 +204,42 @@ def test_a_setting_only_this_machine_has_is_not_a_change(client: Any, monkeypatc
     assert answer["changes"] == []
 
 
+def test_only_the_settings_that_were_ticked_are_brought_over(
+    client: Any, monkeypatch: Any
+) -> None:
+    """**Choosing is the point** ("i want to be able to select which things i want to bring
+    over"), and choosing fewer can never choose something wider: the values still come from
+    the other computer and still go through the same allowlist."""
+    link_to(client)
+    put(client, "chat.mode", "ask")
+    monkeypatch.setattr("nervis.api.settings_transfer.peer_settings",
+                        lambda *_, **__: peer_holding({"chat.mode": "build",
+                                                       "user.display_name": "Mathias",
+                                                       "voice.enabled": True}))
+
+    outcome = client.post("/api/v1/settings/peer",
+                          json={"keys": ["chat.mode", "voice.enabled"]}).json()
+
+    assert sorted(outcome["applied"]) == ["chat.mode", "voice.enabled"]
+    held = client.get("/api/v1/settings").json()["items"]
+    assert held["chat.mode"] == "build" and held["voice.enabled"] is True
+    assert "user.display_name" not in held, "what was left unticked is left alone"
+
+
+def test_asking_for_nothing_in_particular_still_brings_everything(
+    client: Any, monkeypatch: Any
+) -> None:
+    """No `keys` means what the button meant before there were tick boxes: all of it."""
+    link_to(client)
+    monkeypatch.setattr("nervis.api.settings_transfer.peer_settings",
+                        lambda *_, **__: peer_holding({"chat.mode": "build",
+                                                       "user.display_name": "Mathias"}))
+
+    outcome = client.post("/api/v1/settings/peer").json()
+
+    assert sorted(outcome["applied"]) == ["chat.mode", "user.display_name"]
+
+
 def test_applying_takes_what_the_other_computer_holds_now(client: Any, monkeypatch: Any) -> None:
     """Applied from a fresh read, not from a body the page has been holding."""
     link_to(client)
@@ -211,7 +247,8 @@ def test_applying_takes_what_the_other_computer_holds_now(client: Any, monkeypat
     monkeypatch.setattr("nervis.api.settings_transfer.peer_settings",
                         lambda *_, **__: peer_holding({"chat.mode": "build"}))
 
-    outcome = client.post("/api/v1/settings/peer", json={"settings": {"chat.mode": "nonsense"}})
+    outcome = client.post("/api/v1/settings/peer",
+                          json={"keys": ["chat.mode"], "settings": {"chat.mode": "nonsense"}})
 
     assert outcome.status_code == 200, outcome.text
     assert outcome.json()["applied"] == ["chat.mode"]

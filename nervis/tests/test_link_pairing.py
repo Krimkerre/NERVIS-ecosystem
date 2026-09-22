@@ -45,24 +45,21 @@ class FakeLauncher:
 
     def __call__(self, *arguments: str, timeout: float = 0) -> dict[str, Any]:  # noqa: ARG002 — the real signature
         self.asked.append(arguments)
-        action = arguments[0]
         named = dict(zip(arguments[1::2], arguments[2::2]))
-        if action == "key":
-            return {"ok": True, "public_key": OUR_KEY, "fingerprint": "SHA256:ours"}
-        if action == "fingerprint":
-            return {"ok": True, "fingerprint": f"SHA256:{named['--key'].split()[-1][:6]}"}
-        if action == "authorize":
-            return {"ok": True, "already": False, "fingerprint": "SHA256:theirs"}
-        if action == "revoke":
-            return {"ok": True, "removed": 1}
-        if action == "test":
-            return {"ok": self.connected, "connected": self.connected, "sirvis": self.connected,
-                    "nervis": self.connected}
-        if action == "save":
-            return {"ok": True}
-        if action == "open":
-            return {"ok": True, "answering": True}
-        return {"ok": False, "detail": f"no such action {action}"}
+        answers: dict[str, Any] = {
+            "key": lambda: {"ok": True, "public_key": OUR_KEY, "fingerprint": "SHA256:ours"},
+            "fingerprint": lambda: {"ok": True,
+                                    "fingerprint": f"SHA256:{named['--key'].split()[-1][:6]}"},
+            "authorize": lambda: {"ok": True, "already": False, "fingerprint": "SHA256:theirs"},
+            "revoke": lambda: {"ok": True, "removed": 1},
+            "test": lambda: {"ok": self.connected, "connected": self.connected,
+                             "sirvis": self.connected, "nervis": self.connected},
+            "save": lambda: {"ok": True},
+            "open": lambda: {"ok": True, "answering": True},
+            "close": lambda: {"ok": True, "closed": 4242},
+        }
+        make = answers.get(arguments[0])
+        return make() if make else {"ok": False, "detail": f"no such action {arguments[0]}"}
 
 
 @pytest.fixture()
@@ -241,3 +238,30 @@ def test_without_a_launcher_it_says_so_rather_than_guessing(client: Any, monkeyp
     assert answer["ok"] is False
     assert "not started by the launcher" in answer["detail"]
     assert json.loads(json.dumps(answer))  # it is still an ordinary answer, not an error page
+
+
+def test_unlinking_closes_the_tunnel_now(client: Any, launcher: FakeLauncher) -> None:
+    """A link nobody wants any more stops being open, rather than lasting until the next stop."""
+    answer = client.post("/api/v1/link/close").json()
+
+    assert answer["ok"] is True
+    assert [one[0] for one in launcher.asked] == ["close"]
+
+
+def test_the_computer_that_was_dialled_into_says_it_is_linked(
+    client: Any, monkeypatch: Any
+) -> None:
+    """Both ends of a link report one, even though only one end holds an address.
+
+    Found on the Mac with the ThinkPad linked into it: the card read "not linked to anything"
+    while its settings were being read through that very tunnel.
+    """
+    monkeypatch.setattr(link_api, "linked_in", lambda: True)
+
+    answer = client.get("/api/v1/link/findable").json()
+
+    assert answer["linked_in"] is True
+
+
+def test_with_nothing_dialled_in_it_says_so(client: Any) -> None:
+    assert client.get("/api/v1/link/findable").json()["linked_in"] in (True, False)

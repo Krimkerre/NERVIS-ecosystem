@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4644 tests, no network, no live service
+.venv/bin/pytest                      # part of 4651 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1912 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1919 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4644 passing across the four, conformance `PASS`.
+Expected: all clean, 4651 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,39 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Pairing could never finish where a link was already open — 2026-09-22 (NERVIS 0.34.81)
+
+Three things the owner found by using it.
+
+**"ThinkPad says Govert hasn't allowed it yet, even though I did."** Allow had worked — Govert's
+`authorized_keys` held exactly one restricted line, labelled ThinkPadX13G2. What failed was the *check*:
+each forwarded port can be bound once, and the ThinkPad already had a link open from the terminal setup,
+so the probe's second `ssh` with the same forwards exited at once (`ExitOnForwardFailure`) and read as
+"did not connect". Pairing with a computer this one was already linked to could therefore never finish,
+however many times Allow was pressed. `link_probe` now recognises the link that is already open — its own
+recorded process, for the same address — and answers with what is reachable through it instead of opening
+a second one.
+
+**"Seems like we have 2 ways to do the same thing… let's simplify."** The card had grown a second way (type
+an address, tick two boxes, Save) while pairing was being built. It now reads: *state*, *be findable*,
+*find* (with one "link both ways" box), then what a link is for. Typing an address by hand is folded under
+*set it up by hand*, for a computer this network cannot find — another building, a VPN, discovery off.
+*Unlink* also closes the tunnel now (`POST /api/v1/link/close` → `link close`) rather than leaving it open
+until the next stop. And the state row was wrong on the computer that was *dialled into*: it said "not
+linked to anything" while its settings were being read through that very tunnel, because only the dialling
+end holds an address. It now recognises the port the other end opened backwards (`linked_in`).
+
+**"I want to be able to select which things I want to bring over."** Every setting in the preview has a
+tick box, all ticked to start with, plus *Untick all*; the body's `keys` chooses which, while the values
+are still read from the other computer at the moment somebody says yes, through the same allowlist. No
+`keys` still means everything, which is what the button meant before.
+
+Checked by two new tests in `nervis/tests/test_launcher_link.py` (the link that is already open is not
+opened twice; another address still is), two in `nervis/tests/test_peer_computer.py` (only the ticked
+settings are applied; no choice still brings everything), and two in `nervis/tests/test_link_pairing.py`
+(unlinking closes the tunnel; the dialled-into computer reports a link). NERVIS's suite is 1919; gates,
+ruff and mypy pass.
 
 ## The first real pairing failed on a space — 2026-09-22 (NERVIS 0.34.80)
 

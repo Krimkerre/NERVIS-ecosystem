@@ -326,7 +326,7 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.80, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.81, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
 - **Two computers can be linked from their screens, with no password and no terminal**
@@ -1394,7 +1394,9 @@ through WSL the network Linux sees is usually a private one inside Windows, so f
 empty there — typing the address into `link add` still works.
 
 **Bringing settings over.** Once two computers are linked, Settings → Another computer can copy that
-machine's settings here — **on either computer**, whichever one dialled: press *See what the other computer has* and it lists exactly which
+machine's settings here — **on either computer**, whichever one dialled. **You choose which**: every
+setting that differs has a tick box, all ticked to begin with, and *Bring the ticked ones over* takes
+only those. The rest are left exactly as they are: press *See what the other computer has* and it lists exactly which
 settings would change and what to, before anything happens. Only then does *Bring these over*
 apply them. Nothing is ever removed, and only the same safe list of settings that a backup file
 carries can cross — no passwords, no paths belonging to the other machine. It is deliberately a

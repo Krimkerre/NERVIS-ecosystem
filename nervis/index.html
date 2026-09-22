@@ -3942,9 +3942,11 @@ const API={
    return {linked:false,reachable:false,changes:[],detail:'NERVIS did not answer about the link'};
   },
 
-  async applyPeerSettings(){
+  /* `keys` is which settings to take; leaving it out takes all of them. The *values* always
+     come from the other computer, read again at that moment — the page only chooses. */
+  async applyPeerSettings(keys){
    return _workspaceDid(await fetch('/api/v1/settings/peer',
-     {method:'POST',headers:control_headers()}));
+     {method:'POST',headers:control_headers(),body:JSON.stringify({keys:keys||null})}));
   },
 
   /* Whether this computer announces itself on the local network, and under what name. */
@@ -3987,6 +3989,11 @@ const API={
 
   async checkLink(){
    return _workspaceDid(await fetch('/api/v1/link/check',
+     {method:'POST',headers:control_headers()}));
+  },
+
+  async closeLink(){
+   return _workspaceDid(await fetch('/api/v1/link/close',
      {method:'POST',headers:control_headers()}));
   },
 
@@ -9156,41 +9163,80 @@ function screenSection(){
 
    It takes effect at the next start, and says so: this page cannot open or close a
    tunnel, and a switch that looked instant would be a claim it is. */
+/* Which of the two ends this computer is. They do not look the same: the one that dialled
+   holds the address, and the one that was dialled into has only the port the other opened
+   backwards. The card said "not linked to anything" on the computer being read from, while
+   its settings were being read through that very tunnel (22 September 2026). */
+function linkStateChip(link,seen,on){
+ if(on)return `<span class="chip">linked to <span class="mono">${
+   escapeHtml(link.address)}</span></span>`;
+ return seen.linked_in?'<span class="chip">another computer is linked to this one</span>'
+                      :'<span class="chip">not linked to anything</span>';
+}
+
+/* The way in for a computer this network cannot find — another building, a VPN, one with
+   discovery switched off. Folded away, because pairing is the way that works without a
+   password and it should not be competing with a form. */
+function linkByHandRow(link){
+ return `<div class="trace-step"><b></b><span><details><summary class="mono"
+   style="cursor:pointer;opacity:.55">set it up by hand</summary>
+  <div style="margin-top:6px">
+   <label class="mono" style="display:block;opacity:.75;margin-bottom:2px">its address, as you
+    would give it to ssh</label>
+   <input id="linkPeer" class="mono" placeholder="mathias@thinkpad.local"
+    value="${escapeHtml(link.address||'')}"
+    style="width:100%;background:#0e151d;border:1px solid var(--line);border-radius:4px;
+    padding:6px 8px;color:inherit;font:inherit">
+   <label style="display:block;margin-top:4px"><input type="checkbox" id="linkOn"
+    ${link.enabled?'checked':''}> open this link when the stack starts</label>
+   <div style="margin-top:6px"><button class="btn primary" id="saveLink">Save</button>
+    <button class="btn" id="clearLink">Unlink</button></div>
+   <small class="mono dim">That computer still has to allow this one first, which from a
+   terminal is <span class="mono">python3 tools/run.py link add you@their-machine
+   --inbound</span>: it asks for that computer's password once and never again.</small>
+  </div></details></span></div>`;
+}
+
+/* Linking two computers, as three things in order: let this one be found, find another one,
+   and then what a link is for.
+
+   **One way to do it, not two.** The card grew a second way — type an address, tick two
+   boxes, press Save — while pairing was being built, and the owner said so: "seems like we
+   have 2 ways to do the same thing… let's simplify". Pairing is the one that works without a
+   password and without a terminal, so that is the card; typing an address by hand is still
+   possible, folded under "set it up by hand" for somebody linking to a computer that cannot
+   be found on this network (another building, a VPN, a machine with mDNS switched off). */
 async function linkSection(){
  const link=await API.nervis.peerLink();
  const seen=await API.nervis.findable();
  const on=!!(link.enabled&&link.address);
- const state=on?'<span class="chip">on — opens at the next start</span>'
-               :'<span class="chip">off — no port is opened</span>';
+ const state=linkStateChip(link,seen,on);
  return `<div class="card wide${on?' live':''}"><h3>Link to another computer</h3>${cell(`
-  <div class="trace-step"><b>state</b><span>${state}</span></div>
-  <div class="trace-step"><b>link</b><span><label><input type="checkbox" id="linkOn"
-    ${link.enabled?'checked':''}> reach the other computer's SIRVIS and NERVIS from this one</label></span></div>
-  <div class="trace-step"><b>address</b><span><input id="linkPeer" class="mono"
-    placeholder="mathias@thinkpad.local" value="${escapeHtml(link.address||'')}"
-    style="width:100%;background:#0e151d;border:1px solid var(--line);border-radius:4px;
-    padding:6px 8px;color:inherit;font:inherit"></span></div>
-  <div class="trace-step"><b>the other way</b><span><label><input type="checkbox" id="linkIn"
-    ${link.inbound?'checked':''}> let the other computer reach <b>this</b> one</label></span></div>
-  <div class="trace-step"><b></b><span><button class="btn primary" id="saveLink">Save</button>
-   <button class="btn" id="clearLink">Turn it off</button></span></div>
-  <div class="trace-step"><b>settings</b><span><button class="btn" id="pullSettings">See what
-   the other computer has</button> <span id="linkPull"></span></span></div>
+  <div class="trace-step"><b>state</b><span>${state}
+   ${on&&link.inbound?'<span class="chip">both ways</span>':''}</span></div>
   <div class="trace-step"><b>be findable</b><span><label><input type="checkbox" id="linkFindable"
     ${seen.findable?'checked':''}> let other computers on this network find this one
     ${seen.name?`(as <span class="mono">${escapeHtml(seen.name)}</span>)`:''}</label>
     <span id="findableSaid">${findableWords(seen)}</span></span></div>
   <div class="trace-step"><b>find</b><span><button class="btn" id="findComputers">Find computers
-   on this network</button> <span id="foundComputers"></span></span></div>
+   on this network</button>
+   <label style="margin-left:8px"><input type="checkbox" id="linkIn"
+    ${link.inbound!==false?'checked':''}> link both ways</label>
+   <span id="foundComputers"></span></span></div>
   ${waitingToLink(seen.waiting_for)}
   ${allowedComputers(seen.allowed)}
-  <small class="mono dim">Set this up in one command, which makes the key and authorises this
-  machine on the other one: <span class="mono">python3 tools/run.py link add you@their-machine
-  --inbound</span> — it asks for that machine's password once, in your terminal, and never
-  again. Nothing is stored here but the address. Both forwarded ports
-  are <b>loopback</b> at both ends (<span class="mono">127.0.0.1</span>), so neither is reachable
-  from anything else on the network. Off is the default and off opens nothing. Applied by the
-  launcher at the next <b>start</b>; the link stops when the stack does.</small>`,'nervis')}</div>`;
+  ${on||seen.linked_in?`<div class="trace-step"><b>settings</b><span><button class="btn"
+   id="pullSettings">See what the other computer has</button>
+   <span id="linkPull"></span></span></div>`:''}
+  ${linkByHandRow(link)}
+  <small class="mono dim">Two computers pair the way two devices pair: press <b>Link to this
+  computer</b> on one, <b>Allow</b> on the other, and the link opens itself — no password is
+  asked for anywhere, because Allow runs on the computer being joined, where NERVIS is already
+  yours. Both screens show the same <b>fingerprint</b>; check they match. The key that gets
+  written can do nothing but open the forwarded ports — no shell, no commands — and both ends
+  stay <b>loopback</b> (<span class="mono">127.0.0.1</span>), so nothing is reachable from the
+  network. Nothing is announced or opened until you switch it on, and the link stops when the
+  stack does.</small>`,'nervis')}</div>`;
 }
 
 /* The announcement's state in words. On and not announcing is the case worth a sentence:
@@ -9319,8 +9365,11 @@ function peerSettingRow(change){
   ?`${said('not set here')} → <span class="mono">${escapeHtml(settingSummary(change.theirs))}</span>`
   :`${said(escapeHtml(settingSummary(change.ours)))} → <span class="mono">${
      escapeHtml(settingSummary(change.theirs))}</span>`;
- return `<div class="trace-step"><b>${escapeHtml(settingLabel(change.key))}</b><span>${arrow}
-  ${settingDetail(change)}</span></div>`;
+ /* **One tick box per setting**, all ticked to start with: bringing everything is the common
+    case, and "all or nothing" is not a choice anybody wants to make about their own presets. */
+ return `<div class="trace-step"><b><label><input type="checkbox" class="pullPick" checked
+   value="${jsAttr(change.key)}"> ${escapeHtml(settingLabel(change.key))}</label></b>
+  <span>${arrow}${settingDetail(change)}</span></div>`;
 }
 
 /* What a pull would change, as a few small groups somebody reads before agreeing to it.
@@ -9345,9 +9394,10 @@ function peerSettingsPreview(found){
   ${said(`${escapeHtml(String(changes.length))} would change · ${
     escapeHtml(String(found.unchanged||0))} already agree`)}
   ${groups}
-  <div class="trace-step"><b></b><span><button class="btn primary" id="applyPull">Bring these
-   ${escapeHtml(String(changes.length))} over</button>
-   ${said('nothing here is removed, and only these change')}</span></div></div>`;
+  <div class="trace-step"><b></b><span><button class="btn primary" id="applyPull">Bring the
+   ticked ones over</button>
+   <button class="btn" id="pullNone">Untick all</button>
+   ${said('nothing here is removed, and only what is ticked changes')}</span></div></div>`;
 }
 
 /* The buttons on the rows a search wrote. Link asks the other computer; Allow answers a
@@ -9423,9 +9473,19 @@ function wireLinkCard(){
   const where=$('#linkPull');
   where.innerHTML='<span class="mono" style="opacity:.75">asking the other computer…</span>';
   where.innerHTML=peerSettingsPreview(await API.nervis.peerSettings());
+  const none=$('#pullNone');
+  if(none)none.onclick=()=>{
+   const boxes=[...document.querySelectorAll('.pullPick')];
+   const anyTicked=boxes.some(box=>box.checked);
+   boxes.forEach(box=>{box.checked=!anyTicked});
+   none.textContent=anyTicked?'Tick all':'Untick all';
+  };
   const apply=$('#applyPull');
   if(apply)apply.onclick=async()=>{
-   const outcome=await API.nervis.applyPeerSettings();
+   const keys=[...document.querySelectorAll('.pullPick')].filter(box=>box.checked)
+     .map(box=>box.value);
+   if(!keys.length){notify('Nothing is ticked, so nothing was brought over');return}
+   const outcome=await API.nervis.applyPeerSettings(keys);
    notify(outcome.ok
      ?`Brought over ${(outcome.applied||[]).length} setting(s)`
      :(outcome.detail||'NERVIS refused that'));
@@ -9472,7 +9532,11 @@ function wireLinkCard(){
  if(off)off.onclick=async()=>{
   const outcome=await API.nervis.savePeerLink(
     {enabled:false,address:($('#linkPeer').value||'').trim(),inbound:false});
-  notify(outcome.ok?'Link off — nothing is opened at the next start'
+  /* And close it now: a link nobody wants any more should not stay open until the next time
+     the stack is stopped. The address is kept — unlinking and retyping it next week are two
+     different requests, and only one of them was made. */
+  if(outcome.ok)await API.nervis.closeLink();
+  notify(outcome.ok?'Unlinked — the tunnel is closed'
                    :(outcome.detail||'NERVIS refused that'));
   if(outcome.ok)await settingsView();
  };

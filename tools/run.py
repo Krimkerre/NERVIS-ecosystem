@@ -948,16 +948,26 @@ def link_probe(address: str, inbound: bool, seconds: float = 20.0) -> dict[str, 
     answering behind them means the other computer's stack is not started, which is not a fault
     of the link and must not be reported as one.
     """
+    sirvis_url = f"http://127.0.0.1:{LINK_LOCAL_PORT}/ecosystem/health"
+    nervis_url = f"http://127.0.0.1:{LINK_LOCAL_NERVIS_PORT}/api/v1/health"
+    # **A link that is already open is the answer, not something to open again.** Every
+    # forwarded port can be bound once: a second `ssh` with the same forwards exits at once
+    # (`ExitOnForwardFailure`), which reads as "it did not connect" — so pairing with a
+    # computer this one was already linked to reported *"Govert has not allowed it yet"*
+    # forever, on 22 September 2026, with the key sitting authorised on Govert all along.
+    if (str(configured_link().get("address") or "") == address
+            and _still_ours(_recorded().get("Link"),
+                            f"{LINK_LOCAL_PORT}:127.0.0.1:{SIRVIS_PORT}")):
+        return {"sirvis": responds(sirvis_url, 2.0), "nervis": responds(nervis_url, 2.0),
+                "connected": True, "already": True}
     opened = subprocess.Popen(link_command(address, inbound),
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         deadline = time.monotonic() + seconds
         answers: dict[str, object] = {"sirvis": False, "nervis": False}
         while time.monotonic() < deadline and not (answers["sirvis"] and answers["nervis"]):
-            answers["sirvis"] = answers["sirvis"] or responds(
-                f"http://127.0.0.1:{LINK_LOCAL_PORT}/ecosystem/health", 2.0)
-            answers["nervis"] = answers["nervis"] or responds(
-                f"http://127.0.0.1:{LINK_LOCAL_NERVIS_PORT}/api/v1/health", 2.0)
+            answers["sirvis"] = answers["sirvis"] or responds(sirvis_url, 2.0)
+            answers["nervis"] = answers["nervis"] or responds(nervis_url, 2.0)
             if opened.poll() is not None:
                 break
             time.sleep(0.5)
