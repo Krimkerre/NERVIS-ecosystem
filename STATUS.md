@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4673 tests, no network, no live service
+.venv/bin/pytest                      # part of 4680 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1941 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1948 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4673 passing across the four, conformance `PASS`.
+Expected: all clean, 4680 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,33 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## A search box for the history, and a breaker that stopped shouting "closed" — 2026-09-22 (NERVIS 0.34.85)
+
+*"I want options for history browsing… a searchbar, so I can put in a search term if I don't know which
+chat holds the conversation I need."*
+
+`GET /api/v1/chat/search?q=` searches **NERVIS's** store rather than the browser's: titles and every
+turn, newest activity first, with the number of turns that matched and a snippet cut around the match so
+the word is visible in what was actually said. That is the point of asking NERVIS — a browser remembers
+fifty conversations and NERVIS holds all of them, including those brought over from another computer, and
+the case for a search box is precisely not knowing where the answer is. A plain `LIKE` with `%` and `_`
+escaped, so somebody typing "100%" is typing a number rather than a pattern. The box sits at the top of
+the history drawer and writes its results into their own element rather than through `render()`, which
+rebuilds the screen and would take the caret with it.
+
+**And the word "closed".** The owner asked what had happened to OpenRouter because its breaker said
+`closed` — which is the healthy state: a closed circuit is one current flows through. The Health table
+now says **working**, **paused after errors** or **trying again**, with the engineering word kept on
+hover. Nothing had happened to OpenRouter; every provider was reading `not probed`, because nothing had
+called one since the restart.
+
+Checked by `nervis/tests/test_chat_search.py` (7: a word from the middle of a conversation finds it, the
+title counts, the snippet shows the word in context and stays short, `%` is searched for rather than
+matching everything, an empty search finds nothing rather than everything, newest first and bounded, and
+the route answers with what it searched for). **Seen live:** searching "thinkpad" against the Mac's real
+history returned two conversations with their sentences, one of them a 138-turn chat where the word
+appears twenty times. NERVIS's suite is 1948; gates, ruff and mypy pass.
 
 ## Brought-over conversations were invisible, and names drift — 2026-09-22 (NERVIS 0.34.84)
 

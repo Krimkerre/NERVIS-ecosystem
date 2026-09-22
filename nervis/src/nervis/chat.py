@@ -99,6 +99,70 @@ def conversations(database: Database) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+#: How many conversations one search answers with. A drawer is scrolled, not paged, and a
+#: search that returns everything it matched on a common word is a wall rather than an answer.
+SEARCH_LIMIT = 60
+
+#: How much of the matching turn to show, and how much of it to put before the match.
+SNIPPET_LENGTH = 160
+SNIPPET_LEAD = 40
+
+
+def _snippet(content: str, term: str) -> str:
+    """The matching turn, cut around the match so the word somebody searched for is visible."""
+    flat = " ".join(str(content or "").split())
+    at = flat.lower().find(term.lower())
+    if at < 0:
+        return flat[:SNIPPET_LENGTH] + ("…" if len(flat) > SNIPPET_LENGTH else "")
+    start = max(0, at - SNIPPET_LEAD)
+    piece = flat[start:start + SNIPPET_LENGTH]
+    return ("…" if start else "") + piece + ("…" if start + SNIPPET_LENGTH < len(flat) else "")
+
+
+def search(database: Database, term: str, limit: int = SEARCH_LIMIT) -> list[dict[str, Any]]:
+    """Conversations whose title or turns contain `term`, newest activity first.
+
+    **Asked of NERVIS rather than of the browser**, which is the whole point: a browser
+    remembers the last fifty conversations and NERVIS holds every one, including those brought
+    over from another computer. Searching the list on screen would search the wrong thing.
+
+    A plain `LIKE`, with `%` and `_` escaped so a search for "100%" is a search for "100%" —
+    not a pattern. Which is also why this is not a regular expression: somebody typing into a
+    box in a drawer is typing words, not syntax.
+    """
+    wanted = str(term or "").strip()
+    if not wanted:
+        return []
+    pattern = "%" + wanted.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    rows = database.connection.execute(
+        """
+        SELECT c.conversation_id, c.title, c.created_at, c.updated_at,
+               (SELECT COUNT(*) FROM chat_message m
+                 WHERE m.conversation_id = c.conversation_id) AS messages,
+               (SELECT COUNT(*) FROM chat_message m
+                 WHERE m.conversation_id = c.conversation_id
+                   AND m.content LIKE ? ESCAPE '\\') AS hits,
+               (SELECT m.content FROM chat_message m
+                 WHERE m.conversation_id = c.conversation_id
+                   AND m.content LIKE ? ESCAPE '\\'
+                 ORDER BY m.created_at, m.rowid LIMIT 1) AS matched
+          FROM chat_conversation c
+         WHERE c.title LIKE ? ESCAPE '\\'
+            OR EXISTS (SELECT 1 FROM chat_message m
+                        WHERE m.conversation_id = c.conversation_id
+                          AND m.content LIKE ? ESCAPE '\\')
+         ORDER BY c.updated_at DESC, c.created_at DESC
+         LIMIT ?
+        """,
+        (pattern, pattern, pattern, pattern, max(1, int(limit))),
+    )
+    return [{"conversation_id": row["conversation_id"], "title": row["title"],
+             "created_at": row["created_at"], "updated_at": row["updated_at"],
+             "messages": row["messages"], "hits": row["hits"],
+             "snippet": _snippet(row["matched"] or "", wanted) if row["matched"] else ""}
+            for row in rows]
+
+
 def messages(database: Database, conversation_id: str) -> list[Message]:
     rows = database.connection.execute(
         "SELECT * FROM chat_message WHERE conversation_id = ? ORDER BY created_at, rowid",

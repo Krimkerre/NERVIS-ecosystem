@@ -13163,7 +13163,19 @@ async function ravisPools(){
    <div class="trace-step"><b>reason</b><span>${escapeHtml(x.reason||'not published — a pool reports availability, not a diagnosis')}</span></div>
    <small class="mono dim">a request to this pool returns NO_ROUTE. Serving it from the nearest thing available would answer with something that cannot hold the request, and the caller named the pool precisely because that matters.</small>`,'ravis')}</div>`).join('')}`}
 
-/* Providers — health, circuit breakers and the connection facts. `credential` is
+/* A circuit breaker's state, in words that mean what they say.
+
+   **"Closed" reads as "shut off" to everybody who has not built one.** It is the opposite:
+   a closed circuit is one current flows through, so closed is the healthy state and open is
+   the tripped one. The owner asked what had happened to OpenRouter because its breaker said
+   closed, which was the screen reporting that it was fine (22 September 2026). The raw word
+   is kept in the title attribute, for anybody who wants the engineering term. */
+function breakerWords(state){
+ const said={CLOSED:'working',OPEN:'paused after errors',HALF_OPEN:'trying again'};
+ return said[String(state||'').toUpperCase()]||String(state||'');
+}
+
+/* Providers — health, circuit breakers and the connection facts./* Providers — health, circuit breakers and the connection facts. `credential` is
    a presence flag and nothing else: no key value ever reaches this surface, which
    is why the column can be rendered at all.
 
@@ -13279,7 +13291,7 @@ async function ravisProviders(){
    ['Transparent',String(p.items.filter(x=>x.protocol==='OPENAI_TRANSPARENT').length),'of '+p.items.length+' need no translation','ravis',p.live]])
  +`<div class="card full${escapeHtml(liveClass(p.live))}"><h3>Health</h3>${cell(`
    <div class="table-row head seven"><span>Provider</span><span>Kind</span><span>Protocol</span><span>Credential</span><span>Breaker</span><span>Errors</span><span>p50</span></div>
-   ${p.items.map(x=>`<div class="table-row seven"><span>${escapeHtml(x.label)} <small class="mono" style="opacity:.45">${escapeHtml(x.provider_id)}</small></span><span>${escapeHtml(x.kind)}</span><span class="mono"><a href="#" onclick="PROVIDERS.explainProtocol('${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}');return false" style="color:inherit;text-decoration:underline dotted" title="what RAVIS does to a request on this path">${escapeHtml(x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated')}</a></span><span class="mono" style="opacity:.75">${escapeHtml(x.credential)}</span><span class="chip${x.breaker==null?'':warnUnless(x.breaker==='CLOSED')}"${x.breaker==null?' style="opacity:.5" title="never called — not a verdict"':''}>${x.breaker==null?'not probed':escapeHtml(x.breaker)}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${escapeHtml(x.p50_ms?x.p50_ms+' ms':'—')}</span></div>`).join('')}
+   ${p.items.map(x=>`<div class="table-row seven"><span>${escapeHtml(x.label)} <small class="mono" style="opacity:.45">${escapeHtml(x.provider_id)}</small></span><span>${escapeHtml(x.kind)}</span><span class="mono"><a href="#" onclick="PROVIDERS.explainProtocol('${x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated'}');return false" style="color:inherit;text-decoration:underline dotted" title="what RAVIS does to a request on this path">${escapeHtml(x.protocol==='OPENAI_TRANSPARENT'?'transparent':'translated')}</a></span><span class="mono" style="opacity:.75">${escapeHtml(x.credential)}</span><span class="chip${x.breaker==null?'':warnUnless(x.breaker==='CLOSED')}"${x.breaker==null?' style="opacity:.5" title="never called — not a verdict"':''}>${x.breaker==null?'not probed':escapeHtml(breakerWords(x.breaker))}</span><span${x.error_rate>.1?' style="color:#ffb648"':''}>${pct(x.error_rate)}</span><span>${escapeHtml(x.p50_ms?x.p50_ms+' ms':'—')}</span></div>`).join('')}
    <div id="protocolNote" class="trace-step" style="display:none"></div>
    <small class="mono dim">${p.items.map(x=>`<b>${escapeHtml(x.label)}</b> — ${escapeHtml(x.note)}`).join('<br>')}</small>`,'ravis')}</div>
   <div class="card full${escapeHtml(liveClass(p.live))}"><h3>Connection <span class="chip">wiring</span></h3>${cell(`
@@ -15412,13 +15424,72 @@ function heldConversationRow(row){
     onclick="forgetHeld('${jsAttr(row.conversation_id)}')">${armedHere?'Confirm':'Delete'}</button></span></div>`;
 }
 
+/* Finding a conversation by what was said in it.
+
+   **Asked of NERVIS, not of the list on screen.** A browser remembers the last fifty
+   conversations; NERVIS holds every one, including those brought over from another computer.
+   Searching what is on screen would search the wrong thing — the owner's ask was exactly the
+   case where they do not know which conversation holds the answer. */
+const CHAT_SEARCH={term:'',typing:0};
+
+function chatSearchTyped(value){
+ clearTimeout(CHAT_SEARCH.typing);
+ /* A pause rather than a request per keystroke: each one is a read of the whole store. */
+ CHAT_SEARCH.typing=setTimeout(()=>runChatSearch(value),250);
+}
+
+async function runChatSearch(value){
+ const term=String(value||'').trim();
+ CHAT_SEARCH.term=term;
+ const where=document.getElementById('chatSearchResults');
+ const list=document.getElementById('chatHistoryList');
+ if(!where)return;
+ /* The results are written straight into their own box rather than through `render()`,
+    which rebuilds the screen — and would take the caret out of the search field with it. */
+ if(!term){where.innerHTML='';if(list)list.style.display='';return}
+ if(list)list.style.display='none';
+ where.innerHTML='<small class="mono dim">searching…</small>';
+ let items=[];
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/chat/search?q='+encodeURIComponent(term),
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(r.ok)items=(await r.json()).items||[];
+ }catch(e){where.innerHTML='<small class="mono dim">NERVIS did not answer</small>';return}
+ where.innerHTML=items.length
+  ?`<small class="mono dim">${escapeHtml(String(items.length))} conversation(s) mention
+     <b>${escapeHtml(term)}</b></small>${items.map(searchResultRow).join('')}`
+  :`<small class="mono dim">nothing mentions <b>${escapeHtml(term)}</b></small>`;
+}
+
+function searchResultRow(row){
+ return `<div class="trace-step" style="align-items:flex-start">
+   <b style="min-width:0"><a href="#" onclick="openConversation('${jsAttr(row.conversation_id)}');return false"
+     style="color:inherit">${escapeHtml(row.title||'(untitled)')}</a></b>
+   <span class="mono dim">${escapeHtml(String(row.updated_at||'').slice(0,16).replace('T',' '))}
+    · ${escapeHtml(String(row.hits||0))} of ${escapeHtml(String(row.messages||0))} turns<br>
+    <span style="opacity:.75">${escapeHtml(row.snippet||'')}</span></span></div>`;
+}
+
+/* Open a conversation by NERVIS's id, wherever its copy happens to be: this browser's, if it
+   has one, and NERVIS's if not. A search crosses that line constantly, so the caller should
+   not have to know which side of it a result is on. */
+function openConversation(id){
+ const mine=CHAT_STORE.read().find(c=>c.remote_id===id||c.conversation_id===id);
+ return mine?CHAT_SESSIONS.open(mine.conversation_id):CHAT_SESSIONS.openHeld(id);
+}
+
 /* Conversations kept in this browser, and the way back into one. */
 function historyPane(){
  const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
  const held=heldOnlyRows();
- return heldRow()+held+(saved.length?`${saved.map(historyRow).join('')}
+ const search=`<div class="trace-step"><b>search</b><span><input id="chatSearch" class="mono"
+   placeholder="a word somebody said" value="${escapeHtml(CHAT_SEARCH.term)}"
+   oninput="chatSearchTyped(this.value)"
+   style="width:100%;background:#0b1118;border:1px solid #2a3541;color:#cfe;border-radius:5px;
+   padding:5px 7px"></span></div><div id="chatSearchResults"></div>`;
+ return search+`<div id="chatHistoryList">`+heldRow()+held+(saved.length?`${saved.map(historyRow).join('')}
    <small class="mono dim">this list is what <b>this browser</b> remembers. The conversations themselves are stored by <b>NERVIS</b>, on this machine — §7.2 keeps them local to the machine, which is not the same as local to the tab, and another browser keeps a different list of the same conversations. <b>Delete removes both copies.</b></small>`
-  :(held?'':`<small class="mono dim">this browser lists no other conversation. That is not the same as none existing: the conversations are stored by <b>NERVIS</b>, and a different browser keeps a different list of them.</small>`));
+  :(held?'':`<small class="mono dim">this browser lists no other conversation. That is not the same as none existing: the conversations are stored by <b>NERVIS</b>, and a different browser keeps a different list of them.</small>`))+`</div>`;
 }
 
 function historyRow(c){

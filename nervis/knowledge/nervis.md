@@ -326,7 +326,7 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.84, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.85, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
 - **Conversations can be brought over from your other computer** (22 September, NERVIS 0.34.82):
@@ -1410,6 +1410,12 @@ built into macOS, and **Avahi** on Linux, which the installer adds (Debian/Ubunt
 Arch/CachyOS `avahi`, Fedora `avahi-tools`, plus the `avahi-daemon` service). Under Windows
 through WSL the network Linux sees is usually a private one inside Windows, so finding may come up
 empty there — typing the address into `link add` still works.
+
+**Searching your conversations.** Chat → history has a **search** box at the top: type a word
+somebody said and it lists every conversation that mentions it, with the sentence it appears in,
+how many turns matched, and when it was last used. It searches **NERVIS's** copy, not the
+browser's, so it finds conversations this browser has never seen — including ones brought over
+from another computer and older ones the browser has forgotten. Clicking a result opens it.
 
 **Where brought-over conversations appear.** In **Chat → history**, like any other. The list in
 that drawer is partly this browser's own (it remembers the last 50) and partly NERVIS's, which

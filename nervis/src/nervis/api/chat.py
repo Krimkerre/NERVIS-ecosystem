@@ -139,6 +139,20 @@ async def list_conversations(request: Request) -> dict[str, Any]:
     return {"items": store.conversations(request.app.state.database)}
 
 
+@router.get("/search")
+async def search_conversations(request: Request, q: str = "", limit: int = store.SEARCH_LIMIT
+                               ) -> dict[str, Any]:
+    """Conversations that mention something, for the search box in the history drawer.
+
+    Declared **before** `/conversations/{conversation_id}`-style paths on purpose is not the
+    issue here — this one has its own name — but it is still a read of the same store, and it
+    is NERVIS's store rather than any browser's: that is what lets somebody find a
+    conversation this browser has never seen, including one brought over from another
+    computer.
+    """
+    return {"items": store.search(request.app.state.database, q, limit), "term": q.strip()}
+
+
 @router.get("/conversations/{conversation_id}")
 async def read_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
     database = request.app.state.database
