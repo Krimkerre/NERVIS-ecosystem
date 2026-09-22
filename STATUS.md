@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4693 tests, no network, no live service
+.venv/bin/pytest                      # part of 4701 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1961 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1969 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4693 passing across the four, conformance `PASS`.
+Expected: all clean, 4701 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,37 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## What compaction keeps: sections, the words themselves, and a visible mark — 2026-09-23 (NERVIS 0.34.88)
+
+The owner asked how ChatGPT and Claude handle compaction, and then for all three of what that comparison
+suggested.
+
+**The summary is asked for in sections** (`SUMMARY_SECTIONS`) rather than as prose — what the conversation
+is about, decisions and preferences stated, names and numbers and exact strings, open threads — which is
+how this tool summarises its own sessions, and the difference is what survives: asked for "a summary", a
+model writes something readable and drops the file name, the port number and the thing decided *against*.
+The prompt also now says to drop anything it is guessing at.
+
+**The turns a question is about travel with it, word for word** (`relevant_older`). This is the real
+answer to last night's nonsense: a summary is lossy and a question is specific, so a model asked about
+something only the summarised turns knew could previously either say so or invent — and it invented. The
+conversation is in the database, so the older turns that mention the question's distinctive words are sent
+alongside the summary, as a second `system` note, in their own words. A word match rather than an
+embedding: exact, free, needs no model to be up, and its failure mode (a turn that used other words) is
+simply what happened before. Bounded to four turns and 3,000 characters so it cannot undo the compaction —
+and a matching turn too long for what is left is **trimmed rather than dropped**, because it is long
+precisely because it said a lot about what was asked.
+
+**And the chat screen says so**: a chip reading "earlier N turns summarised", with what that means on
+hover. A reply built on a summary looked exactly like one built on the whole conversation, which is why
+the only way to notice was a bad answer.
+
+Checked by nine more tests in `nervis/tests/test_compaction.py` (21 there now): the turns that mention the
+question are quoted and the unrelated ones are not, order is kept, a question with nothing in common
+quotes nothing, the bound holds, a long match is trimmed not dropped, the summary comes before the quotes,
+a reopened conversation quotes nothing because it has asked nothing, and the fold is asked for sections.
+NERVIS's suite is 1969; gates, ruff and mypy pass.
 
 ## The summary note told the model to trust its own memory — 2026-09-23 (NERVIS 0.34.87)
 

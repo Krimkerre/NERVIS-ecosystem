@@ -326,7 +326,7 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.87, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.88, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
 - **Conversations can be brought over from your other computer** (22 September, NERVIS 0.34.82):
@@ -1410,6 +1410,15 @@ built into macOS, and **Avahi** on Linux, which the installer adds (Debian/Ubunt
 Arch/CachyOS `avahi`, Fedora `avahi-tools`, plus the `avahi-daemon` service). Under Windows
 through WSL the network Linux sees is usually a private one inside Windows, so finding may come up
 empty there — typing the address into `link add` still works.
+
+**What a shortened conversation still remembers.** Three things keep it honest. The summary is
+written under fixed headings — what the conversation is about, decisions and preferences, names
+and numbers worth keeping, open threads — so the details that matter later survive instead of
+being smoothed into prose. When you ask about something, the older turns that **mention** it are
+sent along with the summary, **in the words they were said in**, so an exact answer is still
+possible after the summary has blurred it. And the chat screen says when a conversation is being
+shortened, with how many turns are travelling as a summary, so a reply built on one does not look
+like a reply built on everything.
 
 **Long conversations are shortened for the model, never on disk.** A model can only read so
 much at once, and every conversation used to be sent whole with every message — a 138-turn chat

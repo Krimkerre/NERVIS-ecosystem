@@ -133,23 +133,31 @@ SUMMARY_PREFACE = (
 )
 
 
-def folded(turns: list[dict[str, Any]], summary: str, budget: int = RECENT_BUDGET
-           ) -> tuple[list[dict[str, Any]], int]:
+def folded(turns: list[dict[str, Any]], summary: str, budget: int = RECENT_BUDGET,
+           question: str = "") -> tuple[list[dict[str, Any]], int]:
     """What to send, and how many turns it stands in for.
 
     With nothing to summarise this is the conversation exactly as it is. With a summary, the
-    note goes first, as a `system` turn: it is context about the conversation rather than
-    something anybody said in it.
+    note goes first as a `system` turn — context about the conversation rather than something
+    anybody said in it — followed, when `question` mentions something the summarised turns
+    talked about, by those turns in their own words (`relevant_older`).
     """
     older, recent = split(turns, budget)
     if not older:
         return turns, 0
-    if not summary:
+    quoted = relevant_older(older, question)
+    notes: list[dict[str, Any]] = []
+    if summary:
+        notes.append({"role": "system", "content": SUMMARY_PREFACE + summary[:SUMMARY_LIMIT]})
+    if quoted:
+        said = "\n\n".join(f"{turn.get('role', 'user')}: {turn.get('content', '')}"
+                            for turn in quoted)
+        notes.append({"role": "system", "content": QUOTE_PREFACE + said})
+    if not notes:
         # Nothing to say about them yet — the first fold is still to happen. The recent turns
         # go on their own rather than a request being held up for a summary.
         return recent, len(older)
-    note = {"role": "system", "content": SUMMARY_PREFACE + summary[:SUMMARY_LIMIT]}
-    return [note, *recent], len(older)
+    return [*notes, *recent], len(older)
 
 
 def needs_folding(turns: list[dict[str, Any]], held: dict[str, Any],
@@ -172,34 +180,127 @@ def needs_folding(turns: list[dict[str, Any]], held: dict[str, Any],
     return uncovered
 
 
+#: The shape a fold must answer in.
+#:
+#: **Sections rather than prose**, which is how this very tool summarises its own sessions
+#: when they outgrow a context window — and the difference is what survives. Asked for "a
+#: summary", a model writes something readable and drops exactly what is needed later: the
+#: file name, the port number, the thing that was decided *against*. Asked for these headings,
+#: it has somewhere to put each of them.
+SUMMARY_SECTIONS = (
+    "What this conversation is about",
+    "Decisions and preferences stated",
+    "Names, numbers and exact strings worth keeping",
+    "Open threads — anything asked for and not finished",
+)
+
+
 def fold_prompt(summary: str, uncovered: list[dict[str, Any]]) -> str:
     """What the model is asked, to roll a summary forward.
 
     It is given what the summary says so far and only what has happened since — the rolling
     part — and told what the summary is *for*, because a summary written for a reader is a
-    different thing from one written to be somebody's memory of a conversation.
+    different thing from one written to stand in for turns a model can no longer see.
     """
     said = "\n\n".join(f"{turn.get('role', 'user')}: {str(turn.get('content', ''))[:4000]}"
                        for turn in uncovered)
     sofar = (f"The summary so far:\n{summary}\n\n" if summary else "")
+    headings = "\n".join(f"## {section}" for section in SUMMARY_SECTIONS)
     return (
         "You are keeping a running summary of a conversation, so that its earlier parts can be "
-        "remembered after they become too long to include in full.\n\n"
+        "referred to after they become too long to include in full.\n\n"
         f"{sofar}New part of the conversation to fold in:\n{said}\n\n"
-        "Write the updated summary. Keep every decision, preference, name, number and unfinished "
-        "thread; drop pleasantries and repetition. Write it as notes to yourself, in the third "
-        f"person, under {SUMMARY_LIMIT // 5} words. Reply with the summary alone."
+        "Write the updated summary under exactly these headings, keeping anything the earlier "
+        f"summary had that still matters:\n\n{headings}\n\n"
+        "Keep every decision, preference, name, number, file name and exact phrase; drop "
+        "pleasantries, repetition and anything you are guessing at. Write in the third person, "
+        f"under {SUMMARY_LIMIT // 5} words in total. Reply with the summary alone."
     )
 
 
-def what_to_send(database: Database, conversation_id: str) -> list[dict[str, Any]]:
-    """The prior turns as they should travel: whole, or recent plus one summarising note.
+#: Words too common to tell one turn from another. Short ones are already dropped by length.
+_COMMON = frozenset({
+    "about", "after", "again", "also", "been", "before", "being", "both",
+    "could", "does", "doing", "done", "from", "have", "here", "into",
+    "just", "like", "made", "make", "many", "more", "most", "much",
+    "must", "only", "over", "same", "some", "such", "than", "that",
+    "them", "then", "there", "these", "they", "thing", "think", "this",
+    "those", "through", "very", "what", "when", "where", "which", "while",
+    "will", "with", "would", "your", "yours",
+})
 
-    One place, because both ways into a conversation — a new message and a reopened one —
-    have to send the same thing, and a request that carried the whole conversation once and a
+#: How much of the older conversation may be quoted back, and how many turns of it.
+QUOTE_BUDGET = 3_000
+QUOTE_TURNS = 4
+
+
+def _words(text: str) -> set[str]:
+    return {word for word in "".join(
+        character if character.isalnum() else " " for character in str(text or "").lower()
+    ).split() if len(word) > 3 and word not in _COMMON}
+
+
+def relevant_older(older: list[dict[str, Any]], question: str,
+                   turns: int = QUOTE_TURNS, budget: int = QUOTE_BUDGET) -> list[dict[str, Any]]:
+    """The summarised turns that actually mention what is being asked about, in order.
+
+    **Because a summary is lossy and a question is specific.** A model asked "what did we
+    decide about the tray icon" cannot answer from four lines of notes, and until now its only
+    options were to say so or to invent something — which is what it did (22 September 2026).
+    The conversation is *right there* in the database, so the turns that mention what was asked
+    travel with the summary, in the words they were said in.
+
+    Scored by how many of the question's distinctive words a turn carries. Deliberately a word
+    match and not an embedding: it is exact, it costs nothing, it needs no model to be up, and
+    the failure mode — missing a turn that used different words — leaves the summary doing
+    exactly what it did before.
+    """
+    wanted = _words(question)
+    if not wanted or not older:
+        return []
+    scored = [
+        (len(wanted & _words(turn.get("content", ""))), position, turn)
+        for position, turn in enumerate(older)
+    ]
+    best = sorted((one for one in scored if one[0] > 0),
+                  key=lambda one: (-one[0], -one[1]))[:turns]
+    kept: list[tuple[int, dict[str, Any]]] = []
+    spent = 0
+    for _, position, turn in best:
+        room = budget - spent
+        if room <= 0:
+            break
+        content = str(turn.get("content", ""))
+        # **Trimmed rather than dropped.** A turn too long for what is left is usually the one
+        # that matters most — it is long because it said a lot about what was just asked — and
+        # dropping it loses exactly the thing the quoting is for. Half of it in its own words
+        # beats none of it.
+        if len(content) > room:
+            content = content[:room] + "…"
+        kept.append((position, {**turn, "content": content}))
+        spent += len(content)
+    return [turn for _, turn in sorted(kept)]
+
+
+#: How the quoted turns are introduced. They are real words from earlier in this conversation,
+#: so they are named as that — and placed after the summary, where they read as detail.
+QUOTE_PREFACE = ("Some of the earlier turns themselves, word for word, because they mention "
+                 "what was just asked about:\n\n")
+
+
+def what_to_send(database: Database, conversation_id: str,
+                 question: str = "") -> list[dict[str, Any]]:
+    """The prior turns as they should travel: whole, or recent plus what stands in for the rest.
+
+    One place, because both ways into a conversation — a new message and a reopened one — have
+    to send the same thing, and a request that carried the whole conversation once and a
     summary the next time would be a model told two different stories.
+
+    `question` is the message being asked now, used to find the summarised turns that mention
+    it. A reopened conversation has no question yet, which is why it defaults to none.
     """
     turns = history(database, conversation_id)
     if not switched_on(database):
         return turns
-    return folded(turns, stored_summary(database, conversation_id)["summary"])[0]
+    return folded(turns, stored_summary(database, conversation_id)["summary"],
+                  question=question)[0]

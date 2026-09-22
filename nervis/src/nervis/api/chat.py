@@ -1106,7 +1106,7 @@ def _placement(
     # is not sent twice — and **trimmed to what a model can read**: the recent turns in full,
     # with one note standing in for everything older (`compaction`). Nothing is dropped from
     # the conversation itself; this is only what travels in this request.
-    prior = compaction.what_to_send(database, conversation_id)
+    prior = compaction.what_to_send(database, conversation_id, question=content)
     store.append(
         database,
         conversation_id,

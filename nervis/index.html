@@ -7767,6 +7767,9 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
     its chat box isn't on the page. The slash-command list is read again then. */
  const opening=!document.getElementById('chatInput');
  const conv=await API.nervis.conversation();
+ /* Asked once per conversation, and only for one NERVIS knows: a new chat has nothing to
+    summarise and nothing to ask about. */
+ readCompaction(CHAT_SESSION.remote_id);
  const ids=[...new Set(conv.messages.map(m=>m.route_decision_id).filter(Boolean))];
  const rd=Object.fromEntries(await Promise.all(ids.map(async id=>[id,await chatDecision(id)])));
  /* The route card is a lookup by decision id — the same record RAVIS's own Routes
@@ -7787,7 +7790,7 @@ async function chatView(){heading('General chat','A plain RAVIS client. Not a wo
      onclick="chatDrawer('params')">Parameters${paramsAreSet()?'<span class="dot"></span>':''}</button>
    <button class="chat-tool" id="chatHistoryBtn" title="Conversations stored in this browser"
      onclick="chatDrawer('history')">History${savedCount()?` ${savedCount()}`:''}</button>
-   ${voiceToggleButton()}</div>
+   ${voiceToggleButton()}${compactionMark()}</div>
   ${chatDrawerMarkup()}
   <div class="messages" id="messages">
    ${conv.messages.length?'':chatEmptyHint()}
@@ -15530,7 +15533,37 @@ function openConversation(id){
  return mine?CHAT_SESSIONS.open(mine.conversation_id):CHAT_SESSIONS.openHeld(id);
 }
 
-/* Conversations kept in this browser, and the way back into one. */
+/* Whether this conversation is being shortened for the model, and by how much.
+
+   **Shown, because it was not.** A reply built on a summary looked exactly like one built on
+   the whole conversation, so the only way to notice was a bad answer — which is how the owner
+   found it (22 September 2026). Claude Code prints "conversation compacted" for the same
+   reason: somebody reading a reply should know what the model was holding when it wrote it. */
+const COMPACTION={id:'',summarised:0,on:true};
+
+async function readCompaction(remoteId){
+ if(!remoteId||COMPACTION.id===remoteId)return;
+ COMPACTION.id=remoteId;COMPACTION.summarised=0;
+ try{
+  const r=await fetch(BASE.nervis+'/api/v1/chat/conversations/'+encodeURIComponent(remoteId),
+    {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+  if(!r.ok)return;
+  const said=(await r.json()).compaction||{};
+  COMPACTION.summarised=said.summarised||0;COMPACTION.on=said.on!==false;
+  if(COMPACTION.summarised)render();
+ }catch(e){}
+}
+
+function compactionMark(){
+ if(COMPACTION.id!==CHAT_SESSION.remote_id||!COMPACTION.summarised)return '';
+ const many=escapeHtml(String(COMPACTION.summarised));
+ return `<span class="chip" title="The whole conversation is still stored, searchable and
+   exportable — this is only what travels in each request: a summary of the older turns, plus
+   any of them that mention what you just asked."
+   style="margin-left:auto;align-self:center">earlier ${many} turns summarised</span>`;
+}
+
+/* Conversations kept in this browser, and the way back into one. *//* Conversations kept in this browser, and the way back into one. */
 function historyPane(){
  const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
  const held=heldOnlyRows();

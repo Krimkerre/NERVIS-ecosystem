@@ -187,3 +187,96 @@ def test_the_note_still_says_what_it_is_before_the_summary_itself() -> None:
     assert said.index("summarised") < said.index("they discussed Avahi"), (
         "the summary must be introduced as one, or it reads as part of the conversation"
     )
+
+
+# ── Quoting the turns a question is actually about ───────────────────────────────────────
+#
+# A summary is lossy and a question is specific. Until these, a model asked about something
+# that only the summarised turns knew could either say so or invent — and it invented.
+
+def test_the_older_turns_that_mention_the_question_travel_with_it() -> None:
+    older = [
+        {"role": "user", "content": "we decided the tray icon stays grey when nothing is loaded"},
+        {"role": "assistant", "content": "noted — grey when idle"},
+        {"role": "user", "content": "anyway, the weather has been miserable all week"},
+    ]
+
+    quoted = compaction.relevant_older(older, "what did we decide about the tray icon?")
+
+    assert [one["content"][:20] for one in quoted] == ["we decided the tray "]
+
+
+def test_quoted_turns_keep_the_order_they_were_said_in() -> None:
+    older = [{"role": "user", "content": f"turn {number} about the tray icon"}
+             for number in range(4)]
+
+    quoted = compaction.relevant_older(older, "tray icon")
+
+    assert [one["content"][5] for one in quoted] == ["0", "1", "2", "3"]
+
+
+def test_a_question_with_nothing_in_common_quotes_nothing() -> None:
+    older = [{"role": "user", "content": "the tray icon stays grey"}]
+
+    assert compaction.relevant_older(older, "and what about lunch") == []
+    assert compaction.relevant_older(older, "") == []
+
+
+def test_quoting_is_bounded_so_it_cannot_undo_the_compaction() -> None:
+    older = [{"role": "user", "content": "tray icon " + "x" * 2_000} for _ in range(10)]
+
+    quoted = compaction.relevant_older(older, "tray icon")
+
+    assert len(quoted) <= compaction.QUOTE_TURNS
+    assert sum(len(one["content"]) for one in quoted) <= compaction.QUOTE_BUDGET + 1
+
+
+def test_a_matching_turn_too_long_for_the_budget_is_trimmed_not_dropped() -> None:
+    """It is long because it said a lot about what was asked; dropping it loses the point."""
+    older = [{"role": "user", "content": "the tray icon " + "x" * 9_000}]
+
+    (quoted,) = compaction.relevant_older(older, "tray icon")
+
+    assert quoted["content"].startswith("the tray icon ")
+    assert quoted["content"].endswith("…")
+    assert len(quoted["content"]) <= compaction.QUOTE_BUDGET + 1
+
+
+def test_what_is_sent_carries_the_summary_then_the_words_themselves(database: Any) -> None:
+    conversation_id = store.start_conversation(database, profile="ravis/chat", title="Long one")
+    for number in range(8):
+        store.append(database, conversation_id,
+                     Message(message_id=f"m{number}",
+                             role="user" if number % 2 == 0 else "assistant",
+                             content=(f"turn {number} about the tray icon"
+                                      if number < 3 else f"turn {number} " + "x" * 4_000)))
+    older, _ = compaction.split(store.history(database, conversation_id))
+    compaction.remember_summary(database, conversation_id, "they talked about several things",
+                                "", len(older))
+
+    sent = compaction.what_to_send(database, conversation_id, question="what about the tray icon?")
+
+    assert sent[0]["content"].startswith(compaction.SUMMARY_PREFACE[:40])
+    assert sent[1]["content"].startswith(compaction.QUOTE_PREFACE[:40])
+    assert "tray icon" in sent[1]["content"], "in the words they were said in"
+    assert all(one["role"] == "system" for one in sent[:2])
+
+
+def test_a_reopened_conversation_asks_nothing_and_quotes_nothing(database: Any) -> None:
+    """There is no question yet, so there is nothing to look for in the older turns."""
+    conversation_id = a_long_conversation(database)
+    older, _ = compaction.split(store.history(database, conversation_id))
+    compaction.remember_summary(database, conversation_id, "a summary", "", len(older))
+
+    sent = compaction.what_to_send(database, conversation_id)
+
+    assert len([one for one in sent if one["role"] == "system"]) == 1
+
+
+def test_the_fold_is_asked_for_sections_rather_than_prose() -> None:
+    """Asked for "a summary", a model drops the file name and the thing decided against."""
+    prompt = compaction.fold_prompt("", turns(20)[:1])
+
+    for section in compaction.SUMMARY_SECTIONS:
+        assert f"## {section}" in prompt
+    assert "exact phrase" in prompt and "anything you are guessing at" in prompt
