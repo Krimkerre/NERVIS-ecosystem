@@ -276,6 +276,68 @@ async def stop_allowing(request: Request) -> dict[str, Any]:
     return {"ok": True, "name": name, "removed": removed.get("removed", 0)}
 
 
+def host_of(address: str) -> str:
+    """The host part of `you@their-computer.local`."""
+    return address.rpartition("@")[2].strip()
+
+
+def resolves(host: str) -> bool:
+    """Whether this network can still turn that name into an address."""
+    if not host:
+        return False
+    try:
+        socket.getaddrinfo(host, None)
+        return True
+    except OSError:
+        return False
+
+
+def heal(database: Database, *, search: Any = None) -> dict[str, Any]:
+    """Find the saved computer again when its address has gone stale, and reopen the link.
+
+    **A computer's `.local` name is not stable.** It is handed out by the network, and when a
+    stale record of itself is still about the name drifts: the ThinkPad answered to
+    `ThinkPadX13G2-8.local` one evening and `…-9.local` the next. A link saved against the old
+    name simply stops connecting, which looks like the other computer being off.
+
+    What does not drift is the name it announces itself by, so that is what is saved with the
+    address and what this searches for. The check is cheap first: if the saved name still
+    resolves, nothing is done — no search, no reopening, nothing to be surprised by.
+    """
+    saved = _stored(database, "link.peer", {})
+    saved = saved if isinstance(saved, dict) else {}
+    address, name = str(saved.get("address", "")), str(saved.get("name", ""))
+    if not address:
+        return {"ok": False, "changed": False, "detail": "no other computer is saved"}
+    if resolves(host_of(address)):
+        return {"ok": True, "changed": False, "address": address,
+                "detail": "the saved address still resolves"}
+    if not name:
+        return {"ok": False, "changed": False, "address": address,
+                "detail": (f"{address} cannot be found, and this link was saved before names "
+                           "were remembered — link again to heal it")}
+    found = (search or find_computers)()
+    match = next((one for one in found.get("computers", []) if one.get("name") == name), None)
+    if match is None or not match.get("address"):
+        return {"ok": False, "changed": False, "address": address,
+                "detail": f"{name} is not announcing itself on this network"}
+    stored = ask_launcher("save", "--address", str(match["address"]), "--name", name,
+                          *(["--inbound"] if saved.get("inbound") else []))
+    if not stored.get("ok"):
+        return {"ok": False, "changed": False, "detail": stored.get("detail", "not saved")}
+    ask_launcher("close")
+    opened = ask_launcher("open")
+    return {"ok": True, "changed": True, "was": address, "address": match["address"],
+            "answering": bool(opened.get("answering")),
+            "detail": f"{name} had moved to {match['address']}"}
+
+
+@router.post("/heal")
+def heal_now(request: Request) -> dict[str, Any]:
+    """Reconnect a link whose saved address has gone stale. Changes nothing when it has not."""
+    return heal(request.app.state.database)
+
+
 @router.post("/both-ways")
 async def set_both_ways(request: Request) -> dict[str, Any]:
     """Turn the way back on or off for the link that is already saved, and apply it now.
@@ -337,7 +399,8 @@ def check_the_link(request: Request) -> dict[str, Any]:
     if not tried.get("connected"):
         return {"ok": True, "waiting": True, "linked": False,
                 "detail": f"{waiting.get('name', address)} has not allowed it yet"}
-    saved = ask_launcher("save", "--address", address, *(["--inbound"] if inbound else []))
+    saved = ask_launcher("save", "--address", address, "--name", str(waiting.get("name", "")),
+                         *(["--inbound"] if inbound else []))
     opened = ask_launcher("open")
     _store(database, REQUEST_KEY, {})
     _announce(request)

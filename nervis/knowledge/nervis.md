@@ -326,7 +326,7 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.83, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.84, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
 - **Conversations can be brought over from your other computer** (22 September, NERVIS 0.34.82):
@@ -1377,6 +1377,12 @@ other commands are `link test` (open it once and say what answers), `link off` a
 The key that gets added to the other machine can do **nothing but** open those forwarded ports:
 no shell, no commands, no terminal. That is what the `restrict` in its line means.
 
+**If a computer's name changes.** A `.local` name is handed out by the network and can drift —
+the same computer answering to `thinkpad-8.local` one day and `thinkpad-9.local` the next. The
+link remembers the name the other computer *announces itself by*, which does not drift, so
+**Reconnect** on the card finds it again and reopens the link. NERVIS also checks this quietly
+when it starts: if the saved address still resolves, nothing happens at all.
+
 **One way or both ways.** A link carries traffic in the direction it was set up for. *Both ways*
 on the card means the other computer can reach this one as well — which is what you need for that
 computer to bring over *your* settings or conversations. If a computer says it is linked and the
@@ -1404,6 +1410,13 @@ built into macOS, and **Avahi** on Linux, which the installer adds (Debian/Ubunt
 Arch/CachyOS `avahi`, Fedora `avahi-tools`, plus the `avahi-daemon` service). Under Windows
 through WSL the network Linux sees is usually a private one inside Windows, so finding may come up
 empty there — typing the address into `link add` still works.
+
+**Where brought-over conversations appear.** In **Chat → history**, like any other. The list in
+that drawer is partly this browser's own (it remembers the last 50) and partly NERVIS's, which
+holds them all: a conversation NERVIS has that this browser has never seen is listed with *not in
+this browser*, and opening it fetches it and gives this browser a copy. So a conversation brought
+over from another computer is there straight away, and so are older ones this browser has
+forgotten.
 
 **Bringing conversations over.** This is the one most people want. Settings → Another computer →
 **See its conversations**: every conversation on the other computer is listed with its title, when

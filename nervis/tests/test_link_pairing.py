@@ -297,3 +297,64 @@ def test_the_way_back_cannot_be_set_before_a_link_is_saved(
 
     assert answer["ok"] is False and "no other computer is saved" in answer["detail"]
     assert launcher.asked == []
+
+
+def saved_link(client: Any, address: str, name: str = "ThinkPadX13G2") -> None:
+    client.put("/api/v1/settings/link.peer", json={"value": {
+        "enabled": True, "address": address, "name": name, "inbound": True}})
+
+
+def test_a_link_whose_address_still_resolves_is_left_alone(
+    client: Any, launcher: FakeLauncher, monkeypatch: Any
+) -> None:
+    """The cheap check first: a name lookup, so a link that is fine costs nothing."""
+    saved_link(client, "mathias@localhost")
+    monkeypatch.setattr(link_api, "find_computers",
+                        lambda: (_ for _ in ()).throw(AssertionError("searched for nothing")))
+
+    answer = client.post("/api/v1/link/heal").json()
+
+    assert answer["changed"] is False and "still resolves" in answer["detail"]
+    assert launcher.asked == []
+
+
+def test_a_computer_that_moved_is_found_again_by_name(
+    client: Any, launcher: FakeLauncher, monkeypatch: Any
+) -> None:
+    """**A `.local` name is handed out by the network and drifts.** The ThinkPad answered to
+    `…-8.local` one evening and `…-9.local` the next; the link simply stopped connecting, which
+    looks exactly like the other computer being switched off."""
+    saved_link(client, "mathias@ThinkPadX13G2-8.invalid")
+    found(monkeypatch, thinkpad(name="ThinkPadX13G2", host="ThinkPadX13G2-9.local", want=""))
+
+    answer = client.post("/api/v1/link/heal").json()
+
+    assert answer["changed"] is True
+    assert answer["was"] == "mathias@ThinkPadX13G2-8.invalid"
+    assert answer["address"] == "mathias@ThinkPadX13G2-9.local"
+    stored = next(one for one in launcher.asked if one[0] == "save")
+    assert "--name" in stored and "ThinkPadX13G2" in stored and "--inbound" in stored
+    assert [one[0] for one in launcher.asked if one[0] in ("close", "open")] == ["close", "open"]
+
+
+def test_a_computer_that_is_not_announcing_cannot_be_healed(
+    client: Any, launcher: FakeLauncher, monkeypatch: Any
+) -> None:
+    saved_link(client, "mathias@ThinkPadX13G2-8.invalid")
+    found(monkeypatch)
+
+    answer = client.post("/api/v1/link/heal").json()
+
+    assert answer["ok"] is False and "not announcing itself" in answer["detail"]
+    assert not [one for one in launcher.asked if one[0] == "save"]
+
+
+def test_a_link_saved_before_names_were_remembered_says_so(
+    client: Any, launcher: FakeLauncher
+) -> None:
+    saved_link(client, "mathias@gone.invalid", name="")
+
+    answer = client.post("/api/v1/link/heal").json()
+
+    assert answer["ok"] is False and "link again" in answer["detail"]
+    assert launcher.asked == []

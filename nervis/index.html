@@ -4007,6 +4007,12 @@ const API={
      {method:'POST',headers:control_headers()}));
   },
 
+  /* Find the saved computer again when its address has gone stale, and reopen. */
+  async healLink(){
+   return _workspaceDid(await fetch('/api/v1/link/heal',
+     {method:'POST',headers:control_headers()}));
+  },
+
   /* Which ways the saved link goes, applied now rather than at the next start. */
   async setBothWays(value){
    return _workspaceDid(await fetch('/api/v1/link/both-ways',
@@ -9236,7 +9242,8 @@ async function linkSection(){
   <div class="trace-step"><b>state</b><span>${state}
    <label style="margin-left:8px"><input type="checkbox" id="linkIn"
     ${link.inbound!==false?'checked':''}> both ways${on?'':' (for the next one)'}</label>
-   ${on?'<span id="bothWaysSaid" class="mono" style="opacity:.55"></span>':''}</span></div>
+   ${on?`<button class="btn" style="margin-left:8px" id="healLink">Reconnect</button>
+    <span id="bothWaysSaid" class="mono" style="opacity:.55"></span>`:''}</span></div>
   <div class="trace-step"><b>be findable</b><span><label><input type="checkbox" id="linkFindable"
     ${seen.findable?'checked':''}> let other computers on this network find this one
     ${seen.name?`(as <span class="mono">${escapeHtml(seen.name)}</span>)`:''}</label>
@@ -9552,6 +9559,20 @@ function wireLinkCard(){
      :(outcome.detail||'NERVIS refused that'));
    if(outcome.ok)await settingsView();
   };
+ };
+ /* **Names drift.** A computer's `.local` name is handed out by the network and changes when
+    a stale record of itself is still about — the ThinkPad answered to `…-8.local` one evening
+    and `…-9.local` the next, and the link simply stopped connecting, which looks exactly like
+    the other computer being off. This finds it again by the name it announces itself by. */
+ const healer=$('#healLink');
+ if(healer)healer.onclick=async()=>{
+  healer.disabled=true;
+  const outcome=await API.nervis.healLink();
+  healer.disabled=false;
+  notify(outcome.ok
+    ?(outcome.changed?`Reconnected — ${outcome.detail}`:(outcome.detail||'nothing needed'))
+    :(outcome.detail||'NERVIS refused that'));
+  if(outcome.changed)await settingsView();
  };
  /* One switch for which ways the link goes. With a link saved it is applied at once — the
     tunnel is closed and reopened, because what it forwards is fixed when it starts; with none
@@ -14930,7 +14951,7 @@ const CHAT_SESSION={
  busy:false};
 
 /* What NERVIS itself is holding, as opposed to what this browser remembers. */
-const HELD={count:0,ids:[],titles:{}};
+const HELD={count:0,ids:[],titles:{},rows:[]};
 
 async function readHeld(){
  try{
@@ -14940,6 +14961,11 @@ async function readHeld(){
   const items=(await r.json()).items||[];
   HELD.count=items.length;
   HELD.ids=items.map(c=>c.conversation_id);
+  /* The rows themselves, so conversations NERVIS holds that this browser has never
+     seen can be listed and opened — which is what a conversation brought over from
+     another computer is: it arrives in NERVIS's store, and the drawer was built
+     from `localStorage` alone, so it was invisible here (22 September 2026). */
+  HELD.rows=items;
   /* **The titles were in this response all along and were being thrown away.**
      The browser stored its own row when the conversation was saved — at which
      point the title is "New conversation", because NERVIS generates one *after*
@@ -15012,6 +15038,37 @@ const CHAT_SESSIONS={
    messages:[]});
   render();
   notify('New conversation');
+ },
+ /* Open a conversation this browser has no copy of — one NERVIS holds, most often
+    because it was brought over from another computer. Its turns are fetched, and this
+    browser gains a row of its own, so from then on it behaves like any other. */
+ async openHeld(id){
+  let items=[];
+  try{
+   const r=await fetch(BASE.nervis+'/api/v1/chat/conversations/'+encodeURIComponent(id),
+     {signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+   if(!r.ok)return notify('NERVIS would not open that conversation');
+   items=(await r.json()).items||[];
+  }catch(e){return notify('NERVIS did not answer')}
+  CHAT_STORE.save(CHAT_SESSION);
+  const row=(HELD.rows||[]).find(one=>one.conversation_id===id)||{};
+  Object.assign(CHAT_SESSION,{
+   id:'cv_'+Math.random().toString(36).slice(2,6),
+   remote_id:id,
+   created_at:row.created_at||new Date().toISOString(),
+   title:row.title||'(untitled)',
+   greeted:true,
+   private:null,
+   system:USER.system,
+   profile:row.profile||PROFILE_STORE.read(),
+   /* **`text` and `at`, which is what a turn is on this screen.** NERVIS stores a
+      turn as `content` and `created_at`; the browser draws `text` and `at`, so the
+      first attempt rendered a column of "undefined" — the conversation was there,
+      loaded, and unreadable (22 September 2026). */
+   messages:items.map(m=>({role:m.role,text:m.content||'',model:m.model||'',
+     at:m.created_at||''}))});
+  CHAT_STORE.save(CHAT_SESSION);
+  render();
  },
  open(id){
   const found=CHAT_STORE.read().find(c=>c.conversation_id===id);
@@ -15331,12 +15388,37 @@ function chatDrawerMarkup(){
    ${pane()}
    </div></aside>`;
 }
+/* Conversations NERVIS holds that this browser has no row for.
+
+   **This is where a conversation brought over from another computer appears.** The
+   drawer used to be built from `localStorage` alone, so one that arrived in NERVIS's
+   store — the copy that outlives any browser — was nowhere on screen at all: "brought
+   conversations over to both laptops, but can't see them when I open chat history".
+   Opening one fetches its turns and gives this browser a row of its own. */
+function heldOnlyRows(){
+ const mine=new Set(CHAT_STORE.read().flatMap(c=>[c.remote_id,c.conversation_id]).filter(Boolean));
+ mine.add(CHAT_SESSION.remote_id);
+ return (HELD.rows||[]).filter(row=>!mine.has(row.conversation_id)).map(heldConversationRow).join('');
+}
+
+function heldConversationRow(row){
+ const armedHere=ARMED_ACTION==='held:'+row.conversation_id;
+ return `<div class="trace-step" style="align-items:flex-start">
+   <b style="min-width:0"><a href="#" onclick="CHAT_SESSIONS.openHeld('${jsAttr(row.conversation_id)}');return false"
+     style="color:inherit">${escapeHtml(row.title||'(untitled)')}</a></b>
+   <span class="mono dim">${escapeHtml(String(row.updated_at||row.created_at||'').slice(0,16).replace('T',' '))}
+   · ${escapeHtml(String(row.messages||0))} msg <span class="chip">not in this browser</span>
+   <button class="btn"${armedHere?' style="margin-left:6px;border-color:#ffb648;color:#ffb648"':' style="margin-left:6px"'}
+    onclick="forgetHeld('${jsAttr(row.conversation_id)}')">${armedHere?'Confirm':'Delete'}</button></span></div>`;
+}
+
 /* Conversations kept in this browser, and the way back into one. */
 function historyPane(){
  const saved=CHAT_STORE.read().filter(c=>c.conversation_id!==CHAT_SESSION.id);
- return heldRow()+(saved.length?`${saved.map(historyRow).join('')}
+ const held=heldOnlyRows();
+ return heldRow()+held+(saved.length?`${saved.map(historyRow).join('')}
    <small class="mono dim">this list is what <b>this browser</b> remembers. The conversations themselves are stored by <b>NERVIS</b>, on this machine — §7.2 keeps them local to the machine, which is not the same as local to the tab, and another browser keeps a different list of the same conversations. <b>Delete removes both copies.</b></small>`
-  :`<small class="mono dim">this browser lists no other conversation. That is not the same as none existing: the conversations are stored by <b>NERVIS</b>, and a different browser keeps a different list of them.</small>`);
+  :(held?'':`<small class="mono dim">this browser lists no other conversation. That is not the same as none existing: the conversations are stored by <b>NERVIS</b>, and a different browser keeps a different list of them.</small>`));
 }
 
 function historyRow(c){
@@ -15384,6 +15466,15 @@ async function renameConversation(id){
   if(kept){kept.title=title;CHAT_STORE.write(list)}
   if(CHAT_SESSION.id===id)CHAT_SESSION.title=title;
  }catch(failure){notify('NERVIS did not answer: '+failure.message)}
+ render();
+}
+
+/* Delete a conversation this browser has no row for, from NERVIS itself. */
+async function forgetHeld(id){
+ if(!armed('held:'+id,'This deletes it from NERVIS'))return;
+ if(!await forgetOnNervis(id))return notify('NERVIS would not delete it');
+ await readHeld();
+ notify('Deleted');
  render();
 }
 

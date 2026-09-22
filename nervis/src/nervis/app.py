@@ -71,7 +71,7 @@ from nervis.api.code import UPSTREAM_TIMEOUT as CODE_UPSTREAM_TIMEOUT
 from nervis.api.control import control_refusal, needs_control, presents_control
 from nervis.api.events import event_frames
 from nervis.api.files import prune_trash
-from nervis.api.link import findable
+from nervis.api.link import findable, heal
 from nervis.api.origin_guard import expected_origins, refuses_cross_origin_mutation
 from nervis.code_extension import ensure as ensure_clarvis
 from nervis.code_proxy import Sessions as CodeSessions
@@ -550,6 +550,17 @@ async def _settle_events_periodically(api: FastAPI) -> None:
             logger.exception("settling the event flood guard failed")
 
 
+def _heal_the_link(api: FastAPI) -> None:
+    """Reconnect the link if the other computer's address moved. Never fatal."""
+    try:
+        outcome = heal(api.state.database)
+    except Exception:  # noqa: BLE001 — a link that cannot be healed must not stop NERVIS
+        logger.exception("checking the link's address failed")
+        return
+    if outcome.get("changed"):
+        logger.info("link: %s", outcome.get("detail", "the other computer had moved"))
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     """Keep the registry warm while the service is up.
@@ -589,6 +600,11 @@ async def _lifespan(api: FastAPI) -> AsyncIterator[None]:
     # why on the Settings card, and NERVIS starts either way.
     with contextlib.suppress(Exception):
         api.state.announcer.sync(findable(api.state.database))
+    # **And a link whose saved address has gone stale finds its computer again.** A `.local`
+    # name is handed out by the network and drifts; the check is a name lookup, so a link that
+    # is fine costs nothing and nothing happens. In a thread: a search takes seconds, and
+    # nothing else should wait for it.
+    asyncio.create_task(asyncio.to_thread(_heal_the_link, api))
     # §18's other notices (`alerts.py`): fed by the hub as events are stored, and by
     # the probe timer's readings below.
     api.state.alerts = Alerts(lambda **note: _post_quietly(api, note))

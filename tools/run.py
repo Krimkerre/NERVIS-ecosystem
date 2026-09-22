@@ -743,6 +743,7 @@ def configured_link() -> dict[str, object]:
         "enabled": bool(stored.get("enabled")),
         "address": str(stored.get("address") or "").strip(),
         "inbound": bool(stored.get("inbound")),
+        "name": str(stored.get("name") or "").strip(),
     }
 
 
@@ -770,6 +771,12 @@ def link_command(address: str, inbound: bool) -> list[str]:
                      "-R", f"127.0.0.1:{LINK_BACK_NERVIS_PORT}:127.0.0.1:{NERVIS_PORT}"]
     identity = ["-i", str(LINK_KEY), "-o", "IdentitiesOnly=yes"] if LINK_KEY.is_file() else []
     return [shutil.which("ssh") or "ssh", "-N",
+            # **A computer whose name drifted is a host `ssh` has never seen**, and in batch
+            # mode an unknown host is a refusal rather than a question — so a link that healed
+            # its address would fail anyway. `accept-new` remembers a new host the first time
+            # it is seen and still refuses one whose key *changed*, which is what protects the
+            # case that matters; the same trust-on-first-use everybody gets when they type yes.
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ExitOnForwardFailure=yes",
             "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
             "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
@@ -919,7 +926,7 @@ def _link_install_command(line: str) -> str:
             " >> ~/.ssh/authorized_keys")
 
 
-def link_save(address: str, inbound: bool, enabled: bool = True) -> None:
+def link_save(address: str, inbound: bool, enabled: bool = True, name: str = "") -> None:
     """Write `link.peer` where NERVIS's Settings screen writes it, and the launcher reads it.
 
     Straight into the database rather than through NERVIS's API: enrolment runs from a
@@ -931,7 +938,13 @@ def link_save(address: str, inbound: bool, enabled: bool = True) -> None:
     database = ROOT / "nervis" / "nervis.db"
     if not database.is_file():
         raise SystemExit(f"no settings database at {database} — run the installer first")
-    value = json.dumps({"enabled": enabled, "address": address, "inbound": inbound})
+    value = json.dumps({"enabled": enabled, "address": address, "inbound": inbound,
+                        # **What the address is not: stable.** A computer's `.local` name is
+                        # handed out by the network and drifts when an old record of itself is
+                        # still about — the ThinkPad answered to `…-8.local` one evening and
+                        # `…-9.local` the next. The name it announces itself by does not, so it
+                        # is kept here and used to find the computer again (NERVIS's `link/heal`).
+                        "name": name})
     with sqlite3.connect(database, timeout=10) as held:
         held.execute("INSERT INTO setting (key, value) VALUES ('link.peer', ?) "
                      "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (value,))
@@ -3193,6 +3206,7 @@ def _link_arguments() -> argparse.ArgumentParser:
     deny.add_argument("--key", required=True, help="its public key")
     save = actions.add_parser("save", help="remember another computer's address")
     save.add_argument("--address", required=True)
+    save.add_argument("--name", default="", help="what that computer announces itself as")
     save.add_argument("--inbound", action="store_true")
     save.add_argument("--off", action="store_true", help="remember it, but open nothing")
     actions.add_parser("open", help="open the saved link now, without restarting the stack")
@@ -3315,9 +3329,10 @@ def _link_json(action: str, arguments: argparse.Namespace, peer: dict[str, objec
     elif action == "revoke":
         answer = link_revoke(arguments.key)
     elif action == "save":
-        link_save(arguments.address, arguments.inbound, enabled=not arguments.off)
+        link_save(arguments.address, arguments.inbound, enabled=not arguments.off,
+                  name=arguments.name or str(peer.get("name") or ""))
         answer = {"ok": True, "address": arguments.address, "inbound": arguments.inbound,
-                  "enabled": not arguments.off}
+                  "enabled": not arguments.off, "name": arguments.name}
     elif action == "open":
         answer = _link_open()
     elif action == "close":
@@ -3358,7 +3373,8 @@ def _run_link() -> int:
         link_save(str(peer["address"]), False, enabled=False)
         print(f"Off. {peer['address']} is remembered but nothing will be opened.")
         return 0
-    print(f"  other machine   {peer['address'] or 'none configured'}")
+    known_as = f" (announces itself as {peer['name']})" if peer["name"] else ""
+    print(f"  other machine   {peer['address'] or 'none configured'}{known_as}")
     print(f"  link            {'on' if peer['enabled'] else 'off'}")
     print(f"  lets it reach   {'this machine too' if peer['inbound'] else 'nothing here'}")
     print(f"  this key        {LINK_KEY if LINK_KEY.is_file() else 'not made yet'}")

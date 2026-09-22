@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4669 tests, no network, no live service
+.venv/bin/pytest                      # part of 4673 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1937 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1941 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4669 passing across the four, conformance `PASS`.
+Expected: all clean, 4673 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,39 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Brought-over conversations were invisible, and names drift — 2026-09-22 (NERVIS 0.34.84)
+
+*"Brought conversations over to both laptops, but can't see them when I open chat history."*
+
+**The drawer was built from `localStorage` alone.** A conversation that arrives in NERVIS's store —
+which is what a conversation brought over *is* — had no browser row, so it appeared nowhere. The store
+of record was holding 233 conversations and the screen was listing what one browser happened to
+remember, which is also capped at 50. The history drawer now lists what NERVIS holds as well: rows
+marked *not in this browser*, which open by fetching their turns and give this browser a copy of its
+own, and delete from NERVIS. **The 50 was never a limit on conversations**, only on the browser's cache
+of them.
+
+**And the first attempt rendered a column of "undefined"**, caught in the browser rather than guessed
+at: NERVIS stores a turn as `content` and `created_at`, the screen draws `text` and `at`. The
+conversation was loaded, eight turns of it, and unreadable.
+
+**Names drift.** The ThinkPad announced itself as `ThinkPadX13G2-8.local` one evening and
+`…-9.local` the next — mDNS working around a stale record of itself — and a link saved against the old
+name simply stops connecting, which looks exactly like the other computer being off. So `link save`
+now records the name a computer *announces itself by*, which does not drift, and `POST
+/api/v1/link/heal` finds it again by that name, saves the new address and reopens the link.
+**Reconnect** on the card does it on demand, and NERVIS does it quietly at startup — cheaply, because
+the first check is a name lookup, so a link that is fine costs nothing and changes nothing. The link's
+`ssh` also gained `StrictHostKeyChecking=accept-new`: a computer whose name drifted is a host `ssh` has
+never seen, and in batch mode an unknown host is a refusal, so a healed address would have failed
+anyway. A *changed* key is still refused, which is the case that matters.
+
+Checked by five new tests in `nervis/tests/test_link_pairing.py` (an address that still resolves is left
+alone without a search, a computer that moved is found by name and the link reopened, one that is not
+announcing cannot be healed, a link saved before names were remembered says so). **Seen live on the
+Mac:** the drawer listed 255 rows where the browser knew 30, an imported conversation opened and drew
+its eight real turns. NERVIS's suite is 1941; gates, ruff and mypy pass.
 
 ## A one-way link looks like no link from the other end — 2026-09-22 (NERVIS 0.34.83)
 
