@@ -163,3 +163,27 @@ def test_the_conversation_read_says_what_the_model_is_being_sent(client: Any) ->
     assert len(answer["items"]) == 6, "the conversation itself is whole"
     assert answer["compaction"]["on"] is True
     assert answer["compaction"]["summarised"] >= 1
+
+
+def test_the_note_forbids_filling_the_gaps_it_creates() -> None:
+    """**The failure this was written against, on a real conversation** (22 September 2026).
+
+    The note used to say "treat it as your own memory of what was said". Asked about something
+    that had never been mentioned in that conversation, the model connected it confidently to
+    the nearest thing it could see and produced a sentence that meant nothing. A summary is
+    lossy by construction; a model told it remembers will answer as though it does.
+    """
+    note = compaction.SUMMARY_PREFACE.lower()
+
+    assert "memory of what was said" not in note
+    assert "compressed" in note and "missing" in note
+    assert "say so" in note and "instead of guessing" in note
+
+
+def test_the_note_still_says_what_it_is_before_the_summary_itself() -> None:
+    sent, _ = compaction.folded(turns(5_000, 5_000, 5_000, 500), "they discussed Avahi")
+
+    said = sent[0]["content"]
+    assert said.index("summarised") < said.index("they discussed Avahi"), (
+        "the summary must be introduced as one, or it reads as part of the conversation"
+    )

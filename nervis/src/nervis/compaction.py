@@ -116,11 +116,21 @@ def remember_summary(database: Database, conversation_id: str, summary: str,
         )
 
 
-#: How the summary is introduced to the model. Named as what it is — a summary of turns it is
-#: not being shown — because a model told "this is the conversation" will answer as though the
-#: summarised part had been said in those words.
-SUMMARY_PREFACE = ("Earlier in this conversation, summarised because it is too long to send in "
-                   "full. Treat it as your own memory of what was said:\n\n")
+#: How the summary is introduced to the model.
+#:
+#: **It said "treat it as your own memory of what was said", and that was wrong.** A model told
+#: it remembers the earlier conversation will answer as though it does — 22 September 2026, on
+#: a real conversation: asked about something that had never been mentioned in it at all, the
+#: model connected it confidently to the nearest thing it could see and produced a sentence
+#: that meant nothing. A summary is lossy by construction, and the note now says so and says
+#: what to do about a gap: name it, rather than fill it.
+SUMMARY_PREFACE = (
+    "The earlier part of this conversation, summarised because it is too long to send in full. "
+    "It is compressed: exact words, details and whole exchanges are missing from it. Use it as "
+    "background only. If something is not in this summary and not in the turns that follow, you "
+    "do not know it — say so plainly instead of guessing or connecting it to something else "
+    "that is here:\n\n"
+)
 
 
 def folded(turns: list[dict[str, Any]], summary: str, budget: int = RECENT_BUDGET

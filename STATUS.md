@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4691 tests, no network, no live service
+.venv/bin/pytest                      # part of 4693 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1959 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1961 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4691 passing across the four, conformance `PASS`.
+Expected: all clean, 4693 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,29 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## The summary note told the model to trust its own memory — 2026-09-23 (NERVIS 0.34.87)
+
+The owner sent a message in the 140-turn conversation to see compaction work, and the reply was a
+non sequitur: *"you found it through the search, which means the compaction script did its job"*. They
+asked whether compaction had caused it.
+
+**Checked rather than guessed.** The summary was written at 22:10:30, after the first reply, so the
+22:12 request did carry it: NERVIS's persona, a summary of 118 turns, turns 119–140 **verbatim**, then
+the question. Nothing was missing that should have been there — and `anthropic/claude-haiku-4.5`
+answered, so "a small model" explains nothing either. What the question referred to, "the new compaction
+script", appears nowhere in that conversation; with no grounding for the phrase the model connected it to
+the nearest thing it could see, two turns earlier.
+
+**But the note invited exactly that**, and that part was mine. It read *"Treat it as your own memory of
+what was said"* — an instruction to act as though the compressed version is the conversation, which
+removes the one thing that would make a model hesitate over a gap. It now says the summary is compressed,
+that details and whole exchanges are missing, and what to do about a gap: *"you do not know it — say so
+plainly instead of guessing or connecting it to something else that is here"*. The owner's word for the
+original was "yikes", which is fair.
+
+Two tests in `nervis/tests/test_compaction.py` hold the new rule and keep the note introduced as a summary
+before the summary itself. NERVIS's suite is 1961.
 
 ## Long conversations are compacted for the model — 2026-09-22 (NERVIS 0.34.86)
 
