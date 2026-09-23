@@ -60,7 +60,7 @@ EXPORTABLE: frozenset[str] = frozenset({
     "chat.memory", "chat.memory_skips_current", "chat.mode",
     "chat.params", "chat.preset", "chat.presets", "chat.system",
     "background.enabled", "background.interval_minutes", "background.daily_runs",
-    "recall.enabled",
+    "recall.enabled", "capture.enabled", "chat.compaction",
     "inspector.show_content",
     "supervision.enabled",
     "voice.enabled", "voice.selected_profile", "voice.announce_status",

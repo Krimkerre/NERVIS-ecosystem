@@ -27,7 +27,7 @@ thirds of what it finds.
 | Store | What it holds | Written by | Where | Read back | Retention |
 |---|---|---|---|---|---|
 | **Shipped notes** | How the four services work and why: 6 files, 240 KB, ~27 sections in `nervis.md` alone | People, by hand | `nervis/knowledge/*.md` | Scored per question (§3, path E) | Forever, reviewed by hand |
-| **Learned notes** | Sentences the owner asked NERVIS to remember, each with the date and the sentence that prompted it | NERVIS, on a confirmed button | `nervis/knowledge/learned.md` | Same retrieval as the shipped notes | Forever, deleted by heading |
+| **Learned notes** | Sentences the owner told NERVIS, each with the date and the sentence that prompted it | NERVIS, on a confirmed button — offered when asked for *or* when a standing statement is noticed | `nervis/knowledge/learned.md` | Same retrieval as the shipped notes | Forever, deleted by heading |
 | **Conversations** | 238 conversations, 1,032 turns on this Mac | NERVIS, per turn | `chat_conversation`, `chat_message` | Four ways (§3) | **Forever. Nothing expires** |
 | **Conversation summaries** | One rolling summary per long conversation (2,000 chars max) | NERVIS, in the background after a reply | `chat_summary` | Path A | Until the conversation is deleted |
 | **Settings** | 74 rows: preferences, personas, the NAS address, which voice, which pool | Screens | `setting` | Directly | Forever |
@@ -47,8 +47,8 @@ This is the part that matters, and the part nobody had written down. On a single
 | | Path | What it sends | Size | Switch | Default |
 |---|---|---|---|---|---|
 | **A** | Compaction summary | A summary of this conversation's older turns | ≤ 2,000 chars | `chat.compaction` | **on** |
-| **B** | Cross-conversation recall | Keyword matches from *other* conversations | 3 passages found — **~400 chars delivered** | `recall.enabled` | off |
-| **C** | Persona digest | The tail of the 5 newest conversations, 6 turns each, no matching at all | ~4,000 chars, **every turn** | `chat.memory` = `all` | `session` (off) |
+| **B** | Cross-conversation recall | Keyword matches from *other* conversations | 3 passages, ~4,800 chars (was ~400) | `recall.enabled` | off by default, **on here** |
+| **C** | Persona digest | The tail of the 5 newest conversations, 6 turns each, no matching at all | ~4,000 chars, **every turn** | `chat.memory` = `all` | `session` by default, **`all` here** |
 | **D** | Quoted older turns | Turns from this conversation's summarised part that share words with the question | ≤ 3,000 chars, ≤ 4 turns | follows `chat.compaction` | on |
 | **E** | Shipped + learned notes | The documentation sections that match the question | ≤ 6,000 chars | — | always |
 
@@ -61,8 +61,13 @@ described two different ways.
 Each of these was verified against the running system, not inferred.
 
 > **Items 1, 2, 4 and 5 were settled the same day.** The bar now applies to both paths
-> (NERVIS 0.34.90); `learned.md` is git-ignored because the repository is public, and notes
-> cross the link instead. The rest stand as written.
+> (NERVIS 0.34.90); recall delivers what it finds (0.34.91); capture fires without a password
+> and every switch moved into chat (0.34.92); `learned.md` is git-ignored because the repository
+> is public, and notes cross the link instead. The rest stand as written.
+>
+> **One correction to this document.** §3 recorded recall's default (off) where it should have
+> recorded this machine's state. `recall.enabled` is `1` here and `chat.memory` is `all`: paths
+> B and C have both been running on real conversations throughout.
 
 **1. The "Private" bar does not apply to recall.** *(fixed, 23 September 2026 — one reader in
 `chat.barred()`, honoured by both paths, excluded in the query rather than after it.)* Marking a conversation private writes its id
@@ -85,10 +90,20 @@ with no date, so a model cannot tell last night's decision from one superseded i
 own house rule — that a stale record which gets believed is worse than none — is not being applied
 to its own memory.
 
-**4. Capture exists and has never been used.** Saying *"remember that the GPU box has an RX 6800"*
-offers a button; pressing it files the sentence with its date and origin. The machinery is built,
-tested and documented — and `learned.md` does not exist on this machine. Nothing has ever been
-filed. Worth knowing before building anything new: the gap is not capability, it is habit.
+**4. Capture exists and has never been used.** *(fixed, 23 September 2026 — NERVIS notices the
+shape of a standing statement and offers a chip; NERVIS 0.34.92.)* Saying *"remember that the GPU
+box has an RX 6800"* offers a button; pressing it files the sentence with its date and origin. The
+machinery is built, tested and documented — and `learned.md` does not exist on this machine.
+Nothing has ever been filed. Worth knowing before building anything new: the gap is not
+capability, it is habit.
+
+The diagnosis was half right. The gap was not habit either — it was that the trigger was a
+password. Nobody says *remember that* to a chat window, so the feature could only ever be used by
+somebody who had read its documentation. What widened is the trigger; the confirmation step,
+and the rule that only the person's own words are stored, did not move. The owner chose that
+shape over automatic filing when asked. **And the switch was in the wrong place**, which is the
+same finding wearing different clothes: *"hiding the option in some settings menu out of chat is
+bonkers"*. Every memory switch now lives in chat's own parameters panel.
 
 **5. Learned notes would be committed to git.** *(settled, 23 September 2026: ignored, and
 carried over the link instead — `GET`/`POST /api/v1/learned/peer`.)* `nervis/knowledge/learned.md` is not ignored, so
@@ -130,10 +145,15 @@ cannot see.
 
 ## 6. What to do, smallest first
 
-1. **Make the Private bar mean one thing.** One exclusion list, honoured by every path that reads
-   conversations. Small change, removes a broken promise.
-2. **Deliver what recall finds** — pass a real size to the fence, or cap per passage rather than
-   per block. Today two thirds is thrown away after the work of finding it.
+1. ~~**Make the Private bar mean one thing.** One exclusion list, honoured by every path that reads
+   conversations.~~ **Done:** `chat.barred()`, read by both paths, excluded in the query.
+2. ~~**Deliver what recall finds** — pass a real size to the fence, or cap per passage rather than
+   per block. Today two thirds is thrown away after the work of finding it.~~ **Done:** the block
+   and each passage carry this module's own bounds; three of three conversations delivered.
+
+   2b. ~~**Make capture reachable** — the trigger is a phrase nobody says.~~ **Done:** offered on
+   the shape of a statement, once per sentence, still confirmed by hand. And every memory switch
+   moved out of Settings into chat, where the memory is used.
 3. **Put a date on every remembered thing that reaches the model.** Recall already does it; the
    other three paths need one line each.
 4. ~~**Decide about `learned.md` and git** — ignore it (private, per machine, travels only through

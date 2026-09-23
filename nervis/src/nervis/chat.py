@@ -196,6 +196,40 @@ def barred(database: Database) -> set[str]:
     return {str(one) for one in found} if isinstance(found, list) else set()
 
 
+#: Whether NERVIS may point at a standing fact somebody stated and ask whether to keep it.
+CAPTURE_SETTING = "capture.enabled"
+
+
+def noticing(database: Database) -> bool:
+    """Whether an unprompted offer to remember something may be made. On unless turned off.
+
+    **On by default, unlike recall**, and the difference is what each one does. Recall reads
+    every conversation on the machine and puts what it finds in front of a model, which is a
+    wider read than answering one question needs — so it waits to be asked for. This adds a
+    button and nothing else: nothing is read, nothing is written, nothing is sent, until
+    somebody presses it. A capability whose worst case is an unwanted button does not need
+    to be found in a settings screen first.
+
+    That sentence is not theoretical. Capture shipped behind the words *remember that…* and
+    was never once used in the three weeks that followed, because nobody says those words to
+    a chat window — *"I think I remember asking to let NERVIS remember various facts on its
+    own"* (23 September 2026). Off-by-default is how a feature becomes a thing that exists in
+    the tests and nowhere else.
+
+    Unreadable counts as on, for the same reason `barred` fails to empty: the failure a person
+    can see beats the one that looks like the feature quietly not working.
+    """
+    row = database.connection.execute(
+        "SELECT value FROM setting WHERE key = ?", (CAPTURE_SETTING,)
+    ).fetchone()
+    if row is None:
+        return True
+    try:
+        return json.loads(row["value"]) is not False
+    except (TypeError, ValueError):
+        return True
+
+
 def messages(database: Database, conversation_id: str) -> list[Message]:
     rows = database.connection.execute(
         "SELECT * FROM chat_message WHERE conversation_id = ? ORDER BY created_at, rowid",

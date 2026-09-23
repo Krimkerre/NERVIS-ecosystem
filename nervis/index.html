@@ -9585,17 +9585,6 @@ async function watchForTheAnswer(){
 /* The one switch on the Long conversations card. Its own function rather than another
    branch of the link card's: they are different cards, and that one had grown to the edge of
    what the complexity gate allows. */
-function wireCompactionCard(){
- const compacting=$('#compactionOn');
- if(!compacting)return;
- compacting.onchange=async()=>{
-  const outcome=await API.nervis.writeSetting('chat.compaction',!!compacting.checked);
-  notify(outcome.ok?(compacting.checked?'Long conversations will be shortened'
-                                       :'Whole conversations will be sent')
-                   :(outcome.detail||'NERVIS refused that'));
- };
-}
-
 /* The three things that cross a link: settings, conversations, notes. Each is look, tick,
    bring. Their own function rather than more branches of the link card's, which had grown to
    the edge of what the complexity gate allows — and they are a different subject: the link
@@ -9871,8 +9860,7 @@ async function settingsView(){
    <small class="mono dim">event retention is a <span class="mono">nervis serve</span> setting read once at start, so it is not a control here and the numbers this card used to print — 14 days, 7 days, a 200 MB log cap — were a fixed object rather than anything the service had been told. Chat is the one store on this screen a person empties directly, and it is emptied from <b>Chat → history</b> where the conversations are.</small></div>`, false)
   + section('Backup', backupSection())
   + section('Unattended work', await backgroundSection())
-  + section('What NERVIS remembers', await compactionSection() + await recallSection()
-      + await learnedSection() + await rememberedSection())
+  + section('What NERVIS remembers', await learnedSection() + await rememberedSection())
   + section('Supervision', await supervisionSection() + `<div class="card wide"><h3>Ownership</h3>
    <div class="table-row head"><span>Mode</span><span style="grid-column:2/-1">Services</span></div>
    <div class="table-row"><span>restartable</span><span style="grid-column:2/-1" class="mono">${escapeHtml(s.supervision.restartable.join(' · '))}</span></div>
@@ -9881,7 +9869,6 @@ async function settingsView(){
  wireShareCard();
  wireLinkCard();
  wirePullCards();
- wireCompactionCard();
 }
 
 
@@ -10192,53 +10179,6 @@ function backupSection(){
    message, so a 138-turn conversation re-sent all 138 — cost and latency growing with the
    conversation, and eventually a wall the model hits mid-answer. The conversation itself is
    never trimmed; what is trimmed is the request. */
-async function compactionSection(){
- const held=await API.nervis.settingsItems();
- const on=held.items['chat.compaction']!==false;
- return `<div class="card wide${held.live?' live':''}"><h3>Long conversations</h3>${cell(`
-  <div class="trace-step"><b>state</b><span><label><input type="checkbox" id="compactionOn"
-    ${on?'checked':''}> shorten what is sent when a conversation gets long</label></span></div>
-  <small class="mono dim">A model can only read so much at once. With this on, the <b>recent</b>
-  part of a long conversation is sent as it is, and everything older is sent as a short summary
-  NERVIS keeps up to date in the background — on the model you chose under <b>Unattended work</b>,
-  so it costs nothing on a free or local one. <b>Nothing is deleted</b>: every turn stays in the
-  conversation, in the history drawer, in search and in an export. With it off, the whole
-  conversation is sent every time, which is what happened before — fine for short chats, and for
-  a long one it ends in a refusal or a silently cut-off history.</small>`,'nervis')}</div>`;
-}
-
-async function recallSection(){
- let r=null;
- try{
-  const got=await fetch(BASE.nervis+'/api/v1/recall',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
-  if(got.ok)r=await got.json();
- }catch(e){}
- if(!r)return `<div class="card wide${liveClass(false)}"><h3>Conversation memory</h3>${cell(
-   banner('NERVIS is not answering','This setting lives in NERVIS\'s own store and cannot be read '
-   +'or changed from here until it is up.','warn'),'nervis')}</div>`;
-
- return `<div class="card wide${liveClass(true)}"><h3>Conversation memory
-   <span class="chip${r.enabled?'':' dim'}">${r.enabled?'on':'off'}</span></h3>${cell(`
-   <label style="display:flex;gap:8px;align-items:baseline;cursor:pointer">
-     <input type="checkbox"${r.enabled?' checked':''} onchange="setRecall(this.checked)">
-     <span><b>Let a new conversation draw on earlier ones</b><br>
-       <small class="mono dim">searches the ${escapeHtml(r.conversations)} conversation(s) stored
-       here and may quote up to ${escapeHtml(r.max_passages)} of them into a turn</small></span></label>
-   <small class="mono dim" style="display:block;margin-top:9px"><b>What is recalled is shown
-   under the reply</b>, named by the conversation it came from — a remembered sentence changes an
-   answer, and one you cannot see is one you cannot check. <b>It never outranks a live reading</b>:
-   recalled text is placed before the figures and marked as older, so a stale answer is not
-   repeated because it matched. <b>Off leaves chat exactly as it was</b> — no search runs at all,
-   rather than running and finding nothing.</small>`,'nervis')}</div>`;
-}
-
-async function setRecall(on){
- try{await fetch(BASE.nervis+'/api/v1/recall/enable',{method:'POST',
-   headers:{'content-type':'application/json'},body:JSON.stringify({enabled:!!on}),
-   signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)})}catch(e){}
- render();
-}
-
 async function backgroundSection(){
  let b=null,live=false;
  try{
@@ -10363,10 +10303,10 @@ async function learnedSection(){
    <span class="chip">${escapeHtml(record.count)}</span></h3>${cell(
   (record.count?`<div class="table-row head caps" style="grid-template-columns:2.6fr 1fr .9fr">
     <span>Note</span><span>Learned</span><span></span></div>${rows}`
-   :(live?banner('Nothing yet','Say “remember that…” in chat and press the button, type one below, or edit the file directly.','info')
+   :(live?banner('Nothing yet','Mention something that stands — <i>the GPU box has an RX 6800</i> — and chat offers to keep it. You can also type one below, or edit the file directly.','info')
          :banner('NERVIS is not answering','These notes live in a file NERVIS reads, and cannot be listed from here until it is up.','warn')))
   +compose,'nervis')}
-   <small class="mono dim">${live&&record.path?`Kept in <b>${escapeHtml(record.path)}</b>, a plain markdown file beside the notes NERVIS shipped with — edit or delete it in any editor. `:''}<b>Retrieved exactly like the others</b>: the same index, the same weighting, the same quoting. <b>The shipped notes win.</b> Where something you told NERVIS disagrees with one of its own notes on the same subject, the shipped one is used and yours is still shown, marked <b>overruled</b> — exactly one of the two is wrong and you are the only one who can say which. <b>Nothing is written without you pressing something</b>, and nothing a model produced is written here: what is stored is your sentence.</small></div>`;
+   <small class="mono dim">${live&&record.path?`Kept in <b>${escapeHtml(record.path)}</b>, a plain markdown file beside the notes NERVIS shipped with — edit or delete it in any editor. `:''}<b>Retrieved exactly like the others</b>: the same index, the same weighting, the same quoting. <b>The shipped notes win.</b> Where something you told NERVIS disagrees with one of its own notes on the same subject, the shipped one is used and yours is still shown, marked <b>overruled</b> — exactly one of the two is wrong and you are the only one who can say which. <b>Nothing is written without you pressing something</b>, and nothing a model produced is written here: what is stored is your sentence. <b>The switches are in chat</b>, not on this page — whether NERVIS offers to keep a fact you mention, whether a new conversation looks back at earlier ones and searches them, and whether a long one is shortened, are all in the panel behind the sliders beside the message box. They were here until 23 September 2026, which is why one of them had never been switched on by anybody.</small></div>`;
 }
 
 /* Add a note from Settings, through the same operation the chat offer runs. */
@@ -14711,6 +14651,12 @@ const USER={
     merit — and is meaningless while `explore` is off. */
  explore:false, exploreUnmeasured:true,
  excluded:[], memory:'session',
+ /* The rest of what NERVIS remembers, read here so chat's own Memory panel can
+    hold every switch. They used to live on two cards in Settings, two screens
+    away from the conversation they govern, and one of them had never been
+    turned on by anybody — *"hiding the option in some settings menu out of chat
+    is bonkers"* (23 September 2026). */
+ capture:true, recall:false, compaction:true,
  /* Whether a page load opens on the tab this browser was last on. `read` is
     whether any of this came from the service, which is what the card that
     shows it keys its liveness off. */
@@ -14741,6 +14687,14 @@ const USER={
    this.params=asMap(items['chat.params']);
    this.excluded=asList(items['chat.memory_excluded']);
    this.memory=items['chat.memory']==='all'?'all':'session';
+   this.capture=asFlag(items['capture.enabled'],true);
+   this.compaction=asFlag(items['chat.compaction'],true);
+   /* **Not `asFlag`.** `recall.enabled` is stored as the string "1" while every
+      neighbouring setting is JSON, so it arrives as 1 or 0 — and `asFlag` asks
+      `v!==false`, which is true of the number 0. Read against what is actually
+      stored until that encoding is migrated; a switch that draws itself ON
+      while recall is off is worse than no switch. */
+   this.recall=String(items['recall.enabled']===undefined?'0':items['recall.enabled'])==='1';
    this.rememberTab=asFlag(items['ui.remember_tab'],true);
    /* Appearance only, and off when nobody has said otherwise: everyday first. */
    /* One read fills all three; a value being written right now wins over what
@@ -14829,6 +14783,21 @@ const USER={
   this.write('chat.params',taken);
  },
  setMemory(scope){this.memory=scope;this.write('chat.memory',scope);render()},
+ setCapture(on){this.capture=on;this.write('capture.enabled',on)},
+ setCompaction(on){this.compaction=on;this.write('chat.compaction',on)},
+ /* **Its own route rather than a settings write**, because that route owns the
+    "1"/"0" encoding this setting is stored in. Writing the raw key from here
+    would put a JSON boolean where the service expects a string and switch
+    recall off by saving it on. */
+ async setRecall(on){
+  this.recall=on;
+  try{
+   const answer=await fetch(BASE.nervis+'/api/v1/recall/enable',{method:'POST',
+     headers:control_headers(),body:JSON.stringify({enabled:!!on})});
+   if(!answer.ok){this.recall=!on;notify('That setting was not saved — NERVIS answered '+answer.status)}
+  }catch(e){this.recall=!on;notify('That setting was not saved — NERVIS could not be reached')}
+  render();
+ },
  /* Written on `change` rather than `input`: a PUT per keystroke would be a
     request storm for a textarea somebody is composing a paragraph in. */
  setSystem(value){this.system=value;this.write('chat.system',value)}
@@ -15771,13 +15740,31 @@ function paramsPane(){
      <input id="cpName" placeholder="what NERVIS should call you"
        value="${escapeHtml(USER.name)}"
        oninput="USER.setName(this.value)"></label>
-    <label style="grid-column:1/-1">Memory
+    <!-- **Every memory switch, on the screen the memory is used on.** Three of
+         these were on two cards under Settings → What NERVIS remembers, one
+         was here, and the Private button is beside New chat — one subject
+         across four places. The cards are gone; what stays in Settings is the
+         *list* of notes, which is a thing to read rather than a thing to set. -->
+    <div style="grid-column:1/-1;border-top:1px solid rgba(255,255,255,.09);margin-top:6px;padding-top:9px">
+     <b style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;opacity:.6">What NERVIS remembers</b></div>
+    <label class="adv-toggle" style="grid-column:1/-1"><input type="checkbox"${USER.capture?' checked':''}
+      onchange="USER.setCapture(this.checked)"> Offer to keep facts I mention
+      <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">say something that stands — <i>the GPU box has an RX 6800</i>, <i>I prefer short replies</i> — and a <b>Remember</b> chip appears under the reply. <b>Nothing is written unless you press it.</b> What gets filed is your sentence word for word, with today's date and nothing NERVIS made up. Each one is offered once: answer it either way and it is not raised again. Notes are kept in <span class="mono">learned.md</span> beside NERVIS's own, searched the same way, never committed to GitHub, and they travel to another computer only over the link. Before this, filing a note needed the actual words <i>remember that…</i>, and in the three weeks it shipped that way nothing was ever filed.</small></label>
+    <label style="grid-column:1/-1">Look back at earlier conversations
      <select style="width:100%;background:rgba(255,255,255,.04);color:inherit;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px;font-family:inherit"
        onchange="USER.setMemory(this.value)">
-      <option value="session"${USER.memory==='session'?' selected':''}>This conversation only</option>
-      <option value="all"${USER.memory==='all'?' selected':''}>All conversations on this machine</option>
+      <option value="session"${USER.memory==='session'?' selected':''}>No — this conversation only</option>
+      <option value="all"${USER.memory==='all'?' selected':''}>Yes — the last 5, whatever they were about</option>
      </select></label>
-    ${USER.memory==='all'?`<small class="mono dim" style="grid-column:1/-1;margin:-2px 0 2px">recall is bounded: the last <b>5</b> conversations, six turns each, about four thousand characters in total, newest first — and never the one you are in, whose turns already travel as ordinary messages. A conversation marked <b>Private</b>, with the button beside <b>New chat</b>, stays out of the pool for good. <b>It is also an egress decision.</b> A conversation you held with a local model has never left this machine, and recalling it into a turn a cloud model answers sends it — the same shape of leak §18.2 spends its length on for the voice, chosen deliberately here rather than happening by default.</small>`:''}
+    ${USER.memory==='all'?`<small class="mono dim" style="grid-column:1/-1;margin:-2px 0 2px;text-transform:none;letter-spacing:0">bounded and unselective: the last <b>5</b> conversations, six turns each, about four thousand characters, newest first — sent whether or not they have anything to do with what you asked, and never the one you are in. <b>It is also an egress decision.</b> A conversation you held with a local model has never left this machine, and putting it into a turn a cloud model answers sends it.</small>`:''}
+    <label class="adv-toggle" style="grid-column:1/-1"><input type="checkbox"${USER.recall?' checked':''}
+      onchange="USER.setRecall(this.checked)"> …and search all of them for ones that match
+      <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">the other half of looking back, and the selective half: every conversation stored here is searched for the words you used, and up to <b>3</b> passages are quoted into the turn. <b>What was recalled is shown under the reply</b>, named by the conversation it came from — a remembered sentence changes an answer, and one you cannot see is one you cannot check. It never outranks a live reading: recalled text is marked as older. The two settings are independent — the one above always sends the newest few, this one goes looking.</small></label>
+    <label class="adv-toggle" style="grid-column:1/-1"><input type="checkbox"${USER.compaction?' checked':''}
+      onchange="USER.setCompaction(this.checked)"> Shorten a conversation once it gets long
+      <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">a model can only read so much at once. With this on, the recent part is sent as it is and everything older as a short summary NERVIS keeps up to date in the background, on the model you chose under <b>Unattended work</b> — so it costs nothing on a free or local one. <b>Nothing is deleted:</b> every turn stays in the conversation, in history, in search and in an export, and turns matching your question are quoted back in full. Off sends the whole conversation every time, which for a long one ends in a refusal or a silently cut-off history.</small>
+    </label>
+    <small class="mono dim" style="grid-column:1/-1;margin:-2px 0 4px;text-transform:none;letter-spacing:0">Keeping one conversation out of all of this is a per-conversation decision, not a setting: the <b>Private</b> button beside <b>New chat</b>. The notes NERVIS has been told are listed under <b>Settings → What NERVIS remembers</b>, where they can be read and deleted.</small>
     <label class="adv-toggle" style="grid-column:1/-1"><input type="checkbox"${USER.brief?' checked':''}
       onchange="USER.setBrief(this.checked)"> Keep replies short — about two or three sentences
       <small class="mono dim" style="display:block;margin-top:3px;text-transform:none;letter-spacing:0">a switch rather than a silent rule: a question that needs a list, a walkthrough or code still gets one.</small></label>
@@ -16073,6 +16060,29 @@ function offerAlternatives(offer,index){
    .join('')}`;
 }
 
+/* **An offer nobody asked for, drawn as a remark.**
+
+   Every other offer answers a request, so a primary button is the right shape:
+   the person already said what they wanted and this is it. This one answers a
+   *statement* — they were talking about something else and NERVIS noticed a
+   fact worth keeping. A blue button under a reply, unasked for, reads as
+   something needing attention, and a conversation punctuated by those is worse
+   than the feature is good. So: a quiet chip, the sentence it would file shown
+   in full so nothing is filed unseen, and a way to say no that is the same size
+   as the way to say yes.
+
+   It is shown once per sentence. The API drops the offer if this exact one has
+   already been answered either way, so declining is not a thing to do twice. */
+function noticedRow(offer,index){
+ const note=offer.target||'';
+ return `<div style="margin-top:8px;display:flex;gap:7px;align-items:baseline;flex-wrap:wrap">
+   <span class="mono dim" style="font-size:11px">worth keeping?</span>
+   <span style="font-size:12px;opacity:.9">&ldquo;${escapeHtml(note)}&rdquo;</span>
+   <button class="mode-chip" onclick="runOffer(${index})">${escapeHtml(offer.action||'Remember')}</button>
+   <button class="mode-chip" onclick="declineOffer(${index})">No</button>
+  </div>`;
+}
+
 function offerRow(offer,index){
  if(!offer)return '';
  if(offer.done)return `<div class="mono dim" style="margin-top:7px;font-size:11px">${escapeHtml(offer.done)}${downloadLink(offer.file)}</div>`;
@@ -16080,6 +16090,7 @@ function offerRow(offer,index){
  if(!offer.ready)
   return `<div style="margin-top:7px"><div class="mono dim" style="font-size:11px">${escapeHtml(offer.detail||'this cannot be prepared')}</div>${candidates}</div>`;
  if(offer.asking)return askedName(offer,index);
+ if(offer.unprompted)return noticedRow(offer,index);
  /* No token gate on this button. It used to require one pasted into this tab
     and was reported as "forbidden, scope needed" — the API being exactly right
     and the product being wrong. NERVIS holds its own `benchmark`-scoped

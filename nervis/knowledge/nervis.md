@@ -326,9 +326,20 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.91, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.92, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
+- **NERVIS offers to remember facts you mention, without being asked** (23 September, NERVIS
+  0.34.92): say something that stands — *the GPU box has an RX 6800*, *I prefer short replies* —
+  and a small **Remember** chip appears under the reply carrying that exact sentence. Press it
+  and it is filed with today's date; ignore it and nothing happens. Before this, filing a note
+  needed the literal words *remember that…*, and in the three weeks it worked that way nothing
+  was ever filed on the owner's machine. See *Remembering earlier conversations*.
+- **Every memory switch is in chat now, not in Settings** (23 September, NERVIS 0.34.92): whether
+  NERVIS offers to keep a fact, whether a new conversation looks back at earlier ones and
+  searches them, and whether a long conversation is shortened, are all in the parameters panel
+  beside the message box. They were spread over that panel and two Settings cards, and one of
+  them had never been switched on by anybody.
 - **Conversations can be brought over from your other computer** (22 September, NERVIS 0.34.82):
   Settings → Another computer → *See its conversations* lists what that computer has, says what
   each one would add, and brings over only the ones you tick. Nothing is overwritten and nothing
@@ -1668,10 +1679,18 @@ nothing.
 
 ## Remembering earlier conversations
 
-Normally each conversation stands alone. **Settings → What NERVIS remembers →
-Conversation memory** lets a new one draw on older ones stored on this machine,
-so asking "what did we decide about the pools" can find the conversation it was
-decided in.
+**Every switch below is in chat**, in the parameters panel behind the sliders
+beside the message box, under *What NERVIS remembers*. Until 23 September 2026
+they were spread over that panel and two cards in Settings, two screens from the
+conversation they govern — and the most useful of them had never been switched
+on by anybody, which is the whole argument for moving them. What stays in
+Settings is the *list* of notes, which is a thing to read rather than a thing to
+set.
+
+Normally each conversation stands alone. **Search all of them for ones that
+match** lets a new one draw on older ones stored on this machine, so asking
+"what did we decide about the pools" can find the conversation it was decided
+in.
 
 **It is off until switched on**, and off means nothing happens at all — no
 search runs, and a turn is assembled exactly as it was before the feature
@@ -1714,6 +1733,41 @@ other chats" wrong even while the answer sits earlier in the same prompt.
 Both settings can be on at once, and often are — they read from the same
 conversation store but serve different purposes: this one is unconditional
 recent context, the one above is relevance-gated retrieval, further back.
+
+### Facts NERVIS offers to keep
+
+**Offer to keep facts I mention**, in the same panel, is about the other kind of
+memory: a note in `learned.md` rather than a search over conversations.
+
+Say something that stands on its own — *the GPU box has an RX 6800*, *the
+ThinkPad runs CachyOS*, *I prefer short replies* — and a small **Remember** chip
+appears under the reply, showing the exact sentence it would file. Press it and
+it is kept with today's date. Ignore it and nothing at all happens.
+
+**Nothing is written unless you press it**, and what is written is your own
+sentence word for word. NERVIS does not compose the note, does not summarise it,
+and nothing a model produced goes into that file. What it recognises is the
+*shape* of a standing statement; whether the fact is worth keeping is the
+question the chip asks you.
+
+**Each one is offered once.** Press it or dismiss it and that sentence is not
+raised again, so declining is not something to do twice. Saying *"remember
+that…"* outright still works and is never suppressed — which is also the way to
+get a note back after deleting it from the file by hand.
+
+**What it deliberately passes over**, because a wrong note is worse than a
+missing one: anything about the moment rather than about how things are (*the
+tunnel is down*), anything hedged (*I think the box has 32GB*), anything that
+only makes sense inside the conversation it was said in (*that is the fast
+one*), a judgement with nothing checkable in it (*the box is big*), and anything
+longer than a sentence. A fact it misses costs a click; a dated note that was
+never true costs trust in the whole file.
+
+**Before this it existed and was never used.** Capture shipped on 1 September
+behind the literal words *remember that…* and a button. Three weeks later
+`learned.md` did not exist on the owner's machine — nothing had ever been filed,
+because nobody says those words to a chat window. The machinery was not the gap;
+the trigger was.
 
 ## Backing up settings
 

@@ -376,6 +376,12 @@ class Proposal:
     #: and did not either time. A choice the person is owed is stated by the
     #: system that owes it, not left to a sentence a model may drop.
     alternatives: tuple[tuple[str, str], ...] = ()
+    #: **Nobody asked for this one.** True only for an offer NERVIS made from a
+    #: statement rather than a request. It changes two things: the screen draws
+    #: it quietly, as a remark rather than a call to act; and the API drops it
+    #: where the same offer has already been answered, because an offer nobody
+    #: invited becomes nagging the second time it appears.
+    unprompted: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -387,6 +393,7 @@ class Proposal:
             "summary": self.summary,
             "ready": self.ready,
             "detail": self.detail,
+            "unprompted": self.unprompted,
             "candidates": list(self.candidates),
             "action": self.action,
             "alternatives": [
@@ -484,6 +491,7 @@ def propose(
     default_name: str = "",
     clarvis: Mapping[str, Any] | None = None,
     attachment: str = "",
+    notice: bool = False,
 ) -> Proposal | None:
     """What the person's words ask for, if it is something NERVIS offers.
 
@@ -529,6 +537,15 @@ def propose(
         lambda: _saving_proposal(question, default_name, attachment),
         lambda: _learning_proposal(question),
         lambda: _benchmark_proposal(question, models) if BENCHMARK.search(question) else None,
+        # **Last, and the only one nobody asked for.** Every attempt above
+        # answers a request; this one answers a statement. Offering it ahead of
+        # any of them would mean a sentence that both states a fact and asks for
+        # something got the button for the thing nobody wanted.
+        #
+        # Off unless the caller says otherwise, because `propose` is also used
+        # by callers with no person in front of them, and an unprompted offer
+        # needs somebody there to decline it.
+        lambda: _noticed_proposal(question) if notice else None,
     )
     for attempt in attempts:
         found = attempt()
@@ -679,6 +696,155 @@ def _learning_proposal(question: str) -> Proposal | None:
         detail="kept beside the notes NERVIS shipped with, and overruled by them "
                "where the two disagree",
     )
+
+
+#: A standing fact stated plainly, with nobody having asked for it to be kept —
+#: *"the GPU box has an RX 6800"*, *"the ThinkPad runs CachyOS"*.
+#:
+#: **The grammar, not the meaning.** M23's rule holds unchanged: NERVIS does not
+#: decide what is worth remembering, and nothing a model returns is written. What
+#: this recognises is the *shape* of a standing statement — a named thing, a
+#: present-tense verb of being, having or doing, and something specific after it.
+#: Whether the fact is worth keeping is the question the button asks, and the
+#: text stored is still the person's own sentence, word for word.
+#:
+#: **Why it exists at all.** Capture shipped in M23 behind the words *remember
+#: that…* and a button, and on 23 September 2026 — three weeks later —
+#: `learned.md` did not exist on the owner's machine. Nothing had ever been
+#: filed. The machinery was not the gap; the trigger was. *"I think I remember
+#: asking to let NERVIS remember various facts on its own, without me needing to
+#: explicitly prompt it."*
+STATED = re.compile(
+    # A thing with a name: a determiner and up to three words of noun, or a
+    # proper noun. Anaphora — "this", "that", "it" — is deliberately absent:
+    # a note that says "that is 8 GB" is unreadable the moment it leaves the
+    # conversation it was written in, and a note exists to be read elsewhere.
+    # The determiner is matched in either case — a statement that opens a
+    # sentence is capitalised, and "The GPU box has an RX 6800" is how somebody
+    # ordinarily writes one. The proper-noun branch beside it has to stay
+    # case-sensitive, so the flag is scoped to this group rather than set on
+    # the whole pattern.
+    r"^(?P<subject>(?i:my|our|the|his|her|their|its)\s+[\w'’-]+(?:\s+[\w'’-]+){0,2}"
+    r"|[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){0,3})"
+    r"\s+(?:is|are|has|have|runs?|lives?|uses?|sits?|holds?|owns?|costs?|"
+    r"takes?|needs?|means?)\s+"
+    # Bounded in `_specific` rather than here, because the test is what the
+    # complement *says* and a regex can only count words.
+    r"(?P<rest>\S+(?:\s+\S+)*)$",
+)
+
+#: *"I prefer short replies"*, *"I always run the tests first"* — a preference,
+#: which is a fact about the person rather than about a thing.
+#:
+#: Its own pattern because the subject is a pronoun, which `STATED` refuses for
+#: good reason, and because the verbs differ: "I have a question" is not a fact
+#: and "I prefer" always is.
+PREFERRED = re.compile(
+    r"^i\s+(?:always|never|usually|normally|generally|prefer|like|hate|use|run|own|keep)\b"
+    r"\s+(?P<rest>\S+(?:\s+\S+)*)$",
+    re.IGNORECASE,
+)
+
+#: Words that make a sentence about *now* rather than about how things are. A
+#: standing note that reads "the tunnel is down" is worse than no note: it was
+#: true for an hour and is wrong for the rest of the file's life.
+TRANSIENT = frozenset({
+    "now", "today", "tonight", "tomorrow", "yesterday", "currently", "still",
+    "again", "just", "yet", "already", "lately", "moment", "far",
+    # States of the moment rather than properties. "running" is here and "runs"
+    # is a verb above on purpose: *the ThinkPad runs CachyOS* is a fact and
+    # *the ThinkPad is running* is a reading off a dial.
+    "down", "up", "broken", "running", "failing", "failed", "stuck", "busy",
+    "offline", "online", "live", "ready", "open", "closed", "working",
+})
+
+#: Words that mark a guess. NERVIS filing somebody's guess as a fact, dated and
+#: quoted back months later, is the exact failure the house rule about stale
+#: records describes.
+HEDGED = frozenset({
+    "maybe", "might", "probably", "perhaps", "possibly", "seems", "seem",
+    "think", "guess", "suppose", "should", "could", "would", "apparently",
+    "roughly", "about", "around", "unsure", "sort", "kind",
+})
+
+#: How long a sentence may be and still be one fact. Beyond this it is an
+#: explanation, and filing an explanation under its first eight words produces a
+#: note nobody can find and nobody can check.
+MAX_STATEMENT = 180
+
+#: Where one sentence ends. Deliberately not a sentence tokeniser: a full stop,
+#: a newline or a semicolon, which is every break that appears in the kind of
+#: sentence this looks for.
+SENTENCES = re.compile(r"[.!?;\n]+")
+
+
+def _noticed_proposal(question: str) -> Proposal | None:
+    """A standing fact somebody stated without asking for it to be kept.
+
+    **Last of the attempts, and that placement is the design.** Every other
+    operation is something the person asked for; this one is the only offer
+    NERVIS makes unprompted, so it may never displace one that was requested.
+    *"Benchmark qwen3-4b, it is the fast one"* is a benchmark.
+
+    Returns the sentence, not the message. A note is a thing read on its own
+    later, and the paragraph it arrived in is not available then.
+    """
+    for sentence in _statements(question):
+        noticed = STATED.match(sentence) or PREFERRED.match(sentence)
+        if noticed is None or not _specific(noticed.group("rest")):
+            continue
+        operation = BY_ID["nervis.knowledge.learn"]
+        return Proposal(
+            operation=operation.id, service=operation.service, target=sentence,
+            summary=operation.summary.format(target=_heading_of(sentence)),
+            ready=True, action=operation.action, unprompted=True,
+            detail="noticed rather than asked for — nothing is written unless you press it",
+        )
+    return None
+
+
+def _specific(rest: str) -> bool:
+    """Whether what follows the verb is something that could be wrong.
+
+    *"the box is big"* is a judgement and *"the box is an RX 6800"* is a fact.
+    Several words is one sign of it; a single word is enough when the word is a
+    name or carries a number, which is what *"the ThinkPad runs CachyOS"* and
+    *"the box has 32GB"* are made of. A lone ordinary word — big, fine, wrong —
+    is neither, and a note saying somebody once called something fine is the
+    kind of entry that makes a file of notes not worth reading.
+
+    Capitalisation is safe to read here because the complement never starts a
+    sentence: whatever begins the statement was consumed by the subject.
+    """
+    words = rest.split()
+    if len(words) >= 2:
+        return True
+    word = words[0] if words else ""
+    return any(character.isdigit() for character in word) or any(
+        character.isupper() for character in word)
+
+
+def _statements(question: str) -> list[str]:
+    """The sentences in a message that could be standing facts, in the order said.
+
+    **A comma does not end a sentence here.** Splitting on one would turn *"the
+    box has 32 GB, 8 cores and an RX 6800"* into a note that says it has 32 GB,
+    which is a true sentence and a false note. So *"the GPU box has an RX 6800,
+    I'll set it up tomorrow"* is one sentence, contains "tomorrow", and is
+    passed over. That is the intended trade: a fact not offered costs a click
+    later, and a note that is missing two thirds of itself costs trust in the
+    whole file.
+    """
+    found = []
+    for piece in SENTENCES.split(question):
+        sentence = " ".join(piece.split()).strip(" ,-—")
+        if len(sentence.split()) < 3 or len(sentence) > MAX_STATEMENT:
+            continue
+        words = {word.strip(".,'’\"").lower() for word in sentence.split()}
+        if words & TRANSIENT or words & HEDGED:
+            continue
+        found.append(sentence)
+    return found
 
 
 def _heading_of(note: str) -> str:
@@ -1203,6 +1369,8 @@ def told(proposal: Proposal | None) -> str:
             "the words of a fact. If you are not sure whether something "
             "happened, say exactly that."
         )
+    if proposal.unprompted:
+        return _told_noticed(proposal)
     if proposal.ready:
         # **The prohibition comes first, and names the words.** Told to mention
         # a button and not to claim the work had started, an 8B build answered
@@ -1227,6 +1395,31 @@ def told(proposal: Proposal | None) -> str:
         f"The person asked for something NERVIS can offer — {proposal.summary} — but "
         f"it cannot be prepared: {proposal.detail}. No button has been offered. "
         "Tell them why, and name the alternatives if any are listed in the reading."
+    )
+
+
+def _told_noticed(proposal: Proposal) -> str:
+    """What the model is told about an offer the person did not ask for.
+
+    **Its own sentence because the ordinary one opens with a lie.** *"The person
+    asked about…"* is true of every other offer and false of this one: they
+    stated something and NERVIS spoke up. A model handed that sentence writes
+    "you asked me to remember that…", which is a small untruth about the person's
+    own words and the kind that makes somebody stop trusting the rest.
+
+    **And it says not to make a fuss.** The chip carries the sentence it would
+    file and two buttons; it needs no narration. A reply that answers the actual
+    message in one paragraph and then spends another explaining that a button
+    exists has turned a convenience into an interruption — which is how a
+    feature meant to be unobtrusive gets switched off.
+    """
+    return (
+        f"Under **this** reply, NERVIS has put a small unpressed chip offering to keep "
+        f"a note of something they stated: {proposal.summary}. **They did not ask for "
+        "this** — do not say they did, and do not thank them for telling you. Nothing "
+        "has been written and nothing will be unless they press it. Answer what they "
+        "actually said; the chip explains itself and needs no mention at all. If you do "
+        "mention it, one short clause at the end is the whole of it, in the future tense."
     )
 
 

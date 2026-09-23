@@ -72,11 +72,21 @@ sentence that prompted it. It is searched by exactly the same index as every
 other note here, because it sits in the same directory — there is no separate
 path to keep in step.
 
-Three ways to add one: say *"remember that…"* in chat and press the button, type
-one into the field under Settings, or open the file in any editor. The first two
-go through one enumerated operation and a confirmation, like every other change
-NERVIS makes. What gets stored is the person's own sentence — nothing a model
-wrote, and nothing NERVIS decided on its own was worth keeping.
+Four ways to add one: **mention a fact in passing** and press the chip NERVIS
+offers (23 September), say *"remember that…"* in chat and press the button, type
+one into the field under Settings, or open the file in any editor. The first
+three go through one enumerated operation and a confirmation, like every other
+change NERVIS makes. What gets stored is the person's own sentence — nothing a
+model wrote, and nothing NERVIS decided on its own was worth keeping.
+
+**The fourth way exists because the others were never used.** Three weeks after
+this shipped, `learned.md` did not exist on the owner's own machine: the trigger
+was the literal phrase *remember that*, and nobody says it to a chat window. So
+NERVIS now recognises the *shape* of a standing statement — a named thing, a
+present-tense verb, something specific after it — and offers a chip carrying
+that exact sentence. The confirmation step did not move an inch, and neither did
+the rule that nothing a model wrote is stored: the question *is this worth
+keeping* is still asked, just no longer only when somebody knows the password.
 
 Where something NERVIS was told disagrees with one of the hand-written notes on
 the same subject, the hand-written one is used and the learned one is still

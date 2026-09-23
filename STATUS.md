@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4721 tests, no network, no live service
+.venv/bin/pytest                      # part of 4762 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 1989 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 2030 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4721 passing across the four, conformance `PASS`.
+Expected: all clean, 4762 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20013,6 +20013,57 @@ credentials were stored; NERVIS's store to RAVIS, which had timed out behind a p
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
 
+## NERVIS offers to remember things, and every memory switch moved into chat — 2026-09-23 (NERVIS 0.34.92)
+
+The inventory's fourth item — *capture exists and has never been used* — and the owner's answer to why:
+
+> *"I think I remember asking to let NERVIS remember various facts on its own, without me needing to
+> explicitly prompt it. Secondly hiding the option in some settings menu out of chat is bonkers."*
+
+**The trigger widened; the confirmation did not move.** M23's capture fired only on the literal words
+*remember that* / *note that* / *keep in mind* / *don't forget*, followed by a button press. Three weeks
+after it shipped, `learned.md` did not exist on this machine — not one note had ever been filed, because
+nobody says those words to a chat window. Asked what it should do instead, the owner chose *offer it, I
+click to keep* over filing anything automatically, so `commands._noticed_proposal()` recognises the
+**shape** of a standing statement — a named thing, a present-tense verb of being or doing, and something
+specific after it — and offers a chip carrying that exact sentence. M23's rule is untouched: NERVIS still
+does not decide what is *worth* remembering, nothing a model wrote is stored, and the text filed is the
+person's own words.
+
+**What it refuses matters more than what it catches**, because a dated note that was never true costs
+more than a missed one costs. Rejected on the sentence, not the message: the transient (*the tunnel is
+down* — `TRANSIENT`), the hedge (*I think the box has 32GB* — `HEDGED`), the anaphoric (*that is the fast
+one* — "this", "that" and "it" are absent from the subject pattern on purpose, since such a note is
+unreadable the moment it leaves the conversation it was written in), the judgement with nothing checkable
+in it (*the box is big* — `_specific()`), and anything past `MAX_STATEMENT`. A comma does not end a
+sentence here either, so *"the box has 32 GB, 8 cores and an RX 6800"* can never be filed as *"the box has
+32 GB"*.
+
+**Uninvited, so it is offered once.** `Proposal.unprompted` is new, and `api/chat._remembered()` drops
+such an offer whose exact sentence has already been answered either way — accepted means the note is
+filed, declined means it was not wanted, and a third appearance is nagging. An offer that *was* asked for
+is never suppressed, which is also how somebody who deleted a note out of the file by hand gets it back.
+It is tried last in `propose`'s attempts, because every other offer answers a request and a request must
+never be displaced by a remark. `commands._told_noticed()` exists because the ordinary sentence handed to
+the model opens *"The person asked about…"*, which is false here — a model given it writes *"you asked me
+to remember that"* — and because a reply that spends a paragraph explaining an unasked-for button has
+turned a convenience into an interruption.
+
+**Every switch is in chat now.** `capture.enabled` (on by default — it adds a button and nothing else,
+and off-by-default is exactly what made capture a feature that existed only in the tests), recall,
+compaction and the last-five digest are one *What NERVIS remembers* block in the parameters panel beside
+the message box, with the Private button named there. The two Settings cards are gone, replaced by a line
+on the notes card saying where the switches went: one subject with controls in two places is how it ended
+up in four. `recall.enabled` is read against its stored `"1"`/`"0"` rather than through `asFlag`, because
+`asFlag` asks `v!==false` and would have drawn the switch **on** while recall was off — the inventory's
+seventh item biting in a new place. `capture.enabled` and `chat.compaction` joined `EXPORTABLE`, so they
+travel over the link with the rest.
+
+41 tests in `nervis/tests/test_capture.py`; NERVIS's suite is 2030. All 43 dashboard gates, the sandbox
+gate, `tools/check.py`, `tools/knowledge_check.py`, ruff and mypy pass. The liveness gate caught the
+signpost card on the way — a card that cannot express liveness — which is why the pointer lives on the
+notes card instead of on one of its own.
+
 ## Recall delivers what it finds — 2026-09-23 (NERVIS 0.34.91)
 
 The inventory's second item, and it turned out to be two bugs sharing a cause.
@@ -20033,8 +20084,13 @@ MAX_PASSAGE_CHARS + 160)` — so raising the passage size cannot quietly start l
 
 Four tests in `nervis/tests/test_m20_recall.py`: every passage found reaches the model, a passage keeps
 the length this module declares, the block is still bounded against one enormous turn, and the bound
-stays derived. NERVIS's suite is 1989; gates, ruff and mypy pass. **Not seen live** — recall is off on
-this machine, which is why the loss went unnoticed for as long as it did.
+stays derived. NERVIS's suite is 1989; gates, ruff and mypy pass.
+
+**Correction, same day.** This entry first closed *"not seen live — recall is off on this machine"*.
+It is not: `recall.enabled` is `1` in the owner's store and `chat.memory` is `all`, so both paths have
+been running on real conversations the whole time. The claim came from reading the documented default
+and reporting it as this machine's state without looking, which is precisely the check-the-falsifier
+rule and precisely the way a plausible cause gets stated as a fact. The fix is live on real data.
 
 ## The Private bar means one thing, and notes cross the link — 2026-09-23 (NERVIS 0.34.90)
 

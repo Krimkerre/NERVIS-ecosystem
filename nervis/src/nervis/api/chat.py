@@ -354,6 +354,12 @@ async def send(request: Request) -> Any:
             # here rather than inside `propose`, which stays a pure function of
             # the person's words.
             clarvis=_editor_destination(request),
+            # **Whether NERVIS may speak up about a fact nobody asked it to
+            # keep** (23 September 2026). The switch is read here rather than
+            # inside `propose`, which has no database and stays a pure function
+            # of the person's words — the same rule that keeps `clarvis` and
+            # `attachment` out of it.
+            notice=store.noticing(database),
         )
         if not greeting
         else None
@@ -890,6 +896,15 @@ def _remembered(database: Any, offer: commands.Proposal | None) -> commands.Prop
     if offer is None:
         return None
     past = proposals.history(database, offer.operation, offer.target)
+    # **An uninvited offer is made once.** Nobody asked for it, so the second
+    # appearance is not a reminder, it is nagging — and an answered offer has
+    # already had its question settled either way: accepted means the note is
+    # filed, declined means it was not wanted. Only offers NERVIS made on its
+    # own are dropped here. *"Remember that the GPU box has an RX 6800"* is a
+    # request, is never suppressed, and is therefore also the way back for
+    # somebody who deleted the note out of the file by hand and wants it again.
+    if offer.unprompted and past.answered:
+        return None
     return replace(
         offer,
         proposal_id="pr_" + uuid.uuid4().hex[:12],

@@ -904,13 +904,35 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.70
+## NERVIS — 0.34.92
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.16+, SIRVIS 0.19.12+, Clarvis Bridge 0.17.28+, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **NERVIS offers to remember facts you mention.** State something that stands — *the GPU box has
+  an RX 6800*, *I prefer short replies* — and a **Remember** chip appears under the reply carrying
+  that exact sentence. Press it and it is filed with the date; ignore it and nothing happens. It
+  is offered once per sentence. Filing a note previously required the literal words *remember
+  that…*, and nothing had ever been filed on the machine it shipped to.
+- **Every memory switch is in chat.** Whether NERVIS offers to keep a fact, whether a new
+  conversation looks back at earlier ones and searches them, and whether a long conversation is
+  shortened, are all in the parameters panel beside the message box. The two Settings cards are
+  gone; the notes list stays there.
+- **Upgrading:** `capture.enabled` defaults to on and adds a button and nothing else — nothing is
+  read, written or sent until it is pressed. Turn it off in chat's parameters panel. Both new
+  keys travel with **Settings → Backup** and over a link.
+
+### 0.34.70
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.14+, SIRVIS 0.19.11+, Clarvis Bridge 0.17.28+, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
 
 - **Chat's notes follow Clarvis 0.17.28:** the sandbox answer is kept on the machine now too, by
   the owner's decision.
+
+> **Gap: 0.34.71 – 0.34.91.** Those versions shipped without entries here and this file does not
+> invent them after the fact — what happened is in `STATUS.md`, which is contemporaneous. The
+> record resumes above.
 
 ### 0.34.69
 
