@@ -14702,12 +14702,17 @@ const USER={
    this.memory=items['chat.memory']==='all'?'all':'session';
    this.capture=asFlag(items['capture.enabled'],true);
    this.compaction=asFlag(items['chat.compaction'],true);
-   /* **Not `asFlag`.** `recall.enabled` is stored as the string "1" while every
-      neighbouring setting is JSON, so it arrives as 1 or 0 — and `asFlag` asks
-      `v!==false`, which is true of the number 0. Read against what is actually
-      stored until that encoding is migrated; a switch that draws itself ON
-      while recall is off is worse than no switch. */
-   this.recall=String(items['recall.enabled']===undefined?'0':items['recall.enabled'])==='1';
+   /* **Asked of NERVIS rather than decoded here.** This setting was stored as the
+      string "1" while every neighbour is JSON, so "off" arrived as the number 0 —
+      and `asFlag` asks `v!==false`, which 0 passes, so the switch drew itself ON
+      while recall was off. Migration 14 fixed what is stored, and `recall.enabled()`
+      in the service reads both forms, because a backup or a pull from an older
+      computer can still carry the old one. One reader, in the service: deciding it
+      a second time here is how the two came to disagree in the first place. */
+   try{
+    const r=await fetch(BASE.nervis+'/api/v1/recall',{signal:AbortSignal.timeout(LIVE_TIMEOUT_MS)});
+    if(r.ok)this.recall=!!(await r.json()).enabled;
+   }catch(e){}
    this.rememberTab=asFlag(items['ui.remember_tab'],true);
    /* Appearance only, and off when nobody has said otherwise: everyday first. */
    /* One read fills all three; a value being written right now wins over what

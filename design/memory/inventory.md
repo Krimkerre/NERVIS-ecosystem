@@ -129,9 +129,15 @@ returning nothing at all.)* A conversation slips out of reach entirely once 400 
 exist, silently, with no indication anywhere. On this Mac, 1,032 messages exist: well over half
 the history is already unreachable by that path.
 
-**7. Two encodings in the settings table, again.** `recall.enabled` is stored as the string `"1"`,
-while every neighbouring setting is JSON. Migration 11 exists because that exact confusion broke
-the voice profile pointer once already.
+**7. Two encodings in the settings table, again.** *(fixed, 23 September 2026 — migration 14
+converts what is stored, the reader understands both forms for backups and older peers, and the
+page asks NERVIS rather than decoding it a second time; NERVIS 0.34.96.)* `recall.enabled` is
+stored as the string `"1"`, while every neighbouring setting is JSON. Migration 11 exists because
+that exact confusion broke the voice profile pointer once already.
+
+It broke something a second time before it was fixed: decoded by `GET /api/v1/settings`, "off"
+reached the dashboard as the number `0`, and `asFlag`'s `v !== false` passes `0` — so the switch
+drew itself on while recall was off. Found the same day, while moving that switch into chat.
 
 **8. Dead fields that look alive.** `chat_message.route_decision_id` and
 `chat_summary.through_message_id` are always empty; `chat.memory_skips_current` is on the export

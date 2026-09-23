@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4791 tests, no network, no live service
+.venv/bin/pytest                      # part of 4802 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 2059 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 2070 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4791 passing across the four, conformance `PASS`.
+Expected: all clean, 4802 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,43 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## One encoding for the recall switch, and a migration to repair it — 2026-09-23 (NERVIS 0.34.96)
+
+The inventory's seventh finding, and the second time one setting's encoding has disagreed with
+its neighbours. Migration 11 exists because a restored backup left `voice.selected_profile`
+holding its own quote characters, matching no profile id, so the dashboard fell back to the
+browser's voice for a JARVIS that was plainly selected on screen. This is the same fault from the
+other direction: `recall.enabled` was written as the string `'1'`/`'0'` while everything around
+it is JSON.
+
+**It bit this morning, while moving the switch into chat.** `GET /api/v1/settings` decodes stored
+values, so "off" arrived at the page as the *number* `0` — and the page's `asFlag` asks
+`v !== false`, which `0` passes. Keyed off that, the switch would have drawn itself **on** while
+recall was off, which is worse than no switch at all. It was worked around in the page that day
+with a comment saying so; this is the fix.
+
+**Migration 14** converts what is stored, and only the two values the old writer could produce,
+so a store already holding `true`/`false` is untouched and a second pass matches nothing. Run
+against a copy of the owner's real database: `'1'` at schema 13 became `true` at schema 14, and
+`recall.enabled()` still returns True. A repair rather than only a corrected writer, because the
+old writer wrote to somebody's data and fixing it does not un-write that — the lesson migration
+11 is already made of.
+
+**`recall.enabled()` reads both forms**, which is not belt-and-braces for its own sake: the
+migration cannot reach a settings backup taken before today, or a pull over the link from a
+computer still running an older NERVIS. Both write through the ordinary settings route, so
+neither passes `set_enabled` on the way in. `json.loads` turns the JSON form into `True` and the
+old string form into the number `1`, and flattening through `str().lower()` accepts `true` and
+`1` and nothing else.
+
+**The page asks NERVIS instead of decoding it again.** `USER.load()` now reads
+`GET /api/v1/recall` for that one value rather than interpreting the settings map, so the rule
+about what "on" looks like lives in exactly one place. Deciding it a second time in JavaScript is
+how the two came to disagree.
+
+11 tests in `nervis/tests/test_m20_recall.py`, suite at 2070. All 43 dashboard gates,
+`tools/check.py`, `tools/knowledge_check.py`, ruff and mypy pass.
 
 ## Recall reaches the whole history, not the last fortnight of it — 2026-09-23 (NERVIS 0.34.95)
 

@@ -904,7 +904,19 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.95
+## NERVIS — 0.34.96
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.16+, SIRVIS 0.19.12+, Clarvis Bridge 0.17.28+, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **The recall switch is stored like every other setting.** It was written as `1`/`0` while its
+  neighbours are JSON, which had the dashboard's own switch drawing itself on while recall was
+  off.
+- **Upgrading:** schema migration 14 runs on first start and converts the stored value. Nothing
+  to do, and a store already holding `true`/`false` is left alone. A settings backup taken
+  before this version still restores correctly — the reader understands both forms.
+
+### 0.34.95
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.16+, SIRVIS 0.19.12+, Clarvis Bridge 0.17.28+, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

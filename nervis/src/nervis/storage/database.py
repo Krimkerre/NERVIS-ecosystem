@@ -430,6 +430,30 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        14,
+        "store recall.enabled as JSON, like every setting beside it",
+        # **The second time one setting's encoding disagreed with its neighbours.**
+        # Migration 11 above exists because `voice.selected_profile` came out of a
+        # restored backup holding its own quote characters; this is the same class
+        # of fault from the other direction. `recall.enabled` was written as the
+        # string `'1'` or `'0'` while everything around it is JSON, so
+        # `GET /api/v1/settings` — which decodes values — handed the dashboard the
+        # *number* 0 for "off". The page's own `asFlag` asks `v !== false`, and
+        # `0 !== false` is true in JavaScript, so the switch would have drawn
+        # itself **on** while recall was off. Caught on 23 September 2026 while
+        # moving that switch into chat, and worked around in the page that day;
+        # this is the actual fix.
+        #
+        # Only the two values the old writer could produce, so a store already
+        # holding `true`/`false` is untouched and a second run matches nothing.
+        """
+        UPDATE setting
+           SET value = CASE value WHEN '1' THEN 'true' ELSE 'false' END
+         WHERE key = 'recall.enabled'
+           AND value IN ('1', '0');
+        """,
+    ),
 ]
 
 

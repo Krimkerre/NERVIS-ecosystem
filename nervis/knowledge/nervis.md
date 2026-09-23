@@ -326,9 +326,12 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.95, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.96, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
+- **The recall switch is stored the way every other setting is** (23 September, NERVIS 0.34.96):
+  it was written as `1`/`0` while its neighbours are JSON, which had the dashboard's own switch
+  drawing itself **on** while recall was off. Converted on upgrade; nothing to do.
 - **Searching earlier conversations now reaches all of them** (23 September, NERVIS 0.34.95):
   it used to look only at the newest 400 turns, so anything older was invisible — on this
   machine, 61 of 237 conversations were searchable and nothing before 9 September could be

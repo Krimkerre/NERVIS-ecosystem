@@ -31,6 +31,7 @@ that quietly starts doing that is one nobody chose.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -134,13 +135,37 @@ class Passage:
         return found
 
 
+#: What counts as on, whichever way the value was written. `json.loads` turns the JSON form into
+#: `True` and the old string form into the number `1`; `str().lower()` flattens both.
+_ON = frozenset({"true", "1"})
+
+
 def enabled(database: Database) -> bool:
-    """Whether recall is on. Off unless somebody said otherwise."""
-    return read_setting(database, ENABLED, "0") == "1"
+    """Whether recall is on. Off unless somebody said otherwise.
+
+    **Stored as JSON, and read tolerantly, because it was not always** (migration 14). This was
+    written as the string `'1'`/`'0'` while every setting beside it is JSON, which is the same
+    class of fault migration 11 repaired from the other direction — and it bit: decoded by
+    `GET /api/v1/settings`, "off" arrived at the dashboard as the number `0`, and the page's
+    `asFlag` asks `v !== false`, which `0` passes. The switch would have drawn itself **on**
+    while recall was off.
+
+    The migration converts what is stored here. The tolerance is for what the migration cannot
+    reach: a settings backup taken before today, and a pull over the link from a computer still
+    running an older NERVIS. Both write through the ordinary settings route, so neither passes
+    this function on the way in.
+    """
+    stored = read_setting(database, ENABLED, "")
+    try:
+        value: Any = json.loads(stored)
+    except ValueError:
+        value = stored
+    return str(value).strip().lower() in _ON
 
 
 def set_enabled(database: Database, on: bool) -> bool:
-    write_setting(database, ENABLED, "1" if on else "0")
+    """Switch it, writing JSON like its neighbours."""
+    write_setting(database, ENABLED, json.dumps(bool(on)))
     return on
 
 

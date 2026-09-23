@@ -555,3 +555,76 @@ def test_a_private_conversation_is_still_barred_when_it_would_now_be_reachable(
     _buried_under_a_window(database)
 
     assert recall.search(database, "where is the spare key, under which plant pot") == []
+
+
+# ── One encoding, like every setting beside it ──────────────────────────────
+#
+# The inventory's seventh finding. `recall.enabled` was written as the string `'1'`/`'0'` while
+# every neighbouring setting is JSON — the same class of fault migration 11 repaired from the
+# other direction, and the reason that migration exists is that it had already cost somebody
+# their selected voice once.
+#
+# It bit again on 23 September 2026, while moving the switch into chat: `GET /api/v1/settings`
+# decodes stored values, so "off" reached the dashboard as the number `0`, and the page's
+# `asFlag` asks `v !== false` — which `0` passes. The switch would have drawn itself **on** while
+# recall was off, which is worse than no switch at all.
+
+
+def test_it_is_stored_as_json_like_its_neighbours(database: Any) -> None:
+    recall.set_enabled(database, True)
+    assert _stored(database) == "true"
+
+    recall.set_enabled(database, False)
+    assert _stored(database) == "false"
+
+
+def _stored(database: Any) -> str:
+    row = database.connection.execute(
+        "SELECT value FROM setting WHERE key = ?", (recall.ENABLED,)).fetchone()
+    return str(row["value"]) if row else ""
+
+
+def _store_raw(database: Any, value: str) -> None:
+    with database.connection as connection:
+        connection.execute("INSERT OR REPLACE INTO setting (key, value) VALUES (?, ?)",
+                           (recall.ENABLED, value))
+
+
+@pytest.mark.parametrize(("stored", "reads"), [
+    ("true", True), ("false", False),            # what is written now
+    ("1", True), ("0", False),                   # what was written before migration 14
+    ('"1"', True), ('"0"', False),               # and what a double-encoded backup holds
+    ("", False), ("nonsense", False),            # and anything else is off
+])
+def test_both_encodings_are_understood(database: Any, stored: str, reads: bool) -> None:
+    """The migration converts what is in this database. The tolerance is for what it cannot
+    reach: a settings backup taken before today, and a pull over the link from a computer still
+    running an older NERVIS. Both write through the ordinary settings route, so neither passes
+    `set_enabled` on the way in."""
+    _store_raw(database, stored)
+
+    assert recall.enabled(database) is reads
+
+
+def test_off_does_not_read_as_on_through_the_settings_route(client: Any) -> None:
+    """The bug as the dashboard met it. `/api/v1/settings` decodes, so the page saw `0` — and
+    `0 !== false`, so a switch keyed off that drew itself on."""
+    database = client.app.state.database
+    recall.set_enabled(database, False)
+
+    value = client.get("/api/v1/settings").json()["items"][recall.ENABLED]
+
+    assert value is False, "a JSON boolean, not a number the page has to interpret"
+    assert client.get("/api/v1/recall").json()["enabled"] is False
+
+
+def test_the_migration_converts_what_is_already_stored() -> None:
+    """A repair, because the old writer wrote to the owner's data — and fixing the writer does
+    not un-write that. Idempotent by construction: after it runs the values are no longer `1`
+    or `0`, so a second pass matches nothing."""
+    from nervis.storage import MIGRATIONS
+
+    version, description, statement = MIGRATIONS[-1]
+
+    assert version == 14 and "recall.enabled" in description.replace(" ", "") + statement
+    assert "IN ('1', '0')" in statement, "only the two values the old writer could produce"
