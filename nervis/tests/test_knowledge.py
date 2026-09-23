@@ -445,9 +445,22 @@ def test_whats_new_names_the_versions_that_ship_now() -> None:
 
 
 def test_platform_questions_reach_the_platform_section() -> None:
+    """**Scored over the shipped notes only.**
+
+    `learned.md` sits in the same directory and is indexed by the same code — which is M23's
+    whole design and is not in question here. But it holds whatever the owner of *this* machine
+    told NERVIS, so scoring over it would make the suite's result depend on that. It did, on
+    23 September 2026, the first day anything was ever filed: a note reading "the thinkpad runs
+    CachyOS" outscored this section for "can you run on a thinkpad?" and failed a test that had
+    nothing to do with it. A test that passes or fails according to what somebody said in chat
+    is not testing the corpus.
+
+    What this asserts is a property of the notes in the repository: among them, a question
+    about platforms reaches the section about platforms.
+    """
     knowledge.forget_cached()
     for question in ("can you run on a thinkpad?", "does NERVIS work on Linux?",
                      "can NERVIS run on Windows?"):
-        scored = knowledge._term_scored(question, "")
-        best = max(scored, key=lambda row: row[0])[2]
+        shipped = [row for row in knowledge._term_scored(question, "") if not row[2].learned]
+        best = max(shipped, key=lambda row: row[0])[2]
         assert best.heading.startswith("Which computers it runs on"), (question, best.heading)

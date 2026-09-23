@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4762 tests, no network, no live service
+.venv/bin/pytest                      # part of 4773 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 2030 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 2041 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4762 passing across the four, conformance `PASS`.
+Expected: all clean, 4773 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,69 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Chat stops quoting its own old replies back at itself — 2026-09-23 (NERVIS 0.34.93)
+
+> *"tried it in chat… chip appeared… any reason why it kept talking about benny?"*
+
+Yes, and it reconstructs exactly. `chat.memory = all` puts the tail of the 5 newest
+conversations into every prompt, unranked. *Introducing You to Benny* (20 September) was third
+newest, and the **last line of the whole 5,741-character block** — the text nearest the question
+— was NERVIS's own closing sentence: *"…which is exactly what you want to show Benny. What would
+you like him to see next?"* Opening an unrelated conversation with *"testing your new memory…"*,
+the reply was *"Hello, Matty — good to see you back with Benny. What would you like to show him
+next?"* Told Benny was not there, it said *"what would you like to show him next time?"* — the
+same line, because the same text was still in the same place. Rebuilt from the live store rather
+than inferred.
+
+The block's preamble already forbade this, at length and in as many words: *"Never raise a
+subject because it appears below… Reporting the same machine observation turn after turn because
+your own earlier answers are in front of you is the specific failure this warns about."* 1,741
+characters of instruction that did not hold, which by this repository's own rule means the
+structure is wrong rather than the wording.
+
+**So the digest carries the person's turns and nothing NERVIS said** (owner's choice from three
+options). That also puts this path on the right side of a rule everything else already follows:
+a stored reply is model output, `recall.py` fences every passage it quotes for that reason, and
+this path fenced nothing — so instead of inventing a second fence it now carries only the half
+that never needed one, which is also the half the facts are in. NERVIS's own earlier words still
+reach it through recall, quoted, marked older and named under the reply. The preamble was
+rewritten to match: the sentence about its own answers being in front of it is gone, since they
+no longer are, and a new one says so outright — *you can see what they said and not what you
+answered, so do not reconstruct your own past wording* — because a model shown only questions
+will otherwise invent the answers it must have given. On the owner's store: **5,741 characters
+to 4,143**, and the turn cap now counts their turns, so a conversation ending in six replies
+contributes their six questions instead of six of NERVIS's answers.
+
+**Each block is dated** — the inventory's third finding, taken here because it is the same bug:
+`[Introducing You to Benny, last spoken in on 2026-09-20]`. A heading with a name on it reads as
+a standing fact; a heading three days old reads as three days old. The day, never the hour: an
+hour on a three-day-old entry is noise that invites false precision. The other two undated paths
+(the compaction summary, the quoted turns) are still open.
+
+**Two bugs found while measuring, both real.**
+
+*An unprompted remark carried the digest twice.* `_house_system` appends the block whenever a
+persona is set and the scope is `all` — the ordinary case — and the nudge path joined its own
+copy on top. A second nudge carried **12,019 characters** of system prompt, of which 5,741 were
+the recalled conversations and 5,741 were the recalled conversations again. Now 6,276, one copy,
+with and without a persona; `_nudge_directive` still computes it because *whether there is
+anything to recall* decides the flavour. The first guess at the cause — a vestigial
+`speaking_first` flag, added for a clock that has since moved to `_turn_context` — was wrong and
+the measurement said so: the flag only mattered when the persona was empty. It was removed as
+dead weight, and the duplicate was elsewhere.
+
+*A test depended on what the owner told NERVIS.* The first note ever filed on this machine —
+*"the thinkpad runs CachyOS"*, pressed by the owner at 08:26 the same morning — outscored the
+shipped platform section for *"can you run on a thinkpad?"* and failed
+`test_platform_questions_reach_the_platform_section`, which had nothing to do with it. M23's
+design is that learned notes are indexed exactly like shipped ones, so that is the feature
+working; a suite whose result depends on what somebody said in chat is not. The test now scores
+over the shipped corpus. It only surfaced because capture was finally used for the first time.
+
+11 tests in `nervis/tests/test_persona_digest.py`, suite at 2041. All 43 dashboard gates, the
+sandbox gate, `tools/check.py`, `tools/knowledge_check.py`, ruff and mypy pass. `send` went one
+branch over the complexity ceiling and the nudge's prompt assembly became `_nudge_system`.
 
 ## NERVIS offers to remember things, and every memory switch moved into chat — 2026-09-23 (NERVIS 0.34.92)
 

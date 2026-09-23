@@ -1928,7 +1928,12 @@ def test_the_reading_comes_after_the_recalled_conversations() -> None:
     """Asked the same question twice, an 8B build answered word for word the
     same both times — quoting its own earlier reply out of the recall instead of
     reading the fresh figures above it. Memory outranked measurement, and
-    position is half of what decides that."""
+    position is half of what decides that.
+
+    The other half arrived on 23 September 2026: the digest no longer carries
+    NERVIS's own replies at all, so there is nothing of its own left to quote.
+    Position still matters for what the *person* said, which is what this checks.
+    """
     sent: list[dict[str, Any]] = []
     client = an_api()
     _capture_into(client, sent)
@@ -1943,9 +1948,9 @@ def test_the_reading_comes_after_the_recalled_conversations() -> None:
     turn(client, "how is everything?", system="Be someone.")
 
     system = told(sent[-1])
-    assert "Earlier conversations on this machine" in system
+    assert "earlier conversations on this machine" in system
     assert "They are memories, not measurements" in system
-    assert system.index("Earlier conversations") < system.index(FENCE), (
+    assert system.index("earlier conversations on this machine") < system.index(FENCE), (
         "the current reading has to come after the remembered ones"
     )
 

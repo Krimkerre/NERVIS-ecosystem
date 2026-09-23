@@ -326,9 +326,15 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.92, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.93, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
+- **Chat no longer has its own past replies fed back to it** (23 September, NERVIS 0.34.93):
+  the block of recent conversations it carries when *Look back at earlier conversations* is on
+  now holds your side only, dated, instead of both sides. It was mirroring its own closing lines
+  from days-old conversations into unrelated ones — greeting somebody by the name of a visitor
+  who had been there three days earlier. Its own words still reach it through the search, where
+  they arrive quoted and named under the reply. See *Remembering earlier conversations*.
 - **NERVIS offers to remember facts you mention, without being asked** (23 September, NERVIS
   0.34.92): say something that stands — *the GPU box has an RX 6800*, *I prefer short replies* —
   and a small **Remember** chip appears under the reply carrying that exact sentence. Press it
@@ -1716,23 +1722,35 @@ At most one passage is taken from each earlier conversation, and only a few in
 total. Three quotes from one long conversation is one recollection said three
 times, and it crowds out the other conversation that might have disagreed.
 
-**A second, separate memory setting exists, and works differently.** Chat's
-own Parameters drawer has a **Memory** dropdown — "This conversation only" or
-"All conversations on this machine" — and it is not the same control as the
-one above. Set to "all," it adds a bounded digest of up to 5 other stored
-conversations (their last 6 turns each, roughly 4,000 characters total,
-newest first) straight into the system prompt on *every* turn — unconditional
-rather than search-relevance-gated, and silent rather than shown under the
-reply. A conversation marked **Private**, from the button beside **New
-chat**, is permanently excluded from that digest. Practically: if this
-setting is "all," chat already has real, present-tense access to recent
-non-private conversations on this machine on every single turn, whether or
-not the question looks like it needs one — it just has no label calling that
-content out by name, so it can be easy to answer "do you have access to my
-other chats" wrong even while the answer sits earlier in the same prompt.
-Both settings can be on at once, and often are — they read from the same
-conversation store but serve different purposes: this one is unconditional
-recent context, the one above is relevance-gated retrieval, further back.
+**A second, separate memory setting exists, and works differently.** In the
+same panel, **Look back at earlier conversations** — "No, this conversation
+only" or "Yes, the last 5" — is not the same control as the search above it.
+Set to the last 5, it puts a bounded digest of up to 5 other stored
+conversations into the system prompt on *every* turn: unconditional rather
+than relevance-gated, and silent rather than shown under the reply. A
+conversation marked **Private**, from the button beside **New chat**, is
+permanently excluded from it. Practically: with this on, chat has real,
+present-tense access to recent non-private conversations on this machine on
+every single turn, whether or not the question looks like it needs one — so
+"do you have access to my other chats" is easy to answer wrong even while the
+answer sits earlier in the same prompt. Both settings can be on at once, and
+often are.
+
+**It carries your side only, and it is dated** (23 September 2026). Up to the
+last 6 things *you* said in each of those conversations, each block headed with
+the conversation's title and when it was last spoken in. **NERVIS's own replies
+are not in it.** They were, and it went wrong in a way worth recording: a
+conversation three days old ended with NERVIS saying *"…which is exactly what
+you want to show Benny. What would you like him to see next?"* — and because
+that was the last line of the block, sitting immediately before the question, a
+brand-new conversation opened with *"good to see you back with Benny. What
+would you like to show him next?"* Told Benny was not there, it said the line
+again. A stored reply is model output; putting it back in front of a model
+unmarked is the mistake the fenced quoting elsewhere exists to prevent, and the
+digest fenced nothing. So it now carries the half that never needed a fence —
+what you said, which is also where the facts are. Where NERVIS's own earlier
+words genuinely matter, they come through the search instead, quoted, marked as
+older, and named under the reply.
 
 ### Facts NERVIS offers to keep
 

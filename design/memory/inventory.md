@@ -48,13 +48,19 @@ This is the part that matters, and the part nobody had written down. On a single
 |---|---|---|---|---|---|
 | **A** | Compaction summary | A summary of this conversation's older turns | ≤ 2,000 chars | `chat.compaction` | **on** |
 | **B** | Cross-conversation recall | Keyword matches from *other* conversations | 3 passages, ~4,800 chars (was ~400) | `recall.enabled` | off by default, **on here** |
-| **C** | Persona digest | The tail of the 5 newest conversations, 6 turns each, no matching at all | ~4,000 chars, **every turn** | `chat.memory` = `all` | `session` by default, **`all` here** |
+| **C** | Persona digest | The **person's** last 6 turns in each of the 5 newest conversations, dated, no matching at all | ~4,100 chars, **every turn** | `chat.memory` = `all` | `session` by default, **`all` here** |
 | **D** | Quoted older turns | Turns from this conversation's summarised part that share words with the question | ≤ 3,000 chars, ≤ 4 turns | follows `chat.compaction` | on |
 | **E** | Shipped + learned notes | The documentation sections that match the question | ≤ 6,000 chars | — | always |
 
 Five paths, five different framings, no shared budget, and no de-duplication between them. With
 B and C both on, the same sentence from last week's conversation can arrive twice in one request,
 described two different ways.
+
+**C had a sixth problem the table did not show, and it reached the owner** (23 September 2026):
+it carried NERVIS's own replies as well as the person's, unfenced, with a three-day-old closing
+line sitting in the position nearest the question. Chat copied it into an unrelated conversation
+and greeted the owner by the name of a visitor who was not there. C now carries their side only.
+That is a trim, not the merge this section argues for — B and C still overlap.
 
 ## 4. What is wrong today
 
@@ -84,7 +90,10 @@ Measured: three 600-character passages plus their answers — 3,600 characters �
 characters of which only **one conversation of the three is named**. Passages two and three are
 cut off mid-sentence. The search works; the delivery does not.
 
-**3. Three of the four conversation paths hand the model undated text.** Only recall says when
+**3. Three of the four conversation paths hand the model undated text.** *(one of the three
+fixed, 23 September 2026: the persona digest dates each conversation —
+`[Introducing You to Benny, last spoken in on 2026-09-20]` — because it was the same bug as the
+one below. The compaction summary and the quoted turns are still undated.)* Only recall says when
 something was said. The compaction summary, the quoted turns and the persona digest all arrive
 with no date, so a model cannot tell last night's decision from one superseded in August. NERVIS's
 own house rule — that a stale record which gets believed is worse than none — is not being applied

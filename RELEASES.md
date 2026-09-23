@@ -904,7 +904,21 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.92
+## NERVIS — 0.34.93
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.16+, SIRVIS 0.19.12+, Clarvis Bridge 0.17.28+, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Chat is no longer shown its own past replies.** With *Look back at earlier conversations*
+  set to the last 5, the block of recent conversations chat carries now holds your side only,
+  and each one is dated. It was reusing its own closing lines from days-old conversations in
+  unrelated ones — greeting somebody by the name of a visitor who had been there three days
+  earlier. Its own words still reach it through the search, quoted and named under the reply.
+- **An unprompted remark sent that block twice.** A second nudge carried 12,019 characters of
+  system prompt, half of it a duplicate. Now one copy.
+- **Upgrading:** nothing to do. The block is smaller and its contents change; no setting moves.
+
+### 0.34.92
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.16+, SIRVIS 0.19.12+, Clarvis Bridge 0.17.28+, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

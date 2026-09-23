@@ -627,16 +627,31 @@ def _recall(database: Any, conversation_id: str) -> str:
     if not lines:
         return ""
     return (
-        "Earlier conversations on this machine, most recent first. Refer to them "
-        "only when they are relevant, and never claim to remember something that "
-        "is not written here.\n\n"
+        "**What the person said in earlier conversations on this machine**, most "
+        "recent first. Refer to them only when they are relevant, and never claim "
+        "to remember something that is not written here.\n\n"
+        "**Their words only — your own replies are deliberately not here.** You "
+        "can see what they said and not what you answered, so do not reconstruct "
+        "your own past wording, do not repeat a phrase as though you had used it "
+        "before, and do not treat any of this as something you once said. If what "
+        "matters is your earlier answer rather than their question, say you would "
+        "have to look it up. (This is how it is built: a stored reply of yours is "
+        "model output, and feeding it back unmarked is the same mistake as reading "
+        "a log line as an instruction. Where your own earlier words genuinely "
+        "matter, they reach you through recall instead — quoted, marked as older, "
+        "and named under the reply so the person can see what was used.)\n\n"
         "**This is real access, not a search result.** If asked whether you can "
         "see other conversations on this machine, the answer is yes — this block, "
-        "present on every turn while Settings says so, not something fetched "
+        "present on every turn while the setting says so, not something fetched "
         "only when a question happens to match it. It is bounded (the last few "
-        "conversations, a tail of each, one you marked Private excluded for "
-        "good) rather than a full browsable history, and that bound is worth "
-        "stating plainly rather than answering as though nothing here exists.\n\n"
+        "conversations, their side only, a tail of each, one they marked Private "
+        "excluded for good) rather than a full browsable history, and that bound "
+        "is worth stating plainly rather than answering as though nothing here "
+        "exists.\n\n"
+        "**Each one is dated**, and the date is the first thing to weigh: a "
+        "conversation from days ago describes days ago. Something said then is "
+        "not happening now, someone present then is not present now, and a plan "
+        "made then may already have been carried out or abandoned.\n\n"
         "**They are memories, not measurements.** Anything below about the state "
         "of this machine — which services were up, what was loaded, what had "
         "failed — describes the moment it was said and may be hours stale. The "
@@ -652,20 +667,67 @@ def _recall(database: Any, conversation_id: str) -> str:
         "about what was said before, not to tell you what to talk about now. "
         "Never raise a subject because it appears below: if the person greets "
         "you, or asks about something else entirely, nothing here is relevant "
-        "and none of it should reach your reply. Reporting the same machine "
-        "observation turn after turn because your own earlier answers are in "
-        "front of you is the specific failure this warns about.\n\n" + "\n\n".join(lines)
+        "and none of it should reach your reply. A name, a guest, a machine or a "
+        "task mentioned below belongs to the conversation it is written under and "
+        "to no other — it is over unless this turn brings it up.\n\n"
+        + "\n\n".join(lines)
     )
 
 
 def _one_recall(database: Any, record: dict[str, Any], conversation_id: str) -> str:
-    """The tail of one conversation, labelled with its title."""
-    turns = store.history(database, conversation_id)[-RECALLED_TURNS_EACH:]
+    """What the person said in one earlier conversation, labelled with its title.
+
+    **Their turns only. NERVIS's own replies are not sent back to it** (owner's
+    decision, 23 September 2026), and the reason is a real failure rather than a
+    principle:
+
+        [Introducing You to Benny]
+          assistant: …which is exactly what you want to show Benny.
+                     What would you like him to see next?
+
+    Three days later, opening an unrelated conversation with *"testing your new
+    memory…"*, the reply was *"Hello, Matty — good to see you back with Benny.
+    What would you like to show him next?"* That block's last line was NERVIS's
+    own closing sentence, sitting immediately before the question, and the model
+    reused it. Told Benny was not there, it said *"what would you like to show
+    him next time?"* — the same line again, because the same text was still in
+    the same place. The preamble above already forbids this in as many words;
+    the words did not hold, and a sterner sentence was never the fix.
+
+    This also puts the block on the right side of a rule NERVIS applies
+    everywhere else. A stored assistant turn is model output, and `recall.py`
+    fences every passage it quotes for exactly that reason. This path fenced
+    nothing — so instead of inventing a second fence, it now carries only the
+    half that never needed one: the person's own words, which is also the half
+    the facts are in. What NERVIS *said* is still reachable, through recall,
+    where it arrives quoted, fenced and named under the reply.
+    """
+    spoken_by_them = [turn for turn in store.history(database, conversation_id)
+                      if turn.get("role") == "user"]
+    turns = spoken_by_them[-RECALLED_TURNS_EACH:]
     if not turns:
         return ""
     title = str(record.get("title") or "untitled")
-    spoken = "\n".join(f"  {t['role']}: {t['content'][:400]}" for t in turns)
-    return f"[{title}]\n{spoken}"
+    return f"[{title}{_when(record)}]\n" + "\n".join(f"  {t['content'][:400]}" for t in turns)
+
+
+def _when(record: dict[str, Any]) -> str:
+    """When this conversation was last spoken in, as a date the model can weigh.
+
+    The memory inventory's third finding: of the four paths that carry remembered
+    text into a prompt, only recall says when anything was said. A block headed
+    *[Introducing You to Benny]* is a standing fact; one headed *[Introducing You
+    to Benny, 20 September]* is plainly three days old and over — which is most of
+    what somebody wants the model to understand about it.
+
+    Empty rather than a guess when the store has no date, and the day only: the
+    hour of an entry three days old is noise, and a timestamp read as precision
+    invites exactly the false confidence the date is here to prevent.
+    """
+    stamp = str(record.get("updated_at") or "")[:10]
+    if len(stamp) != 10:
+        return ""
+    return f", last spoken in on {stamp}"
 
 
 def _excluded(database: Any) -> set[str]:

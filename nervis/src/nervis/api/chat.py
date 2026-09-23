@@ -460,7 +460,7 @@ async def send(request: Request) -> Any:
     # plain client, a greeting and a nudge cost RAVIS no read. The system message is settled here
     # to know that; nothing assembled below changes it. A skill asked for by name was read above
     # and takes the place of the one that fits.
-    system = _house_system(body, database, greeting, conversation_id, nudge > 0)
+    system = _house_system(body, database, greeting, conversation_id)
     awareness = "\n\n".join(part for part in (awareness, await _skills_reading(
         request, entry, content, system=system, greeting=greeting, nudge=nudge, invoked=invoked,
     )) if part)
@@ -509,16 +509,9 @@ async def send(request: Request) -> Any:
     if greeting:
         asked = GREETING_OPENER
     elif nudge > 0:
-        directive, recall = _nudge_directive(
-            database, conversation_id, nudge, str(body.get("screen") or "")
+        system = _nudge_system(
+            database, conversation_id, nudge, str(body.get("screen") or ""), system
         )
-        # **This one stays in the system prompt**, unlike the readings. It is an
-        # instruction addressed to the assistant -- speak first, about the
-        # silence -- and an instruction in a user turn reads as the person
-        # saying it. The caching argument does not apply either: a nudge is a
-        # single unprompted turn, so there is no conversation to cache and
-        # nothing is lost by breaking the prefix on it.
-        system = "\n\n".join(part for part in (system, directive, recall) if part)
         asked = NUDGE_OPENER
     # **The turns a long conversation's summary cannot answer for**, chosen by this question
     # and therefore different every turn — so they ride here, with the readings, at the end.
@@ -570,12 +563,41 @@ async def send(request: Request) -> Any:
     )
 
 
+def _nudge_system(
+    database: Any, conversation_id: str, nudge: int, screen: str, system: str,
+) -> str:
+    """The system prompt for an unprompted remark: the house one, the directive, the digest.
+
+    **The directive stays in the system prompt**, unlike the readings. It is an instruction
+    addressed to the assistant — speak first, about the silence — and an instruction in a user
+    turn reads as the person saying it. The caching argument does not apply either: a nudge is
+    a single unprompted turn, so there is no conversation to cache and nothing is lost by
+    breaking the prefix on it.
+
+    **The digest, only if it is not already there.** `_house_system` owns that block and
+    appends it under exactly one condition — a persona is set and the memory scope is "all" —
+    which is the ordinary case, so joining it on again here sent the same text twice. Measured
+    on the owner's store, 23 September 2026: a second nudge carried 12,019 characters of system
+    prompt, of which the recalled conversations were both halves. `_nudge_directive` still
+    computes it, because *whether there is anything to recall* is what decides the flavour:
+    with nothing to say about, the nudge asks a question instead. What it returns is needed for
+    that decision, not always for the prompt.
+
+    Its own function rather than three lines inline: `send` was one branch over the file's
+    complexity ceiling with them there, and this is a separable thing — what one kind of turn's
+    system prompt is made of.
+    """
+    directive, recall = _nudge_directive(database, conversation_id, nudge, screen)
+    if recall and recall in system:
+        recall = ""
+    return "\n\n".join(part for part in (system, directive, recall) if part)
+
+
 def _house_system(
     body: dict[str, Any],
     database: Any,
     greeting: bool,
     conversation_id: str = "",
-    speaking_first: bool = False,
 ) -> str:
     """The user's persona, with whatever NERVIS needs to add behind it.
 
@@ -618,9 +640,17 @@ def _house_system(
     # and a gateway that silently prepends a line to every request is not one.
     # The clock exists to keep a *persona* honest about durations, so it rides
     # with one rather than arriving on its own.
-    # `speaking_first` covers the nudge, whose directive is joined on after this
-    # returns: an unprompted remark about a silence is the one place the gap is
-    # load-bearing, and it would have been the one place without a clock.
+    #
+    # **A `speaking_first` flag used to widen this condition, and it sent the
+    # digest twice.** It was added for the clock — an unprompted remark about a
+    # silence is the one place the gap is load-bearing — and the clock then
+    # moved to `_turn_context`, leaving the flag guarding the only thing left
+    # under the condition. Meanwhile the nudge's own path joins on whatever
+    # `_nudge_directive` returns, which for the `recall` flavour is this same
+    # block. Measured on the owner's store, 23 September 2026: a second nudge
+    # carried 12,019 characters of system prompt, of which 5,741 were the
+    # recalled conversations and 5,741 were the recalled conversations again.
+    # The nudge needs no help from here; it asks for what it needs.
     #
     # **The recalled conversations, moved here from the per-turn half.** They
     # read like per-turn content and are not: `_recall` always skips the
@@ -634,7 +664,7 @@ def _house_system(
     # full price every single turn and here is paid for once per conversation.
     # Under the same condition as before, so a request with no persona still
     # receives none of NERVIS's extras.
-    if (any(parts) or speaking_first) and _memory_scope(database) == "all":
+    if any(parts) and _memory_scope(database) == "all":
         parts.append(_recall(database, conversation_id))
     return "\n\n".join(part for part in parts if part)
 
