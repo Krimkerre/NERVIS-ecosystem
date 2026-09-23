@@ -10299,14 +10299,27 @@ async function learnedSection(){
      onkeydown="if(event.key===\'Enter\')addNote()">
    <button class="mode-chip" onclick="addNote()">Remember it</button>
   </div>`:'';
+ /* **Plain inline spans, not `<small class="mono dim">`.** That class is this
+    page's footnote convention and gets folded away behind a "?" — which is
+    where this sentence first landed, making the signpost that says where the
+    switches went a thing nobody could see. The same mistake as the settings
+    preview, one day apart. */
+ const where=`<div style="margin-bottom:9px;line-height:1.55">
+   <b>The switches are in chat</b>, not on this page: whether NERVIS
+   <b>offers to keep a fact you mention</b>, whether a new conversation
+   <b>looks back at earlier ones</b> and <b>searches</b> them, and whether a
+   <b>long conversation is shortened</b>, are all in the parameters panel beside
+   the message box. Keeping one conversation out of it is the <b>Private</b>
+   button beside <b>New chat</b>. They were on this page until 23 September 2026,
+   which is why one of them had never been switched on by anybody.</div>`;
  return `<div class="card wide${liveClass(live)}"><h3>What you have told NERVIS
-   <span class="chip">${escapeHtml(record.count)}</span></h3>${cell(
+   <span class="chip">${escapeHtml(record.count)}</span></h3>${cell(where+
   (record.count?`<div class="table-row head caps" style="grid-template-columns:2.6fr 1fr .9fr">
     <span>Note</span><span>Learned</span><span></span></div>${rows}`
    :(live?banner('Nothing yet','Mention something that stands — <i>the GPU box has an RX 6800</i> — and chat offers to keep it. You can also type one below, or edit the file directly.','info')
          :banner('NERVIS is not answering','These notes live in a file NERVIS reads, and cannot be listed from here until it is up.','warn')))
   +compose,'nervis')}
-   <small class="mono dim">${live&&record.path?`Kept in <b>${escapeHtml(record.path)}</b>, a plain markdown file beside the notes NERVIS shipped with — edit or delete it in any editor. `:''}<b>Retrieved exactly like the others</b>: the same index, the same weighting, the same quoting. <b>The shipped notes win.</b> Where something you told NERVIS disagrees with one of its own notes on the same subject, the shipped one is used and yours is still shown, marked <b>overruled</b> — exactly one of the two is wrong and you are the only one who can say which. <b>Nothing is written without you pressing something</b>, and nothing a model produced is written here: what is stored is your sentence. <b>The switches are in chat</b>, not on this page — whether NERVIS offers to keep a fact you mention, whether a new conversation looks back at earlier ones and searches them, and whether a long one is shortened, are all in the panel behind the sliders beside the message box. They were here until 23 September 2026, which is why one of them had never been switched on by anybody.</small></div>`;
+   <small class="mono dim">${live&&record.path?`Kept in <b>${escapeHtml(record.path)}</b>, a plain markdown file beside the notes NERVIS shipped with — edit or delete it in any editor. `:''}<b>Retrieved exactly like the others</b>: the same index, the same weighting, the same quoting. <b>The shipped notes win.</b> Where something you told NERVIS disagrees with one of its own notes on the same subject, the shipped one is used and yours is still shown, marked <b>overruled</b> — exactly one of the two is wrong and you are the only one who can say which. <b>Nothing is written without you pressing something</b>, and nothing a model produced is written here: what is stored is your sentence.</small></div>`;
 }
 
 /* Add a note from Settings, through the same operation the chat offer runs. */
