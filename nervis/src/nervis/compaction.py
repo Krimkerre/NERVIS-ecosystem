@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from nervis.chat import history
+from nervis.chat import messages
 from nervis.storage.database import Database
 
 #: How much of a conversation travels verbatim, in characters. About three thousand tokens —
@@ -129,12 +129,79 @@ SUMMARY_PREFACE = (
     "It is compressed: exact words, details and whole exchanges are missing from it. Use it as "
     "background only. If something is not in this summary and not in the turns that follow, you "
     "do not know it — say so plainly instead of guessing or connecting it to something else "
-    "that is here:\n\n"
+    "that is here"
 )
 
+#: The sentence that says *when* the summarised part happened. The memory inventory's third
+#: finding: of the paths carrying remembered text into a prompt, only recall said when anything
+#: was said, so a model could not tell last night's decision from one reversed in August.
+#:
+#: **It is the span of the turns, not the day the summary was written.** A note stamped with
+#: when it was made answers a question nobody asks; what matters is which stretch of time the
+#: conversation it stands for covers.
+SUMMARY_WHEN = (
+    ". It covers {when}, so anything in it describes then — a decision in it may since have "
+    "been changed or carried out, and a figure in it may since have moved"
+)
 
-def folded(turns: list[dict[str, Any]], summary: str, budget: int = RECENT_BUDGET
-           ) -> tuple[list[dict[str, Any]], int]:
+SUMMARY_TAIL = ":\n\n"
+
+
+def dated(database: Database, conversation_id: str) -> list[dict[str, Any]]:
+    """This conversation's turns, each carrying when it was said.
+
+    **Separate from `history()` on purpose.** That one returns the shape RAVIS's API expects and
+    its result is sent to a provider verbatim; an extra key on those turns would travel with
+    them. This is for the two places that need to *talk about* a turn rather than send it — the
+    summary's date span and the quoted turns — and what it produces is read into prose, never
+    into a message.
+    """
+    return [{"role": message.role, "content": message.content, "at": message.created_at}
+            for message in messages(database, conversation_id) if message.content]
+
+
+def spoken_over(turns: list[dict[str, Any]]) -> str:
+    """The stretch of time these turns cover, written the way a person writes a date.
+
+    *"20 September 2026"* for one day, *"12 to 20 September 2026"* inside one month, *"28 August
+    to 3 September 2026"* across two. Empty when nothing carries a date, because a made-up span
+    is worse than none — this exists so a model can tell old from recent, and a wrong date does
+    the opposite of that.
+    """
+    stamps = sorted(str(turn.get("at") or "")[:10] for turn in turns if turn.get("at"))
+    if not stamps or len(stamps[0]) != 10:
+        return ""
+    first, last = _written(stamps[0]), _written(stamps[-1])
+    if first == last:
+        return first
+    if stamps[0][:7] == stamps[-1][:7]:      # same month: name it once
+        return f"{stamps[0][8:].lstrip('0')} to {last}"
+    return f"{first} to {last}"
+
+
+#: Month names, because `strftime("%B")` follows the machine's locale and this text is written
+#: in one language. A prompt that says "20 septembre" on somebody's French laptop and "20
+#: September" on the next is the same class of surprise as a number that changes by machine.
+_MONTHS = ("January", "February", "March", "April", "May", "June",
+           "July", "August", "September", "October", "November", "December")
+
+
+def _written(stamp: str) -> str:
+    """`2026-09-20` as `20 September 2026`, or the stamp itself if it is not a date."""
+    year, month, day = stamp[:4], stamp[5:7], stamp[8:10]
+    if not (year.isdigit() and month.isdigit() and day.isdigit()) or not 1 <= int(month) <= 12:
+        return stamp
+    return f"{int(day)} {_MONTHS[int(month) - 1]} {year}"
+
+
+def summary_note(summary: str, when: str = "") -> str:
+    """The summary as the model receives it: what it is, when it was, then the text."""
+    dated_part = SUMMARY_WHEN.format(when=when) if when else ""
+    return SUMMARY_PREFACE + dated_part + SUMMARY_TAIL + summary[:SUMMARY_LIMIT]
+
+
+def folded(turns: list[dict[str, Any]], summary: str, budget: int = RECENT_BUDGET,
+           when: str = "") -> tuple[list[dict[str, Any]], int]:
     """What to send, and how many turns it stands in for.
 
     With nothing to summarise this is the conversation exactly as it is. With a summary, the
@@ -142,6 +209,11 @@ def folded(turns: list[dict[str, Any]], summary: str, budget: int = RECENT_BUDGE
     anybody said in it. **It changes only when the summary is rolled**, which is rare, so the
     history in front of the question stays byte-identical from one turn to the next — which is
     what a provider needs to reuse it (`nervis.md`, "How a question is assembled").
+
+    `when` is the span of the turns the note stands in for, and it is a *date* rather than a
+    time for that reason among others: it moves only when the summarised part grows across a
+    day boundary, which in a conversation held in one sitting is never. A note stamped with the
+    hour, or with today's date, would change on every turn and quietly cost the whole prefix.
 
     The turns quoted for a particular question are **not** here, for exactly that reason: they
     change every turn. They ride with the question instead (`quoted_for`).
@@ -153,7 +225,7 @@ def folded(turns: list[dict[str, Any]], summary: str, budget: int = RECENT_BUDGE
         # Nothing to say about them yet — the first fold is still to happen. The recent turns
         # go on their own rather than a request being held up for a summary.
         return recent, len(older)
-    note = {"role": "system", "content": SUMMARY_PREFACE + summary[:SUMMARY_LIMIT]}
+    note = {"role": "system", "content": summary_note(summary, when)}
     return [note, *recent], len(older)
 
 
@@ -281,8 +353,16 @@ def relevant_older(older: list[dict[str, Any]], question: str,
 
 #: How the quoted turns are introduced. They are real words from earlier in this conversation,
 #: so they are named as that — and placed after the summary, where they read as detail.
+#:
+#: **Each one is dated**, the inventory's third finding again. These are the exact words of a
+#: turn, which reads more present than a summary does, and the whole point of dragging them
+#: back is that they are from the part of the conversation that is no longer in front of the
+#: model. Undated, a decision made a fortnight ago and quoted word for word is indistinguishable
+#: from one made a minute ago.
 QUOTE_PREFACE = ("Some of the earlier turns themselves, word for word, because they mention "
-                 "what was just asked about:\n\n")
+                 "what was just asked about. Each is dated, and a turn is only a record of the "
+                 "day it was said on — where it disagrees with something more recent, the more "
+                 "recent one is what holds:\n\n")
 
 
 def quoted_for(database: Database, conversation_id: str, question: str) -> str:
@@ -296,13 +376,19 @@ def quoted_for(database: Database, conversation_id: str, question: str) -> str:
     """
     if not question.strip() or not switched_on(database):
         return ""
-    older, _ = split(history(database, conversation_id))
+    older, _ = split(dated(database, conversation_id))
     quoted = relevant_older(older, question)
     if not quoted:
         return ""
-    said = "\n\n".join(f"{turn.get('role', 'user')}: {turn.get('content', '')}"
-                        for turn in quoted)
+    said = "\n\n".join(f"{_attributed(turn)}: {turn.get('content', '')}" for turn in quoted)
     return QUOTE_PREFACE + said
+
+
+def _attributed(turn: dict[str, Any]) -> str:
+    """Who said it and when — `user, 20 September 2026`, or just the role if it has no date."""
+    role = str(turn.get("role") or "user")
+    when = _written(str(turn.get("at") or "")[:10]) if turn.get("at") else ""
+    return f"{role}, {when}" if when and when != str(turn.get("at"))[:10] else role
 
 
 def what_to_send(database: Database, conversation_id: str) -> list[dict[str, Any]]:
@@ -316,7 +402,12 @@ def what_to_send(database: Database, conversation_id: str) -> list[dict[str, Any
     the question (`quoted_for`), so that this — the part in front of the question — stays the
     same from turn to turn.
     """
-    turns = history(database, conversation_id)
+    # One read, two shapes. `dated` carries the timestamps the note's span is written from;
+    # `plain` is what actually travels, because an extra key on a turn would be sent with it.
+    turns = dated(database, conversation_id)
+    plain = [{"role": turn["role"], "content": turn["content"]} for turn in turns]
     if not switched_on(database):
-        return turns
-    return folded(turns, stored_summary(database, conversation_id)["summary"])[0]
+        return plain
+    older, _ = split(turns)
+    return folded(plain, stored_summary(database, conversation_id)["summary"],
+                  when=spoken_over(older))[0]

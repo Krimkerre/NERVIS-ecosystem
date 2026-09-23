@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4773 tests, no network, no live service
+.venv/bin/pytest                      # part of 4784 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 2041 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 2052 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4773 passing across the four, conformance `PASS`.
+Expected: all clean, 4784 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,50 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Everything chat remembers now says when it is from — 2026-09-23 (NERVIS 0.34.94)
+
+The memory inventory's third finding, closed. Of the paths that carry remembered text into a
+prompt, only recall said when anything was said, so a model could not tell last night's decision
+from one reversed in August — NERVIS's own rule that a stale record which gets believed is worse
+than none, not applied to its own memory. The persona digest was dated first, because a
+three-day-old conversation was being mirrored into a new one. These are the other two.
+
+**The summary of a long conversation names the stretch it covers.** `compaction.summary_note()`
+puts it after the existing warning that the summary is lossy: *"It covers 12 to 20 September
+2026, so anything in it describes then — a decision in it may since have been changed or carried
+out, and a figure in it may since have moved."* Written the way a person writes a date: one day
+as `20 September 2026`, inside one month as `12 to 20 September 2026`, across two as `28 August
+2026 to 3 September 2026`. The month names are a tuple in this module rather than `strftime`,
+because `%B` follows the machine's locale and the same conversation would otherwise say
+"septembre" on one laptop and "September" on the next.
+
+**Each quoted turn carries its date and who said it** — `user, 30 August 2026: what did we decide
+about the tray icon`. This is the path that needed it most: a quotation is the exact words of a
+turn and reads far more present than a summary does, while the whole reason it is dragged back is
+that it comes from the part of the conversation the model can no longer see. The preface says
+plainly that where a dated turn disagrees with something more recent, the more recent one holds.
+
+**The date is the conversation's, never today's, and that is load-bearing twice over.** Honesty
+is the obvious half. The other is caching: the summary note sits in front of the question, and a
+provider reuses a prompt by matching its opening bytes — stamped with today, or with the hour, it
+would change on every turn and the whole conversation would be re-read at full price, which is
+the failure of 9 September 2026 in a new place. A day span moves only when the summarised part
+grows across midnight, which in a conversation held in one sitting is never. A test asserts the
+note is byte-identical when asked twice with nothing changed.
+
+**Timestamps reach these two paths without reaching a provider.** `history()` returns the shape
+RAVIS's API expects and its result is sent verbatim, so widening it would have put an `at` key on
+every message travelling to a model. `compaction.dated()` is a separate read for the two places
+that need to *talk about* a turn rather than send one; `what_to_send()` takes one read and
+derives both shapes from it, and a test asserts every turn that travels carries `{role, content}`
+and nothing else.
+
+Seen on the owner's real store: a 142-turn conversation's note now opens *"…that is here. It
+covers 19 September 2026, …"*, and its quoted turns arrive as `user, 19 September 2026: …`.
+
+11 tests added to `nervis/tests/test_compaction.py`, suite at 2052. All 43 dashboard gates, the
+sandbox gate, `tools/check.py`, `tools/knowledge_check.py`, ruff and mypy pass.
 
 ## Chat stops quoting its own old replies back at itself — 2026-09-23 (NERVIS 0.34.93)
 

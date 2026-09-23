@@ -904,7 +904,18 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.93
+## NERVIS — 0.34.94
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.16+, SIRVIS 0.19.12+, Clarvis Bridge 0.17.28+, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Everything chat remembers now says when it is from.** The summary of a long conversation
+  names the stretch of days it covers, and turns quoted back word for word carry the date they
+  were said on. All four ways chat remembers something are dated now.
+- **Upgrading:** nothing to do. No setting changes; the summary note and the quoted turns gain
+  a date each.
+
+### 0.34.93
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.16+, SIRVIS 0.19.12+, Clarvis Bridge 0.17.28+, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2

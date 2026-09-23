@@ -320,3 +320,116 @@ def test_the_fold_is_asked_for_sections_rather_than_prose() -> None:
     for section in compaction.SUMMARY_SECTIONS:
         assert f"## {section}" in prompt
     assert "exact phrase" in prompt and "anything you are guessing at" in prompt
+
+
+# ── Saying when ─────────────────────────────────────────────────────────────
+#
+# The memory inventory's third finding, 23 September 2026: of the paths that carry remembered
+# text into a prompt, only recall said when anything was said. A model cannot tell last night's
+# decision from one reversed in August, and NERVIS's own house rule — a stale record that gets
+# believed is worse than none — was not being applied to its own memory. The persona digest was
+# dated first, because a three-day-old conversation was being mirrored into a new one. These are
+# the other two.
+
+
+def dated_turns(*stamps: str) -> list[dict[str, Any]]:
+    return [{"role": "user", "content": f"turn {number}", "at": f"{stamp} 09:00:00"}
+            for number, stamp in enumerate(stamps)]
+
+
+def test_the_summary_says_which_stretch_of_time_it_covers() -> None:
+    note = compaction.summary_note("what was decided", "12 to 20 September 2026")
+
+    assert "It covers 12 to 20 September 2026" in note
+    assert note.endswith(":\n\nwhat was decided")
+
+
+def test_an_undated_summary_says_nothing_rather_than_guessing() -> None:
+    """A wrong date does the opposite of what a date is for."""
+    note = compaction.summary_note("what was decided")
+
+    assert "It covers" not in note
+    assert note.endswith("that is here:\n\nwhat was decided")
+    assert compaction.spoken_over([{"role": "user", "content": "no stamp"}]) == ""
+
+
+@pytest.mark.parametrize(("stamps", "reads"), [
+    (("2026-09-20", "2026-09-20"), "20 September 2026"),
+    (("2026-09-12", "2026-09-20"), "12 to 20 September 2026"),
+    (("2026-08-28", "2026-09-03"), "28 August 2026 to 3 September 2026"),
+    (("2026-09-20", "2026-09-12"), "12 to 20 September 2026"),
+])
+def test_a_span_is_written_the_way_a_person_writes_one(
+    stamps: tuple[str, ...], reads: str,
+) -> None:
+    """Within one month the month is named once. Out of order still reads earliest first —
+    the turns arrive in order, but a span that inverted itself would be nonsense on screen."""
+    assert compaction.spoken_over(dated_turns(*stamps)) == reads
+
+
+def test_the_month_is_not_the_machines_month() -> None:
+    """`strftime("%B")` follows the locale, so the same conversation would say "septembre" on
+    one machine and "September" on the next — a prompt that differs by laptop."""
+    import locale
+    from contextlib import suppress
+    spoken = compaction.spoken_over(dated_turns("2026-09-20"))
+    with suppress(locale.Error):
+        locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")
+        assert compaction.spoken_over(dated_turns("2026-09-20")) == spoken == "20 September 2026"
+    locale.setlocale(locale.LC_TIME, "C")
+
+
+def test_the_date_is_the_conversations_not_todays(database: Any) -> None:
+    """**Load-bearing for caching, not only for honesty.** This note sits in front of the
+    question and a provider reuses a prompt by matching its opening bytes. Stamped with today,
+    or with the hour, it would change on every turn and the whole conversation would be re-read
+    at full price — the failure of 9 September 2026, in a new place.
+    """
+    conversation_id = a_long_conversation(database)
+    with database.connection as connection:
+        connection.execute(
+            "UPDATE chat_message SET created_at = '2026-01-05 09:00:00' WHERE conversation_id = ?",
+            (conversation_id,))
+    compaction.remember_summary(database, conversation_id, "what was decided", "", 2)
+
+    note = compaction.what_to_send(database, conversation_id)[0]["content"]
+
+    assert "It covers 5 January 2026" in note
+    assert compaction.what_to_send(database, conversation_id)[0]["content"] == note, (
+        "asked twice with nothing changed, byte for byte the same"
+    )
+
+
+def test_the_turns_that_travel_carry_no_extra_keys(database: Any) -> None:
+    """The date is read into prose, never into a message. `history()` returns the shape RAVIS's
+    API expects and its result is sent verbatim, so an `at` key on a turn would travel with it
+    to a provider — which is why `dated()` is a separate read rather than a wider `history()`."""
+    conversation_id = a_long_conversation(database)
+    compaction.remember_summary(database, conversation_id, "what was decided", "", 2)
+
+    for turn in compaction.what_to_send(database, conversation_id):
+        assert set(turn) == {"role", "content"}, turn
+
+
+def test_a_quoted_turn_says_who_said_it_and_when(database: Any) -> None:
+    """These are the exact words of a turn, which read far more present than a summary does —
+    and the reason they are dragged back at all is that they are from the part of the
+    conversation the model can no longer see."""
+    conversation_id = a_long_conversation(database)
+    store.append(database, conversation_id,
+                 Message(message_id="tray", role="user",
+                         content="what did we decide about the tray icon " + "y" * 6_000))
+    with database.connection as connection:
+        connection.execute(
+            "UPDATE chat_message SET created_at = '2026-08-30 21:00:00' WHERE message_id = 'tray'")
+
+    quotes = compaction.quoted_for(database, conversation_id, "the tray icon, what was decided")
+
+    assert "user, 30 August 2026: what did we decide about the tray icon" in quotes
+    assert "Each is dated" in quotes
+
+
+def test_an_undated_quote_still_names_who_said_it() -> None:
+    """Stored turns all carry a time; a turn that somehow does not is still worth quoting."""
+    assert compaction._attributed({"role": "assistant"}) == "assistant"
+    assert compaction._attributed({"role": "user", "at": ""}) == "user"

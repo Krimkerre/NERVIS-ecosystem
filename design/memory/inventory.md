@@ -46,10 +46,10 @@ This is the part that matters, and the part nobody had written down. On a single
 
 | | Path | What it sends | Size | Switch | Default |
 |---|---|---|---|---|---|
-| **A** | Compaction summary | A summary of this conversation's older turns | ≤ 2,000 chars | `chat.compaction` | **on** |
+| **A** | Compaction summary | A summary of this conversation's older turns, **dated** | ≤ 2,000 chars | `chat.compaction` | **on** |
 | **B** | Cross-conversation recall | Keyword matches from *other* conversations | 3 passages, ~4,800 chars (was ~400) | `recall.enabled` | off by default, **on here** |
 | **C** | Persona digest | The **person's** last 6 turns in each of the 5 newest conversations, dated, no matching at all | ~4,100 chars, **every turn** | `chat.memory` = `all` | `session` by default, **`all` here** |
-| **D** | Quoted older turns | Turns from this conversation's summarised part that share words with the question | ≤ 3,000 chars, ≤ 4 turns | follows `chat.compaction` | on |
+| **D** | Quoted older turns | Turns from this conversation's summarised part that share words with the question, each **dated** | ≤ 3,000 chars, ≤ 4 turns | follows `chat.compaction` | on |
 | **E** | Shipped + learned notes | The documentation sections that match the question | ≤ 6,000 chars | — | always |
 
 Five paths, five different framings, no shared budget, and no de-duplication between them. With
@@ -90,10 +90,12 @@ Measured: three 600-character passages plus their answers — 3,600 characters �
 characters of which only **one conversation of the three is named**. Passages two and three are
 cut off mid-sentence. The search works; the delivery does not.
 
-**3. Three of the four conversation paths hand the model undated text.** *(one of the three
-fixed, 23 September 2026: the persona digest dates each conversation —
-`[Introducing You to Benny, last spoken in on 2026-09-20]` — because it was the same bug as the
-one below. The compaction summary and the quoted turns are still undated.)* Only recall says when
+**3. Three of the four conversation paths hand the model undated text.** *(fixed, 23 September
+2026, in two passes. The persona digest first — `[Introducing You to Benny, last spoken in on
+2026-09-20]` — because it was the same bug as the one below; then the compaction summary, which
+names the stretch of days it covers, and the quoted turns, which carry the date each was said on.
+All four paths are dated now, and the dates are the conversation's rather than today's, so the
+summary note in front of the question stays byte-identical between turns.)* Only recall says when
 something was said. The compaction summary, the quoted turns and the persona digest all arrive
 with no date, so a model cannot tell last night's decision from one superseded in August. NERVIS's
 own house rule — that a stale record which gets believed is worse than none — is not being applied
@@ -163,8 +165,11 @@ cannot see.
    2b. ~~**Make capture reachable** — the trigger is a phrase nobody says.~~ **Done:** offered on
    the shape of a statement, once per sentence, still confirmed by hand. And every memory switch
    moved out of Settings into chat, where the memory is used.
-3. **Put a date on every remembered thing that reaches the model.** Recall already does it; the
-   other three paths need one line each.
+3. ~~**Put a date on every remembered thing that reaches the model.** Recall already does it; the
+   other three paths need one line each.~~ **Done:** all four paths are dated. It was not one
+   line each — the two compaction paths had no timestamps to hand, because the read they use
+   returns the shape a provider is sent, and widening it would have put an `at` key on every
+   message going to a model.
 4. ~~**Decide about `learned.md` and git** — ignore it (private, per machine, travels only through
    the link) or keep it tracked (shared, in history, visible in diffs). Either is defensible; the
    accident is not.~~ **Done:** ignored, and shared through the link.

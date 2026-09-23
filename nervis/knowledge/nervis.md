@@ -326,9 +326,13 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.93, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.94, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
+- **Everything chat remembers now says when it is from** (23 September, NERVIS 0.34.94): the
+  summary of a long conversation names the stretch of days it covers, and turns quoted back word
+  for word carry the date they were said on. All four ways chat remembers something are dated
+  now. See *What a shortened conversation still remembers*.
 - **Chat no longer has its own past replies fed back to it** (23 September, NERVIS 0.34.93):
   the block of recent conversations it carries when *Look back at earlier conversations* is on
   now holds your side only, dated, instead of both sides. It was mirroring its own closing lines
@@ -1428,14 +1432,19 @@ Arch/CachyOS `avahi`, Fedora `avahi-tools`, plus the `avahi-daemon` service). Un
 through WSL the network Linux sees is usually a private one inside Windows, so finding may come up
 empty there — typing the address into `link add` still works.
 
-**What a shortened conversation still remembers.** Three things keep it honest. The summary is
+**What a shortened conversation still remembers.** Four things keep it honest. The summary is
 written under fixed headings — what the conversation is about, decisions and preferences, names
 and numbers worth keeping, open threads — so the details that matter later survive instead of
 being smoothed into prose. When you ask about something, the older turns that **mention** it are
 sent along with the summary, **in the words they were said in**, so an exact answer is still
-possible after the summary has blurred it. And the chat screen says when a conversation is being
-shortened, with how many turns are travelling as a summary, so a reply built on one does not look
-like a reply built on everything.
+possible after the summary has blurred it. **Both say when they are from** (23 September 2026):
+the summary names the stretch of days it covers, and each quoted turn carries the date it was
+said on. A conversation running over a fortnight was otherwise handing the model a decision from
+week one and one from yesterday with nothing to tell them apart — and an exact quotation reads
+more present than a summary does, so an undated one is the more misleading of the two. Where a
+dated turn disagrees with something more recent, the more recent one holds. And the chat screen
+says when a conversation is being shortened, with how many turns are travelling as a summary, so
+a reply built on one does not look like a reply built on everything.
 
 **Long conversations are shortened for the model, never on disk.** A model can only read so
 much at once, and every conversation used to be sent whole with every message — a 138-turn chat
@@ -1444,7 +1453,7 @@ hits a wall mid-answer. Now the **recent** part is sent as it is and everything 
 a short summary NERVIS keeps up to date in the background, on the model chosen under *Unattended
 work* (so on a free or local one it costs nothing). **Nothing is deleted**: every turn stays in
 the conversation, in the history drawer, in search and in an export — only the *request* is
-shortened. Switch it off under Settings → What NERVIS remembers → *Long conversations*, and whole
+shortened. Switch it off in chat's parameters panel, under *What NERVIS remembers*, and whole
 conversations are sent again.
 
 **Searching your conversations.** Chat → history has a **search** box at the top: type a word
