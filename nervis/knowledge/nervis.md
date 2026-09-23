@@ -326,9 +326,13 @@ Asked directly and answered here on purpose, rather than only in `STATUS.md`
 you fixed lately" or "are you aware of the latest updates" has a real, dense
 answer to find, not a sentence diluted inside an unrelated section.
 
-**Newest first: 18–21 September 2026** (now NERVIS 0.34.94, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
+**Newest first: 18–21 September 2026** (now NERVIS 0.34.95, RAVIS 0.30.16, SIRVIS 0.19.12, Clarvis
 0.17.28). Each has its own section in these notes.
 
+- **Searching earlier conversations now reaches all of them** (23 September, NERVIS 0.34.95):
+  it used to look only at the newest 400 turns, so anything older was invisible — on this
+  machine, 61 of 237 conversations were searchable and nothing before 9 September could be
+  found. Now the whole history is searched. See *Remembering earlier conversations*.
 - **Everything chat remembers now says when it is from** (23 September, NERVIS 0.34.94): the
   summary of a long conversation names the stretch of days it covers, and turns quoted back word
   for word carry the date they were said on. All four ways chat remembers something are dated
@@ -1730,6 +1734,16 @@ log line as an instruction.
 At most one passage is taken from each earlier conversation, and only a few in
 total. Three quotes from one long conversation is one recollection said three
 times, and it crowds out the other conversation that might have disagreed.
+
+**It searches all of them** (23 September 2026). Until that day it did not: it
+looked at the newest 400 turns and scored those, so a conversation dropped out of
+reach the moment 400 newer messages existed — with nothing on any screen saying
+so. On this machine that meant 61 of 237 conversations were searchable and
+nothing before 9 September could be found at all; two of three ordinary questions
+put to it came back empty, not because the answer was missing but because it was
+old. The words are matched by the database now, so the bound is on how many
+*matching* turns are considered rather than on how recent they are, and a
+question about something from weeks ago finds it.
 
 **A second, separate memory setting exists, and works differently.** In the
 same panel, **Look back at earlier conversations** — "No, this conversation

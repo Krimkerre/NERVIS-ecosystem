@@ -47,7 +47,7 @@ This is the part that matters, and the part nobody had written down. On a single
 | | Path | What it sends | Size | Switch | Default |
 |---|---|---|---|---|---|
 | **A** | Compaction summary | A summary of this conversation's older turns, **dated** | ≤ 2,000 chars | `chat.compaction` | **on** |
-| **B** | Cross-conversation recall | Keyword matches from *other* conversations | 3 passages, ~4,800 chars (was ~400) | `recall.enabled` | off by default, **on here** |
+| **B** | Cross-conversation recall | Keyword matches from *other* conversations, **the whole history** | 3 passages, ~4,800 chars (was ~400) | `recall.enabled` | off by default, **on here** |
 | **C** | Persona digest | The **person's** last 6 turns in each of the 5 newest conversations, dated, no matching at all | ~4,100 chars, **every turn** | `chat.memory` = `all` | `session` by default, **`all` here** |
 | **D** | Quoted older turns | Turns from this conversation's summarised part that share words with the question, each **dated** | ≤ 3,000 chars, ≤ 4 turns | follows `chat.compaction` | on |
 | **E** | Shipped + learned notes | The documentation sections that match the question | ≤ 6,000 chars | — | always |
@@ -122,9 +122,12 @@ personal facts would land in the repository and travel to the other computer wit
 That may be exactly what is wanted — it is a free sync — but it should be a decision rather than
 an accident, because "remember that my sister's birthday is…" would be in a public-ish repo.
 
-**6. Recall's reach is the newest 400 messages.** A conversation slips out of reach entirely once
-400 newer messages exist, silently, with no indication anywhere. On this Mac, 1,032 messages
-exist: well over half the history is already unreachable by that path.
+**6. Recall's reach is the newest 400 messages.** *(fixed, 23 September 2026 — the word match
+moved into the query, so the limit bounds matching turns rather than recent ones; NERVIS 0.34.95.
+Measured at the time: 61 of 237 conversations reachable, and two of three ordinary questions
+returning nothing at all.)* A conversation slips out of reach entirely once 400 newer messages
+exist, silently, with no indication anywhere. On this Mac, 1,032 messages exist: well over half
+the history is already unreachable by that path.
 
 **7. Two encodings in the settings table, again.** `recall.enabled` is stored as the string `"1"`,
 while every neighbouring setting is JSON. Migration 11 exists because that exact confusion broke

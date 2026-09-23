@@ -61,9 +61,26 @@ MAX_PASSAGE_CHARS = 600
 #: `documents.as_reading()` were fixed when it was written and this caller was missed.
 MAX_BLOCK_CHARS = MAX_PASSAGES * (2 * MAX_PASSAGE_CHARS + 160)
 
-# How many stored turns to consider. Bounded because this runs on the chat path
-# and a machine with a year of conversations should not pay for all of them.
+#: How many stored turns to consider. Bounded because this runs on the chat path and a machine
+#: with a year of conversations should not pay for all of them.
+#:
+#: **What it bounds changed on 23 September 2026, and that is the whole of the fix.** It used to
+#: bound *the newest turns*, full stop: the query took the 400 most recent rows and the scoring
+#: never saw anything older, so a conversation went out of reach the moment 400 newer messages
+#: existed — silently, with nothing anywhere saying so. Measured on the owner's store that day,
+#: 1,010 messages across 237 conversations: recall could see **61 of them**, and nothing before
+#: 9 September was findable at all. Most of the history the feature exists to search.
+#:
+#: Now the database applies the word match first, so this bounds *the newest turns that share a
+#: word with the question* — a very different quantity. The window is spent on rows that could
+#: possibly match rather than on whatever happens to be recent.
 SEARCH_LIMIT = 400
+
+#: How many of a question's words may go into the query. A question is a sentence and rarely has
+#: this many distinctive words left after `COMMON`; the cap is for somebody pasting a wall of
+#: text into chat, so one message cannot become a hundred-clause query. The longest are kept,
+#: because the longer word is the rarer one and therefore the one that narrows anything.
+MAX_QUERY_TERMS = 24
 
 # Below this, a passage is not recalled at all. Term overlap on short questions
 # is noisy, and a weak recollection presented with a citation reads as more
@@ -161,12 +178,30 @@ def search(
     so rows dropped afterwards would still have spent the window they were
     counted in — a private conversation would have gone on narrowing what recall
     could see even while being excluded from what it said.
+
+    **And the words are matched in the query, for the same reason.** This took the
+    400 newest rows and scored those, so a conversation fell out of reach the
+    moment 400 newer messages existed — with nothing saying so. On the owner's
+    store, 23 September 2026: 61 of 237 conversations reachable, nothing before
+    9 September findable at all. A `LIKE` per word narrows to rows sharing at
+    least one of them *before* the limit applies. The scoring below is untouched:
+    `LIKE` decides what is looked at, term overlap still decides what is recalled,
+    and the two disagree on purpose — a substring match is a coarse net, and the
+    floor at `MIN_SCORE` stays exactly where it was.
     """
     wanted = terms(question)
     if not wanted:
         return []
     private = sorted(store.barred(database))
     holes = ", ".join("?" for _ in private)
+    # Longest first: the rarer word is the one that narrows the scan.
+    asked = sorted(wanted, key=lambda word: (-len(word), word))[:MAX_QUERY_TERMS]
+    # `%` and `_` are LIKE's wildcards. `terms()` cannot currently produce either, so this
+    # escaping is insurance rather than a fix: it costs nothing, and the day somebody widens
+    # `terms()` is the day a question would otherwise quietly start matching every row.
+    patterns = ["%" + word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+                for word in asked]
+    shares_a_word = " OR ".join("m.content LIKE ? ESCAPE '\\'" for _ in patterns)
     rows = database.connection.execute(
         "SELECT m.conversation_id, m.role, m.content, m.created_at, m.rowid AS ordinal, "
         "       COALESCE(c.title, '') AS title "
@@ -174,8 +209,9 @@ def search(
         "LEFT JOIN chat_conversation c ON c.conversation_id = m.conversation_id "
         "WHERE m.conversation_id != ? AND m.content != '' "
         + (f"AND m.conversation_id NOT IN ({holes}) " if private else "")
+        + f"AND ({shares_a_word}) "
         + "ORDER BY m.created_at DESC LIMIT ?",
-        (exclude, *private, SEARCH_LIMIT),
+        (exclude, *private, *patterns, SEARCH_LIMIT),
     ).fetchall()
 
     scored: list[tuple[float, int, Passage]] = []

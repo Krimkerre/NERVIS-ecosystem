@@ -32,7 +32,7 @@ commands are right.
 cd ravis && python3 -m venv .venv && .venv/bin/pip install -e ../protocol -e ".[dev]"
 .venv/bin/ruff check src tests        # lint, imports, naming, complexity ≤ 8
 .venv/bin/mypy                        # strict types
-.venv/bin/pytest                      # part of 4784 tests, no network, no live service
+.venv/bin/pytest                      # part of 4791 tests, no network, no live service
 .venv/bin/ravis conformance clarvis   # the §8.9 release gate — 24 checks
 ```
 
@@ -41,13 +41,13 @@ The other three packages are checked the same way, from their own directories:
 ```bash
 cd protocol && ../ravis/.venv/bin/python -m pytest -q   # 66 tests
 cd sirvis   && ../ravis/.venv/bin/python -m pytest -q   # 580 tests
-cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 2052 tests
+cd nervis   && ../ravis/.venv/bin/python -m pytest -q   # 2059 tests
 ```
 
 **`ecosystem-protocol` must be installed first.** It is a local path dependency
 and pip will not find it on PyPI, because it does not live there.
 
-Expected: all clean, 4784 passing across the four, conformance `PASS`.
+Expected: all clean, 4791 passing across the four, conformance `PASS`.
 
 **There is no CI.** GitHub Actions is off on both repositories and is not
 coming back. `tools/check_clean_clone.sh` is the gate: it clones from the
@@ -20012,6 +20012,53 @@ and `Introspect` reached the Secret Service — no search, save, unlock or promp
 credentials were stored; NERVIS's store to RAVIS, which had timed out behind a prompt, went through.
 **The owner confirmed** no prompt on opening NERVIS. Five RAVIS tests, the lock and the absent
 keyring each failing on the code before.
+
+## Recall reaches the whole history, not the last fortnight of it — 2026-09-23 (NERVIS 0.34.95)
+
+The inventory's sixth finding. `search()` took the newest `SEARCH_LIMIT` rows and scored those in
+Python, so a conversation fell out of reach the moment that many newer messages existed —
+silently, with nothing on any screen saying so. Measured on the owner's store: **1,010 messages
+across 237 conversations, of which recall could see 61**, and nothing before 9 September was
+findable at all.
+
+Put to three ordinary questions, before and after:
+
+| Question | before | after |
+|---|---|---|
+| "what did we decide about the benchmark pool" | **nothing found** | 6 turns, 5 conversations, back to 2 September |
+| "how does the voice profile and the keyring work" | **nothing found** | 5 turns, 3 conversations, back to 7 September |
+| "what was the problem with clarvis and the planner" | 1 turn, 1 conversation | 4 turns, 3 conversations, back to 6 September |
+
+Two of the three returned nothing whatever — not because the answer was absent but because it was
+old. This is the same shape as the delivery bug fixed earlier today: the feature worked and its
+results were being thrown away, there after finding them and here before looking.
+
+**The fix is where the word match happens, not how big the limit is.** Raising the number would
+have moved the wall and made every turn pay to score thousands of rows in Python. A `LIKE` per
+distinctive word goes into the `WHERE`, beside the private-conversation filter that is already
+there for exactly this reason — a row excluded after the limit has still spent the window it was
+counted in. So `SEARCH_LIMIT` now bounds *the newest turns that share a word with the question*,
+which on this store is 67 rows for "clarvis" and 127 for "model" against a cap of 400. Measured:
+4–8 ms per search over the full store.
+
+`LIKE` decides what is looked at; term overlap still decides what is recalled. They disagree on
+purpose — `%cat%` matches "category" — and `MIN_SCORE` stays exactly where it was, which matters
+more now that more rows reach the scoring rather than less. `MAX_QUERY_TERMS = 24` caps how many
+words reach the query, longest first, so somebody pasting a log into chat cannot turn one message
+into a clause per distinct word.
+
+**The chat panel's claim is now true.** The line written this morning — *"every conversation
+stored here is searched for the words you used"* — was false when it was written: it was 61 of
+237. It is accurate as of this version.
+
+**Two of the new tests passed against the unfixed query and had to be rewritten.** Rows written
+in the same second share a `created_at`, so `ORDER BY created_at DESC LIMIT 400` returned them in
+whatever order the database liked and the buried turn came back regardless. The stamps are
+explicit now, and checked against the old query shape: it finds 0 where the new one finds 1. A
+regression test that has never seen the bug is a comment.
+
+7 tests in `nervis/tests/test_m20_recall.py`, suite at 2059. All 43 dashboard gates,
+`tools/check.py`, `tools/knowledge_check.py`, ruff and mypy pass.
 
 ## Everything chat remembers now says when it is from — 2026-09-23 (NERVIS 0.34.94)
 

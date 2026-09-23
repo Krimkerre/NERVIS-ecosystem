@@ -442,3 +442,116 @@ def test_the_block_is_still_bounded() -> None:
 def test_the_bound_is_derived_from_the_two_it_depends_on() -> None:
     """So that raising the passage size cannot silently start losing passages again."""
     assert recall.MAX_BLOCK_CHARS >= recall.MAX_PASSAGES * 2 * recall.MAX_PASSAGE_CHARS
+
+
+# ── How far back it can see ─────────────────────────────────────────────────
+#
+# The memory inventory's sixth finding, 23 September 2026. `search` took the newest
+# `SEARCH_LIMIT` rows and scored those, so a conversation fell out of reach the moment that many
+# newer messages existed — silently, with nothing on any screen saying so. Measured on the
+# owner's store that day: 1,010 messages across 237 conversations, of which recall could see
+# **61**, and nothing before 9 September was findable at all. Two of three ordinary questions
+# put to it returned nothing whatever, not because the answer was absent but because it was old.
+#
+# The words are matched by the database now, so the limit bounds the newest turns that *share a
+# word with the question* rather than the newest turns full stop.
+
+
+def _stamped(database: Any, title: str, said: str, at: str) -> str:
+    """One conversation whose turn was said at a stated time.
+
+    **The stamps have to be explicit or these tests prove nothing.** Rows written in the same
+    second all carry the same `created_at`, so `ORDER BY created_at DESC LIMIT 400` returns them
+    in whatever order the database likes and the buried turn comes back anyway — which is
+    exactly what happened when these were first written, and they passed against the unfixed
+    query. A regression test that has never seen the bug is a comment.
+    """
+    conversation_id = _said(database, title, said)
+    with database.connection as connection:
+        connection.execute("UPDATE chat_message SET created_at = ? WHERE conversation_id = ?",
+                           (at, conversation_id))
+    return conversation_id
+
+
+def _buried_under_a_window(database: Any, rows: int = recall.SEARCH_LIMIT + 40) -> None:
+    """More than a full window of newer turns with nothing to do with anything."""
+    for number in range(rows):
+        _stamped(database, f"Since then {number}", "unrelated chatter about the weather",
+                 "2026-09-20 09:00:00")
+
+
+def test_something_said_long_ago_is_still_found(database: Any) -> None:
+    """The regression, in the shape it actually had: the answer exists, is old, and the query
+    never looked past the newer noise on top of it."""
+    old = _stamped(database, "Back then",
+                   "we settled on the free-api pool for background work because it costs nothing",
+                   "2026-08-01 09:00:00")
+    _buried_under_a_window(database)
+
+    found = recall.search(database, "which pool did we settle on for background work")
+
+    assert [passage.conversation_id for passage in found] == [old]
+
+
+def test_the_window_is_spent_on_turns_that_could_match(database: Any) -> None:
+    """The point of the change as a mechanism rather than an outcome: the limit bounds
+    candidates now, so filler cannot consume it however much of it there is."""
+    wanted = _stamped(database, "The one", "the keyring on Linux holds the voice credential",
+                      "2026-08-01 09:00:00")
+    _buried_under_a_window(database, recall.SEARCH_LIMIT * 2)
+
+    found = recall.search(database, "how does the keyring hold the voice credential")
+
+    assert [passage.conversation_id for passage in found] == [wanted]
+
+
+def test_a_substring_is_not_a_word(database: Any) -> None:
+    """`LIKE` decides what is looked at; term overlap still decides what is recalled, and they
+    disagree on purpose. "%cat%" matches "category" — a coarse net is fine for narrowing a scan
+    and would be wrong as an answer."""
+    _said(database, "Wrong one", "the category of the benchmark and the category of the pool")
+
+    assert recall.search(database, "where is the cat and the dog") == []
+
+
+def test_a_per_cent_sign_in_a_question_does_not_match_everything(database: Any) -> None:
+    """`%` and `_` are `LIKE`'s wildcards. `terms()` cannot produce one today, which is why the
+    escaping is insurance — this asserts the insurance works rather than that it is needed."""
+    _said(database, "Battery", "the battery was at 100% when the laptop went to sleep")
+    _said(database, "Nothing", "an unrelated conversation about breakfast")
+
+    found = recall.search(database, "what was the battery at 100% before sleep")
+
+    assert {passage.title for passage in found} <= {"Battery"}
+
+
+def test_a_pasted_wall_of_text_does_not_become_an_unbounded_query(database: Any) -> None:
+    """A question is a sentence. Somebody pasting a log into chat is not, and one message
+    should not turn into a clause per distinct word."""
+    _said(database, "Something", "the benchmark pool and the voice credential")
+    wall = " ".join(f"distinctword{number}" for number in range(300))
+
+    found = recall.search(database, wall + " benchmark pool")
+
+    assert len(recall.terms(wall + " benchmark pool")) > recall.MAX_QUERY_TERMS
+    assert isinstance(found, list), "it answers rather than failing on the query's size"
+
+
+def test_the_floor_still_holds_after_the_query_widened(database: Any) -> None:
+    """More rows reach the scoring now, so the thing that keeps a weak match out matters more,
+    not less. One shared word is still not a recollection."""
+    _said(database, "One word only", "the benchmark finished overnight without trouble")
+
+    assert recall.search(database, "what did the benchmark say about the keyring") == []
+
+
+def test_a_private_conversation_is_still_barred_when_it_would_now_be_reachable(
+    database: Any,
+) -> None:
+    """The two filters are in the same `WHERE` and both have to survive the other's arrival."""
+    private = _stamped(database, "Private one", "the spare key is under the third plant pot",
+                       "2026-08-01 09:00:00")
+    _bar(database, private)
+    _buried_under_a_window(database)
+
+    assert recall.search(database, "where is the spare key, under which plant pot") == []

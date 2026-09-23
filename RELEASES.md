@@ -904,7 +904,17 @@ and from nothing else.
 
 ---
 
-## NERVIS — 0.34.94
+## NERVIS — 0.34.95
+
+**Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.16+, SIRVIS 0.19.12+, Clarvis Bridge 0.17.28+, code-server
+· **Runs on:** macOS, Linux, Windows through WSL 2
+
+- **Searching earlier conversations reaches all of them.** It looked at only the newest 400
+  turns, so anything older was invisible and a question about something from weeks ago came
+  back empty. On the machine it was measured on, 61 of 237 conversations were searchable.
+- **Upgrading:** nothing to do. Searches take a few milliseconds longer and find more.
+
+### 0.34.94
 
 **Protocol:** MEP 1.0.0 · **Speaks to:** RAVIS 0.30.16+, SIRVIS 0.19.12+, Clarvis Bridge 0.17.28+, code-server
 · **Runs on:** macOS, Linux, Windows through WSL 2
